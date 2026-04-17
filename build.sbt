@@ -7,16 +7,21 @@ ThisBuild / developers       := List(
   tlGitHubDev("ragb", "Rui Batista")
 )
 
-ThisBuild / scalaVersion   := "3.3.7"
+ThisBuild / scalaVersion   := "3.8.3"
+
+// Pick up locally-published SNAPSHOT artifacts (currently dumbo 0.9.0-SNAPSHOT while upstream PR is pending).
+ThisBuild / resolvers += Resolver.mavenLocal
 ThisBuild / tlJdkRelease   := Some(17)
 ThisBuild / tlFatalWarnings := true
 
-val skunkV           = "0.6.5"
+val skunkV           = "1.0.0"
 val catsEffectV      = "3.7.0"
-val munitV           = "1.1.0"
+val munitV           = "1.2.4"
 val munitCatsEffectV = "2.1.0"
 val ironV            = "3.0.2"
-val testcontainersV  = "0.43.0"
+val testcontainersV  = "0.44.1"
+val dumboV           = "0.9.0-SNAPSHOT"
+val otel4sV          = "0.16.0"
 
 lazy val root = tlCrossRootProject.aggregate(core, iron, tests)
 
@@ -51,9 +56,11 @@ lazy val tests = project
   .settings(
     name := "skunk-sharp-tests",
     libraryDependencies ++= Seq(
-      "org.scalameta" %% "munit"                           % munitV           % Test,
-      "org.typelevel" %% "munit-cats-effect"               % munitCatsEffectV % Test,
-      "com.dimafeng"  %% "testcontainers-scala-munit"      % testcontainersV  % Test,
-      "com.dimafeng"  %% "testcontainers-scala-postgresql" % testcontainersV  % Test
+      "org.scalameta"   %% "munit"                           % munitV           % Test,
+      "org.typelevel"   %% "munit-cats-effect"               % munitCatsEffectV % Test,
+      "com.dimafeng"    %% "testcontainers-scala-munit"      % testcontainersV  % Test,
+      "com.dimafeng"    %% "testcontainers-scala-postgresql" % testcontainersV  % Test,
+      "dev.rolang"      %% "dumbo"                           % dumboV           % Test,
+      "org.typelevel"   %% "otel4s-core"                     % otel4sV          % Test
     )
   )

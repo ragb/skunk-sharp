@@ -1,48 +1,78 @@
-/*
- * Copyright 2026 Rui Batista
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- */
-
 package skunk.sharp.pg
 
-/** A Postgres data type, carrying only what the schema validator needs: the value that appears in
-  * `information_schema.columns.data_type`.
-  *
-  * We deliberately do NOT model anything used to generate DDL — users (or migration tools like flyway/dumbo) own the
-  * schema. The library only reads the schema, never writes it.
-  *
-  * The ADT is open via [[PgType.Custom]] so third-party modules (jsonb, ltree, arrays, PostGIS, …) can describe their
-  * own types without modifying this file.
-  */
-sealed trait PgType:
-  /** The string that appears in `information_schema.columns.data_type` for columns of this type. */
-  def dataType: String
+import skunk.data.Type
 
-object PgType:
+/**
+ * Helpers around [[skunk.data.Type]] — we lean on skunk's own type registry (`skunk.data.Type` plus `skunk.util.Typer`)
+ * rather than maintain a parallel enum.
+ *
+ * The DSL stores the Postgres type on a column as a `skunk.data.Type` read from the codec (via `codec.types.head`). The
+ * only thing we add here is a lookup from skunk's short canonical names (`int4`, `varchar`, `bpchar`, …) to the verbose
+ * strings that appear in `information_schema.columns.data_type` (`integer`, `character varying`, `character`, …) — used
+ * by the schema validator to compare declared vs. actual column types.
+ */
+object PgTypes {
 
-  case object Bool extends PgType  { val dataType = "boolean"  }
-  case object Int2 extends PgType  { val dataType = "smallint" }
-  case object Int4 extends PgType  { val dataType = "integer"  }
-  case object Int8 extends PgType  { val dataType = "bigint"   }
-  case object Float4 extends PgType { val dataType = "real"             }
-  case object Float8 extends PgType { val dataType = "double precision" }
-  case object Numeric extends PgType { val dataType = "numeric" }
-  case object Varchar extends PgType { val dataType = "character varying" }
-  case object Text extends PgType    { val dataType = "text"   }
-  case object Bytea extends PgType   { val dataType = "bytea"  }
-  case object Uuid extends PgType    { val dataType = "uuid"   }
-  case object Date extends PgType    { val dataType = "date"   }
-  case object Time extends PgType        { val dataType = "time without time zone"      }
-  case object Timetz extends PgType      { val dataType = "time with time zone"         }
-  case object Timestamp extends PgType   { val dataType = "timestamp without time zone" }
-  case object Timestamptz extends PgType { val dataType = "timestamp with time zone"    }
+  /**
+   * Skunk `Type` for a codec. `Codec.types` is always non-empty for the primitives we care about; fall back to a
+   * placeholder with the empty name when it is not.
+   */
+  def typeOf(c: skunk.Codec[?]): Type = c.types.headOption.getOrElse(Type(""))
 
-  /** Open extension point: user modules describe their Postgres types with `Custom`, supplying the `data_type` string
-    * Postgres reports in `information_schema.columns.data_type`.
-    */
-  final case class Custom(dataType: String) extends PgType
+  /** Short type name (no parameters) — `"varchar"` for `varchar(256)`, `"numeric"` for `numeric(10,2)`. */
+  def shortName(t: Type): String = {
+    val n = t.name
+    n.indexOf('(') match {
+      case -1 => n
+      case i  => n.take(i)
+    }
+  }
+
+  /** Mapping from skunk's short Postgres type name to the value `information_schema.columns.data_type` reports. */
+  val informationSchemaDataType: Map[String, String] = Map(
+    "bool"        -> "boolean",
+    "int2"        -> "smallint",
+    "int4"        -> "integer",
+    "int8"        -> "bigint",
+    "float4"      -> "real",
+    "float8"      -> "double precision",
+    "numeric"     -> "numeric",
+    "varchar"     -> "character varying",
+    "bpchar"      -> "character",
+    "text"        -> "text",
+    "name"        -> "name",
+    "bytea"       -> "bytea",
+    "uuid"        -> "uuid",
+    "date"        -> "date",
+    "time"        -> "time without time zone",
+    "timetz"      -> "time with time zone",
+    "timestamp"   -> "timestamp without time zone",
+    "timestamptz" -> "timestamp with time zone",
+    "interval"    -> "interval",
+    "bit"         -> "bit",
+    "varbit"      -> "bit varying",
+    "json"        -> "json",
+    "jsonb"       -> "jsonb",
+    "xml"         -> "xml",
+    "money"       -> "money",
+    "inet"        -> "inet",
+    "cidr"        -> "cidr",
+    "macaddr"     -> "macaddr",
+    "macaddr8"    -> "macaddr8",
+    "tsvector"    -> "tsvector",
+    "tsquery"     -> "tsquery"
+  )
+
+  /**
+   * The `information_schema.columns.data_type` string a column of the given skunk `Type` will carry. Unknown types fall
+   * back to the short name.
+   */
+  def dataType(t: Type): String =
+    informationSchemaDataType.getOrElse(shortName(t), shortName(t))
+
+  /**
+   * Name to use for a SQL cast (`expr::<name>`). Defaults to the short skunk name — these are the short forms Postgres
+   * itself accepts in `::` casts (`int8`, `varchar`, `timestamptz`).
+   */
+  def castName(t: Type): String = shortName(t)
+}

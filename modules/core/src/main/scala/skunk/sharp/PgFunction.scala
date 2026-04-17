@@ -1,0 +1,107 @@
+package skunk.sharp
+
+import skunk.sharp.pg.PgTypeFor
+
+/**
+ * Typed constructors for Postgres functions and operators.
+ *
+ * These are the extension hooks third-party modules and user code lean on to expose typed SQL functions:
+ *
+ *   - `nullary` — a zero-argument function (`now()`, `current_date`). Produces a `TypedExpr[R]` directly.
+ *   - `unary` — a one-argument function (`lower(x)`, `length(x)`). Returns `TypedExpr[A] => TypedExpr[R]`.
+ *   - `binary` — a two-argument function (`greatest(a, b)`, …). Returns a 2-arg callable.
+ *   - `nary` — an n-argument function (`concat(a, b, c)`). Takes a varargs `TypedExpr[?]*`.
+ *
+ * The `PgOperator` sibling covers infix operators (`a op b`) — same shape, SQL syntax differs.
+ */
+object PgFunction {
+
+  /** A zero-argument function. The SQL rendering is `name()`. */
+  def nullary[R](name: String)(using pfr: PgTypeFor[R]): TypedExpr[R] =
+    TypedExpr(TypedExpr.raw(s"$name()"), pfr.codec)
+
+  /** A one-argument function: `name(arg)`. */
+  def unary[A, R](name: String)(using pfr: PgTypeFor[R]): TypedExpr[A] => TypedExpr[R] =
+    arg => TypedExpr(TypedExpr.raw(s"$name(") |+| arg.render |+| TypedExpr.raw(")"), pfr.codec)
+
+  /** A two-argument function: `name(a, b)`. */
+  def binary[A, B, R](name: String)(using pfr: PgTypeFor[R]): (TypedExpr[A], TypedExpr[B]) => TypedExpr[R] =
+    (a, b) =>
+      TypedExpr(
+        TypedExpr.raw(s"$name(") |+| a.render |+| TypedExpr.raw(", ") |+| b.render |+| TypedExpr.raw(")"),
+        pfr.codec
+      )
+
+  /**
+   * An n-argument function: `name(a, b, c, …)`. At least one argument is required at runtime, but the signature does
+   * not enforce that — Postgres will reject empty calls anyway.
+   */
+  def nary[R](name: String, args: TypedExpr[?]*)(using pfr: PgTypeFor[R]): TypedExpr[R] = {
+    val rendered =
+      TypedExpr.raw(s"$name(") |+| TypedExpr.joined(args.toList.map(_.render), ", ") |+| TypedExpr.raw(")")
+    TypedExpr(rendered, pfr.codec)
+  }
+
+}
+
+/**
+ * Typed constructors for Postgres infix operators. Third-party modules (jsonb `->>`, ltree `~`, …) use this to expose
+ * operator extensions without touching core.
+ */
+object PgOperator {
+
+  /** An infix binary operator: `a op b`. */
+  def infix[A, B, R](op: String)(using pfr: PgTypeFor[R]): (TypedExpr[A], TypedExpr[B]) => TypedExpr[R] =
+    (a, b) => TypedExpr(a.render |+| TypedExpr.raw(s" $op ") |+| b.render, pfr.codec)
+
+  /** A prefix unary operator: `op a`. */
+  def prefix[A, R](op: String)(using pfr: PgTypeFor[R]): TypedExpr[A] => TypedExpr[R] =
+    a => TypedExpr(TypedExpr.raw(s"$op") |+| a.render, pfr.codec)
+
+  /** A postfix unary operator: `a op`. */
+  def postfix[A, R](op: String)(using pfr: PgTypeFor[R]): TypedExpr[A] => TypedExpr[R] =
+    a => TypedExpr(a.render |+| TypedExpr.raw(s" $op"), pfr.codec)
+
+}
+
+/**
+ * A small set of built-in Postgres functions provided out of the box. Users write `Pg.now`, `Pg.lower(col)`, etc.
+ * Extension modules are expected to add their own namespaces (`Jsonb.`, `Ltree.`, …) following the same pattern.
+ */
+object Pg {
+
+  import java.time.{LocalDate, LocalDateTime, OffsetDateTime}
+
+  /** `now()` — current transaction timestamp with timezone. */
+  val now: TypedExpr[OffsetDateTime] = PgFunction.nullary[OffsetDateTime]("now")
+
+  /** `current_timestamp` — keyword, no parentheses. */
+  val currentTimestamp: TypedExpr[OffsetDateTime] =
+    TypedExpr(TypedExpr.raw("current_timestamp"), skunk.codec.all.timestamptz)
+
+  /** `current_date`. */
+  val currentDate: TypedExpr[LocalDate] =
+    TypedExpr(TypedExpr.raw("current_date"), skunk.codec.all.date)
+
+  /** `localtimestamp`. */
+  val localTimestamp: TypedExpr[LocalDateTime] =
+    TypedExpr(TypedExpr.raw("localtimestamp"), skunk.codec.all.timestamp)
+
+  /** `lower(s)`. */
+  val lower: TypedExpr[String] => TypedExpr[String] = PgFunction.unary[String, String]("lower")
+
+  /** `upper(s)`. */
+  val upper: TypedExpr[String] => TypedExpr[String] = PgFunction.unary[String, String]("upper")
+
+  /** `length(s)`. */
+  val length: TypedExpr[String] => TypedExpr[Int] = PgFunction.unary[String, Int]("length")
+
+  /** `concat(a, b, c, …)`. */
+  def concat(args: TypedExpr[String]*): TypedExpr[String] =
+    PgFunction.nary[String]("concat", args*)
+
+  /** Coalesce: `coalesce(a, b, c, …)` — returns the first non-null argument. */
+  def coalesce[T](args: TypedExpr[T]*)(using pfr: PgTypeFor[T]): TypedExpr[T] =
+    PgFunction.nary[T]("coalesce", args*)
+
+}
