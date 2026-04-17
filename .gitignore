@@ -1,0 +1,12 @@
+target/
+.bsp/
+.bloop/
+.metals/
+.vscode/
+.idea/
+.ensime
+.ensime_cache/
+.DS_Store
+*.log
+project/project/
+project/target/
