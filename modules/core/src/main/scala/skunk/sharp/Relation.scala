@@ -8,6 +8,14 @@ package skunk.sharp
  * error.
  */
 trait Relation[Cols <: Tuple] {
+
+  /**
+   * Path-dependent singleton of the relation's name — subclasses override with `type Name = name.type` so every
+   * instance carries its name in the type system. JOIN extensions use this to default the alias to the relation's name
+   * when the user didn't supply an explicit `.alias(…)`.
+   */
+  type Name <: String & Singleton
+
   def name: String
   def schema: Option[String]
   def columns: Cols
@@ -38,6 +46,7 @@ trait Relation[Cols <: Tuple] {
  * project). The useful form is `empty.select(_ => <expr>)` or `empty.select(_ => (<e1>, <e2>))`.
  */
 case object empty extends Relation[EmptyTuple] {
+  type Name = ""
   val name: String                    = ""
   val schema: Option[String]          = None
   val columns: EmptyTuple             = EmptyTuple

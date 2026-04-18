@@ -10,6 +10,9 @@ import scala.deriving.Mirror
  * `Cols` is a heterogeneous tuple of [[Column]]s describing the table's shape. It is the authoritative source of truth
  * for column names, types, nullability, and defaults; the DSL's match types consume it for compile-time query checking.
  *
+ * `Name` is the singleton type of the table's name — carried so JOIN extensions can default the alias to the table's
+ * name when the user didn't supply an explicit `.alias(...)`.
+ *
  * SELECT is available via the shared [[Relation]] extension. INSERT / UPDATE / DELETE are extensions on `Table`
  * specifically — attempting them on a [[View]] is a compile error.
  */
@@ -18,6 +21,9 @@ final case class Table[Cols <: Tuple](
   schema: Option[String],
   columns: Cols
 ) extends Relation[Cols] {
+
+  /** Path-dependent singleton of the table's name, used by JOIN extensions to default the alias to the table name. */
+  type Name = name.type
 
   val expectedTableType: String = "BASE TABLE"
 

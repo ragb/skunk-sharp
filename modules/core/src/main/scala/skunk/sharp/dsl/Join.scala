@@ -365,3 +365,11 @@ extension [RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton](left: Alia
   }
 
 }
+
+// Auto-alias on unaliased relations (`users.innerJoin(posts)`) is **not currently supported** because Scala 3's
+// `NamedTuple.NamedTuple[Names, Values]` requires string-literal types in Names, not the path-dependent singletons
+// produced by `type Name = name.type` on Relation instances. Supporting it cleanly would require Table and View to
+// carry the name as a proper type parameter (`Table[Cols, Name <: String & Singleton]`), which ripples through
+// Update / Delete / Insert builders and every internal reference.
+//
+// For now: users must call `.alias("u")` explicitly before `.innerJoin` / `.leftJoin`. Tracking as a roadmap item.

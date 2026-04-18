@@ -22,6 +22,9 @@ final case class View[Cols <: Tuple](
   columns: Cols
 ) extends Relation[Cols] {
 
+  /** Path-dependent singleton of the view's name, used by JOIN extensions as the default alias. */
+  type Name = name.type
+
   val expectedTableType: String = "VIEW"
 
   /** Place the view in a non-default schema. */
