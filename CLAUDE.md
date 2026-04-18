@@ -66,8 +66,10 @@ All under [modules/core/src/main/scala/skunk/sharp/dsl/](modules/core/src/main/s
   - `.returning(c => c.id)` / `.returningTuple(…)` / `.returningAll` — append `RETURNING`.
   - `.onConflictDoNothing` / `.onConflict(c => c.id).doNothing` / `.onConflict(c => c.id).doUpdate(c => (c.email := "x"))`.
   - `.onConflict(c => c.id).doUpdateFromExcluded((t, ex) => (t.email := ex.email))` — access the incoming row via Postgres's `excluded.<col>` pseudo-table. [`TypedColumn.qualified`](modules/core/src/main/scala/skunk/sharp/TypedColumn.scala) and [`ColumnsView.qualified`](modules/core/src/main/scala/skunk/sharp/ColumnsView.scala) produce columns rendered with an arbitrary prefix.
-- `Update.scala` — `users.update.set(c => (c.email := "x", c.age := 30)).where(…).run(session)` — extension on `Table`. `:=` is an extension on `TypedColumn`. `.returning(…)` / `.returningTuple(…)` / `.returningAll` via shared `MutationReturning`.
-- `Delete.scala` — `users.delete.where(…).run(session)` — extension on `Table`. Matching `.returning` / `.returningTuple` / `.returningAll`.
+- `Update.scala` — extension on `Table`. **Staged state machine**: `users.update` → `UpdateBuilder` (has only `.set`) → `.set(...)` → `UpdateWithSet` (has only `.where` and `.updateAll`) → either `.where(...)` or `.updateAll` → `UpdateReady` (has `.run`, `.returning*`, chained `.where`). Calling `.run` without a WHERE or an explicit `.updateAll` is a compile error — the method simply doesn't exist on `UpdateWithSet`. `:=` is an extension on `TypedColumn`.
+- `Delete.scala` — extension on `Table`. **Staged state machine**: `users.delete` → `DeleteBuilder` (has only `.where` and `.deleteAll`) → either `.where(...)` or `.deleteAll` → `DeleteReady` (`.run`, `.returning*`, chained `.where`). `users.delete.run(s)` without a WHERE or explicit `.deleteAll` does not compile.
+
+**Select locking is gated to Tables.** `SelectBuilder[R <: Relation[Cols], Cols]` and `ProjectedSelect[R, Cols, Row]` thread the relation type through so `.forUpdate` / `.forShare` / `.forNoKeyUpdate` / `.forKeyShare` / `.skipLocked` / `.noWait` require `R <:< Table[Cols]` via an implicit `<:<` evidence. Calling them on a `View` is a compile error — Postgres would reject them at runtime anyway.
 
 ## Compile-time SQL goal (design aspiration)
 

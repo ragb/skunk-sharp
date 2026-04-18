@@ -37,28 +37,28 @@ import skunk.sharp.where.Where
  * For FROM-less queries (`SELECT now()`), use the top-level [[skunk.sharp.dsl.Select]] entry point instead. Multi-table
  * joins are roadmap (v0.1+).
  */
-final class SelectBuilder[Cols <: Tuple] private[sharp] (
-  relation: Relation[Cols],
-  distinct: Boolean,
-  whereOpt: Option[Where],
-  orderBys: List[OrderBy],
-  limitOpt: Option[Int],
-  offsetOpt: Option[Int],
-  lockingOpt: Option[Locking]
+final class SelectBuilder[R <: Relation[Cols], Cols <: Tuple] private[sharp] (
+  private[sharp] val relation: R,
+  private[sharp] val distinct: Boolean,
+  private[sharp] val whereOpt: Option[Where],
+  private[sharp] val orderBys: List[OrderBy],
+  private[sharp] val limitOpt: Option[Int],
+  private[sharp] val offsetOpt: Option[Int],
+  private[sharp] val lockingOpt: Option[Locking]
 ) {
 
   private def copy(
-    relation: Relation[Cols] = relation,
+    relation: R = relation,
     distinct: Boolean = distinct,
     whereOpt: Option[Where] = whereOpt,
     orderBys: List[OrderBy] = orderBys,
     limitOpt: Option[Int] = limitOpt,
     offsetOpt: Option[Int] = offsetOpt,
     lockingOpt: Option[Locking] = lockingOpt
-  ): SelectBuilder[Cols] =
-    new SelectBuilder[Cols](relation, distinct, whereOpt, orderBys, limitOpt, offsetOpt, lockingOpt)
+  ): SelectBuilder[R, Cols] =
+    new SelectBuilder[R, Cols](relation, distinct, whereOpt, orderBys, limitOpt, offsetOpt, lockingOpt)
 
-  def where(f: ColumnsView[Cols] => Where): SelectBuilder[Cols] = {
+  def where(f: ColumnsView[Cols] => Where): SelectBuilder[R, Cols] = {
     val view = ColumnsView(relation.columns)
     val next = whereOpt match {
       case Some(existing) => existing && f(view)
@@ -67,7 +67,7 @@ final class SelectBuilder[Cols <: Tuple] private[sharp] (
     copy(whereOpt = Some(next))
   }
 
-  def orderBy(f: ColumnsView[Cols] => OrderBy | Tuple): SelectBuilder[Cols] = {
+  def orderBy(f: ColumnsView[Cols] => OrderBy | Tuple): SelectBuilder[R, Cols] = {
     val view  = ColumnsView(relation.columns)
     val fresh = f(view) match {
       case ob: OrderBy => List(ob)
@@ -76,34 +76,40 @@ final class SelectBuilder[Cols <: Tuple] private[sharp] (
     copy(orderBys = orderBys ++ fresh)
   }
 
-  def limit(n: Int): SelectBuilder[Cols]  = copy(limitOpt = Some(n))
-  def offset(n: Int): SelectBuilder[Cols] = copy(offsetOpt = Some(n))
+  def limit(n: Int): SelectBuilder[R, Cols]  = copy(limitOpt = Some(n))
+  def offset(n: Int): SelectBuilder[R, Cols] = copy(offsetOpt = Some(n))
 
   /** Apply `SELECT DISTINCT …`. */
-  def distinctRows: SelectBuilder[Cols] = copy(distinct = true)
+  def distinctRows: SelectBuilder[R, Cols] = copy(distinct = true)
 
   // ---- Postgres row-level locking (SELECT … FOR UPDATE etc.) ----
+  // Gated on `R <:< Table[Cols]` — `SELECT … FOR UPDATE` against a view is a Postgres error.
 
   /**
    * `FOR UPDATE` — exclusive row lock. Use `.noWait` / `.skipLocked` on the resulting builder to tweak the wait policy.
+   * Only available when the underlying relation is a [[Table]]: views reject at compile time.
    */
-  def forUpdate: SelectBuilder[Cols] = copy(lockingOpt = Some(Locking(LockMode.ForUpdate)))
+  def forUpdate(using ev: R <:< Table[Cols]): SelectBuilder[R, Cols] =
+    copy(lockingOpt = Some(Locking(LockMode.ForUpdate)))
 
   /** `FOR NO KEY UPDATE` — exclusive but weaker; allows foreign-key checks to proceed. */
-  def forNoKeyUpdate: SelectBuilder[Cols] = copy(lockingOpt = Some(Locking(LockMode.ForNoKeyUpdate)))
+  def forNoKeyUpdate(using ev: R <:< Table[Cols]): SelectBuilder[R, Cols] =
+    copy(lockingOpt = Some(Locking(LockMode.ForNoKeyUpdate)))
 
   /** `FOR SHARE` — shared row lock. */
-  def forShare: SelectBuilder[Cols] = copy(lockingOpt = Some(Locking(LockMode.ForShare)))
+  def forShare(using ev: R <:< Table[Cols]): SelectBuilder[R, Cols] =
+    copy(lockingOpt = Some(Locking(LockMode.ForShare)))
 
   /** `FOR KEY SHARE` — weakest shared lock, blocks only DELETE and some UPDATEs. */
-  def forKeyShare: SelectBuilder[Cols] = copy(lockingOpt = Some(Locking(LockMode.ForKeyShare)))
+  def forKeyShare(using ev: R <:< Table[Cols]): SelectBuilder[R, Cols] =
+    copy(lockingOpt = Some(Locking(LockMode.ForKeyShare)))
 
   /** Append ` SKIP LOCKED` — skip rows that are already locked (useful for queue-style consumers). */
-  def skipLocked: SelectBuilder[Cols] =
+  def skipLocked(using ev: R <:< Table[Cols]): SelectBuilder[R, Cols] =
     copy(lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.SkipLocked)))
 
   /** Append ` NOWAIT` — fail immediately if any target row is already locked. */
-  def noWait: SelectBuilder[Cols] =
+  def noWait(using ev: R <:< Table[Cols]): SelectBuilder[R, Cols] =
     copy(lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.NoWait)))
 
   /**
@@ -116,12 +122,12 @@ final class SelectBuilder[Cols <: Tuple] private[sharp] (
    *   select.from(users)(u => (u.email, u.age))       // ProjectedSelect[(String, Int)]
    * }}}
    */
-  transparent inline def apply[X](inline f: ColumnsView[Cols] => X): ProjectedSelect[ProjResult[X]] = {
+  transparent inline def apply[X](inline f: ColumnsView[Cols] => X): ProjectedSelect[R, Cols, ProjResult[X]] = {
     val view = ColumnsView(relation.columns)
     f(view) match {
       case expr: TypedExpr[?] =>
-        new ProjectedSelect(
-          Some(relation),
+        new ProjectedSelect[R, Cols, ProjResult[X]](
+          relation,
           distinct,
           List(expr),
           expr.codec.asInstanceOf[Codec[ProjResult[X]]],
@@ -134,8 +140,8 @@ final class SelectBuilder[Cols <: Tuple] private[sharp] (
       case tup: NonEmptyTuple =>
         val exprs = tup.toList.asInstanceOf[List[TypedExpr[?]]]
         val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ProjResult[X]]]
-        new ProjectedSelect(
-          Some(relation),
+        new ProjectedSelect[R, Cols, ProjResult[X]](
+          relation,
           distinct,
           exprs,
           codec,
@@ -181,18 +187,16 @@ final class SelectBuilder[Cols <: Tuple] private[sharp] (
 
 }
 
-// `relation.select` and `relation.*` were removed in favour of the top-level `select` entry point (see below).
-// Mental model: start every query with `select` just like in SQL.
-
 /**
- * A SELECT with an explicit projection list — rows have shape `R` instead of the relation's default named tuple. When
- * `relationOpt` is `None`, the query has no FROM clause (produced by the top-level [[select]] entry points).
+ * A SELECT with an explicit projection list — rows have shape `Row` instead of the relation's default named tuple. The
+ * relation type parameter `R` is carried through so locking methods (`.forUpdate`, `.forShare`, …) remain gated to
+ * `Table` (rejected at compile time on a `View`).
  */
-final class ProjectedSelect[R](
-  relationOpt: Option[Relation[?]],
+final class ProjectedSelect[R <: Relation[Cols], Cols <: Tuple, Row](
+  relation: R,
   distinct: Boolean,
   projections: List[TypedExpr[?]],
-  codec: Codec[R],
+  codec: Codec[Row],
   whereOpt: Option[Where],
   orderBys: List[OrderBy],
   limitOpt: Option[Int],
@@ -201,18 +205,18 @@ final class ProjectedSelect[R](
 ) {
 
   private def copy(
-    relationOpt: Option[Relation[?]] = relationOpt,
+    relation: R = relation,
     distinct: Boolean = distinct,
     projections: List[TypedExpr[?]] = projections,
-    codec: Codec[R] = codec,
+    codec: Codec[Row] = codec,
     whereOpt: Option[Where] = whereOpt,
     orderBys: List[OrderBy] = orderBys,
     limitOpt: Option[Int] = limitOpt,
     offsetOpt: Option[Int] = offsetOpt,
     lockingOpt: Option[Locking] = lockingOpt
-  ): ProjectedSelect[R] =
-    new ProjectedSelect[R](
-      relationOpt,
+  ): ProjectedSelect[R, Cols, Row] =
+    new ProjectedSelect[R, Cols, Row](
+      relation,
       distinct,
       projections,
       codec,
@@ -223,31 +227,43 @@ final class ProjectedSelect[R](
       lockingOpt
     )
 
-  def limit(n: Int): ProjectedSelect[R]  = copy(limitOpt = Some(n))
-  def offset(n: Int): ProjectedSelect[R] = copy(offsetOpt = Some(n))
+  def limit(n: Int): ProjectedSelect[R, Cols, Row]  = copy(limitOpt = Some(n))
+  def offset(n: Int): ProjectedSelect[R, Cols, Row] = copy(offsetOpt = Some(n))
 
   /** `SELECT DISTINCT …`. */
-  def distinctRows: ProjectedSelect[R] = copy(distinct = true)
+  def distinctRows: ProjectedSelect[R, Cols, Row] = copy(distinct = true)
 
-  def forUpdate: ProjectedSelect[R]      = copy(lockingOpt = Some(Locking(LockMode.ForUpdate)))
-  def forNoKeyUpdate: ProjectedSelect[R] = copy(lockingOpt = Some(Locking(LockMode.ForNoKeyUpdate)))
-  def forShare: ProjectedSelect[R]       = copy(lockingOpt = Some(Locking(LockMode.ForShare)))
-  def forKeyShare: ProjectedSelect[R]    = copy(lockingOpt = Some(Locking(LockMode.ForKeyShare)))
-  def skipLocked: ProjectedSelect[R]     = copy(lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.SkipLocked)))
-  def noWait: ProjectedSelect[R]         = copy(lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.NoWait)))
+  // ---- Row-level locking: gated on R <:< Table[Cols]. ----
+  def forUpdate(using ev: R <:< Table[Cols]): ProjectedSelect[R, Cols, Row] =
+    copy(lockingOpt = Some(Locking(LockMode.ForUpdate)))
+
+  def forNoKeyUpdate(using ev: R <:< Table[Cols]): ProjectedSelect[R, Cols, Row] =
+    copy(lockingOpt = Some(Locking(LockMode.ForNoKeyUpdate)))
+
+  def forShare(using ev: R <:< Table[Cols]): ProjectedSelect[R, Cols, Row] =
+    copy(lockingOpt = Some(Locking(LockMode.ForShare)))
+
+  def forKeyShare(using ev: R <:< Table[Cols]): ProjectedSelect[R, Cols, Row] =
+    copy(lockingOpt = Some(Locking(LockMode.ForKeyShare)))
+
+  def skipLocked(using ev: R <:< Table[Cols]): ProjectedSelect[R, Cols, Row] =
+    copy(lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.SkipLocked)))
+
+  def noWait(using ev: R <:< Table[Cols]): ProjectedSelect[R, Cols, Row] =
+    copy(lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.NoWait)))
 
   /**
-   * Map result rows into a case class `T`. `R` must already be a tuple whose element types line up with `T`'s fields
+   * Map result rows into a case class `T`. `Row` must already be a tuple whose element types line up with `T`'s fields
    * (verified at compile time via `Mirror.ProductOf`).
    */
   def as[T <: Product](using
-    m: scala.deriving.Mirror.ProductOf[T] { type MirroredElemTypes = R & Tuple }
-  ): ProjectedSelect[T] = {
+    m: scala.deriving.Mirror.ProductOf[T] { type MirroredElemTypes = Row & Tuple }
+  ): ProjectedSelect[R, Cols, T] = {
     val newCodec: Codec[T] = codec.imap[T](r => m.fromProduct(r.asInstanceOf[Product]))(t =>
-      Tuple.fromProductTyped[T](t)(using m).asInstanceOf[R]
+      Tuple.fromProductTyped[T](t)(using m).asInstanceOf[Row]
     )
-    new ProjectedSelect[T](
-      relationOpt,
+    new ProjectedSelect[R, Cols, T](
+      relation,
       distinct,
       projections,
       newCodec,
@@ -259,16 +275,14 @@ final class ProjectedSelect[R](
     )
   }
 
-  def compile: (AppliedFragment, Codec[R]) = {
+  def compile: (AppliedFragment, Codec[Row]) = {
     val projList = TypedExpr.joined(projections.map(_.render), ", ")
     val keyword  = if (distinct) "SELECT DISTINCT " else "SELECT "
     val header   =
-      relationOpt.fold(TypedExpr.raw(keyword) |+| projList) { r =>
-        if (r.hasFromClause)
-          TypedExpr.raw(keyword) |+| projList |+| TypedExpr.raw(s" FROM ${r.qualifiedName}")
-        else
-          TypedExpr.raw(keyword) |+| projList
-      }
+      if (relation.hasFromClause)
+        TypedExpr.raw(keyword) |+| projList |+| TypedExpr.raw(s" FROM ${relation.qualifiedName}")
+      else
+        TypedExpr.raw(keyword) |+| projList
     val withWhere = whereOpt.fold(header)(w => header |+| TypedExpr.raw(" WHERE ") |+| w.render)
     val withOrder =
       if (orderBys.isEmpty) withWhere
@@ -279,14 +293,14 @@ final class ProjectedSelect[R](
     (withLocking, codec)
   }
 
-  def run[F[_]](session: Session[F]): F[List[R]] = {
+  def run[F[_]](session: Session[F]): F[List[Row]] = {
     val (af, c) = compile
     val query   = af.fragment.query(c)
     session.execute(query)(af.argument)
   }
 
   /** Run and return exactly one row. Fails if the row count is not 1. */
-  def unique[F[_]](session: Session[F]): F[R] = {
+  def unique[F[_]](session: Session[F]): F[Row] = {
     val (af, c) = compile
     val query   = af.fragment.query(c)
     session.unique(query)(af.argument)
@@ -304,10 +318,10 @@ final class ProjectedSelect[R](
  *
  * Multi-table JOINs will need a dedicated entry (roadmap).
  */
-extension [Cols <: Tuple](relation: Relation[Cols]) {
+extension [R <: Relation[Cols], Cols <: Tuple](relation: R) {
 
-  def select: SelectBuilder[Cols] =
-    new SelectBuilder[Cols](relation, distinct = false, None, Nil, None, None, None)
+  def select: SelectBuilder[R, Cols] =
+    new SelectBuilder[R, Cols](relation, distinct = false, None, Nil, None, None, None)
 
 }
 

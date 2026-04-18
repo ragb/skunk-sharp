@@ -43,9 +43,32 @@ class MutationsSuite extends munit.FunSuite {
     assertEquals(af.fragment.sql, """DELETE FROM "users" WHERE "email" = $1""")
   }
 
-  test("delete without WHERE compiles to unconditional DELETE") {
-    val af = users.delete.compile
+  test(".deleteAll explicitly opts into an unconditional DELETE") {
+    val af = users.delete.deleteAll.compile
     assertEquals(af.fragment.sql, """DELETE FROM "users"""")
+  }
+
+  test(".updateAll explicitly opts into an unconditional UPDATE") {
+    val af = users.update.set(u => u.age := 0).updateAll.compile
+    assertEquals(af.fragment.sql, """UPDATE "users" SET "age" = $1""")
+  }
+
+  test("delete without .where or .deleteAll does not compile") {
+    val err = compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      val users = Table.of[MutationsSuite.User]("users")
+      users.delete.compile
+    """)
+    assert(err.nonEmpty, "expected compile error: .compile only exists after .where or .deleteAll")
+  }
+
+  test("update without .where or .updateAll does not compile") {
+    val err = compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      val users = Table.of[MutationsSuite.User]("users")
+      users.update.set(u => u.age := 0).compile
+    """)
+    assert(err.nonEmpty, "expected compile error: .compile only exists after .where or .updateAll")
   }
 
   test("update .returning appends RETURNING <col>") {

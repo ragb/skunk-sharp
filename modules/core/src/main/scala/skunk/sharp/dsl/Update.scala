@@ -7,43 +7,79 @@ import skunk.sharp.pg.PgTypeFor
 import skunk.sharp.where.Where
 
 /**
- * UPDATE builder.
+ * UPDATE builder — compile-time staged so you can't accidentally run a rowset-nuking `UPDATE` with no WHERE.
+ *
+ * State machine:
+ *
+ *   1. `users.update` → [[UpdateBuilder]] (entry). Must call `.set(…)` before anything else.
+ *   2. `.set(…)` → [[UpdateWithSet]]. No `.run` / `.returning` here — the only paths forward are `.where(…)` or the
+ *      explicit `.updateAll` opt-in for "yes, I really mean every row".
+ *   3. `.where(…)` or `.updateAll` → [[UpdateReady]]. This is where `.run`, `.returning`, `.returningTuple`,
+ *      `.returningAll` live. `.where` here chains (AND-combines).
+ *
+ * Calling `.run` without `.where` (or `.updateAll`) is a compile error: the method simply does not exist at that state.
  *
  * {{{
- *   update(users)
+ *   users.update
  *     .set(u => (u.email := "new@example.com", u.age := 30))
- *     .where(u => u.id === someId)
+ *     .where(u => u.id === someId)          // transitions to UpdateReady
  *     .run(session)
+ *
+ *   users.update.set(u => u.active := false).updateAll.run(session)  // explicit opt-in
  * }}}
  *
- * `:=` is an extension on [[TypedColumn]] that produces a [[SetAssignment]]. `.set` takes one assignment or a tuple of
- * them. A WHERE clause is effectively mandatory in practice — forgetting it nukes the whole table — but we do not
- * enforce that at the type level (yet). Future (v0.1+): `RETURNING`, `FROM`/`USING`, `.set` that accepts a subset named
- * tuple, SQL-expression right-hand sides.
+ * Future (v0.1+): `FROM`/`USING`, `.set` that accepts a subset named tuple, richer RHS expressions.
  */
 final class UpdateBuilder[Cols <: Tuple] private[sharp] (table: Table[Cols]) {
 
+  /**
+   * Declare the SET list. Accepts one [[SetAssignment]] or a tuple of them. Must be followed by `.where` or
+   * `.updateAll`.
+   */
   def set(f: ColumnsView[Cols] => SetAssignment[?] | Tuple): UpdateWithSet[Cols] = {
     val view        = ColumnsView(table.columns)
     val assignments = f(view) match {
       case sa: SetAssignment[?] => List(sa)
       case t: Tuple             => t.toList.asInstanceOf[List[SetAssignment[?]]]
     }
-    new UpdateWithSet[Cols](table, assignments, None)
+    new UpdateWithSet[Cols](table, assignments)
   }
 
 }
 
+/**
+ * State after `.set(…)`, before a WHERE (or explicit `.updateAll`) has been committed. Deliberately has no `.run` or
+ * `.returning` — the type forces the caller to narrow the update or to ask for the unrestricted version explicitly.
+ */
 final class UpdateWithSet[Cols <: Tuple] private[sharp] (
+  private[sharp] val table: Table[Cols],
+  private[sharp] val assignments: List[SetAssignment[?]]
+) {
+
+  /** Narrow with a WHERE clause. Transitions to [[UpdateReady]]. */
+  def where(f: ColumnsView[Cols] => Where): UpdateReady[Cols] = {
+    val view = ColumnsView(table.columns)
+    new UpdateReady[Cols](table, assignments, Some(f(view)))
+  }
+
+  /** "Yes, update every row." Explicit opt-in — skips the WHERE requirement. */
+  def updateAll: UpdateReady[Cols] =
+    new UpdateReady[Cols](table, assignments, None)
+
+}
+
+/** UPDATE in a runnable state: SET list filled, plus either a WHERE clause or an explicit `.updateAll` opt-in. */
+final class UpdateReady[Cols <: Tuple] private[sharp] (
   table: Table[Cols],
   assignments: List[SetAssignment[?]],
   whereOpt: Option[Where]
 ) {
 
-  def where(f: ColumnsView[Cols] => Where): UpdateWithSet[Cols] = {
+  /** Chain another WHERE — AND-combined with the existing one. */
+  def where(f: ColumnsView[Cols] => Where): UpdateReady[Cols] = {
     val view = ColumnsView(table.columns)
     val next = whereOpt.fold(f(view))(_ && f(view))
-    new UpdateWithSet[Cols](table, assignments, Some(next))
+    new UpdateReady[Cols](table, assignments, Some(next))
   }
 
   def compile: AppliedFragment = {

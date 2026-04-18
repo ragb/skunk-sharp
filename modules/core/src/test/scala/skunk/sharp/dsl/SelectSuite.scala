@@ -121,4 +121,34 @@ class SelectSuite extends munit.FunSuite {
     val (af, _) = users.select.forUpdate.skipLocked.apply(u => u.id).compile
     assert(af.fragment.sql.endsWith(" FOR UPDATE SKIP LOCKED"), clue = af.fragment.sql)
   }
+
+  test(".forUpdate on a View does not compile (Postgres rejects FOR UPDATE on a view)") {
+    val err = compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      case class ActiveUser(id: java.util.UUID, email: String)
+      val v = View.of[ActiveUser]("active_users")
+      v.select.forUpdate
+    """)
+    assert(err.nonEmpty, "expected compile error: forUpdate is Table-only")
+  }
+
+  test(".forShare on a View does not compile") {
+    val errs = compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      case class ActiveUser(id: java.util.UUID, email: String)
+      val v = View.of[ActiveUser]("active_users")
+      v.select.forShare
+    """)
+    assert(errs.nonEmpty)
+  }
+
+  test(".skipLocked on a View does not compile (even attempted via a prior attempted forUpdate)") {
+    val errs = compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      case class ActiveUser(id: java.util.UUID, email: String)
+      val v = View.of[ActiveUser]("active_users")
+      v.select.skipLocked
+    """)
+    assert(errs.nonEmpty)
+  }
 }

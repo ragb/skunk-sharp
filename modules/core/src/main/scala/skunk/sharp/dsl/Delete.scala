@@ -6,24 +6,47 @@ import skunk.sharp.internal.tupleCodec
 import skunk.sharp.where.Where
 
 /**
- * DELETE builder.
+ * DELETE builder — compile-time staged so you can't accidentally run a `DELETE FROM …` with no WHERE.
+ *
+ * State machine:
+ *
+ *   1. `users.delete` → [[DeleteBuilder]] (entry). No `.run` / `.returning` here; only `.where(…)` or the explicit
+ *      `.deleteAll` opt-in are visible.
+ *   2. `.where(…)` or `.deleteAll` → [[DeleteReady]]. `.run`, `.returning`, `.returningTuple`, `.returningAll` live
+ *      here. `.where` here chains (AND-combines).
+ *
+ * Calling `.run` at the initial state is a compile error: the method does not exist on [[DeleteBuilder]].
  *
  * {{{
- *   delete.from(users).where(u => u.id === someId).run(session)
+ *   users.delete.where(u => u.id === someId).run(session)
+ *   users.delete.deleteAll.run(session)   // explicit opt-in for "drop everything"
  * }}}
- *
- * `.where` is optional at the type level but essentially required in practice (no WHERE means "delete all rows"). A
- * future helper like `.deleteAll` could make "delete everything" an explicit opt-in.
  */
-final class DeleteBuilder[Cols <: Tuple] private[sharp] (
+final class DeleteBuilder[Cols <: Tuple] private[sharp] (table: Table[Cols]) {
+
+  /** Narrow with a WHERE clause. Transitions to [[DeleteReady]]. */
+  def where(f: ColumnsView[Cols] => Where): DeleteReady[Cols] = {
+    val view = ColumnsView(table.columns)
+    new DeleteReady[Cols](table, Some(f(view)))
+  }
+
+  /** "Yes, delete every row." Explicit opt-in — skips the WHERE requirement. */
+  def deleteAll: DeleteReady[Cols] =
+    new DeleteReady[Cols](table, None)
+
+}
+
+/** DELETE in a runnable state: WHERE clause committed (or `.deleteAll` explicitly called). */
+final class DeleteReady[Cols <: Tuple] private[sharp] (
   table: Table[Cols],
   whereOpt: Option[Where]
 ) {
 
-  def where(f: ColumnsView[Cols] => Where): DeleteBuilder[Cols] = {
+  /** Chain another WHERE — AND-combined with the existing one. */
+  def where(f: ColumnsView[Cols] => Where): DeleteReady[Cols] = {
     val view = ColumnsView(table.columns)
     val next = whereOpt.fold(f(view))(_ && f(view))
-    new DeleteBuilder[Cols](table, Some(next))
+    new DeleteReady[Cols](table, Some(next))
   }
 
   def compile: AppliedFragment = {
@@ -66,5 +89,5 @@ final class DeleteBuilder[Cols <: Tuple] private[sharp] (
 
 /** DELETE entry point lives on [[Table]] (views reject at compile time). `users.delete.where(…)`. */
 extension [Cols <: Tuple](table: Table[Cols]) {
-  def delete: DeleteBuilder[Cols] = new DeleteBuilder[Cols](table, None)
+  def delete: DeleteBuilder[Cols] = new DeleteBuilder[Cols](table)
 }
