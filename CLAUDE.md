@@ -69,7 +69,9 @@ All under [modules/core/src/main/scala/skunk/sharp/dsl/](modules/core/src/main/s
 - `Update.scala` — extension on `Table`. **Staged state machine**: `users.update` → `UpdateBuilder` (has only `.set`) → `.set(...)` → `UpdateWithSet` (has only `.where` and `.updateAll`) → either `.where(...)` or `.updateAll` → `UpdateReady` (has `.run`, `.returning*`, chained `.where`). Calling `.run` without a WHERE or an explicit `.updateAll` is a compile error — the method simply doesn't exist on `UpdateWithSet`. `:=` is an extension on `TypedColumn`.
 - `Delete.scala` — extension on `Table`. **Staged state machine**: `users.delete` → `DeleteBuilder` (has only `.where` and `.deleteAll`) → either `.where(...)` or `.deleteAll` → `DeleteReady` (`.run`, `.returning*`, chained `.where`). `users.delete.run(s)` without a WHERE or explicit `.deleteAll` does not compile.
 
-**Select locking is gated to Tables.** `SelectBuilder[R <: Relation[Cols], Cols]` and `ProjectedSelect[R, Cols, Row]` thread the relation type through so `.forUpdate` / `.forShare` / `.forNoKeyUpdate` / `.forKeyShare` / `.skipLocked` / `.noWait` require `R <:< Table[Cols]` via an implicit `<:<` evidence. Calling them on a `View` is a compile error — Postgres would reject them at runtime anyway.
+**Select locking is gated to Tables.** `SelectBuilder[R <: Relation[Cols], Cols, HasLimit]` and `ProjectedSelect[R, Cols, Row, HasLimit]` thread the relation type through so `.forUpdate` / `.forShare` / `.forNoKeyUpdate` / `.forKeyShare` / `.skipLocked` / `.noWait` require `R <:< Table[Cols]` via an implicit `<:<` evidence. Calling them on a `View` is a compile error — Postgres would reject them at runtime anyway.
+
+**OFFSET requires a prior LIMIT.** Phantom boolean `HasLimit` on `SelectBuilder` / `ProjectedSelect` starts at `false`. `.limit(n)` flips to `true`; `.offset(n)` requires `HasLimit =:= true` evidence. OFFSET-without-LIMIT is almost always an oversight; users who explicitly want it can still call `.limit(Int.MaxValue).offset(n)` or similar.
 
 ## Compile-time SQL goal (design aspiration)
 

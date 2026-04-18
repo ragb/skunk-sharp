@@ -151,4 +151,27 @@ class SelectSuite extends munit.FunSuite {
     """)
     assert(errs.nonEmpty)
   }
+
+  test(".offset without a prior .limit does not compile (OFFSET with no LIMIT is almost always a mistake)") {
+    val errs = compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      val users = Table.of[SelectSuite.User]("users")
+      users.select.offset(5)
+    """)
+    assert(errs.nonEmpty, "expected compile error: offset requires limit first")
+  }
+
+  test(".offset after .limit compiles and renders OFFSET n") {
+    val (af, _) = users.select.limit(10).offset(5).compile
+    assert(af.fragment.sql.endsWith(" LIMIT 10 OFFSET 5"), clue = af.fragment.sql)
+  }
+
+  test(".offset on a ProjectedSelect also requires prior .limit") {
+    val errs = compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      val users = Table.of[SelectSuite.User]("users")
+      users.select(u => u.id).offset(5)
+    """)
+    assert(errs.nonEmpty)
+  }
 }
