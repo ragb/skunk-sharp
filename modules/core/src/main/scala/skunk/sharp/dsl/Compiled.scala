@@ -60,3 +60,56 @@ extension (c: CompiledCommand) {
     session.execute(c.af.fragment.command)(c.af.argument)
 
 }
+
+/**
+ * Subquery support — typeclass-based. A subquery is anything that can be turned into a [[CompiledQuery]]`[T]`:
+ *
+ *   - a fully `.compile`d query (identity instance),
+ *   - a [[ProjectedSelect]]`[Ss, T]` with an explicit projection (compiled on demand),
+ *   - a [[SelectBuilder]]`[Ss]` anchored at a single source whose whole-row is `T` (compiled on demand).
+ *
+ * This way users don't have to call `.compile` on inner queries — they pass the builder directly to `.asExpr`,
+ * `col.in(...)`, or `Pg.exists(...)` and the outer compilation handles the inner too.
+ *
+ * Correlated subqueries: build the inner query inside an outer `.select` / `.where` lambda; outer
+ * [[skunk.sharp.TypedColumn]]s are in lexical scope, their `render` emits alias-qualified SQL
+ * (`"u"."id"`) that correlates at SQL-evaluation time.
+ */
+sealed trait AsSubquery[Q, T] {
+  def toCompiled(q: Q): CompiledQuery[T]
+}
+
+object AsSubquery {
+
+  given identity[T]: AsSubquery[CompiledQuery[T], T] = new AsSubquery[CompiledQuery[T], T] {
+    def toCompiled(q: CompiledQuery[T]): CompiledQuery[T] = q
+  }
+
+  given fromProjected[Ss <: Tuple, T]: AsSubquery[ProjectedSelect[Ss, T], T] =
+    new AsSubquery[ProjectedSelect[Ss, T], T] {
+      def toCompiled(q: ProjectedSelect[Ss, T]): CompiledQuery[T] = q.compile
+    }
+
+  /** Whole-row SelectBuilder → subquery of NamedRow. Relies on the same IsSingleSource evidence `.compile` uses. */
+  given fromSelectBuilder[Ss <: Tuple, C <: Tuple](using
+    ev: IsSingleSource.Aux[Ss, C]
+  ): AsSubquery[SelectBuilder[Ss], skunk.sharp.NamedRowOf[C]] =
+    new AsSubquery[SelectBuilder[Ss], skunk.sharp.NamedRowOf[C]] {
+      def toCompiled(b: SelectBuilder[Ss]): CompiledQuery[skunk.sharp.NamedRowOf[C]] = b.compile(using ev)
+    }
+
+}
+
+/**
+ * Lift a subquery-like thing into the [[skunk.sharp.TypedExpr]] vocabulary so it slots in wherever an expression is
+ * expected — SELECT projection, WHERE RHS, UPDATE SET, `col.in(q)`, `Pg.exists(q)`, etc.
+ */
+extension [Q](q: Q) {
+  def asExpr[T](using ev: AsSubquery[Q, T]): skunk.sharp.TypedExpr[T] = {
+    val cq = ev.toCompiled(q)
+    skunk.sharp.TypedExpr(
+      skunk.sharp.TypedExpr.raw("(") |+| cq.af |+| skunk.sharp.TypedExpr.raw(")"),
+      cq.codec
+    )
+  }
+}

@@ -3,7 +3,7 @@ package skunk.sharp.dsl
 import skunk.Codec
 import skunk.sharp.*
 import skunk.sharp.internal.{rowCodec, tupleCodec}
-import skunk.sharp.where.Where
+import skunk.sharp.where.{Where, &&}
 
 /**
  * Unified SELECT builder — one class for single-source, JOINed, or CROSS-joined queries. Every lambda-taking method
@@ -446,10 +446,16 @@ type SelectView[Ss <: Tuple] = Ss match {
 
 private[sharp] def buildSelectView[Ss <: Tuple](sources: Ss): SelectView[Ss] =
   sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]] match {
-    // Single source: bare column names in WHERE/ORDER BY (matches the pre-unification SelectBuilder behaviour and
-    // avoids redundant qualifiers when there's only one source to qualify against).
-    case single :: Nil => ColumnsView(single.effectiveCols).asInstanceOf[SelectView[Ss]]
-    case _             => buildJoinedView[Ss](sources).asInstanceOf[SelectView[Ss]]
+    // Single source: columns render *bare* when the alias is the default (equal to the relation's name) — avoids
+    // redundant qualifiers and matches the pre-unification SelectBuilder SQL. When the caller gave an explicit
+    // `.alias(...)`, we qualify — it's how correlation inside subqueries works (outer `u.id` must render as
+    // `"u"."id"` for Postgres to resolve to the outer source).
+    case single :: Nil =>
+      if (single.alias == single.relation.name)
+        ColumnsView(single.effectiveCols).asInstanceOf[SelectView[Ss]]
+      else
+        ColumnsView.qualified(single.effectiveCols, single.alias).asInstanceOf[SelectView[Ss]]
+    case _ => buildJoinedView[Ss](sources).asInstanceOf[SelectView[Ss]]
   }
 
 // ---- Evidence typeclasses ----------------------------------------------------------------------

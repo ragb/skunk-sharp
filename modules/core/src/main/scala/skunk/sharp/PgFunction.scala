@@ -169,6 +169,23 @@ object Pg {
   def boolOr(expr: TypedExpr[Boolean]): TypedExpr[Boolean] =
     TypedExpr(TypedExpr.raw("bool_or(") |+| expr.render |+| TypedExpr.raw(")"), skunk.codec.all.bool)
 
+  // -------- Subquery predicates --------
+
+  /**
+   * `EXISTS (<subquery>)`. The subquery's row type doesn't matter — only existence does. Accepts any
+   * [[skunk.sharp.dsl.AsSubquery]]-compatible value (compiled or un-compiled builder).
+   */
+  def exists[Q, T](sub: Q)(using ev: skunk.sharp.dsl.AsSubquery[Q, T]): TypedExpr[Boolean] = {
+    val cq = ev.toCompiled(sub)
+    TypedExpr(TypedExpr.raw("EXISTS (") |+| cq.af |+| TypedExpr.raw(")"), skunk.codec.all.bool)
+  }
+
+  /** `NOT EXISTS (<subquery>)`. */
+  def notExists[Q, T](sub: Q)(using ev: skunk.sharp.dsl.AsSubquery[Q, T]): TypedExpr[Boolean] = {
+    val cq = ev.toCompiled(sub)
+    TypedExpr(TypedExpr.raw("NOT EXISTS (") |+| cq.af |+| TypedExpr.raw(")"), skunk.codec.all.bool)
+  }
+
 }
 
 /**
