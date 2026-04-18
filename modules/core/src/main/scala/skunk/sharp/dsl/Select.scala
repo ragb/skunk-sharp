@@ -273,6 +273,29 @@ final class ProjectedSelect[R <: Relation[Cols], Cols <: Tuple, Row](
       lockingOpt
     )
 
+  /**
+   * `WHERE <predicate>`. Chains with AND if called multiple times. Works equally before or after projecting via
+   * [[SelectBuilder.apply]] — users can write `users.select(f).where(p)` in natural SQL order.
+   */
+  def where(f: ColumnsView[Cols] => Where): ProjectedSelect[R, Cols, Row] = {
+    val view = ColumnsView(relation.columns)
+    val next = whereOpt match {
+      case Some(existing) => existing && f(view)
+      case None           => f(view)
+    }
+    copy(whereOpt = Some(next))
+  }
+
+  /** `ORDER BY …`. Accepts a single `OrderBy` or a tuple. */
+  def orderBy(f: ColumnsView[Cols] => OrderBy | Tuple): ProjectedSelect[R, Cols, Row] = {
+    val view  = ColumnsView(relation.columns)
+    val fresh = f(view) match {
+      case ob: OrderBy => List(ob)
+      case t: Tuple    => t.toList.asInstanceOf[List[OrderBy]]
+    }
+    copy(orderBys = orderBys ++ fresh)
+  }
+
   def limit(n: Int): ProjectedSelect[R, Cols, Row]  = copy(limitOpt = Some(n))
   def offset(n: Int): ProjectedSelect[R, Cols, Row] = copy(offsetOpt = Some(n))
 

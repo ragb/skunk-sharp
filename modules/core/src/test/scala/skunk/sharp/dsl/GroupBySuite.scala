@@ -69,11 +69,12 @@ class GroupBySuite extends munit.FunSuite {
   }
 
   test("GROUP BY / HAVING / ORDER BY / LIMIT / OFFSET order is stable") {
-    val af = users.select
+    val af = users
+      .select(u => (u.age, Pg.count(u.id)))
       .where(u => u.deleted_at.isNull)
-      .apply(u => (u.age, Pg.count(u.id)))
       .groupBy(u => u.age)
       .having(u => Pg.count(u.id) >= 1L)
+      .orderBy(u => u.age.desc)
       .limit(10)
       .offset(5)
       .compile
@@ -81,7 +82,7 @@ class GroupBySuite extends munit.FunSuite {
 
     assertEquals(
       af.fragment.sql,
-      """SELECT "age", count("id") FROM "users" WHERE "deleted_at" IS NULL GROUP BY "age" HAVING count("id") >= $1 LIMIT 10 OFFSET 5"""
+      """SELECT "age", count("id") FROM "users" WHERE "deleted_at" IS NULL GROUP BY "age" HAVING count("id") >= $1 ORDER BY "age" DESC LIMIT 10 OFFSET 5"""
     )
   }
 
