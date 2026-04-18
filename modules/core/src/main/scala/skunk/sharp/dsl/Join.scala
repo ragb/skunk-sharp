@@ -216,6 +216,8 @@ final class Join2[
           kind,
           onPred,
           whereOpt,
+          groupBys = Nil,
+          havingOpt = None,
           orderBys,
           limitOpt,
           offsetOpt,
@@ -232,6 +234,8 @@ final class Join2[
           kind,
           onPred,
           whereOpt,
+          groupBys = Nil,
+          havingOpt = None,
           orderBys,
           limitOpt,
           offsetOpt,
@@ -263,6 +267,8 @@ final class ProjectedJoin2[
   kind: JoinKind,
   onPred: Where,
   whereOpt: Option[Where],
+  groupBys: List[TypedExpr[?]] = Nil,
+  havingOpt: Option[Where] = None,
   orderBys: List[OrderBy],
   limitOpt: Option[Int],
   offsetOpt: Option[Int],
@@ -280,6 +286,8 @@ final class ProjectedJoin2[
 
   private def copy(
     whereOpt: Option[Where] = whereOpt,
+    groupBys: List[TypedExpr[?]] = groupBys,
+    havingOpt: Option[Where] = havingOpt,
     orderBys: List[OrderBy] = orderBys,
     limitOpt: Option[Int] = limitOpt,
     offsetOpt: Option[Int] = offsetOpt
@@ -291,6 +299,8 @@ final class ProjectedJoin2[
       kind,
       onPred,
       whereOpt,
+      groupBys,
+      havingOpt,
       orderBys,
       limitOpt,
       offsetOpt,
@@ -314,6 +324,26 @@ final class ProjectedJoin2[
     copy(orderBys = orderBys ++ fresh)
   }
 
+  /** `GROUP BY …`. Same semantics as [[SelectBuilder.groupBy]] — coverage is not type-checked. */
+  def groupBy(
+    f: JoinedView2[AL, CL, AR, CR] => TypedExpr[?] | Tuple
+  ): ProjectedJoin2[RL, CL, AL, RR, CR0, AR, CR, Row] = {
+    val fresh = f(view) match {
+      case e: TypedExpr[?] => List(e)
+      case t: Tuple        => t.toList.asInstanceOf[List[TypedExpr[?]]]
+    }
+    copy(groupBys = groupBys ++ fresh)
+  }
+
+  /** `HAVING <predicate>`. Chains with AND. */
+  def having(f: JoinedView2[AL, CL, AR, CR] => Where): ProjectedJoin2[RL, CL, AL, RR, CR0, AR, CR, Row] = {
+    val next = havingOpt match {
+      case Some(existing) => existing && f(view)
+      case None           => f(view)
+    }
+    copy(havingOpt = Some(next))
+  }
+
   def limit(n: Int): ProjectedJoin2[RL, CL, AL, RR, CR0, AR, CR, Row]  = copy(limitOpt = Some(n))
   def offset(n: Int): ProjectedJoin2[RL, CL, AL, RR, CR0, AR, CR, Row] = copy(offsetOpt = Some(n))
 
@@ -324,9 +354,13 @@ final class ProjectedJoin2[
     val joinSql   = TypedExpr.raw(s" ${kind.sql} ") |+| fromR |+| TypedExpr.raw(" ON ") |+| onPred.render
     val header    = TypedExpr.raw("SELECT ") |+| projList |+| TypedExpr.raw(" FROM ") |+| fromL |+| joinSql
     val withWhere = whereOpt.fold(header)(w => header |+| TypedExpr.raw(" WHERE ") |+| w.render)
-    val withOrder =
-      if (orderBys.isEmpty) withWhere
-      else withWhere |+| TypedExpr.raw(" ORDER BY " + orderBys.map(_.sql).mkString(", "))
+    val withGroup =
+      if (groupBys.isEmpty) withWhere
+      else withWhere |+| TypedExpr.raw(" GROUP BY ") |+| TypedExpr.joined(groupBys.map(_.render), ", ")
+    val withHaving = havingOpt.fold(withGroup)(h => withGroup |+| TypedExpr.raw(" HAVING ") |+| h.render)
+    val withOrder  =
+      if (orderBys.isEmpty) withHaving
+      else withHaving |+| TypedExpr.raw(" ORDER BY " + orderBys.map(_.sql).mkString(", "))
     val withLimit  = limitOpt.fold(withOrder)(n => withOrder |+| TypedExpr.raw(s" LIMIT $n"))
     val withOffset = offsetOpt.fold(withLimit)(n => withLimit |+| TypedExpr.raw(s" OFFSET $n"))
     CompiledQuery(withOffset, codec)
