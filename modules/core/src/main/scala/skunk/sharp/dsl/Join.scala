@@ -349,8 +349,8 @@ final class ProjectedJoin2[
 
   def compile: CompiledQuery[Row] = {
     val projList  = TypedExpr.joined(projections.map(_.render), ", ")
-    val fromL     = TypedExpr.raw(s"""${left.relation.qualifiedName} AS "${left.alias}"""")
-    val fromR     = TypedExpr.raw(s"""${right.relation.qualifiedName} AS "${right.alias}"""")
+    val fromL     = TypedExpr.raw(aliasedFrom(left))
+    val fromR     = TypedExpr.raw(aliasedFrom(right))
     val joinSql   = TypedExpr.raw(s" ${kind.sql} ") |+| fromR |+| TypedExpr.raw(" ON ") |+| onPred.render
     val header    = TypedExpr.raw("SELECT ") |+| projList |+| TypedExpr.raw(" FROM ") |+| fromL |+| joinSql
     val withWhere = whereOpt.fold(header)(w => header |+| TypedExpr.raw(" WHERE ") |+| w.render)
@@ -368,6 +368,14 @@ final class ProjectedJoin2[
 
 }
 
+/**
+ * Render `"schema"."name" AS "alias"`, eliding the `AS` clause when the alias equals the relation's unqualified name
+ * (the auto-alias case) — `"public"."posts"` already implies `"posts"` as the default alias.
+ */
+private[sharp] def aliasedFrom(ar: AliasedRelation[?, ?, ?]): String =
+  if (ar.alias == ar.relation.name) ar.relation.qualifiedName
+  else s"""${ar.relation.qualifiedName} AS "${ar.alias}""""
+
 /** Build the named-tuple view of two aliased relations. Columns render with their alias prefix. */
 private[sharp] def joinedView2[
   AL <: String & Singleton,
@@ -380,30 +388,94 @@ private[sharp] def joinedView2[
   (vL, vR).asInstanceOf[JoinedView2[AL, CL, AR, CR]]
 }
 
-// ---- .innerJoin / .leftJoin on an AliasedRelation ----
+// ---- .innerJoin / .leftJoin ----
 
-extension [RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton](left: AliasedRelation[RL, CL, AL]) {
+/**
+ * Evidence that `T` is, or can be implicitly wrapped as, an [[AliasedRelation]]. Three sources:
+ *   - An already-aliased relation (identity).
+ *   - A [[Table]] `Table[Cols, Name]` — auto-aliased to the table's name.
+ *   - A [[View]] `View[Cols, Name]` — auto-aliased to the view's name.
+ *
+ * Lets `users.innerJoin(posts)` work without explicit `.alias(...)`: the alias defaults to the relation's name, pulled
+ * from the `Name` type parameter so it's usable as a NamedTuple label in the join's lambda view (`r.users.id`).
+ */
+sealed trait AsAliased[T] {
+  type R <: Relation[Cols]
+  type Cols <: Tuple
+  type Alias <: String & Singleton
+  def apply(t: T): AliasedRelation[R, Cols, Alias]
+}
 
-  /** `INNER JOIN` — right-side columns keep their declared types. */
-  def innerJoin[RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton](
-    right: AliasedRelation[RR, CR, AR]
-  ): IncompleteJoin2[RL, CL, AL, RR, CR, AR, CR] =
-    new IncompleteJoin2[RL, CL, AL, RR, CR, AR, CR](left, right, right.relation.columns, JoinKind.Inner)
+object AsAliased {
 
-  /** `LEFT JOIN` — right-side column value types are wrapped in `Option`; `.opt` on the codecs at runtime. */
-  def leftJoin[RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton](
-    right: AliasedRelation[RR, CR, AR]
-  ): IncompleteJoin2[RL, CL, AL, RR, CR, AR, NullableCols[CR]] = {
-    val nullified = nullabilifyCols(right.relation.columns).asInstanceOf[NullableCols[CR]]
-    new IncompleteJoin2[RL, CL, AL, RR, CR, AR, NullableCols[CR]](left, right, nullified, JoinKind.Left)
+  type Aux[T, R_ <: Relation[Cols_], Cols_ <: Tuple, Alias_ <: String & Singleton] = AsAliased[T] {
+    type R = R_
+    type Cols = Cols_
+    type Alias = Alias_
   }
+
+  /** An already-aliased relation passes through unchanged. */
+  given fromAliased[RR <: Relation[CC], CC <: Tuple, A <: String & Singleton]
+    : AsAliased.Aux[AliasedRelation[RR, CC, A], RR, CC, A] = new AsAliased[AliasedRelation[RR, CC, A]] {
+    type R = RR
+    type Cols = CC
+    type Alias = A
+    def apply(a: AliasedRelation[RR, CC, A]): AliasedRelation[RR, CC, A] = a
+  }
+
+  /** A bare `Table` is auto-aliased to its own name. */
+  given fromTable[CC <: Tuple, N <: String & Singleton]: AsAliased.Aux[Table[CC, N], Table[CC, N], CC, N] =
+    new AsAliased[Table[CC, N]] {
+      type R = Table[CC, N]
+      type Cols = CC
+      type Alias = N
+      def apply(t: Table[CC, N]): AliasedRelation[Table[CC, N], CC, N] =
+        new AliasedRelation[Table[CC, N], CC, N](t, t.name)
+    }
+
+  /** A bare `View` is auto-aliased to its own name. */
+  given fromView[CC <: Tuple, N <: String & Singleton]: AsAliased.Aux[View[CC, N], View[CC, N], CC, N] =
+    new AsAliased[View[CC, N]] {
+      type R = View[CC, N]
+      type Cols = CC
+      type Alias = N
+      def apply(v: View[CC, N]): AliasedRelation[View[CC, N], CC, N] =
+        new AliasedRelation[View[CC, N], CC, N](v, v.name)
+    }
 
 }
 
-// Auto-alias on unaliased relations (`users.innerJoin(posts)`) is **not currently supported** because Scala 3's
-// `NamedTuple.NamedTuple[Names, Values]` requires string-literal types in Names, not the path-dependent singletons
-// produced by `type Name = name.type` on Relation instances. Supporting it cleanly would require Table and View to
-// carry the name as a proper type parameter (`Table[Cols, Name <: String & Singleton]`), which ripples through
-// Update / Delete / Insert builders and every internal reference.
-//
-// For now: users must call `.alias("u")` explicitly before `.innerJoin` / `.leftJoin`. Tracking as a roadmap item.
+/**
+ * `.innerJoin` / `.leftJoin` on any relation-like value — bare `Table` / `View` (auto-aliased to its own name) or an
+ * already-aliased `AliasedRelation`.
+ */
+extension [L](left: L)(using aL: AsAliased[L]) {
+
+  /** `INNER JOIN` — right-side columns keep their declared types. */
+  def innerJoin[R](right: R)(using aR: AsAliased[R])
+    : IncompleteJoin2[aL.R, aL.Cols, aL.Alias, aR.R, aR.Cols, aR.Alias, aR.Cols] = {
+    val al = aL(left)
+    val ar = aR(right)
+    new IncompleteJoin2[aL.R, aL.Cols, aL.Alias, aR.R, aR.Cols, aR.Alias, aR.Cols](
+      al,
+      ar,
+      ar.relation.columns,
+      JoinKind.Inner
+    )
+  }
+
+  /** `LEFT JOIN` — right-side column value types are wrapped in `Option`; `.opt` on the codecs at runtime. */
+  def leftJoin[R](right: R)(using aR: AsAliased[R])
+    : IncompleteJoin2[aL.R, aL.Cols, aL.Alias, aR.R, aR.Cols, aR.Alias, NullableCols[aR.Cols]] = {
+    val al        = aL(left)
+    val ar        = aR(right)
+    val nullified = nullabilifyCols(ar.relation.columns).asInstanceOf[NullableCols[aR.Cols]]
+    new IncompleteJoin2[aL.R, aL.Cols, aL.Alias, aR.R, aR.Cols, aR.Alias, NullableCols[aR.Cols]](
+      al,
+      ar,
+      nullified,
+      JoinKind.Left
+    )
+  }
+
+}

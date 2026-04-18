@@ -16,7 +16,75 @@ class JoinSuite extends munit.FunSuite {
   private val users = Table.of[User]("users")
   private val posts = Table.of[Post]("posts")
 
-  test("INNER JOIN renders FROM … AS … INNER JOIN … AS … ON …") {
+  test("INNER JOIN (no explicit alias) — table names used as aliases") {
+    val af = users
+      .innerJoin(posts)
+      .on(r => r.users.id ==== r.posts.user_id)
+      .select(r => (r.users.email, r.posts.title))
+      .compile
+      .af
+
+    assertEquals(
+      af.fragment.sql,
+      """SELECT "users"."email", "posts"."title" FROM "users" INNER JOIN "posts" ON "users"."id" = "posts"."user_id""""
+    )
+  }
+
+  test("INNER JOIN with WHERE + ORDER BY + LIMIT (no explicit alias)") {
+    val af = users
+      .innerJoin(posts)
+      .on(r => r.users.id ==== r.posts.user_id)
+      .select(r => (r.users.email, r.posts.title, r.posts.created_at))
+      .where(r => r.users.age >= 18)
+      .orderBy(r => r.posts.created_at.desc)
+      .limit(10)
+      .compile
+      .af
+
+    assertEquals(
+      af.fragment.sql,
+      """SELECT "users"."email", "posts"."title", "posts"."created_at" FROM "users" INNER JOIN "posts" ON "users"."id" = "posts"."user_id" WHERE "users"."age" >= $1 ORDER BY "posts"."created_at" DESC LIMIT 10"""
+    )
+  }
+
+  test("LEFT JOIN renders LEFT JOIN; ON still sees declared types") {
+    val af = users
+      .leftJoin(posts)
+      .on(r => r.users.id ==== r.posts.user_id) // right side not yet nullabilified in ON
+      .select(r => (r.users.email, r.posts.title))
+      .compile
+      .af
+
+    assertEquals(
+      af.fragment.sql,
+      """SELECT "users"."email", "posts"."title" FROM "users" LEFT JOIN "posts" ON "users"."id" = "posts"."user_id""""
+    )
+  }
+
+  test("LEFT JOIN — right-side columns decode as Option in .select") {
+    // r.posts.title has type TypedColumn[Option[String], true] here, so the compiled query returns Option[String].
+    val _: CompiledQuery[Option[String]] = users
+      .leftJoin(posts)
+      .on(r => r.users.id ==== r.posts.user_id)
+      .select(r => r.posts.title)
+      .compile
+  }
+
+  test("aliased aggregate through a JOIN projection") {
+    val af = users
+      .innerJoin(posts)
+      .on(r => r.users.id ==== r.posts.user_id)
+      .select(r => (r.users.email, Pg.count(r.posts.id).as("post_count")))
+      .compile
+      .af
+
+    assert(
+      af.fragment.sql.contains("""count("posts"."id") AS "post_count""""),
+      af.fragment.sql
+    )
+  }
+
+  test("explicit .alias(...) wins over the table-name default") {
     val af = users
       .alias("u")
       .innerJoin(posts.alias("p"))
@@ -31,61 +99,17 @@ class JoinSuite extends munit.FunSuite {
     )
   }
 
-  test("INNER JOIN with WHERE + ORDER BY + LIMIT") {
+  test("mixed: auto-aliased left + explicitly-aliased right") {
     val af = users
-      .alias("u")
       .innerJoin(posts.alias("p"))
-      .on(r => r.u.id ==== r.p.user_id)
-      .select(r => (r.u.email, r.p.title, r.p.created_at))
-      .where(r => r.u.age >= 18)
-      .orderBy(r => r.p.created_at.desc)
-      .limit(10)
+      .on(r => r.users.id ==== r.p.user_id)
+      .select(r => (r.users.email, r.p.title))
       .compile
       .af
 
     assertEquals(
       af.fragment.sql,
-      """SELECT "u"."email", "p"."title", "p"."created_at" FROM "users" AS "u" INNER JOIN "posts" AS "p" ON "u"."id" = "p"."user_id" WHERE "u"."age" >= $1 ORDER BY "p"."created_at" DESC LIMIT 10"""
-    )
-  }
-
-  test("LEFT JOIN renders LEFT JOIN and ON still sees declared types") {
-    val af = users
-      .alias("u")
-      .leftJoin(posts.alias("p"))
-      .on(r => r.u.id ==== r.p.user_id) // right side not yet nullabilified in ON
-      .select(r => (r.u.email, r.p.title))
-      .compile
-      .af
-
-    assertEquals(
-      af.fragment.sql,
-      """SELECT "u"."email", "p"."title" FROM "users" AS "u" LEFT JOIN "posts" AS "p" ON "u"."id" = "p"."user_id""""
-    )
-  }
-
-  test("LEFT JOIN — right-side columns decode as Option in .select") {
-    // r.p.title has type TypedColumn[Option[String], true] here, so the compiled query returns Option[String].
-    val _: CompiledQuery[Option[String]] = users
-      .alias("u")
-      .leftJoin(posts.alias("p"))
-      .on(r => r.u.id ==== r.p.user_id)
-      .select(r => r.p.title)
-      .compile
-  }
-
-  test("aliased aggregate through a JOIN projection") {
-    val af = users
-      .alias("u")
-      .innerJoin(posts.alias("p"))
-      .on(r => r.u.id ==== r.p.user_id)
-      .select(r => (r.u.email, Pg.count(r.p.id).as("post_count")))
-      .compile
-      .af
-
-    assert(
-      af.fragment.sql.contains("""count("p"."id") AS "post_count""""),
-      af.fragment.sql
+      """SELECT "users"."email", "p"."title" FROM "users" INNER JOIN "posts" AS "p" ON "users"."id" = "p"."user_id""""
     )
   }
 
@@ -94,7 +118,7 @@ class JoinSuite extends munit.FunSuite {
       import skunk.sharp.dsl.*
       val users = Table.of[JoinSuite.User]("users")
       val posts = Table.of[JoinSuite.Post]("posts")
-      users.alias("u").innerJoin(posts.alias("p")).compile
+      users.innerJoin(posts).compile
     """)
     assert(errs.nonEmpty, "expected a compile error: .on is required before .compile")
   }

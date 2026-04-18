@@ -17,7 +17,7 @@ class JoinSuite extends PgFixture {
   private val users = Table.of[User]("users").withDefault("created_at")
   private val posts = Table.of[Post]("posts").withDefault("created_at")
 
-  test("INNER JOIN round-trips users + posts") {
+  test("INNER JOIN round-trips users + posts (auto-alias)") {
     withContainers { containers =>
       session(containers).use { s =>
         val uid = UUID.randomUUID
@@ -28,11 +28,10 @@ class JoinSuite extends PgFixture {
             .compile.run(s)
           _    <- posts.insert((id = pid, user_id = uid, title = "hello")).compile.run(s)
           rows <- users
-            .alias("u")
-            .innerJoin(posts.alias("p"))
-            .on(r => r.u.id ==== r.p.user_id)
-            .select(r => (r.u.email, r.p.title))
-            .where(r => r.p.id === pid)
+            .innerJoin(posts)
+            .on(r => r.users.id ==== r.posts.user_id)
+            .select(r => (r.users.email, r.posts.title))
+            .where(r => r.posts.id === pid)
             .compile
             .run(s)
           _ = assertEquals(rows, List(("join-u@x", "hello")))
@@ -41,7 +40,7 @@ class JoinSuite extends PgFixture {
     }
   }
 
-  test("LEFT JOIN returns NULL on the right side when no match") {
+  test("LEFT JOIN returns NULL on the right side when no match (auto-alias)") {
     withContainers { containers =>
       session(containers).use { s =>
         val uid = UUID.randomUUID
@@ -49,13 +48,11 @@ class JoinSuite extends PgFixture {
           _ <- users
             .insert((id = uid, email = "solo@x", age = 40, deleted_at = Option.empty[OffsetDateTime]))
             .compile.run(s)
-          // No posts inserted for this user.
           rows <- users
-            .alias("u")
-            .leftJoin(posts.alias("p"))
-            .on(r => r.u.id ==== r.p.user_id)
-            .select(r => (r.u.email, r.p.title))
-            .where(r => r.u.id === uid)
+            .leftJoin(posts)
+            .on(r => r.users.id ==== r.posts.user_id)
+            .select(r => (r.users.email, r.posts.title))
+            .where(r => r.users.id === uid)
             .compile
             .run(s)
           _ = assertEquals(rows, List(("solo@x", Option.empty[String])))
@@ -64,7 +61,7 @@ class JoinSuite extends PgFixture {
     }
   }
 
-  test("JOIN + GROUP BY + COUNT aliased: posts per user") {
+  test("JOIN + GROUP BY + COUNT: posts per user (auto-alias)") {
     withContainers { containers =>
       session(containers).use { s =>
         val uid = UUID.randomUUID
@@ -76,15 +73,38 @@ class JoinSuite extends PgFixture {
           _    <- posts.insert((id = UUID.randomUUID, user_id = uid, title = "b")).compile.run(s)
           _    <- posts.insert((id = UUID.randomUUID, user_id = uid, title = "c")).compile.run(s)
           rows <- users
-            .alias("u")
-            .leftJoin(posts.alias("p"))
-            .on(r => r.u.id ==== r.p.user_id)
-            .select(r => (r.u.email, Pg.count(r.p.id).as("n")))
-            .where(r => r.u.id === uid)
-            .groupBy(r => r.u.email)
+            .leftJoin(posts)
+            .on(r => r.users.id ==== r.posts.user_id)
+            .select(r => (r.users.email, Pg.count(r.posts.id).as("n")))
+            .where(r => r.users.id === uid)
+            .groupBy(r => r.users.email)
             .compile
             .run(s)
           _ = assertEquals(rows, List(("many@x", 3L)))
+        } yield ()
+      }
+    }
+  }
+
+  test("explicit .alias(...) still works — end-to-end sanity") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val uid = UUID.randomUUID
+        val pid = UUID.randomUUID
+        for {
+          _ <- users
+            .insert((id = uid, email = "aliased@x", age = 22, deleted_at = Option.empty[OffsetDateTime]))
+            .compile.run(s)
+          _    <- posts.insert((id = pid, user_id = uid, title = "aliased-hello")).compile.run(s)
+          rows <- users
+            .alias("u")
+            .innerJoin(posts.alias("p"))
+            .on(r => r.u.id ==== r.p.user_id)
+            .select(r => (r.u.email, r.p.title))
+            .where(r => r.p.id === pid)
+            .compile
+            .run(s)
+          _ = assertEquals(rows, List(("aliased@x", "aliased-hello")))
         } yield ()
       }
     }
