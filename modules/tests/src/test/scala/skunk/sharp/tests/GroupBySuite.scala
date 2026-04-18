@@ -92,4 +92,44 @@ class GroupBySuite extends PgFixture {
       }
     }
   }
+
+  test("aliased aggregate round-trips: SELECT count(*) AS \"cnt\" FROM users") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        for {
+          cnt <- users.select(_ => Pg.countAll.as("cnt")).compile.unique(s)
+          _ = assert(cnt >= 0L, s"aliased count should return a non-negative value, got $cnt")
+        } yield ()
+      }
+    }
+  }
+
+  test("aliased column + aliased aggregate with GROUP BY: SELECT age AS a, count(id) AS n") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val seed = List(
+          (email = "al1@x", age = 41),
+          (email = "al2@x", age = 41),
+          (email = "al3@x", age = 42)
+        )
+        for {
+          _ <- seed.traverse_(r =>
+            users
+              .insert((id = UUID.randomUUID, email = r.email, age = r.age, deleted_at = None))
+              .compile
+              .run(s)
+          )
+          rows <- users
+            .select(u => (u.age.as("a"), Pg.count(u.id).as("n")))
+            .groupBy(u => u.age)
+            .having(u => Pg.count(u.id) >= 1L)
+            .compile
+            .run(s)
+          byAge = rows.toMap
+          _     = assert(byAge(41) >= 2L, s"age=41 should have at least 2, got ${byAge.get(41)}")
+          _     = assert(byAge(42) >= 1L, s"age=42 should have at least 1, got ${byAge.get(42)}")
+        } yield ()
+      }
+    }
+  }
 }
