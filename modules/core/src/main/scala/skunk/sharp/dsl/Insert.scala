@@ -248,7 +248,7 @@ final class OnConflictBuilder[Cols <: Tuple] private[sharp] (cmd: InsertCommand[
     f: (ColumnsView[Cols], ColumnsView[Cols]) => SetAssignment[?] | Tuple
   ): InsertCommand[Cols] = {
     val target      = ColumnsView(cmd.tableColumns)
-    val excluded    = ColumnsView.qualified(cmd.tableColumns, "excluded")
+    val excluded    = ColumnsView.qualifiedRaw(cmd.tableColumns, "excluded")
     val assignments = f(target, excluded) match {
       case sa: SetAssignment[?] => List(sa)
       case t: Tuple             => t.toList.asInstanceOf[List[SetAssignment[?]]]

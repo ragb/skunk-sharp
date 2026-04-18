@@ -484,6 +484,6 @@ final case class OrderBy(sql: String) {
 }
 
 extension [T, Null <: Boolean](col: TypedColumn[T, Null]) {
-  def asc: OrderBy  = OrderBy(s""""${col.name}" ASC""")
-  def desc: OrderBy = OrderBy(s""""${col.name}" DESC""")
+  def asc: OrderBy  = OrderBy(s"${col.sqlRef} ASC")
+  def desc: OrderBy = OrderBy(s"${col.sqlRef} DESC")
 }

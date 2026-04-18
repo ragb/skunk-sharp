@@ -23,14 +23,28 @@ object ColumnsView {
   }
 
   /**
-   * Build a [[ColumnsView]] whose columns render as `<qualifier>."colname"`. Used for the `excluded.<col>` references
-   * Postgres exposes inside `ON CONFLICT DO UPDATE` (the incoming row is visible under the `excluded` alias).
+   * Build a [[ColumnsView]] whose columns render as `"qualifier"."colname"` — double-quoted alias prefix. Use for
+   * user-provided relation aliases (`users.alias("u")` → `"u"."id"`).
    */
   def qualified[Cols <: Tuple](cols: Cols, qualifier: String): ColumnsView[Cols] = {
     val typed: Array[Any] =
       cols
         .toList
         .map(c => TypedColumn.qualified(c.asInstanceOf[Column[Any, "x", Boolean, Boolean]], qualifier))
+        .toArray[Any]
+    Tuple.fromArray(typed).asInstanceOf[ColumnsView[Cols]]
+  }
+
+  /**
+   * Same as [[qualified]] but leaves the qualifier bare (`qualifier."colname"`). Used for Postgres pseudo-tables like
+   * `excluded` in `ON CONFLICT DO UPDATE` — a quoted `"excluded"` would be interpreted as a user identifier and fail to
+   * reference the incoming-row pseudo-table.
+   */
+  def qualifiedRaw[Cols <: Tuple](cols: Cols, qualifier: String): ColumnsView[Cols] = {
+    val typed: Array[Any] =
+      cols
+        .toList
+        .map(c => TypedColumn.qualifiedRaw(c.asInstanceOf[Column[Any, "x", Boolean, Boolean]], qualifier))
         .toArray[Any]
     Tuple.fromArray(typed).asInstanceOf[ColumnsView[Cols]]
   }
