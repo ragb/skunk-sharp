@@ -2,7 +2,6 @@ package skunk.sharp.dsl
 
 import skunk.Codec
 import skunk.sharp.*
-import skunk.sharp.internal.tupleCodec
 import skunk.sharp.where.Where
 
 import scala.NamedTuple
@@ -247,11 +246,12 @@ final class IncompleteJoin[
 
   /**
    * Finalise the join predicate. The view sees every committed source's effective cols plus the pending source's
-   * *original* cols — `ON` is evaluated before `NULL`-padding happens.
+   * *original* cols — `ON` is evaluated before `NULL`-padding happens. Transitions to [[SelectBuilder]] with the
+   * pending source appended to `Ss`.
    */
   def on(
     f: OnView[Ss, CR0, AR] => Where
-  ): JoinBuilder[Tuple.Append[Ss, SourceEntry[RR, CR0, CR, AR]]] = {
+  ): SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR0, CR, AR]]] = {
     val pred  = f(buildOnView[Ss, CR0, AR](sources, pendingOriginalCols, pendingAlias))
     val entry = new SourceEntry[RR, CR0, CR, AR](
       pendingRelation,
@@ -262,212 +262,7 @@ final class IncompleteJoin[
       Some(pred)
     )
     val nextSources = (sources :* entry).asInstanceOf[Tuple.Append[Ss, SourceEntry[RR, CR0, CR, AR]]]
-    new JoinBuilder[Tuple.Append[Ss, SourceEntry[RR, CR0, CR, AR]]](nextSources)
-  }
-
-}
-
-// ---- JoinBuilder -------------------------------------------------------------------------------
-
-/**
- * The main N-source builder. State: sources committed, no projection yet. Attach more sources with `.innerJoin`,
- * `.leftJoin`, `.crossJoin`; narrow with `.where`; order with `.orderBy`; project with `.select` (→ [[ProjectedJoin]]).
- */
-final class JoinBuilder[Ss <: Tuple] private[sharp] (
-  private[sharp] val sources: Ss,
-  private[sharp] val whereOpt: Option[Where] = None,
-  private[sharp] val orderBys: List[OrderBy] = Nil,
-  private[sharp] val limitOpt: Option[Int] = None,
-  private[sharp] val offsetOpt: Option[Int] = None
-) {
-
-  private def copy(
-    whereOpt: Option[Where] = whereOpt,
-    orderBys: List[OrderBy] = orderBys,
-    limitOpt: Option[Int] = limitOpt,
-    offsetOpt: Option[Int] = offsetOpt
-  ): JoinBuilder[Ss] =
-    new JoinBuilder[Ss](sources, whereOpt, orderBys, limitOpt, offsetOpt)
-
-  private def view: JoinedView[Ss] = buildJoinedView(sources)
-
-  /** Attach another source via INNER JOIN. Transitions to [[IncompleteJoin]] — call `.on(...)` to finalise. */
-  def innerJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton](
-    next: T
-  )(using a: AsAliased.Aux[T, RR, CR, AR]): IncompleteJoin[Ss, RR, CR, CR, AR] = {
-    val ar   = a(next)
-    val cols = ar.relation.columns.asInstanceOf[CR]
-    new IncompleteJoin[Ss, RR, CR, CR, AR](sources, ar.relation, ar.alias, cols, cols, JoinKind.Inner)
-  }
-
-  /** Attach another source via LEFT JOIN. Right-side cols become nullable for subsequent `.where` / `.select`. */
-  def leftJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton](
-    next: T
-  )(using a: AsAliased.Aux[T, RR, CR, AR]): IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR] = {
-    val ar           = a(next)
-    val origCols     = ar.relation.columns.asInstanceOf[CR]
-    val effectiveCls = nullabilifyCols(origCols).asInstanceOf[NullableCols[CR]]
-    new IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR](
-      sources,
-      ar.relation,
-      ar.alias,
-      origCols,
-      effectiveCls,
-      JoinKind.Left
-    )
-  }
-
-  /**
-   * Attach another source via CROSS JOIN — no `.on(...)` required. Renders as `CROSS JOIN`; equivalent to comma-FROM
-   * in SQL, but more readable.
-   */
-  def crossJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton](
-    next: T
-  )(using a: AsAliased.Aux[T, RR, CR, AR]): JoinBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]] = {
-    val ar    = a(next)
-    val cols  = ar.relation.columns.asInstanceOf[CR]
-    val entry = new SourceEntry[RR, CR, CR, AR](ar.relation, ar.alias, cols, cols, JoinKind.Cross, None)
-    val next2 = (sources :* entry).asInstanceOf[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]]
-    new JoinBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]](next2)
-  }
-
-  def where(f: JoinedView[Ss] => Where): JoinBuilder[Ss] = {
-    val next = whereOpt.fold(f(view))(_ && f(view))
-    copy(whereOpt = Some(next))
-  }
-
-  def orderBy(f: JoinedView[Ss] => OrderBy | Tuple): JoinBuilder[Ss] = {
-    val fresh = f(view) match {
-      case ob: OrderBy => List(ob)
-      case t: Tuple    => t.toList.asInstanceOf[List[OrderBy]]
-    }
-    copy(orderBys = orderBys ++ fresh)
-  }
-
-  def limit(n: Int): JoinBuilder[Ss]  = copy(limitOpt = Some(n))
-  def offset(n: Int): JoinBuilder[Ss] = copy(offsetOpt = Some(n))
-
-  /**
-   * Projection — pick the columns / expressions to return. Single `TypedExpr[T]` → row is `T`; tuple (named or
-   * positional) → row is the projection's value tuple.
-   */
-  transparent inline def select[X](inline f: JoinedView[Ss] => X): ProjectedJoin[Ss, ProjResult[X]] = {
-    val v = view
-    f(v) match {
-      case expr: TypedExpr[?] =>
-        new ProjectedJoin[Ss, ProjResult[X]](
-          sources,
-          whereOpt,
-          groupBys = Nil,
-          havingOpt = None,
-          orderBys,
-          limitOpt,
-          offsetOpt,
-          List(expr),
-          expr.codec.asInstanceOf[Codec[ProjResult[X]]]
-        )
-      case tup: NonEmptyTuple =>
-        val exprs = tup.toList.asInstanceOf[List[TypedExpr[?]]]
-        val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ProjResult[X]]]
-        new ProjectedJoin[Ss, ProjResult[X]](
-          sources,
-          whereOpt,
-          groupBys = Nil,
-          havingOpt = None,
-          orderBys,
-          limitOpt,
-          offsetOpt,
-          exprs,
-          codec
-        )
-    }
-  }
-
-  transparent inline def apply[X](inline f: JoinedView[Ss] => X): ProjectedJoin[Ss, ProjResult[X]] = select[X](f)
-
-}
-
-// ---- ProjectedJoin -----------------------------------------------------------------------------
-
-/** Projected N-source join — post-`.select`. Terminal: `.compile` returns a [[CompiledQuery]]. */
-final class ProjectedJoin[Ss <: Tuple, Row] (
-  private[sharp] val sources: Ss,
-  private[sharp] val whereOpt: Option[Where],
-  private[sharp] val groupBys: List[TypedExpr[?]] = Nil,
-  private[sharp] val havingOpt: Option[Where] = None,
-  private[sharp] val orderBys: List[OrderBy],
-  private[sharp] val limitOpt: Option[Int],
-  private[sharp] val offsetOpt: Option[Int],
-  private[sharp] val projections: List[TypedExpr[?]],
-  private[sharp] val codec: Codec[Row]
-) {
-
-  private def view: JoinedView[Ss] = buildJoinedView(sources)
-
-  private def copy(
-    whereOpt: Option[Where] = whereOpt,
-    groupBys: List[TypedExpr[?]] = groupBys,
-    havingOpt: Option[Where] = havingOpt,
-    orderBys: List[OrderBy] = orderBys,
-    limitOpt: Option[Int] = limitOpt,
-    offsetOpt: Option[Int] = offsetOpt
-  ): ProjectedJoin[Ss, Row] =
-    new ProjectedJoin[Ss, Row](sources, whereOpt, groupBys, havingOpt, orderBys, limitOpt, offsetOpt, projections, codec)
-
-  def where(f: JoinedView[Ss] => Where): ProjectedJoin[Ss, Row] = {
-    val next = whereOpt.fold(f(view))(_ && f(view))
-    copy(whereOpt = Some(next))
-  }
-
-  def orderBy(f: JoinedView[Ss] => OrderBy | Tuple): ProjectedJoin[Ss, Row] = {
-    val fresh = f(view) match {
-      case ob: OrderBy => List(ob)
-      case t: Tuple    => t.toList.asInstanceOf[List[OrderBy]]
-    }
-    copy(orderBys = orderBys ++ fresh)
-  }
-
-  /** `GROUP BY …`. Coverage is not type-checked (Postgres will raise at runtime on misalignment). */
-  def groupBy(f: JoinedView[Ss] => TypedExpr[?] | Tuple): ProjectedJoin[Ss, Row] = {
-    val fresh = f(view) match {
-      case e: TypedExpr[?] => List(e)
-      case t: Tuple        => t.toList.asInstanceOf[List[TypedExpr[?]]]
-    }
-    copy(groupBys = groupBys ++ fresh)
-  }
-
-  /** `HAVING <predicate>`. Chains with AND. */
-  def having(f: JoinedView[Ss] => Where): ProjectedJoin[Ss, Row] = {
-    val next = havingOpt.fold(f(view))(_ && f(view))
-    copy(havingOpt = Some(next))
-  }
-
-  def limit(n: Int): ProjectedJoin[Ss, Row]  = copy(limitOpt = Some(n))
-  def offset(n: Int): ProjectedJoin[Ss, Row] = copy(offsetOpt = Some(n))
-
-  def compile: CompiledQuery[Row] = {
-    val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
-    require(entries.nonEmpty, "JoinBuilder needs at least one source")
-
-    val projList = TypedExpr.joined(projections.map(_.render), ", ")
-    val head     = entries.head
-    val headFrag = TypedExpr.raw("SELECT ") |+| projList |+| TypedExpr.raw(s" FROM ${aliasedFromEntry(head)}")
-
-    val withJoins = entries.tail.foldLeft(headFrag) { (acc, s) =>
-      val fromFrag = TypedExpr.raw(s" ${s.kind.sql} ${aliasedFromEntry(s)}")
-      s.onPredOpt.fold(acc |+| fromFrag)(p => acc |+| fromFrag |+| TypedExpr.raw(" ON ") |+| p.render)
-    }
-    val withWhere = whereOpt.fold(withJoins)(w => withJoins |+| TypedExpr.raw(" WHERE ") |+| w.render)
-    val withGroup =
-      if (groupBys.isEmpty) withWhere
-      else withWhere |+| TypedExpr.raw(" GROUP BY ") |+| TypedExpr.joined(groupBys.map(_.render), ", ")
-    val withHaving = havingOpt.fold(withGroup)(h => withGroup |+| TypedExpr.raw(" HAVING ") |+| h.render)
-    val withOrder  =
-      if (orderBys.isEmpty) withHaving
-      else withHaving |+| TypedExpr.raw(" ORDER BY " + orderBys.map(_.sql).mkString(", "))
-    val withLimit  = limitOpt.fold(withOrder)(n => withOrder |+| TypedExpr.raw(s" LIMIT $n"))
-    val withOffset = offsetOpt.fold(withLimit)(n => withLimit |+| TypedExpr.raw(s" OFFSET $n"))
-    CompiledQuery(withOffset, codec)
+    new SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR0, CR, AR]]](nextSources)
   }
 
 }
@@ -532,15 +327,15 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton](left: L
     )
   }
 
-  /** `CROSS JOIN` — no predicate required; transitions straight to a two-source [[JoinBuilder]]. */
+  /** `CROSS JOIN` — no predicate required; transitions straight to a two-source [[SelectBuilder]]. */
   def crossJoin[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton](right: R)(using
     aR: AsAliased.Aux[R, RR, CR, AR]
-  ): JoinBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR])] = {
+  ): SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR])] = {
     val baseEntry = makeBaseEntry[L, RL, CL, AL](aL, left)
     val ar        = aR(right)
     val rCols     = ar.relation.columns.asInstanceOf[CR]
     val rEntry    = new SourceEntry[RR, CR, CR, AR](ar.relation, ar.alias, rCols, rCols, JoinKind.Cross, None)
-    new JoinBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR])]((baseEntry, rEntry))
+    new SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR])]((baseEntry, rEntry))
   }
 
 }
