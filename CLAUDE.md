@@ -17,6 +17,16 @@ Compile-time-checked Postgres query DSL on top of [skunk](https://typelevel.org/
 - **skunk 1.0.0** — pulled `AppliedFragment`, `Session.Builder`, otel4s-based tracing from the latest API.
 - **The DSL is extensible by design.** Everything operators/functions produce is a `TypedExpr[T]`; third-party modules (jsonb, ltree, arrays, PostGIS, user functions) add operators by shipping `extension` methods on `TypedExpr[T]` — no core changes required. See [TypedExpr](modules/core/src/main/scala/skunk/sharp/TypedExpr.scala).
 
+## Type tags — unambiguous codec selection
+
+[`skunk.sharp.pg.tags`](modules/core/src/main/scala/skunk/sharp/pg/tags.scala) ships opaque subtype aliases (`Varchar[N]`, `Bpchar[N]`, `Text`, `Int2/4/8`, `Numeric[P, S]`) each with a `given PgTypeFor[…]`. Declaring a case-class field as `Varchar[256]` (instead of bare `String`) makes `Table.of[T]` pick `varchar(256)` without ambiguity. Tags are `<: Base`, so values flow as plain `String` / `Int` / `Long` at runtime; the tag exists only for typeclass resolution. Construct via the companion `apply` (`Varchar[256]("x")`) — we deliberately don't ship `Conversion` givens because Scala's implicit-conversion language import is intrusive.
+
+[`TableBuilder.column[T]`](modules/core/src/main/scala/skunk/sharp/TableBuilder.scala) (continuation pattern: `ColumnCont` / `OptColumnCont`) accepts a tag type and resolves the codec via `PgTypeFor[T]`. Explicit-codec `.column("name", codec)` stays — users pick per column.
+
+The iron module [bridges common constraints to core tags](modules/iron/src/main/scala/skunk/sharp/iron/package.scala): `String :| MaxLength[N]` routes to `Varchar[N]`, `String :| FixedLength[N]` to `Bpchar[N]`. Given-resolution prefers the specific bridge over the generic `refinedPgTypeFor[A, C]` fallback.
+
+The [schema validator](modules/core/src/main/scala/skunk/sharp/validation/SchemaValidator.scala) reconstructs the actual Postgres type from `data_type` + `character_maximum_length` + `numeric_precision` + `numeric_scale`, then compares to the declared `skunk.data.Type`'s `.name`. Parametric drift (declared `varchar(256)` vs DB `varchar(1024)`) is caught as a `TypeMismatch`.
+
 ## Column and table shape
 
 - [`Column[T, N <: String & Singleton, Null <: Boolean, Default <: Boolean]`](modules/core/src/main/scala/skunk/sharp/Column.scala) — phantom-typed column descriptor. Name is a singleton so match types can look it up at compile time.

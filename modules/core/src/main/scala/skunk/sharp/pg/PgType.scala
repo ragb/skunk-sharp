@@ -85,6 +85,39 @@ object PgTypes {
   def dataType(t: Type): String =
     informationSchemaDataType.getOrElse(shortName(t), shortName(t))
 
+  /** Inverse lookup: from `information_schema.columns.data_type` (verbose) back to the short skunk name. */
+  val shortFromInformationSchema: Map[String, String] =
+    informationSchemaDataType.map { case (k, v) => v -> k }
+
+  /**
+   * Reconstruct a skunk-style type name from the three columns `information_schema.columns` exposes. Used by the schema
+   * validator so parametric drift (`varchar(256)` declared vs `varchar(1024)` in the DB) is caught alongside the
+   * data-type-kind mismatch that [[dataType]] already handles.
+   *
+   * @param dt
+   *   the `data_type` string (`"character varying"`, `"numeric"`, `"integer"`, …)
+   * @param charMaxLength
+   *   `character_maximum_length` for char / varchar columns
+   * @param numericPrecision
+   *   `numeric_precision` for numeric / decimal columns
+   * @param numericScale
+   *   `numeric_scale` for numeric / decimal columns
+   */
+  def actualTypeName(
+    dt: String,
+    charMaxLength: Option[Int],
+    numericPrecision: Option[Int],
+    numericScale: Option[Int]
+  ): String = {
+    val short = shortFromInformationSchema.getOrElse(dt, dt)
+    (short, charMaxLength, numericPrecision, numericScale) match {
+      case ("varchar", Some(n), _, _)       => s"varchar($n)"
+      case ("bpchar", Some(n), _, _)        => s"bpchar($n)"
+      case ("numeric", _, Some(p), Some(s)) => s"numeric($p,$s)"
+      case _                                => short
+    }
+  }
+
   /**
    * Name to use for a SQL cast (`expr::<name>`). Defaults to the short skunk name — these are the short forms Postgres
    * itself accepts in `::` casts (`int8`, `varchar`, `timestamptz`).

@@ -26,7 +26,14 @@ import skunk.sharp.pg.PgTypes
  */
 object SchemaValidator {
 
-  private case class ColumnInfo(name: String, dataType: String, isNullable: Boolean)
+  private case class ColumnInfo(
+    name: String,
+    dataType: String,
+    isNullable: Boolean,
+    charMaxLength: Option[Int],
+    numericPrecision: Option[Int],
+    numericScale: Option[Int]
+  )
 
   private val relationKindQuery: Query[(String, String), String] =
     sql"""
@@ -38,13 +45,19 @@ object SchemaValidator {
 
   private val columnsQuery: Query[(String, String), ColumnInfo] =
     sql"""
-      SELECT column_name::text, data_type::text, is_nullable::text
+      SELECT column_name::text,
+             data_type::text,
+             is_nullable::text,
+             character_maximum_length,
+             numeric_precision,
+             numeric_scale
       FROM information_schema.columns
       WHERE table_schema = $varchar
         AND table_name = $varchar
       ORDER BY ordinal_position
-    """.query(text *: text *: text).map { case (n, dt, nullableStr) =>
-      ColumnInfo(n, dt, nullableStr.equalsIgnoreCase("YES"))
+    """.query(text *: text *: text *: int4.opt *: int4.opt *: int4.opt).map {
+      case (n, dt, nullableStr, cml, np, ns) =>
+        ColumnInfo(n, dt, nullableStr.equalsIgnoreCase("YES"), cml, np, ns)
     }
 
   /** Report-only primitive: returns every mismatch the declared relations have with the live database. */
@@ -100,10 +113,15 @@ object SchemaValidator {
         case None =>
           List(Mismatch.ColumnMissing(label, col.name))
         case Some(info) =>
-          val expectedDataType = PgTypes.dataType(col.tpe)
-          val typeIssue        =
-            Option.when(info.dataType != expectedDataType)(
-              Mismatch.TypeMismatch(label, col.name, expectedDataType, info.dataType)
+          // Reconstruct the actual column type in skunk's short form (e.g. "varchar(256)") from
+          // `data_type` + `character_maximum_length` / numeric precision / scale. Compare to the declared
+          // `skunk.data.Type`'s name, which already carries parameters for parametric types.
+          val expected = col.tpe.name
+          val actual   =
+            PgTypes.actualTypeName(info.dataType, info.charMaxLength, info.numericPrecision, info.numericScale)
+          val typeIssue =
+            Option.when(expected != actual)(
+              Mismatch.TypeMismatch(label, col.name, expected, actual)
             )
           val nullIssue =
             Option.when(!skipNullability && info.isNullable != col.isNullable)(

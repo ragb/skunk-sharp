@@ -10,3 +10,4 @@ target/
 *.log
 project/project/
 project/target/
+project/metals.sbt
