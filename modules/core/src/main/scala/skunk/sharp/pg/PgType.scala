@@ -14,10 +14,25 @@ import skunk.data.Type
 object PgTypes {
 
   /**
-   * Skunk `Type` for a codec. `Codec.types` is always non-empty for the primitives we care about; fall back to a
-   * placeholder with the empty name when it is not.
+   * Skunk `Type` for a codec. Skunk's `Codec.types: List[Type]` is a list because a codec can span multiple database
+   * columns — twiddled / product codecs like `int4 ~ text` or `a *: b *: c` concatenate their types. `Column` in our
+   * DSL models exactly one DB column, so we require a single-column codec here and fail fast if the caller hands us a
+   * multi-column one (the tail types would otherwise be silently dropped).
    */
-  def typeOf(c: skunk.Codec[?]): Type = c.types.headOption.getOrElse(Type(""))
+  def typeOf(c: skunk.Codec[?]): Type = c.types match {
+    case one :: Nil => one
+    case Nil        =>
+      throw new IllegalArgumentException(
+        "skunk-sharp: codec has no skunk.data.Type — cannot be used as a single-column codec."
+      )
+    case more =>
+      throw new IllegalArgumentException(
+        s"skunk-sharp: expected a single-column codec, got one with ${more.size} types: " +
+          more.map(_.name).mkString("[", ", ", "]") +
+          ". Tuple/product codecs (a ~ b, a *: b *: c) span multiple DB columns; pass one column at a time to " +
+          "Table.builder.column."
+      )
+  }
 
   /** Short type name (no parameters) — `"varchar"` for `varchar(256)`, `"numeric"` for `numeric(10,2)`. */
   def shortName(t: Type): String = {
