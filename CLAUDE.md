@@ -50,7 +50,9 @@ All under [modules/core/src/main/scala/skunk/sharp/dsl/](modules/core/src/main/s
   - `empty.select(_ => Pg.now)` — FROM-less via the special `empty: Relation[EmptyTuple]` singleton. Its `hasFromClause` is `false`, so the compiler elides the `FROM` clause.
   - `.distinctRows` renders `SELECT DISTINCT …`.
 - `Insert.scala` — INSERT is an extension on `Table` only (views reject at compile time).
-  - `users.insert(row)` single or `users.insert.values(r1, r2, …)` / `.values(iterable)` batch.
+  - `users.insert(row)` — `row` is any named tuple whose field names are a subset of the table's columns. The subset must cover every required (non-defaulted) column; omitted `.withDefault`ed columns are filled in by Postgres (sequence PKs, `DEFAULT now()` timestamps, …). Three compile-time checks: all names exist (`AllNamesInCols`), all required are present (`CoversRequired`), and each value's type matches the column's declared Scala type.
+  - `users.insert.values(rows)` — batch; `rows` is any `cats.Reducible` (`NonEmptyList`, `NonEmptyVector`, `NonEmptyChain`, `NonEmptySeq`, …). "At least one row" is a type-level guarantee.
+  - The varargs `.values(r, more*)` is sugar for the single- or multi-row case when you already have the rows spelled out.
   - `.returning(c => c.id)` / `.returningTuple(…)` / `.returningAll` — append `RETURNING`.
   - `.onConflictDoNothing` / `.onConflict(c => c.id).doNothing` / `.onConflict(c => c.id).doUpdate(c => (c.email := "x"))`.
   - `.onConflict(c => c.id).doUpdateFromExcluded((t, ex) => (t.email := ex.email))` — access the incoming row via Postgres's `excluded.<col>` pseudo-table. [`TypedColumn.qualified`](modules/core/src/main/scala/skunk/sharp/TypedColumn.scala) and [`ColumnsView.qualified`](modules/core/src/main/scala/skunk/sharp/ColumnsView.scala) produce columns rendered with an arbitrary prefix.
@@ -96,15 +98,13 @@ features first and revisit assembly strategy once the DSL surface stabilises.
 
 ## Planned roadmap (v0.1+)
 
-1. Subset-named-tuple INSERT (omit defaulted columns automatically, using the `Default` phantom). Needs compile-time walking of the input named tuple's labels, verifying the subset is a superset of the required columns, and emitting an INSERT with only the listed columns.
-2. `RETURNING` on UPDATE/DELETE (INSERT is done — `.returning` / `.returningTuple`).
-3. Multi-source SELECT for JOINs — `Select.from(a, b)` producing a two-source builder; gradual rollout (INNER → LEFT/RIGHT → FULL).
-4. `GROUP BY` / `HAVING` / `DISTINCT`.
-5. Subqueries (scalar + `IN`/`EXISTS`).
-6. Window functions (`OVER (…)`).
-7. ORDER BY `NULLS FIRST / LAST`.
-8. Companion modules:
+1. Multi-source SELECT for JOINs — `Select.from(a, b)` producing a two-source builder; gradual rollout (INNER → LEFT/RIGHT → FULL).
+2. `GROUP BY` / `HAVING`.
+3. Subqueries (scalar + `IN`/`EXISTS`).
+4. Window functions (`OVER (…)`).
+5. ORDER BY `NULLS FIRST / LAST`.
+6. Companion modules:
    - `skunk-sharp-json` — **based on skunk-circe**, covering `json` and `jsonb` columns with typed operators (`->`, `->>`, `@>`, `?`, …).
    - `skunk-sharp-refined` — companion to `skunk-sharp-iron`, using [eu.timepit.refined](https://github.com/fthomas/refined) for users on the pre-Iron stack.
    - `skunk-sharp-ltree`, `skunk-sharp-arrays`, `skunk-sharp-fts` (full-text search), and eventually PostGIS via `skunk-sharp-postgis`.
-9. Docs site via `sbt-typelevel-site` (Laika) with [**mdoc**](https://scalameta.org/mdoc/) — mdoc is the Typelevel-ecosystem replacement for the old `tut` tool; it type-checks every Scala snippet in the markdown against the live library, so examples can't rot. Published to GitHub Pages via the plugin.
+7. Docs site via `sbt-typelevel-site` (Laika) with [**mdoc**](https://scalameta.org/mdoc/) — mdoc is the Typelevel-ecosystem replacement for the old `tut` tool; it type-checks every Scala snippet in the markdown against the live library, so examples can't rot. Published to GitHub Pages via the plugin.

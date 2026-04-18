@@ -1,36 +1,64 @@
 package skunk.sharp.dsl
 
+import cats.Reducible
 import skunk.{AppliedFragment, Codec, Fragment, Session}
 import skunk.sharp.*
-import skunk.sharp.internal.{rowCodec, tupleCodec}
+import skunk.sharp.internal.{rowCodec, tupleCodec, CompileChecks}
 import skunk.util.Origin
+
+import scala.NamedTuple
+import scala.compiletime.constValueTuple
 
 /**
  * INSERT builder.
  *
- *   - `insert.into(users)(row)` — single-row insert.
- *   - `insert.into(users).values(r1, r2, r3)` / `.values(iterable)` — batch insert.
+ *   - `users.insert(row)` — single-row insert. `row` is any named tuple whose fields are a subset of the table's
+ *     columns; the subset must cover every required (non-defaulted) column. Columns marked via `.withDefault("id")`
+ *     (sequence PKs, `now()`-backed timestamps, …) may be omitted and the database fills them in.
+ *   - `users.insert.values(r1, r2, r3)` — batch insert; all rows share one `INSERT INTO … VALUES (…), (…)` statement
+ *     and must share the same named-tuple shape.
  *   - `.returning(c => c.id)` / `.returningTuple(…)` / `.returningAll` — Postgres `RETURNING`.
- *   - `.onConflictDoNothing` / `.onConflict(c => c.id).doNothing` — skip-on-conflict.
- *   - `.onConflict(c => c.id).doUpdate(c => (c.email := "new", c.age := 42))` — upsert.
- *
- * Future (v0.1+): subset named tuple (omit defaulted columns automatically), `excluded.<col>` references inside
- * `DO UPDATE SET` right-hand sides (Postgres's way of referencing the incoming row in the conflict resolution).
+ *   - `.onConflictDoNothing` / `.onConflict(c => c.id).doNothing` / `.doUpdate(…)` / `.doUpdateFromExcluded(…)` —
+ *     upsert.
  */
 final class InsertBuilder[Cols <: Tuple] private[sharp] (table: Table[Cols]) {
 
-  /** Insert a single row. `row` is a named tuple matching the table's declared shape. */
-  def apply(row: NamedRowOf[Cols]): InsertCommand[Cols] =
-    InsertCommand(table, List(row), OnConflict.None)
+  /**
+   * Insert a single row. `row` is any named tuple whose field names are a subset of the table's columns and whose
+   * values have the column-declared Scala types. The subset must cover every required column (those without
+   * `.withDefault`). Omitted defaulted columns are filled in by Postgres.
+   */
+  inline def apply[R <: NamedTuple.AnyNamedTuple](row: R): InsertCommand[Cols] = {
+    CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[R]]
+    CompileChecks.requireCoversRequired[Cols, NamedTuple.Names[R]]
+    CompileChecks.requireValueTypesMatch[Cols, NamedTuple.Names[R], NamedTuple.DropNames[R]]
+    val names = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
+    val vs    = row.asInstanceOf[Tuple].toList
+    InsertCommand.build(table, names, List(vs), OnConflict.None)
+  }
 
-  /** Batch insert. All rows share one `INSERT INTO … VALUES (…), (…)` statement. */
-  def values(row: NamedRowOf[Cols], more: NamedRowOf[Cols]*): InsertCommand[Cols] =
-    InsertCommand(table, row :: more.toList, OnConflict.None)
+  /** Batch insert. All rows share the same named-tuple shape; picks the same subset of columns for every row. */
+  inline def values[R <: NamedTuple.AnyNamedTuple](row: R, more: R*): InsertCommand[Cols] = {
+    CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[R]]
+    CompileChecks.requireCoversRequired[Cols, NamedTuple.Names[R]]
+    CompileChecks.requireValueTypesMatch[Cols, NamedTuple.Names[R], NamedTuple.DropNames[R]]
+    val names = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
+    val rows  = (row :: more.toList).map(_.asInstanceOf[Tuple].toList)
+    InsertCommand.build(table, names, rows, OnConflict.None)
+  }
 
-  /** Bulk-from-collection variant. Empty input is rejected at runtime. */
-  def values(rows: Iterable[NamedRowOf[Cols]]): InsertCommand[Cols] = {
-    require(rows.nonEmpty, "insert.values needs at least one row")
-    InsertCommand(table, rows.toList, OnConflict.None)
+  /**
+   * Bulk-from-container variant — works with any cats `Reducible` (`NonEmptyList`, `NonEmptyVector`, `NonEmptyChain`,
+   * `NonEmptySeq`, …). `Reducible` is cats's typeclass for non-empty foldable structures, so the "at least one row"
+   * guarantee is enforced at the type level; no runtime check needed.
+   */
+  inline def values[F[_]: Reducible, R <: NamedTuple.AnyNamedTuple](rows: F[R]): InsertCommand[Cols] = {
+    CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[R]]
+    CompileChecks.requireCoversRequired[Cols, NamedTuple.Names[R]]
+    CompileChecks.requireValueTypesMatch[Cols, NamedTuple.Names[R], NamedTuple.DropNames[R]]
+    val names = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
+    val rs    = Reducible[F].toNonEmptyList(rows).toList.map(_.asInstanceOf[Tuple].toList)
+    InsertCommand.build(table, names, rs, OnConflict.None)
   }
 
 }
@@ -54,9 +82,10 @@ object OnConflict {
 }
 
 final class InsertCommand[Cols <: Tuple] private[sharp] (
-  table: Table[Cols],
-  rows: List[NamedRowOf[Cols]],
-  conflict: OnConflict
+  private[sharp] val table: Table[Cols],
+  private[sharp] val projected: List[Column[?, ?, ?, ?]],
+  private[sharp] val rows: List[List[Any]],
+  private[sharp] val conflict: OnConflict
 ) {
 
   /**
@@ -64,15 +93,15 @@ final class InsertCommand[Cols <: Tuple] private[sharp] (
    * when more than one row is present, plus any `ON CONFLICT` clause.
    */
   def compile: AppliedFragment = {
-    val cols                              = table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
-    val projections                       = cols.map(c => s""""${c.name}"""").mkString(", ")
-    val perRow                            = rowCodec(table.columns)
-    val rowFrag: Fragment[ValuesOf[Cols]] = Fragment(
-      parts = List(Left("("), Right(perRow.sql), Left(")")),
-      encoder = perRow,
+    val projections              = projected.map(c => s""""${c.name}"""").mkString(", ")
+    val perRow: Codec[Tuple]     = tupleCodec(projected.map(_.codec))
+    val rowEnc                   = perRow.values
+    val rowFrag: Fragment[Tuple] = Fragment(
+      parts = List(Right(rowEnc.sql)),
+      encoder = rowEnc,
       origin = Origin.unknown
     )
-    val rowsApplied = rows.map(r => rowFrag(r.asInstanceOf[ValuesOf[Cols]]))
+    val rowsApplied = rows.map(r => rowFrag(Tuple.fromArray(r.toArray[Any])))
     val header      = TypedExpr.raw(s"INSERT INTO ${table.qualifiedName} ($projections) VALUES ")
     val withValues  = header |+| TypedExpr.joined(rowsApplied, ", ")
     withValues |+| conflictFragment
@@ -89,7 +118,7 @@ final class InsertCommand[Cols <: Tuple] private[sharp] (
   def returning[T](f: ColumnsView[Cols] => TypedExpr[T]): InsertReturning[Cols, T] = {
     val view = ColumnsView(table.columns)
     val expr = f(view)
-    new InsertReturning[Cols, T](table, rows, conflict, List(expr), expr.codec)
+    new InsertReturning[Cols, T](this, List(expr), expr.codec)
   }
 
   /** Append a `RETURNING <e1>, <e2>, …` clause — multi-value return. */
@@ -97,7 +126,7 @@ final class InsertCommand[Cols <: Tuple] private[sharp] (
     val view  = ColumnsView(table.columns)
     val exprs = f(view).toList.asInstanceOf[List[TypedExpr[?]]]
     val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
-    new InsertReturning[Cols, ExprOutputs[T]](table, rows, conflict, exprs, codec)
+    new InsertReturning[Cols, ExprOutputs[T]](this, exprs, codec)
   }
 
   /** Append `RETURNING <all columns>` — the whole row, same shape as the table's default named-tuple projection. */
@@ -107,14 +136,13 @@ final class InsertCommand[Cols <: Tuple] private[sharp] (
         TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Boolean]])
       )
     val codec = rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
-    new InsertReturning[Cols, NamedRowOf[Cols]](table, rows, conflict, exprs, codec)
+    new InsertReturning[Cols, NamedRowOf[Cols]](this, exprs, codec)
   }
 
   // ---- ON CONFLICT ----
 
   /** `ON CONFLICT DO NOTHING` — no target, any conflict is silently skipped. */
-  def onConflictDoNothing: InsertCommand[Cols] =
-    new InsertCommand[Cols](table, rows, OnConflict.DoNothing)
+  def onConflictDoNothing: InsertCommand[Cols] = withConflict(OnConflict.DoNothing)
 
   /**
    * Start a targeted `ON CONFLICT (col …) …` clause. Pick columns via the usual lambda. Pass a single column or a tuple
@@ -141,9 +169,32 @@ final class InsertCommand[Cols <: Tuple] private[sharp] (
     }
 
   private[sharp] def withConflict(c: OnConflict): InsertCommand[Cols] =
-    new InsertCommand[Cols](table, rows, c)
+    new InsertCommand[Cols](table, projected, rows, c)
 
   private[sharp] def tableColumns: Cols = table.columns
+}
+
+object InsertCommand {
+
+  /**
+   * Runtime builder used by [[InsertBuilder]]: looks up the projected columns by name from the table and constructs the
+   * command. Names and value lists are parallel arrays — `names(i)` is the column name for `rows(r)(i)`.
+   */
+  private[sharp] def build[Cols <: Tuple](
+    table: Table[Cols],
+    names: List[String],
+    rows: List[List[Any]],
+    conflict: OnConflict
+  ): InsertCommand[Cols] = {
+    val allCols = table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
+    val proj    = names.map(n =>
+      allCols.find(_.name == n).getOrElse(
+        sys.error(s"skunk-sharp: column $n passed compile check but not found at runtime in ${table.name}")
+      )
+    )
+    new InsertCommand[Cols](table, proj, rows, conflict)
+  }
+
 }
 
 /** Continuation after `.onConflict(col)` — choose `.doNothing` or `.doUpdate(…)`. */
@@ -185,29 +236,14 @@ final class OnConflictBuilder[Cols <: Tuple] private[sharp] (cmd: InsertCommand[
 
 /** INSERT with a `RETURNING` clause. `R` is the returned row shape (single value or tuple). */
 final class InsertReturning[Cols <: Tuple, R] private[sharp] (
-  table: Table[Cols],
-  rows: List[NamedRowOf[Cols]],
-  conflict: OnConflict,
+  cmd: InsertCommand[Cols],
   returning: List[TypedExpr[?]],
   returnCodec: Codec[R]
 ) {
 
   def compile: (AppliedFragment, Codec[R]) = {
-    val cols                              = table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
-    val projections                       = cols.map(c => s""""${c.name}"""").mkString(", ")
-    val perRow                            = rowCodec(table.columns)
-    val returningList                     = TypedExpr.joined(returning.map(_.render), ", ")
-    val rowFrag: Fragment[ValuesOf[Cols]] = Fragment(
-      parts = List(Left("("), Right(perRow.sql), Left(")")),
-      encoder = perRow,
-      origin = Origin.unknown
-    )
-    val rowsApplied  = rows.map(r => rowFrag(r.asInstanceOf[ValuesOf[Cols]]))
-    val header       = TypedExpr.raw(s"INSERT INTO ${table.qualifiedName} ($projections) VALUES ")
-    val conflictFrag = new InsertCommand[Cols](table, rows, conflict).conflictFragment
-    val applied      =
-      header |+| TypedExpr.joined(rowsApplied, ", ") |+| conflictFrag |+|
-        TypedExpr.raw(" RETURNING ") |+| returningList
+    val returningList = TypedExpr.joined(returning.map(_.render), ", ")
+    val applied       = cmd.compile |+| TypedExpr.raw(" RETURNING ") |+| returningList
     (applied, returnCodec)
   }
 

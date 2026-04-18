@@ -1,5 +1,6 @@
 package skunk.sharp.dsl
 
+import cats.data.{NonEmptyList, NonEmptyVector}
 import skunk.sharp.dsl.*
 
 import java.time.OffsetDateTime
@@ -107,6 +108,71 @@ class InsertSuite extends munit.FunSuite {
     assertEquals(
       af.fragment.sql,
       """INSERT INTO "tasks" ("id", "title", "priority", "due") VALUES ($1, $2, $3, $4) ON CONFLICT ("id") DO UPDATE SET "title" = $5, "priority" = $6"""
+    )
+  }
+
+  test("insert can omit defaulted columns (sequence PK / NOW() timestamp)") {
+    val tasksWithDefaults = tasks.withDefault("id").withDefault("due")
+    val af                = tasksWithDefaults
+      .insert((title = "x", priority = 1))
+      .compile
+
+    assertEquals(
+      af.fragment.sql,
+      """INSERT INTO "tasks" ("title", "priority") VALUES ($1, $2)"""
+    )
+  }
+
+  test("insert rejects a subset that omits a required (non-defaulted) column at compile time") {
+    val err = compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import java.util.UUID
+      val tasks = Table.of[InsertSuite.Task]("tasks")
+      tasks.insert((id = UUID.randomUUID))
+    """)
+    assert(err.nonEmpty, "expected a compile error for missing required columns")
+    assert(
+      err.exists(_.message.contains("missing required column")),
+      s"error message should name the missing column, got: ${err.map(_.message)}"
+    )
+  }
+
+  test("insert rejects unknown column names at compile time") {
+    val err = compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import java.util.UUID
+      val tasks = Table.of[InsertSuite.Task]("tasks")
+      tasks.insert((id = UUID.randomUUID, title = "x", priority = 1, due = None, bogus = "nope"))
+    """)
+    assert(err.nonEmpty, "expected a compile error for unknown column")
+    assert(
+      err.exists(_.message.contains("bogus")),
+      s"error message should name the bogus column, got: ${err.map(_.message)}"
+    )
+  }
+
+  test("insert.values takes a cats.Reducible (NonEmptyList)") {
+    val rows = NonEmptyList.of(
+      (id = UUID.randomUUID, title = "a", priority = 1, due = Option.empty[OffsetDateTime]),
+      (id = UUID.randomUUID, title = "b", priority = 2, due = Option.empty[OffsetDateTime])
+    )
+    val af = tasks.insert.values(rows).compile
+
+    assertEquals(
+      af.fragment.sql,
+      """INSERT INTO "tasks" ("id", "title", "priority", "due") VALUES ($1, $2, $3, $4), ($5, $6, $7, $8)"""
+    )
+  }
+
+  test("insert.values takes a cats.Reducible (NonEmptyVector)") {
+    val rows = NonEmptyVector.of(
+      (id = UUID.randomUUID, title = "a", priority = 1, due = Option.empty[OffsetDateTime])
+    )
+    val af = tasks.insert.values(rows).compile
+
+    assertEquals(
+      af.fragment.sql,
+      """INSERT INTO "tasks" ("id", "title", "priority", "due") VALUES ($1, $2, $3, $4)"""
     )
   }
 
