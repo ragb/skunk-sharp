@@ -16,30 +16,27 @@ import scala.deriving.Mirror
  * can pass skunk's ready-made codecs (which extend `Decoder`) without wrapping — only the decoder side is ever used at
  * runtime.
  */
-final case class View[Cols <: Tuple](
-  name: String,
+final case class View[Cols <: Tuple, Name <: String & Singleton](
+  name: Name,
   schema: Option[String],
   columns: Cols
 ) extends Relation[Cols] {
 
-  /** Path-dependent singleton of the view's name, used by JOIN extensions as the default alias. */
-  type Name = name.type
-
   val expectedTableType: String = "VIEW"
 
   /** Place the view in a non-default schema. */
-  def inSchema(s: String): View[Cols] = copy(schema = Some(s))
+  def inSchema(s: String): View[Cols, Name] = copy(schema = Some(s))
 
   /** Primitive column-metadata rewrite (parallel to [[Table.withColumn]]). */
   inline def withColumn[N <: String & Singleton](inline n: N)(
     f: Column[Any, N, Boolean, Boolean] => Column[Any, N, Boolean, Boolean]
-  ): View[Cols] = {
+  ): View[Cols, Name] = {
     skunk.sharp.internal.CompileChecks.requireColumn[Cols, N]
     copy(columns = Table.updateCol[Cols, N](columns, n, f).asInstanceOf[Cols])
   }
 
   /** Override a column's skunk codec (parallel to [[Table.withColumnCodec]]). `tpe` is read from the codec. */
-  inline def withColumnCodec[N <: String & Singleton, T](inline n: N, codec: Codec[T]): View[Cols] =
+  inline def withColumnCodec[N <: String & Singleton, T](inline n: N, codec: Codec[T]): View[Cols, Name] =
     withColumn(n)(c => c.copy(tpe = PgTypes.typeOf(codec), codec = codec.asInstanceOf[skunk.Codec[Any]]))
 
 }
@@ -47,29 +44,36 @@ final case class View[Cols <: Tuple](
 object View {
 
   /** Entry point for the column-by-column view builder. */
-  def builder(name: String): ViewBuilder[EmptyTuple] =
-    new ViewBuilder[EmptyTuple](name, None, EmptyTuple)
+  inline def builder[Name <: String & Singleton](name: Name): ViewBuilder[EmptyTuple, Name] =
+    new ViewBuilder[EmptyTuple, Name](name, None, EmptyTuple)
 
   /**
    * Derive a [[View]] from a case class — quick-start path using default `PgTypeFor` per field. See the caveats on
    * [[Table.of]] about ambiguous defaults; prefer the builder for anything non-trivial.
+   *
+   * Uses the continuation pattern (see [[Table.of]]) so `View.of[T]("name")` can infer the name singleton after `T` is
+   * given explicitly.
    */
-  inline def of[T <: Product](viewName: String)(using
-    m: Mirror.ProductOf[T]
-  ): View[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes]] = {
-    val cols = deriveColumns[m.MirroredElemLabels, m.MirroredElemTypes]
-    View[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes]](
-      viewName,
-      None,
-      cols.asInstanceOf[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes]]
-    )
+  inline def of[T <: Product]: OfCont[T] = new OfCont[T]
+
+  final class OfCont[T <: Product] {
+    inline def apply[Name <: String & Singleton](viewName: Name)(using
+      m: Mirror.ProductOf[T]
+    ): View[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes], Name] = {
+      val cols = deriveColumns[m.MirroredElemLabels, m.MirroredElemTypes]
+      View[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes], Name](
+        viewName,
+        None,
+        cols.asInstanceOf[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes]]
+      )
+    }
   }
 
 }
 
 /** Column-by-column [[View]] builder — codec-first, parallel to [[TableBuilder]] minus the mutation-facing knobs. */
-final class ViewBuilder[Cols <: Tuple](
-  val name: String,
+final class ViewBuilder[Cols <: Tuple, Name <: String & Singleton](
+  val name: Name,
   val schema: Option[String],
   val columns: Cols
 ) {
@@ -78,7 +82,7 @@ final class ViewBuilder[Cols <: Tuple](
   inline def column[T, N <: String & Singleton](
     n: N,
     codec: Codec[T]
-  ): ViewBuilder[Tuple.Append[Cols, Column[T, N, false, false]]] = {
+  ): ViewBuilder[Tuple.Append[Cols, Column[T, N, false, false]], Name] = {
     val col = Column[T, N, false, false](
       name = n,
       tpe = PgTypes.typeOf(codec),
@@ -93,7 +97,7 @@ final class ViewBuilder[Cols <: Tuple](
   inline def columnOpt[T, N <: String & Singleton](
     n: N,
     codec: Codec[T]
-  ): ViewBuilder[Tuple.Append[Cols, Column[Option[T], N, true, false]]] = {
+  ): ViewBuilder[Tuple.Append[Cols, Column[Option[T], N, true, false]], Name] = {
     val col = Column[Option[T], N, true, false](
       name = n,
       tpe = PgTypes.typeOf(codec),
@@ -108,7 +112,7 @@ final class ViewBuilder[Cols <: Tuple](
     )
   }
 
-  def inSchema(s: String): ViewBuilder[Cols] = new ViewBuilder[Cols](name, Some(s), columns)
+  def inSchema(s: String): ViewBuilder[Cols, Name] = new ViewBuilder[Cols, Name](name, Some(s), columns)
 
-  def build: View[Cols] = View[Cols](name, schema, columns)
+  def build: View[Cols, Name] = View[Cols, Name](name, schema, columns)
 }

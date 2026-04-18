@@ -21,10 +21,10 @@ package skunk.sharp
 package object dsl {
 
   // ---- Types ----
-  type Table[Cols <: Tuple] = skunk.sharp.Table[Cols]
+  type Table[Cols <: Tuple, Name <: String & Singleton] = skunk.sharp.Table[Cols, Name]
   val Table: skunk.sharp.Table.type = skunk.sharp.Table
 
-  type View[Cols <: Tuple] = skunk.sharp.View[Cols]
+  type View[Cols <: Tuple, Name <: String & Singleton] = skunk.sharp.View[Cols, Name]
   val View: skunk.sharp.View.type = skunk.sharp.View
 
   type Relation[Cols <: Tuple] = skunk.sharp.Relation[Cols]

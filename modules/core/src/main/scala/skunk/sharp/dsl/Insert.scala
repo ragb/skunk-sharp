@@ -22,7 +22,7 @@ import scala.deriving.Mirror
  *   - `.onConflictDoNothing` / `.onConflict(c => c.id).doNothing` / `.doUpdate(…)` / `.doUpdateFromExcluded(…)` —
  *     upsert.
  */
-final class InsertBuilder[Cols <: Tuple] private[sharp] (table: Table[Cols]) {
+final class InsertBuilder[Cols <: Tuple] private[sharp] (table: Table[Cols, ?]) {
 
   /**
    * Insert a single row. `row` is any named tuple whose field names are a subset of the table's columns and whose
@@ -111,7 +111,7 @@ object OnConflict {
 }
 
 final class InsertCommand[Cols <: Tuple] private[sharp] (
-  private[sharp] val table: Table[Cols],
+  private[sharp] val table: Table[Cols, ?],
   private[sharp] val projected: List[Column[?, ?, ?, ?]],
   private[sharp] val rows: List[List[Any]],
   private[sharp] val conflict: OnConflict
@@ -205,7 +205,7 @@ object InsertCommand {
    * command. Names and value lists are parallel arrays — `names(i)` is the column name for `rows(r)(i)`.
    */
   private[sharp] def build[Cols <: Tuple](
-    table: Table[Cols],
+    table: Table[Cols, ?],
     names: List[String],
     rows: List[List[Any]],
     conflict: OnConflict
@@ -274,6 +274,6 @@ final class InsertReturning[Cols <: Tuple, R] private[sharp] (
 }
 
 /** INSERT entry point lives on [[Table]] (views reject at compile time). */
-extension [Cols <: Tuple](table: Table[Cols]) {
+extension [Cols <: Tuple, Name <: String & Singleton](table: Table[Cols, Name]) {
   def insert: InsertBuilder[Cols] = new InsertBuilder[Cols](table)
 }

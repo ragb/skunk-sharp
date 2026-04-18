@@ -22,7 +22,7 @@ import skunk.sharp.where.Where
  *   users.delete.deleteAll.run(session)   // explicit opt-in for "drop everything"
  * }}}
  */
-final class DeleteBuilder[Cols <: Tuple] private[sharp] (table: Table[Cols]) {
+final class DeleteBuilder[Cols <: Tuple] private[sharp] (table: Table[Cols, ?]) {
 
   /** Narrow with a WHERE clause. Transitions to [[DeleteReady]]. */
   def where(f: ColumnsView[Cols] => Where): DeleteReady[Cols] = {
@@ -38,7 +38,7 @@ final class DeleteBuilder[Cols <: Tuple] private[sharp] (table: Table[Cols]) {
 
 /** DELETE in a runnable state: WHERE clause committed (or `.deleteAll` explicitly called). */
 final class DeleteReady[Cols <: Tuple] private[sharp] (
-  table: Table[Cols],
+  table: Table[Cols, ?],
   whereOpt: Option[Where]
 ) {
 
@@ -84,6 +84,6 @@ final class DeleteReady[Cols <: Tuple] private[sharp] (
 }
 
 /** DELETE entry point lives on [[Table]] (views reject at compile time). `users.delete.where(…)`. */
-extension [Cols <: Tuple](table: Table[Cols]) {
+extension [Cols <: Tuple, Name <: String & Singleton](table: Table[Cols, Name]) {
   def delete: DeleteBuilder[Cols] = new DeleteBuilder[Cols](table)
 }

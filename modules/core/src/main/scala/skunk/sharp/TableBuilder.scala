@@ -24,8 +24,8 @@ import skunk.sharp.pg.{PgTypeFor, PgTypes}
  *     .build
  * }}}
  */
-final class TableBuilder[Cols <: Tuple](
-  val name: String,
+final class TableBuilder[Cols <: Tuple, Name <: String & Singleton](
+  val name: Name,
   val schema: Option[String],
   val columns: Cols
 ) {
@@ -36,7 +36,7 @@ final class TableBuilder[Cols <: Tuple](
     codec: Codec[T],
     primary: Boolean = false,
     unique: Boolean = false
-  ): TableBuilder[Tuple.Append[Cols, Column[T, N, false, false]]] =
+  ): TableBuilder[Tuple.Append[Cols, Column[T, N, false, false]], Name] =
     appendCol(n, codec, isNullable = false, hasDefault = false, primary, unique)
 
   /**
@@ -46,8 +46,8 @@ final class TableBuilder[Cols <: Tuple](
    * Uses the continuation pattern so Scala can infer the column-name singleton from the first call-site argument after
    * the type argument is given explicitly.
    */
-  inline def column[T](using pf: PgTypeFor[T]): TableBuilder.ColumnCont[T, Cols, false, false] =
-    new TableBuilder.ColumnCont[T, Cols, false, false](this, pf.codec, isNullable = false, hasDefault = false)
+  inline def column[T](using pf: PgTypeFor[T]): TableBuilder.ColumnCont[T, Cols, Name, false, false] =
+    new TableBuilder.ColumnCont[T, Cols, Name, false, false](this, pf.codec, isNullable = false, hasDefault = false)
 
   /** Non-nullable column with a database-side default, explicit codec. */
   inline def columnDefaulted[T, N <: String & Singleton](
@@ -55,12 +55,12 @@ final class TableBuilder[Cols <: Tuple](
     codec: Codec[T],
     primary: Boolean = false,
     unique: Boolean = false
-  ): TableBuilder[Tuple.Append[Cols, Column[T, N, false, true]]] =
+  ): TableBuilder[Tuple.Append[Cols, Column[T, N, false, true]], Name] =
     appendCol(n, codec, isNullable = false, hasDefault = true, primary, unique)
 
   /** Non-nullable column with a database-side default, inferred codec. */
-  inline def columnDefaulted[T](using pf: PgTypeFor[T]): TableBuilder.ColumnCont[T, Cols, false, true] =
-    new TableBuilder.ColumnCont[T, Cols, false, true](this, pf.codec, isNullable = false, hasDefault = true)
+  inline def columnDefaulted[T](using pf: PgTypeFor[T]): TableBuilder.ColumnCont[T, Cols, Name, false, true] =
+    new TableBuilder.ColumnCont[T, Cols, Name, false, true](this, pf.codec, isNullable = false, hasDefault = true)
 
   /**
    * Nullable column, explicit codec. Codec is wrapped with `.opt` internally — pass `Codec[T]`, not `Codec[Option[T]]`.
@@ -69,31 +69,31 @@ final class TableBuilder[Cols <: Tuple](
     n: N,
     codec: Codec[T],
     unique: Boolean = false
-  ): TableBuilder[Tuple.Append[Cols, Column[Option[T], N, true, false]]] =
+  ): TableBuilder[Tuple.Append[Cols, Column[Option[T], N, true, false]], Name] =
     appendOptCol(n, codec, hasDefault = false, unique)
 
   /** Nullable column, inferred codec. The inferred codec is wrapped with `.opt` internally. */
-  inline def columnOpt[T](using pf: PgTypeFor[T]): TableBuilder.OptColumnCont[T, Cols, false] =
-    new TableBuilder.OptColumnCont[T, Cols, false](this, pf.codec, hasDefault = false)
+  inline def columnOpt[T](using pf: PgTypeFor[T]): TableBuilder.OptColumnCont[T, Cols, Name, false] =
+    new TableBuilder.OptColumnCont[T, Cols, Name, false](this, pf.codec, hasDefault = false)
 
   /** Nullable column with a database-side default, explicit codec. */
   inline def columnOptDefaulted[T, N <: String & Singleton](
     n: N,
     codec: Codec[T],
     unique: Boolean = false
-  ): TableBuilder[Tuple.Append[Cols, Column[Option[T], N, true, true]]] =
+  ): TableBuilder[Tuple.Append[Cols, Column[Option[T], N, true, true]], Name] =
     appendOptCol(n, codec, hasDefault = true, unique)
 
   /** Nullable column with a database-side default, inferred codec. */
-  inline def columnOptDefaulted[T](using pf: PgTypeFor[T]): TableBuilder.OptColumnCont[T, Cols, true] =
-    new TableBuilder.OptColumnCont[T, Cols, true](this, pf.codec, hasDefault = true)
+  inline def columnOptDefaulted[T](using pf: PgTypeFor[T]): TableBuilder.OptColumnCont[T, Cols, Name, true] =
+    new TableBuilder.OptColumnCont[T, Cols, Name, true](this, pf.codec, hasDefault = true)
 
   /** Place the table in a non-default schema. */
-  def inSchema(s: String): TableBuilder[Cols] =
-    new TableBuilder[Cols](name, Some(s), columns)
+  def inSchema(s: String): TableBuilder[Cols, Name] =
+    new TableBuilder[Cols, Name](name, Some(s), columns)
 
   /** Finalise the builder. */
-  def build: Table[Cols] = Table[Cols](name, schema, columns)
+  def build: Table[Cols, Name] = Table[Cols, Name](name, schema, columns)
 
   private inline def appendCol[T, N <: String & Singleton, Null <: Boolean, Default <: Boolean](
     n: N,
@@ -102,7 +102,7 @@ final class TableBuilder[Cols <: Tuple](
     hasDefault: Default,
     primary: Boolean,
     unique: Boolean
-  ): TableBuilder[Tuple.Append[Cols, Column[T, N, Null, Default]]] = {
+  ): TableBuilder[Tuple.Append[Cols, Column[T, N, Null, Default]], Name] = {
     CompileChecks.requireColumnAbsent[Cols, N]
     val col = Column[T, N, Null, Default](
       name = n,
@@ -125,7 +125,7 @@ final class TableBuilder[Cols <: Tuple](
     codec: Codec[T],
     hasDefault: Default,
     unique: Boolean
-  ): TableBuilder[Tuple.Append[Cols, Column[Option[T], N, true, Default]]] = {
+  ): TableBuilder[Tuple.Append[Cols, Column[Option[T], N, true, Default]], Name] = {
     CompileChecks.requireColumnAbsent[Cols, N]
     val col = Column[Option[T], N, true, Default](
       name = n,
@@ -154,8 +154,8 @@ object TableBuilder {
    * explicitly — Scala 3's all-or-nothing type-parameter inference makes the direct single-call form awkward to
    * overload.
    */
-  final class ColumnCont[T, Cols <: Tuple, Null <: Boolean, Default <: Boolean](
-    b: TableBuilder[Cols],
+  final class ColumnCont[T, Cols <: Tuple, Name <: String & Singleton, Null <: Boolean, Default <: Boolean](
+    b: TableBuilder[Cols, Name],
     codec: Codec[T],
     isNullable: Null,
     hasDefault: Default
@@ -165,7 +165,7 @@ object TableBuilder {
       n: N,
       primary: Boolean = false,
       unique: Boolean = false
-    ): TableBuilder[Tuple.Append[Cols, Column[T, N, Null, Default]]] = {
+    ): TableBuilder[Tuple.Append[Cols, Column[T, N, Null, Default]], Name] = {
       CompileChecks.requireColumnAbsent[Cols, N]
       val col = Column[T, N, Null, Default](
         name = n,
@@ -186,8 +186,8 @@ object TableBuilder {
   }
 
   /** Continuation for the nullable inferred-codec entry points. Wraps the codec in `.opt` at append time. */
-  final class OptColumnCont[T, Cols <: Tuple, Default <: Boolean](
-    b: TableBuilder[Cols],
+  final class OptColumnCont[T, Cols <: Tuple, Name <: String & Singleton, Default <: Boolean](
+    b: TableBuilder[Cols, Name],
     codec: Codec[T],
     hasDefault: Default
   ) {
@@ -195,7 +195,7 @@ object TableBuilder {
     inline def apply[N <: String & Singleton](
       n: N,
       unique: Boolean = false
-    ): TableBuilder[Tuple.Append[Cols, Column[Option[T], N, true, Default]]] = {
+    ): TableBuilder[Tuple.Append[Cols, Column[Option[T], N, true, Default]], Name] = {
       CompileChecks.requireColumnAbsent[Cols, N]
       val col = Column[Option[T], N, true, Default](
         name = n,

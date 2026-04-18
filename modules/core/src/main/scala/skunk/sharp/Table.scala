@@ -16,19 +16,16 @@ import scala.deriving.Mirror
  * SELECT is available via the shared [[Relation]] extension. INSERT / UPDATE / DELETE are extensions on `Table`
  * specifically — attempting them on a [[View]] is a compile error.
  */
-final case class Table[Cols <: Tuple](
-  name: String,
+final case class Table[Cols <: Tuple, Name <: String & Singleton](
+  name: Name,
   schema: Option[String],
   columns: Cols
 ) extends Relation[Cols] {
 
-  /** Path-dependent singleton of the table's name, used by JOIN extensions to default the alias to the table name. */
-  type Name = name.type
-
   val expectedTableType: String = "BASE TABLE"
 
   /** Place the table in a non-default schema. */
-  def inSchema(s: String): Table[Cols] = copy(schema = Some(s))
+  def inSchema(s: String): Table[Cols, Name] = copy(schema = Some(s))
 
   /**
    * Primitive: rewrite one column's metadata with `f`. The lambda receives the column at its runtime erasure
@@ -45,17 +42,17 @@ final case class Table[Cols <: Tuple](
    */
   inline def withColumn[N <: String & Singleton](inline n: N)(
     f: Column[Any, N, Boolean, Boolean] => Column[Any, N, Boolean, Boolean]
-  ): Table[Cols] = {
+  ): Table[Cols, Name] = {
     CompileChecks.requireColumn[Cols, N]
     copy(columns = Table.updateCol[Cols, N](columns, n, f).asInstanceOf[Cols])
   }
 
   /** Mark a column as primary key. */
-  inline def withPrimary[N <: String & Singleton](inline n: N): Table[Cols] =
+  inline def withPrimary[N <: String & Singleton](inline n: N): Table[Cols, Name] =
     withColumn(n)(_.copy(isPrimary = true))
 
   /** Mark a column as unique. */
-  inline def withUnique[N <: String & Singleton](inline n: N): Table[Cols] =
+  inline def withUnique[N <: String & Singleton](inline n: N): Table[Cols, Name] =
     withColumn(n)(_.copy(isUnique = true))
 
   /**
@@ -64,7 +61,7 @@ final case class Table[Cols <: Tuple](
    * column's declared Scala value type (not statically checked because the match type doesn't reduce here; a mismatch
    * raises at the first row that encodes or decodes).
    */
-  inline def withColumnCodec[N <: String & Singleton, T](inline n: N, codec: skunk.Codec[T]): Table[Cols] =
+  inline def withColumnCodec[N <: String & Singleton, T](inline n: N, codec: skunk.Codec[T]): Table[Cols, Name] =
     withColumn(n)(c =>
       c.copy(
         tpe = skunk.sharp.pg.PgTypes.typeOf(codec),
@@ -76,10 +73,11 @@ final case class Table[Cols <: Tuple](
    * Mark a column as having a database-side default. Flips the `Default` phantom parameter on that column so INSERTs
    * that omit the column become legal at the type level.
    */
-  inline def withDefault[N <: String & Singleton](inline n: N): Table[Table.SetDefault[Cols, N]] = {
+  inline def withDefault[N <: String & Singleton](inline n: N): Table[Table.SetDefault[Cols, N], Name] = {
     CompileChecks.requireColumn[Cols, N]
     val updated = Table.updateCol[Cols, N](columns, n, _.copy(hasDefault = true))
-    copy(columns = updated.asInstanceOf[Table.SetDefault[Cols, N]]).asInstanceOf[Table[Table.SetDefault[Cols, N]]]
+    copy(columns = updated.asInstanceOf[Table.SetDefault[Cols, N]])
+      .asInstanceOf[Table[Table.SetDefault[Cols, N], Name]]
   }
 
 }
@@ -87,23 +85,31 @@ final case class Table[Cols <: Tuple](
 object Table {
 
   /** Entry point for the column-by-column builder path. */
-  def builder(name: String): TableBuilder[EmptyTuple] =
-    new TableBuilder[EmptyTuple](name, None, EmptyTuple)
+  inline def builder[Name <: String & Singleton](name: Name): TableBuilder[EmptyTuple, Name] =
+    new TableBuilder[EmptyTuple, Name](name, None, EmptyTuple)
 
   /**
    * Derive a [[Table]] from a case class via its `Mirror.ProductOf`. Only the case class's *shape* (field labels and
    * types) is used; the case class type itself is not remembered by `Table` — use `.to[User]` on a query to materialise
    * rows as `User` when you want to.
+   *
+   * Returns a continuation so the call site `Table.of[User]("users")` can specify `T` explicitly while `Name` is still
+   * inferred from the name literal — Scala's all-or-nothing type-parameter inference forbids doing both in one call.
    */
-  inline def of[T <: Product](tableName: String)(using
-    m: Mirror.ProductOf[T]
-  ): Table[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes]] = {
-    val cols = deriveColumns[m.MirroredElemLabels, m.MirroredElemTypes]
-    Table[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes]](
-      tableName,
-      None,
-      cols.asInstanceOf[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes]]
-    )
+  inline def of[T <: Product]: OfCont[T] = new OfCont[T]
+
+  /** Continuation for [[of]]. Kept public because the builder / test code refers to it by path. */
+  final class OfCont[T <: Product] {
+    inline def apply[Name <: String & Singleton](tableName: Name)(using
+      m: Mirror.ProductOf[T]
+    ): Table[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes], Name] = {
+      val cols = deriveColumns[m.MirroredElemLabels, m.MirroredElemTypes]
+      Table[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes], Name](
+        tableName,
+        None,
+        cols.asInstanceOf[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes]]
+      )
+    }
   }
 
   /** Type-level: flip the `Default` phantom on the column named `N`. */

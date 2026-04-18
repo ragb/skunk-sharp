@@ -119,33 +119,33 @@ final class SelectBuilder[R <: Relation[Cols], Cols <: Tuple] private[sharp] (
   def distinctRows: SelectBuilder[R, Cols] = copy(distinct = true)
 
   // ---- Postgres row-level locking (SELECT … FOR UPDATE etc.) ----
-  // Gated on `R <:< Table[Cols]` — `SELECT … FOR UPDATE` against a view is a Postgres error.
+  // Gated on `R <:< Table[Cols, ?]` — `SELECT … FOR UPDATE` against a view is a Postgres error.
 
   /**
    * `FOR UPDATE` — exclusive row lock. Use `.noWait` / `.skipLocked` on the resulting builder to tweak the wait policy.
    * Only available when the underlying relation is a [[Table]]: views reject at compile time.
    */
-  def forUpdate(using ev: R <:< Table[Cols]): SelectBuilder[R, Cols] =
+  def forUpdate(using ev: R <:< Table[Cols, ?]): SelectBuilder[R, Cols] =
     copy(lockingOpt = Some(Locking(LockMode.ForUpdate)))
 
   /** `FOR NO KEY UPDATE` — exclusive but weaker; allows foreign-key checks to proceed. */
-  def forNoKeyUpdate(using ev: R <:< Table[Cols]): SelectBuilder[R, Cols] =
+  def forNoKeyUpdate(using ev: R <:< Table[Cols, ?]): SelectBuilder[R, Cols] =
     copy(lockingOpt = Some(Locking(LockMode.ForNoKeyUpdate)))
 
   /** `FOR SHARE` — shared row lock. */
-  def forShare(using ev: R <:< Table[Cols]): SelectBuilder[R, Cols] =
+  def forShare(using ev: R <:< Table[Cols, ?]): SelectBuilder[R, Cols] =
     copy(lockingOpt = Some(Locking(LockMode.ForShare)))
 
   /** `FOR KEY SHARE` — weakest shared lock, blocks only DELETE and some UPDATEs. */
-  def forKeyShare(using ev: R <:< Table[Cols]): SelectBuilder[R, Cols] =
+  def forKeyShare(using ev: R <:< Table[Cols, ?]): SelectBuilder[R, Cols] =
     copy(lockingOpt = Some(Locking(LockMode.ForKeyShare)))
 
   /** Append ` SKIP LOCKED` — skip rows that are already locked (useful for queue-style consumers). */
-  def skipLocked(using ev: R <:< Table[Cols]): SelectBuilder[R, Cols] =
+  def skipLocked(using ev: R <:< Table[Cols, ?]): SelectBuilder[R, Cols] =
     copy(lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.SkipLocked)))
 
   /** Append ` NOWAIT` — fail immediately if any target row is already locked. */
-  def noWait(using ev: R <:< Table[Cols]): SelectBuilder[R, Cols] =
+  def noWait(using ev: R <:< Table[Cols, ?]): SelectBuilder[R, Cols] =
     copy(lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.NoWait)))
 
   /**
@@ -322,23 +322,23 @@ final class ProjectedSelect[R <: Relation[Cols], Cols <: Tuple, Row](
     copy(havingOpt = Some(next))
   }
 
-  // ---- Row-level locking: gated on R <:< Table[Cols]. ----
-  def forUpdate(using ev: R <:< Table[Cols]): ProjectedSelect[R, Cols, Row] =
+  // ---- Row-level locking: gated on R <:< Table[Cols, ?]. ----
+  def forUpdate(using ev: R <:< Table[Cols, ?]): ProjectedSelect[R, Cols, Row] =
     copy(lockingOpt = Some(Locking(LockMode.ForUpdate)))
 
-  def forNoKeyUpdate(using ev: R <:< Table[Cols]): ProjectedSelect[R, Cols, Row] =
+  def forNoKeyUpdate(using ev: R <:< Table[Cols, ?]): ProjectedSelect[R, Cols, Row] =
     copy(lockingOpt = Some(Locking(LockMode.ForNoKeyUpdate)))
 
-  def forShare(using ev: R <:< Table[Cols]): ProjectedSelect[R, Cols, Row] =
+  def forShare(using ev: R <:< Table[Cols, ?]): ProjectedSelect[R, Cols, Row] =
     copy(lockingOpt = Some(Locking(LockMode.ForShare)))
 
-  def forKeyShare(using ev: R <:< Table[Cols]): ProjectedSelect[R, Cols, Row] =
+  def forKeyShare(using ev: R <:< Table[Cols, ?]): ProjectedSelect[R, Cols, Row] =
     copy(lockingOpt = Some(Locking(LockMode.ForKeyShare)))
 
-  def skipLocked(using ev: R <:< Table[Cols]): ProjectedSelect[R, Cols, Row] =
+  def skipLocked(using ev: R <:< Table[Cols, ?]): ProjectedSelect[R, Cols, Row] =
     copy(lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.SkipLocked)))
 
-  def noWait(using ev: R <:< Table[Cols]): ProjectedSelect[R, Cols, Row] =
+  def noWait(using ev: R <:< Table[Cols, ?]): ProjectedSelect[R, Cols, Row] =
     copy(lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.NoWait)))
 
   /**

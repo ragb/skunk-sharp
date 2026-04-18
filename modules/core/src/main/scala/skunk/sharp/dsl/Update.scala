@@ -30,7 +30,7 @@ import skunk.sharp.where.Where
  *
  * Future (v0.1+): `FROM`/`USING`, `.set` that accepts a subset named tuple, richer RHS expressions.
  */
-final class UpdateBuilder[Cols <: Tuple] private[sharp] (table: Table[Cols]) {
+final class UpdateBuilder[Cols <: Tuple] private[sharp] (table: Table[Cols, ?]) {
 
   /**
    * Declare the SET list. Accepts one [[SetAssignment]] or a tuple of them. Must be followed by `.where` or
@@ -52,7 +52,7 @@ final class UpdateBuilder[Cols <: Tuple] private[sharp] (table: Table[Cols]) {
  * `.returning` — the type forces the caller to narrow the update or to ask for the unrestricted version explicitly.
  */
 final class UpdateWithSet[Cols <: Tuple] private[sharp] (
-  private[sharp] val table: Table[Cols],
+  private[sharp] val table: Table[Cols, ?],
   private[sharp] val assignments: List[SetAssignment[?]]
 ) {
 
@@ -70,7 +70,7 @@ final class UpdateWithSet[Cols <: Tuple] private[sharp] (
 
 /** UPDATE in a runnable state: SET list filled, plus either a WHERE clause or an explicit `.updateAll` opt-in. */
 final class UpdateReady[Cols <: Tuple] private[sharp] (
-  table: Table[Cols],
+  table: Table[Cols, ?],
   assignments: List[SetAssignment[?]],
   whereOpt: Option[Where]
 ) {
@@ -157,6 +157,6 @@ extension [T, Null <: Boolean](col: TypedColumn[T, Null]) {
 }
 
 /** UPDATE entry point lives on [[Table]] (views reject at compile time). `users.update.set(…).where(…)`. */
-extension [Cols <: Tuple](table: Table[Cols]) {
+extension [Cols <: Tuple, Name <: String & Singleton](table: Table[Cols, Name]) {
   def update: UpdateBuilder[Cols] = new UpdateBuilder[Cols](table)
 }
