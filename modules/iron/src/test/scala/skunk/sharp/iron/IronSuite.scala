@@ -10,6 +10,11 @@ object IronSuite {
   type Age   = Int :| Positive
 
   case class Person(id: Int, email: Email, age: Age)
+
+  // Bridge cases: Iron constraints that have a DB-type counterpart.
+  type Name   = String :| MaxLength[64]
+  type Postal = String :| FixedLength[5]
+  case class Party(name: Name, postalCode: Postal)
 }
 
 class IronSuite extends munit.FunSuite {
@@ -29,5 +34,19 @@ class IronSuite extends munit.FunSuite {
 
     val emailCol: TypedColumn[Email, false] = cv.email
     assertEquals(emailCol.name, "email")
+  }
+
+  test("Iron bridge: String :| MaxLength[N] picks varchar(n)") {
+    val parties = Table.of[Party]("parties")
+    val cols    = parties.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
+    val name    = cols.find(_.name == "name").get
+    assertEquals(name.tpe, Type.varchar(64))
+  }
+
+  test("Iron bridge: String :| FixedLength[N] picks bpchar(n)") {
+    val parties = Table.of[Party]("parties")
+    val cols    = parties.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
+    val postal  = cols.find(_.name == "postalCode").get
+    assertEquals(postal.tpe, Type.bpchar(5))
   }
 }
