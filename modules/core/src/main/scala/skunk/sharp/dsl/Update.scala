@@ -4,7 +4,7 @@ import skunk.{AppliedFragment, Codec}
 import skunk.sharp.*
 import skunk.sharp.internal.tupleCodec
 import skunk.sharp.pg.PgTypeFor
-import skunk.sharp.where.Where
+import skunk.sharp.where.{&&, Where}
 
 /**
  * UPDATE builder — compile-time staged so you can't accidentally run a rowset-nuking `UPDATE` with no WHERE.

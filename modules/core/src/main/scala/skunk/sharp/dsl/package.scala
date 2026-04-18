@@ -63,7 +63,7 @@ package object dsl {
   type Where = skunk.sharp.where.Where
   val Where: skunk.sharp.where.Where.type = skunk.sharp.where.Where
 
-  export skunk.sharp.where.{!==, <, <=, ===, ====, >, >=, ilike, in, isNotNull, isNull, like}
+  export skunk.sharp.where.{!==, &&, <, <=, ===, ====, >, >=, ||, and, ilike, in, isNotNull, isNull, like, not, or}
   export skunk.sharp.where.Stripped
 
   // ---- Schema validation ----
@@ -83,5 +83,16 @@ package object dsl {
   val PgTypes: skunk.sharp.pg.PgTypes.type = skunk.sharp.pg.PgTypes
   type PgTypeFor[T] = skunk.sharp.pg.PgTypeFor[T]
   val PgTypeFor: skunk.sharp.pg.PgTypeFor.type = skunk.sharp.pg.PgTypeFor
+
+  // ---- Literal shorthands ----
+  //
+  // `lit(1)` / `lit("x")` is the short form of [[skunk.sharp.TypedExpr.lit]]. Anywhere a `TypedExpr[T]` is required
+  // (SELECT projection, UPDATE SET RHS, function arguments, …), `lit(v)` lifts a Scala value into a bound-parameter
+  // expression. Deliberately not an implicit conversion — Scala 3 discourages those and the extra two characters
+  // keep the lifting point explicit for readers.
+  //
+  // WHERE operators (`===`, `!==`, `<`, `<=`, `>`, `>=`, `in`, `like`, `ilike`) already accept raw values directly
+  // on the RHS, so `.where(u => u.age >= 18)` works without `lit`.
+  inline def lit[T](v: T)(using pf: PgTypeFor[T]): skunk.sharp.TypedExpr[T] = skunk.sharp.TypedExpr.lit(v)
 
 }

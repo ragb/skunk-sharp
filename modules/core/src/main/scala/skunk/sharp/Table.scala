@@ -100,6 +100,7 @@ object Table {
 
   /** Continuation for [[of]]. Kept public because the builder / test code refers to it by path. */
   final class OfCont[T <: Product] {
+
     inline def apply[Name <: String & Singleton](tableName: Name)(using
       m: Mirror.ProductOf[T]
     ): Table[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes], Name] = {
@@ -110,6 +111,7 @@ object Table {
         cols.asInstanceOf[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes]]
       )
     }
+
   }
 
   /** Type-level: flip the `Default` phantom on the column named `N`. */
