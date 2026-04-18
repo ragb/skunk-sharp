@@ -86,7 +86,7 @@ object Table {
 
   /**
    * Derive a [[Table]] from a case class via its `Mirror.ProductOf`. Only the case class's *shape* (field labels and
-   * types) is used; the case class type itself is not remembered by `Table` — use `.as[User]` on a query to materialise
+   * types) is used; the case class type itself is not remembered by `Table` — use `.to[User]` on a query to materialise
    * rows as `User` when you want to.
    */
   inline def of[T <: Product](tableName: String)(using

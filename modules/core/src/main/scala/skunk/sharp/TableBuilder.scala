@@ -228,6 +228,6 @@ type ValuesOf[Cols <: Tuple] <: Tuple = Cols match {
 
 /**
  * Default whole-row named tuple built from `Cols`. Query and insert builders will use it as the natural projection
- * shape when the caller does not ask for something else (`.as[T]`, an explicit column projection, etc.).
+ * shape when the caller does not ask for something else (`.to[T]`, an explicit column projection, etc.).
  */
 type NamedRowOf[Cols <: Tuple] = scala.NamedTuple.NamedTuple[NamesOf[Cols], ValuesOf[Cols]]

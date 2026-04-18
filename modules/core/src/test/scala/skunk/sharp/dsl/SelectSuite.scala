@@ -77,9 +77,9 @@ class SelectSuite extends munit.FunSuite {
     assertEquals(af.fragment.sql, """SELECT "email", "age" FROM "users"""")
   }
 
-  test(".as[CaseClass] maps projection rows into a case class") {
+  test(".to[CaseClass] maps projection rows into a case class") {
     case class Snapshot(email: String, age: Int)
-    val af = users.select(u => (u.email, u.age)).as[Snapshot].compile.af
+    val af = users.select(u => (u.email, u.age)).to[Snapshot].compile.af
     assertEquals(af.fragment.sql, """SELECT "email", "age" FROM "users"""")
   }
 

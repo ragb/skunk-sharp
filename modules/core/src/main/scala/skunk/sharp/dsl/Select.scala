@@ -342,10 +342,14 @@ final class ProjectedSelect[R <: Relation[Cols], Cols <: Tuple, Row](
     copy(lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.NoWait)))
 
   /**
-   * Map result rows into a case class `T`. `Row` must already be a tuple whose element types line up with `T`'s fields
-   * (verified at compile time via `Mirror.ProductOf`).
+   * Lift result rows into a case class `T`. Purely about decoding — the SQL is unchanged. `Row` must already be a
+   * tuple whose element types line up with `T`'s fields (verified at compile time via `Mirror.ProductOf`).
+   *
+   * Named `.to` rather than `.as` to keep a clean separation from [[TypedExpr.as]], which renames a column in the
+   * emitted SQL (`<expr> AS "<label>"`). `.as` operates on one expression and changes rendering; `.to` operates on
+   * the whole row and changes decoding.
    */
-  def as[T <: Product](using
+  def to[T <: Product](using
     m: scala.deriving.Mirror.ProductOf[T] { type MirroredElemTypes = Row & Tuple }
   ): ProjectedSelect[R, Cols, T] = {
     val newCodec: Codec[T] = codec.imap[T](r => m.fromProduct(r.asInstanceOf[Product]))(t =>
@@ -446,9 +450,17 @@ type ExprOutputs[T <: Tuple] <: Tuple = T match {
  * Input-shape-aware projection result.
  *
  *   - Single `TypedExpr[T]` → `T`.
- *   - Tuple (named or plain) of `TypedExpr`s → plain tuple of their output types. Named-tuple labels are NOT carried
- *     into the result type in this release (Scala 3.8's match-type soundness check rejects the natural pattern). If you
- *     need a named result, pipe through `.as[MyCaseClass]` or wrap at the call site.
+ *   - Tuple (named or plain) of `TypedExpr`s → plain tuple of their output types.
+ *
+ * If you need a named result shape, pipe through `.to[MyCaseClass]` (see [[ProjectedSelect.to]]) to lift the decoded
+ * tuple into a case class.
+ *
+ * Synthesising a named-tuple Row shape that mixes bare columns (whose singleton names we could track) with
+ * `AliasedExpr[T, N]` elements is a roadmap item — the `AliasedExpr.N` singleton gives us the piece we were missing,
+ * and the twiddles tuple library (or Scala 3's own tuple ops) can assemble the names tuple + values tuple into a
+ * `NamedTuple[Ns, Vs]` at the type level. The challenge is side-stepping the match-type soundness issue that blocks
+ * the naive `X match { case NamedTuple.AnyNamedTuple => … }` arm (opaque-type semantics leave a plain tuple
+ * indistinguishable from a named tuple to the prover). To revisit with JOINs and the GROUP-BY compile-time check.
  */
 type ProjResult[X] = X match {
   case TypedExpr[t]  => t
