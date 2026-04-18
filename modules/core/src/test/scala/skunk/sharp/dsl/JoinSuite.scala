@@ -8,6 +8,7 @@ import java.util.UUID
 object JoinSuite {
   case class User(id: UUID, email: String, age: Int)
   case class Post(id: UUID, user_id: UUID, title: String, created_at: OffsetDateTime)
+  case class Tag(id: UUID, post_id: UUID, name: String)
 }
 
 class JoinSuite extends munit.FunSuite {
@@ -15,6 +16,7 @@ class JoinSuite extends munit.FunSuite {
 
   private val users = Table.of[User]("users")
   private val posts = Table.of[Post]("posts")
+  private val tags  = Table.of[Tag]("tags")
 
   test("INNER JOIN (no explicit alias) — table names used as aliases") {
     val af = users
@@ -113,7 +115,7 @@ class JoinSuite extends munit.FunSuite {
     )
   }
 
-  test(".compile without .on does not exist (IncompleteJoin2 has no .compile)") {
+  test(".compile without .on does not exist (IncompleteJoin has no .compile)") {
     val errs = compiletime.testing.typeCheckErrors("""
       import skunk.sharp.dsl.*
       val users = Table.of[JoinSuite.User]("users")
@@ -121,5 +123,61 @@ class JoinSuite extends munit.FunSuite {
       users.innerJoin(posts).compile
     """)
     assert(errs.nonEmpty, "expected a compile error: .on is required before .compile")
+  }
+
+  test("three-table INNER JOIN chain") {
+    val af = users
+      .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
+      .innerJoin(tags).on(r => r.posts.id ==== r.tags.post_id)
+      .select(r => (r.users.email, r.posts.title, r.tags.name))
+      .compile
+      .af
+
+    assertEquals(
+      af.fragment.sql,
+      """SELECT "users"."email", "posts"."title", "tags"."name" FROM "users" INNER JOIN "posts" ON "users"."id" = "posts"."user_id" INNER JOIN "tags" ON "posts"."id" = "tags"."post_id""""
+    )
+  }
+
+  test("three-table mixed INNER + LEFT — right-most cols flip to Option") {
+    // The compile-time type of the last projection is Option[String] because tags was left-joined.
+    val q: CompiledQuery[(String, String, Option[String])] = users
+      .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
+      .leftJoin(tags).on(r => r.posts.id ==== r.tags.post_id)
+      .select(r => (r.users.email, r.posts.title, r.tags.name))
+      .compile
+
+    assert(
+      q.af.fragment.sql.contains("LEFT JOIN \"tags\" ON \"posts\".\"id\" = \"tags\".\"post_id\""),
+      q.af.fragment.sql
+    )
+  }
+
+  test(".crossJoin renders CROSS JOIN; .where supplies the join predicate") {
+    val af = users
+      .crossJoin(posts)
+      .select(r => (r.users.email, r.posts.title))
+      .where(r => r.users.id ==== r.posts.user_id)
+      .compile
+      .af
+
+    assertEquals(
+      af.fragment.sql,
+      """SELECT "users"."email", "posts"."title" FROM "users" CROSS JOIN "posts" WHERE "users"."id" = "posts"."user_id""""
+    )
+  }
+
+  test("three-way .crossJoin chain") {
+    val af = users
+      .crossJoin(posts)
+      .crossJoin(tags)
+      .select(r => (r.users.email, r.posts.title, r.tags.name))
+      .compile
+      .af
+
+    assertEquals(
+      af.fragment.sql,
+      """SELECT "users"."email", "posts"."title", "tags"."name" FROM "users" CROSS JOIN "posts" CROSS JOIN "tags""""
+    )
   }
 }

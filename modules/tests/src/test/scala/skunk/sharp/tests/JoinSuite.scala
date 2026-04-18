@@ -9,6 +9,7 @@ import java.util.UUID
 object JoinSuite {
   case class User(id: UUID, email: String, age: Int, created_at: OffsetDateTime, deleted_at: Option[OffsetDateTime])
   case class Post(id: UUID, user_id: UUID, title: String, created_at: OffsetDateTime)
+  case class Tag(id: UUID, post_id: UUID, name: String)
 }
 
 class JoinSuite extends PgFixture {
@@ -16,6 +17,7 @@ class JoinSuite extends PgFixture {
 
   private val users = Table.of[User]("users").withDefault("created_at")
   private val posts = Table.of[Post]("posts").withDefault("created_at")
+  private val tags  = Table.of[Tag]("tags")
 
   test("INNER JOIN round-trips users + posts (auto-alias)") {
     withContainers { containers =>
@@ -81,6 +83,60 @@ class JoinSuite extends PgFixture {
             .compile
             .run(s)
           _ = assertEquals(rows, List(("many@x", 3L)))
+        } yield ()
+      }
+    }
+  }
+
+  test("three-table chain INNER + LEFT with auto-alias") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val uid = UUID.randomUUID
+        val pid = UUID.randomUUID
+        for {
+          _ <- users
+            .insert((id = uid, email = "chain@x", age = 33, deleted_at = Option.empty[OffsetDateTime]))
+            .compile.run(s)
+          _    <- posts.insert((id = pid, user_id = uid, title = "chain-post")).compile.run(s)
+          _    <- tags.insert((id = UUID.randomUUID, post_id = pid, name = "alpha")).compile.run(s)
+          _    <- tags.insert((id = UUID.randomUUID, post_id = pid, name = "beta")).compile.run(s)
+          rows <- users
+            .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
+            .leftJoin(tags).on(r => r.posts.id ==== r.tags.post_id)
+            .select(r => (r.users.email, r.posts.title, r.tags.name))
+            .where(r => r.users.id === uid)
+            .orderBy(r => r.tags.name.asc)
+            .compile
+            .run(s)
+          _ = assertEquals(
+            rows,
+            List(
+              ("chain@x", "chain-post", Option("alpha")),
+              ("chain@x", "chain-post", Option("beta"))
+            )
+          )
+        } yield ()
+      }
+    }
+  }
+
+  test(".crossJoin renders CROSS JOIN; WHERE supplies the join predicate") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val uid = UUID.randomUUID
+        val pid = UUID.randomUUID
+        for {
+          _ <- users
+            .insert((id = uid, email = "cross@x", age = 27, deleted_at = Option.empty[OffsetDateTime]))
+            .compile.run(s)
+          _    <- posts.insert((id = pid, user_id = uid, title = "cross-post")).compile.run(s)
+          rows <- users
+            .crossJoin(posts)
+            .select(r => (r.users.email, r.posts.title))
+            .where(r => r.users.id ==== r.posts.user_id && r.users.id === uid)
+            .compile
+            .run(s)
+          _ = assertEquals(rows, List(("cross@x", "cross-post")))
         } yield ()
       }
     }
