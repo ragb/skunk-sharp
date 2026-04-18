@@ -1,0 +1,95 @@
+package skunk.sharp.tests
+
+import cats.effect.IO
+import cats.syntax.all.*
+import skunk.sharp.dsl.*
+
+import java.time.OffsetDateTime
+import java.util.UUID
+
+object GroupBySuite {
+  case class User(id: UUID, email: String, age: Int, created_at: OffsetDateTime, deleted_at: Option[OffsetDateTime])
+}
+
+class GroupBySuite extends PgFixture {
+  import GroupBySuite.User
+
+  private val users = Table.of[User]("users").withDefault("created_at")
+
+  test("aggregate count(*) and count(col) return the row count") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val rows = List(
+          (email = "g1@x", age = 20, deleted_at = Option.empty[OffsetDateTime]),
+          (email = "g2@x", age = 25, deleted_at = Option.empty[OffsetDateTime]),
+          (email = "g3@x", age = 30, deleted_at = Option.empty[OffsetDateTime])
+        )
+        for {
+          _ <- rows.traverse_(r =>
+            users
+              .insert((id = UUID.randomUUID, email = r.email, age = r.age, deleted_at = r.deleted_at))
+              .compile
+              .run(s)
+          )
+          total  <- users.select(_ => Pg.countAll).compile.unique(s)
+          ageCnt <- users.select(u => Pg.count(u.age)).compile.unique(s)
+          _ = assert(total >= 3L, s"expected at least 3 rows, got $total")
+          _ = assertEquals(ageCnt, total)
+        } yield ()
+      }
+    }
+  }
+
+  test("GROUP BY age with count + having") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val seed = List(
+          (email = "gb1@x", age = 21),
+          (email = "gb2@x", age = 21),
+          (email = "gb3@x", age = 22)
+        )
+        for {
+          _ <- seed.traverse_(r =>
+            users
+              .insert((id = UUID.randomUUID, email = r.email, age = r.age, deleted_at = None))
+              .compile
+              .run(s)
+          )
+          rows <- users
+            .select(u => (u.age, Pg.count(u.id)))
+            .groupBy(u => u.age)
+            .having(u => Pg.count(u.id) >= 1L)
+            .compile
+            .run(s)
+          byAge = rows.toMap
+          _     = assert(byAge(21) >= 2L, s"age=21 should have at least 2, got ${byAge.get(21)}")
+          _     = assert(byAge(22) >= 1L, s"age=22 should have at least 1, got ${byAge.get(22)}")
+        } yield ()
+      }
+    }
+  }
+
+  test("sum / avg / min / max on age (sum(int) → bigint, avg(int) → numeric)") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        for {
+          _ <- users
+            .insert((id = UUID.randomUUID, email = "m1@x", age = 10, deleted_at = None))
+            .compile.run(s)
+          _ <- users
+            .insert((id = UUID.randomUUID, email = "m2@x", age = 30, deleted_at = None))
+            .compile.run(s)
+          stats <- users
+            .select(u => (Pg.sum(u.age), Pg.avg(u.age), Pg.min(u.age), Pg.max(u.age)))
+            .compile
+            .unique(s)
+          (sum, avg, min, max) = stats
+          _                    = assert(sum >= 40L, s"sum should include both inserted rows, got $sum")
+          _                    = assert(avg >= BigDecimal(0), s"avg should be non-negative, got $avg")
+          _                    = assert(min <= 10, s"min should be <= 10, got $min")
+          _                    = assert(max >= 30, s"max should be >= 30, got $max")
+        } yield ()
+      }
+    }
+  }
+}

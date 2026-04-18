@@ -1,5 +1,6 @@
 package skunk.sharp
 
+import skunk.Codec
 import skunk.sharp.pg.PgTypeFor
 
 /**
@@ -104,4 +105,114 @@ object Pg {
   def coalesce[T](args: TypedExpr[T]*)(using pfr: PgTypeFor[T]): TypedExpr[T] =
     PgFunction.nary[T]("coalesce", args*)
 
+  // -------- Aggregate functions --------
+  //
+  // Placement: aggregates produce `TypedExpr[T]`, so they slot into any SELECT projection, HAVING predicate, or
+  // ORDER BY expression. Correctness is NOT enforced at compile time — Postgres will reject a SELECT that mixes bare
+  // columns with aggregates unless the bare columns appear in GROUP BY. Use `.groupBy(...)` on the builder for that.
+  //
+  // Return types mirror the pragmatic mapping most DSLs take:
+  //   - `count*` → Long (bigint)
+  //   - `sum` / `avg` → BigDecimal (numeric — superset of all Postgres numeric sum/avg outputs)
+  //   - `min` / `max` → same type as input (codec carried through)
+
+  /** `count(*)` — count of all rows, including nulls. */
+  val countAll: TypedExpr[Long] =
+    TypedExpr(TypedExpr.raw("count(*)"), skunk.codec.all.int8)
+
+  /** `count(expr)` — count of non-null values. */
+  def count[T](expr: TypedExpr[T]): TypedExpr[Long] =
+    TypedExpr(TypedExpr.raw("count(") |+| expr.render |+| TypedExpr.raw(")"), skunk.codec.all.int8)
+
+  /** `count(DISTINCT expr)` — count of distinct non-null values. */
+  def countDistinct[T](expr: TypedExpr[T]): TypedExpr[Long] =
+    TypedExpr(TypedExpr.raw("count(DISTINCT ") |+| expr.render |+| TypedExpr.raw(")"), skunk.codec.all.int8)
+
+  /**
+   * `sum(expr)` — result type follows Postgres's actual rules, picked via the [[SumOut]] typeclass:
+   *   - `sum(smallint | integer)` → `bigint` (`Long`)
+   *   - `sum(bigint | numeric)` → `numeric` (`BigDecimal`)
+   *   - `sum(real)` → `real` (`Float`)
+   *   - `sum(double precision)` → `double precision` (`Double`)
+   */
+  def sum[I](expr: TypedExpr[I])(using s: SumOut[I]): TypedExpr[s.Out] =
+    TypedExpr(TypedExpr.raw("sum(") |+| expr.render |+| TypedExpr.raw(")"), s.codec)
+
+  /**
+   * `avg(expr)` — result type per Postgres: integer / bigint / numeric → `numeric` (`BigDecimal`); `real` → `double
+   * precision` (`Double`); `double` → `double precision` (`Double`).
+   */
+  def avg[I](expr: TypedExpr[I])(using a: AvgOut[I]): TypedExpr[a.Out] =
+    TypedExpr(TypedExpr.raw("avg(") |+| expr.render |+| TypedExpr.raw(")"), a.codec)
+
+  /** `min(expr)` — same type as input. */
+  def min[T](expr: TypedExpr[T]): TypedExpr[T] =
+    TypedExpr(TypedExpr.raw("min(") |+| expr.render |+| TypedExpr.raw(")"), expr.codec)
+
+  /** `max(expr)` — same type as input. */
+  def max[T](expr: TypedExpr[T]): TypedExpr[T] =
+    TypedExpr(TypedExpr.raw("max(") |+| expr.render |+| TypedExpr.raw(")"), expr.codec)
+
+  /** `string_agg(expr, sep)` — concatenate string values with a separator. */
+  def stringAgg(expr: TypedExpr[String], sep: String): TypedExpr[String] =
+    TypedExpr(
+      TypedExpr.raw("string_agg(") |+| expr.render |+| TypedExpr.raw(", ") |+|
+        TypedExpr.lit(sep).render |+| TypedExpr.raw(")"),
+      skunk.codec.all.text
+    )
+
+  /** `bool_and(expr)` — true if every non-null input is true. */
+  def boolAnd(expr: TypedExpr[Boolean]): TypedExpr[Boolean] =
+    TypedExpr(TypedExpr.raw("bool_and(") |+| expr.render |+| TypedExpr.raw(")"), skunk.codec.all.bool)
+
+  /** `bool_or(expr)` — true if any non-null input is true. */
+  def boolOr(expr: TypedExpr[Boolean]): TypedExpr[Boolean] =
+    TypedExpr(TypedExpr.raw("bool_or(") |+| expr.render |+| TypedExpr.raw(")"), skunk.codec.all.bool)
+
+}
+
+/**
+ * Typeclass encoding Postgres's `sum(I)` result type. `Out` is the Scala type the SQL column decodes to; `codec` is the
+ * skunk codec for that type. Instances cover the standard numeric inputs; third-party modules that ship their own
+ * numeric-ish opaque types can provide instances.
+ */
+trait SumOut[I] {
+  type Out
+  def codec: Codec[Out]
+}
+
+object SumOut {
+  type Aux[I, O] = SumOut[I] { type Out = O }
+
+  private def instance[I, O](c: Codec[O]): SumOut.Aux[I, O] =
+    new SumOut[I] { type Out = O; val codec = c }
+
+  given SumOut.Aux[Short, Long]            = instance(skunk.codec.all.int8)
+  given SumOut.Aux[Int, Long]              = instance(skunk.codec.all.int8)
+  given SumOut.Aux[Long, BigDecimal]       = instance(skunk.codec.all.numeric)
+  given SumOut.Aux[BigDecimal, BigDecimal] = instance(skunk.codec.all.numeric)
+  given SumOut.Aux[Float, Float]           = instance(skunk.codec.all.float4)
+  given SumOut.Aux[Double, Double]         = instance(skunk.codec.all.float8)
+}
+
+/** Typeclass encoding Postgres's `avg(I)` result type. Same structure as [[SumOut]]. */
+trait AvgOut[I] {
+  type Out
+  def codec: Codec[Out]
+}
+
+object AvgOut {
+  type Aux[I, O] = AvgOut[I] { type Out = O }
+
+  private def instance[I, O](c: Codec[O]): AvgOut.Aux[I, O] =
+    new AvgOut[I] { type Out = O; val codec = c }
+
+  // Integral + numeric inputs all produce numeric.
+  given AvgOut.Aux[Short, BigDecimal]      = instance(skunk.codec.all.numeric)
+  given AvgOut.Aux[Int, BigDecimal]        = instance(skunk.codec.all.numeric)
+  given AvgOut.Aux[Long, BigDecimal]       = instance(skunk.codec.all.numeric)
+  given AvgOut.Aux[BigDecimal, BigDecimal] = instance(skunk.codec.all.numeric)
+  // Floating point stays in floating point.
+  given AvgOut.Aux[Float, Double]  = instance(skunk.codec.all.float8)
+  given AvgOut.Aux[Double, Double] = instance(skunk.codec.all.float8)
 }

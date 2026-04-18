@@ -39,6 +39,8 @@ final class SelectBuilder[R <: Relation[Cols], Cols <: Tuple] private[sharp] (
   private[sharp] val relation: R,
   private[sharp] val distinct: Boolean,
   private[sharp] val whereOpt: Option[Where],
+  private[sharp] val groupBys: List[TypedExpr[?]],
+  private[sharp] val havingOpt: Option[Where],
   private[sharp] val orderBys: List[OrderBy],
   private[sharp] val limitOpt: Option[Int],
   private[sharp] val offsetOpt: Option[Int],
@@ -49,12 +51,24 @@ final class SelectBuilder[R <: Relation[Cols], Cols <: Tuple] private[sharp] (
     relation: R = relation,
     distinct: Boolean = distinct,
     whereOpt: Option[Where] = whereOpt,
+    groupBys: List[TypedExpr[?]] = groupBys,
+    havingOpt: Option[Where] = havingOpt,
     orderBys: List[OrderBy] = orderBys,
     limitOpt: Option[Int] = limitOpt,
     offsetOpt: Option[Int] = offsetOpt,
     lockingOpt: Option[Locking] = lockingOpt
   ): SelectBuilder[R, Cols] =
-    new SelectBuilder[R, Cols](relation, distinct, whereOpt, orderBys, limitOpt, offsetOpt, lockingOpt)
+    new SelectBuilder[R, Cols](
+      relation,
+      distinct,
+      whereOpt,
+      groupBys,
+      havingOpt,
+      orderBys,
+      limitOpt,
+      offsetOpt,
+      lockingOpt
+    )
 
   def where(f: ColumnsView[Cols] => Where): SelectBuilder[R, Cols] = {
     val view = ColumnsView(relation.columns)
@@ -72,6 +86,30 @@ final class SelectBuilder[R <: Relation[Cols], Cols <: Tuple] private[sharp] (
       case t: Tuple    => t.toList.asInstanceOf[List[OrderBy]]
     }
     copy(orderBys = orderBys ++ fresh)
+  }
+
+  /**
+   * `GROUP BY expr1, expr2, …`. Pass a single expression or a tuple. Does **not** validate at compile time that every
+   * bare column in the SELECT is covered — Postgres raises that as a loud runtime error. Aggregates in `Pg.count`,
+   * `Pg.sum`, etc. do not need to appear here.
+   */
+  def groupBy(f: ColumnsView[Cols] => TypedExpr[?] | Tuple): SelectBuilder[R, Cols] = {
+    val view  = ColumnsView(relation.columns)
+    val fresh = f(view) match {
+      case e: TypedExpr[?] => List(e)
+      case t: Tuple        => t.toList.asInstanceOf[List[TypedExpr[?]]]
+    }
+    copy(groupBys = groupBys ++ fresh)
+  }
+
+  /** `HAVING <predicate>`. Chains with AND if called multiple times. Typically references aggregates. */
+  def having(f: ColumnsView[Cols] => Where): SelectBuilder[R, Cols] = {
+    val view = ColumnsView(relation.columns)
+    val next = havingOpt match {
+      case Some(existing) => existing && f(view)
+      case None           => f(view)
+    }
+    copy(havingOpt = Some(next))
   }
 
   def limit(n: Int): SelectBuilder[R, Cols]  = copy(limitOpt = Some(n))
@@ -130,6 +168,8 @@ final class SelectBuilder[R <: Relation[Cols], Cols <: Tuple] private[sharp] (
           List(expr),
           expr.codec.asInstanceOf[Codec[ProjResult[X]]],
           whereOpt,
+          groupBys,
+          havingOpt,
           orderBys,
           limitOpt,
           offsetOpt,
@@ -144,6 +184,8 @@ final class SelectBuilder[R <: Relation[Cols], Cols <: Tuple] private[sharp] (
           exprs,
           codec,
           whereOpt,
+          groupBys,
+          havingOpt,
           orderBys,
           limitOpt,
           offsetOpt,
@@ -170,9 +212,13 @@ final class SelectBuilder[R <: Relation[Cols], Cols <: Tuple] private[sharp] (
       else s"$keyword$projections"
     val header    = TypedExpr.raw(sqlHeader)
     val withWhere = whereOpt.fold(header)(w => header |+| TypedExpr.raw(" WHERE ") |+| w.render)
-    val withOrder =
-      if (orderBys.isEmpty) withWhere
-      else withWhere |+| TypedExpr.raw(" ORDER BY " + orderBys.map(_.sql).mkString(", "))
+    val withGroup =
+      if (groupBys.isEmpty) withWhere
+      else withWhere |+| TypedExpr.raw(" GROUP BY ") |+| TypedExpr.joined(groupBys.map(_.render), ", ")
+    val withHaving = havingOpt.fold(withGroup)(h => withGroup |+| TypedExpr.raw(" HAVING ") |+| h.render)
+    val withOrder  =
+      if (orderBys.isEmpty) withHaving
+      else withHaving |+| TypedExpr.raw(" ORDER BY " + orderBys.map(_.sql).mkString(", "))
     val withLimit   = limitOpt.fold(withOrder)(n => withOrder |+| TypedExpr.raw(s" LIMIT $n"))
     val withOffset  = offsetOpt.fold(withLimit)(n => withLimit |+| TypedExpr.raw(s" OFFSET $n"))
     val withLocking = lockingOpt.fold(withOffset)(l => withOffset |+| TypedExpr.raw(" " + l.sql))
@@ -192,6 +238,8 @@ final class ProjectedSelect[R <: Relation[Cols], Cols <: Tuple, Row](
   projections: List[TypedExpr[?]],
   codec: Codec[Row],
   whereOpt: Option[Where],
+  groupBys: List[TypedExpr[?]],
+  havingOpt: Option[Where],
   orderBys: List[OrderBy],
   limitOpt: Option[Int],
   offsetOpt: Option[Int],
@@ -204,6 +252,8 @@ final class ProjectedSelect[R <: Relation[Cols], Cols <: Tuple, Row](
     projections: List[TypedExpr[?]] = projections,
     codec: Codec[Row] = codec,
     whereOpt: Option[Where] = whereOpt,
+    groupBys: List[TypedExpr[?]] = groupBys,
+    havingOpt: Option[Where] = havingOpt,
     orderBys: List[OrderBy] = orderBys,
     limitOpt: Option[Int] = limitOpt,
     offsetOpt: Option[Int] = offsetOpt,
@@ -215,6 +265,8 @@ final class ProjectedSelect[R <: Relation[Cols], Cols <: Tuple, Row](
       projections,
       codec,
       whereOpt,
+      groupBys,
+      havingOpt,
       orderBys,
       limitOpt,
       offsetOpt,
@@ -226,6 +278,26 @@ final class ProjectedSelect[R <: Relation[Cols], Cols <: Tuple, Row](
 
   /** `SELECT DISTINCT …`. */
   def distinctRows: ProjectedSelect[R, Cols, Row] = copy(distinct = true)
+
+  /** `GROUP BY expr1, expr2, …`. See [[SelectBuilder.groupBy]] for details. */
+  def groupBy(f: ColumnsView[Cols] => TypedExpr[?] | Tuple): ProjectedSelect[R, Cols, Row] = {
+    val view  = ColumnsView(relation.columns)
+    val fresh = f(view) match {
+      case e: TypedExpr[?] => List(e)
+      case t: Tuple        => t.toList.asInstanceOf[List[TypedExpr[?]]]
+    }
+    copy(groupBys = groupBys ++ fresh)
+  }
+
+  /** `HAVING <predicate>`. Chains with AND if called multiple times. */
+  def having(f: ColumnsView[Cols] => Where): ProjectedSelect[R, Cols, Row] = {
+    val view = ColumnsView(relation.columns)
+    val next = havingOpt match {
+      case Some(existing) => existing && f(view)
+      case None           => f(view)
+    }
+    copy(havingOpt = Some(next))
+  }
 
   // ---- Row-level locking: gated on R <:< Table[Cols]. ----
   def forUpdate(using ev: R <:< Table[Cols]): ProjectedSelect[R, Cols, Row] =
@@ -262,6 +334,8 @@ final class ProjectedSelect[R <: Relation[Cols], Cols <: Tuple, Row](
       projections,
       newCodec,
       whereOpt,
+      groupBys,
+      havingOpt,
       orderBys,
       limitOpt,
       offsetOpt,
@@ -278,9 +352,13 @@ final class ProjectedSelect[R <: Relation[Cols], Cols <: Tuple, Row](
       else
         TypedExpr.raw(keyword) |+| projList
     val withWhere = whereOpt.fold(header)(w => header |+| TypedExpr.raw(" WHERE ") |+| w.render)
-    val withOrder =
-      if (orderBys.isEmpty) withWhere
-      else withWhere |+| TypedExpr.raw(" ORDER BY " + orderBys.map(_.sql).mkString(", "))
+    val withGroup =
+      if (groupBys.isEmpty) withWhere
+      else withWhere |+| TypedExpr.raw(" GROUP BY ") |+| TypedExpr.joined(groupBys.map(_.render), ", ")
+    val withHaving = havingOpt.fold(withGroup)(h => withGroup |+| TypedExpr.raw(" HAVING ") |+| h.render)
+    val withOrder  =
+      if (orderBys.isEmpty) withHaving
+      else withHaving |+| TypedExpr.raw(" ORDER BY " + orderBys.map(_.sql).mkString(", "))
     val withLimit   = limitOpt.fold(withOrder)(n => withOrder |+| TypedExpr.raw(s" LIMIT $n"))
     val withOffset  = offsetOpt.fold(withLimit)(n => withLimit |+| TypedExpr.raw(s" OFFSET $n"))
     val withLocking = lockingOpt.fold(withOffset)(l => withOffset |+| TypedExpr.raw(" " + l.sql))
@@ -302,7 +380,17 @@ final class ProjectedSelect[R <: Relation[Cols], Cols <: Tuple, Row](
 extension [R <: Relation[Cols], Cols <: Tuple](relation: R) {
 
   def select: SelectBuilder[R, Cols] =
-    new SelectBuilder[R, Cols](relation, distinct = false, None, Nil, None, None, None)
+    new SelectBuilder[R, Cols](
+      relation,
+      distinct = false,
+      whereOpt = None,
+      groupBys = Nil,
+      havingOpt = None,
+      orderBys = Nil,
+      limitOpt = None,
+      offsetOpt = None,
+      lockingOpt = None
+    )
 
 }
 

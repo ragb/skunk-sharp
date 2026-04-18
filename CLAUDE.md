@@ -73,6 +73,14 @@ All under [modules/core/src/main/scala/skunk/sharp/dsl/](modules/core/src/main/s
 
 `.offset(n)` without a prior `.limit(n)` is **allowed** — Postgres supports it per SQL:2008, and we don't lint valid SQL at the type level.
 
+## GROUP BY, HAVING, aggregates
+
+Aggregates live on `Pg` in [PgFunction.scala](modules/core/src/main/scala/skunk/sharp/PgFunction.scala): `countAll`, `count`, `countDistinct`, `sum`, `avg`, `min`, `max`, `stringAgg`, `boolAnd`, `boolOr`. Every aggregate returns a `TypedExpr[R]`, so they slot into SELECT projections, HAVING predicates, or ORDER BY expressions anywhere a `TypedExpr` is expected.
+
+`sum` and `avg` use typeclasses (`SumOut[I]`, `AvgOut[I]`) that map the input Scala type to Postgres's actual result type — `sum(Int)` → `Long`, `sum(Long)` → `BigDecimal`, `sum(Double)` → `Double`, `avg(Int)` → `BigDecimal`, `avg(Double)` → `Double`. Matches what Postgres actually returns so the decoded value aligns.
+
+`.groupBy(cols => …)` and `.having(cols => …)` live on both `SelectBuilder` and `ProjectedSelect`. Rendering order: `SELECT … FROM … WHERE … GROUP BY … HAVING … ORDER BY … LIMIT … OFFSET … LOCKING`. Compile-time enforcement that all bare SELECT columns appear in GROUP BY is a roadmap item (requires `TypedColumn` to carry its singleton column-name type param); today, Postgres raises the misalignment at runtime.
+
 ## Builders split from execution: `CompiledQuery` / `CompiledCommand`
 
 Every builder's `.compile` returns one of two types — defined in [Compiled.scala](modules/core/src/main/scala/skunk/sharp/dsl/Compiled.scala):
