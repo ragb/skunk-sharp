@@ -18,7 +18,7 @@ class MutationsSuite extends munit.FunSuite {
     val af = users.update
       .set(u => u.email := "new@example.com")
       .where(u => u.id === UUID.fromString("00000000-0000-0000-0000-000000000001"))
-      .compile
+      .compile.af
 
     assertEquals(
       af.fragment.sql,
@@ -30,7 +30,7 @@ class MutationsSuite extends munit.FunSuite {
     val af = users.update
       .set(u => (u.email := "x", u.age := 42))
       .where(u => u.id === UUID.fromString("00000000-0000-0000-0000-000000000001"))
-      .compile
+      .compile.af
 
     assertEquals(
       af.fragment.sql,
@@ -39,17 +39,17 @@ class MutationsSuite extends munit.FunSuite {
   }
 
   test("delete with WHERE") {
-    val af = users.delete.where(u => u.email === "gone@example.com").compile
+    val af = users.delete.where(u => u.email === "gone@example.com").compile.af
     assertEquals(af.fragment.sql, """DELETE FROM "users" WHERE "email" = $1""")
   }
 
   test(".deleteAll explicitly opts into an unconditional DELETE") {
-    val af = users.delete.deleteAll.compile
+    val af = users.delete.deleteAll.compile.af
     assertEquals(af.fragment.sql, """DELETE FROM "users"""")
   }
 
   test(".updateAll explicitly opts into an unconditional UPDATE") {
-    val af = users.update.set(u => u.age := 0).updateAll.compile
+    val af = users.update.set(u => u.age := 0).updateAll.compile.af
     assertEquals(af.fragment.sql, """UPDATE "users" SET "age" = $1""")
   }
 
@@ -72,12 +72,12 @@ class MutationsSuite extends munit.FunSuite {
   }
 
   test("update .returning appends RETURNING <col>") {
-    val id      = UUID.fromString("00000000-0000-0000-0000-000000000001")
-    val (af, _) = users.update
+    val id = UUID.fromString("00000000-0000-0000-0000-000000000001")
+    val af = users.update
       .set(u => u.email := "x")
       .where(u => u.id === id)
       .returning(u => u.id)
-      .compile
+      .compile.af
     assertEquals(
       af.fragment.sql,
       """UPDATE "users" SET "email" = $1 WHERE "id" = $2 RETURNING "id""""
@@ -85,12 +85,12 @@ class MutationsSuite extends munit.FunSuite {
   }
 
   test("update .returningTuple returns multiple columns") {
-    val id      = UUID.fromString("00000000-0000-0000-0000-000000000001")
-    val (af, _) = users.update
+    val id = UUID.fromString("00000000-0000-0000-0000-000000000001")
+    val af = users.update
       .set(u => u.age := 42)
       .where(u => u.id === id)
       .returningTuple(u => (u.id, u.age))
-      .compile
+      .compile.af
     assertEquals(
       af.fragment.sql,
       """UPDATE "users" SET "age" = $1 WHERE "id" = $2 RETURNING "id", "age""""
@@ -98,8 +98,8 @@ class MutationsSuite extends munit.FunSuite {
   }
 
   test("update .returningAll returns the whole row") {
-    val id      = UUID.fromString("00000000-0000-0000-0000-000000000001")
-    val (af, _) = users.update.set(u => u.age := 42).where(u => u.id === id).returningAll.compile
+    val id = UUID.fromString("00000000-0000-0000-0000-000000000001")
+    val af = users.update.set(u => u.age := 42).where(u => u.id === id).returningAll.compile.af
     assertEquals(
       af.fragment.sql,
       """UPDATE "users" SET "age" = $1 WHERE "id" = $2 RETURNING "id", "email", "age", "created_at", "deleted_at""""
@@ -107,14 +107,14 @@ class MutationsSuite extends munit.FunSuite {
   }
 
   test("delete .returning") {
-    val id      = UUID.fromString("00000000-0000-0000-0000-000000000001")
-    val (af, _) = users.delete.where(u => u.id === id).returning(u => u.email).compile
+    val id = UUID.fromString("00000000-0000-0000-0000-000000000001")
+    val af = users.delete.where(u => u.id === id).returning(u => u.email).compile.af
     assertEquals(af.fragment.sql, """DELETE FROM "users" WHERE "id" = $1 RETURNING "email"""")
   }
 
   test("delete .returningAll returns the whole row") {
-    val id      = UUID.fromString("00000000-0000-0000-0000-000000000001")
-    val (af, _) = users.delete.where(u => u.id === id).returningAll.compile
+    val id = UUID.fromString("00000000-0000-0000-0000-000000000001")
+    val af = users.delete.where(u => u.id === id).returningAll.compile.af
     assertEquals(
       af.fragment.sql,
       """DELETE FROM "users" WHERE "id" = $1 RETURNING "id", "email", "age", "created_at", "deleted_at""""

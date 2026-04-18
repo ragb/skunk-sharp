@@ -1,6 +1,6 @@
 package skunk.sharp.dsl
 
-import skunk.{AppliedFragment, Codec, Session}
+import skunk.{AppliedFragment, Codec}
 import skunk.sharp.*
 import skunk.sharp.internal.tupleCodec
 import skunk.sharp.where.Where
@@ -49,22 +49,18 @@ final class DeleteReady[Cols <: Tuple] private[sharp] (
     new DeleteReady[Cols](table, Some(next))
   }
 
-  def compile: AppliedFragment = {
+  def compile: CompiledCommand = CompiledCommand(compileFragment)
+
+  private[sharp] def compileFragment: AppliedFragment = {
     val header = TypedExpr.raw(s"DELETE FROM ${table.qualifiedName}")
     whereOpt.fold(header)(w => header |+| TypedExpr.raw(" WHERE ") |+| w.render)
-  }
-
-  def run[F[_]](session: Session[F]): F[skunk.data.Completion] = {
-    val af  = compile
-    val cmd = af.fragment.command
-    session.execute(cmd)(af.argument)
   }
 
   /** Append `RETURNING <expr>` — single-value form. */
   def returning[T](f: ColumnsView[Cols] => TypedExpr[T]): MutationReturning[T] = {
     val view = ColumnsView(table.columns)
     val expr = f(view)
-    new MutationReturning[T](compile, List(expr), expr.codec)
+    new MutationReturning[T](compileFragment, List(expr), expr.codec)
   }
 
   /** Append `RETURNING <e1>, <e2>, …` — tuple form. */
@@ -72,7 +68,7 @@ final class DeleteReady[Cols <: Tuple] private[sharp] (
     val view  = ColumnsView(table.columns)
     val exprs = f(view).toList.asInstanceOf[List[TypedExpr[?]]]
     val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
-    new MutationReturning[ExprOutputs[T]](compile, exprs, codec)
+    new MutationReturning[ExprOutputs[T]](compileFragment, exprs, codec)
   }
 
   /** Append `RETURNING <all columns>` — whole-row projection. */
@@ -82,7 +78,7 @@ final class DeleteReady[Cols <: Tuple] private[sharp] (
         TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Boolean]])
       )
     val codec = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
-    new MutationReturning[NamedRowOf[Cols]](compile, exprs, codec)
+    new MutationReturning[NamedRowOf[Cols]](compileFragment, exprs, codec)
   }
 
 }

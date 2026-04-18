@@ -66,12 +66,23 @@ All under [modules/core/src/main/scala/skunk/sharp/dsl/](modules/core/src/main/s
   - `.returning(c => c.id)` / `.returningTuple(…)` / `.returningAll` — append `RETURNING`.
   - `.onConflictDoNothing` / `.onConflict(c => c.id).doNothing` / `.onConflict(c => c.id).doUpdate(c => (c.email := "x"))`.
   - `.onConflict(c => c.id).doUpdateFromExcluded((t, ex) => (t.email := ex.email))` — access the incoming row via Postgres's `excluded.<col>` pseudo-table. [`TypedColumn.qualified`](modules/core/src/main/scala/skunk/sharp/TypedColumn.scala) and [`ColumnsView.qualified`](modules/core/src/main/scala/skunk/sharp/ColumnsView.scala) produce columns rendered with an arbitrary prefix.
-- `Update.scala` — extension on `Table`. **Staged state machine**: `users.update` → `UpdateBuilder` (has only `.set`) → `.set(...)` → `UpdateWithSet` (has only `.where` and `.updateAll`) → either `.where(...)` or `.updateAll` → `UpdateReady` (has `.run`, `.returning*`, chained `.where`). Calling `.run` without a WHERE or an explicit `.updateAll` is a compile error — the method simply doesn't exist on `UpdateWithSet`. `:=` is an extension on `TypedColumn`.
-- `Delete.scala` — extension on `Table`. **Staged state machine**: `users.delete` → `DeleteBuilder` (has only `.where` and `.deleteAll`) → either `.where(...)` or `.deleteAll` → `DeleteReady` (`.run`, `.returning*`, chained `.where`). `users.delete.run(s)` without a WHERE or explicit `.deleteAll` does not compile.
+- `Update.scala` — extension on `Table`. **Staged state machine**: `users.update` → `UpdateBuilder` (has only `.set`) → `.set(...)` → `UpdateWithSet` (has only `.where` and `.updateAll`) → either `.where(...)` or `.updateAll` → `UpdateReady` (has `.compile`, `.returning*`, chained `.where`). Calling `.compile` without a WHERE or an explicit `.updateAll` is a compile error — the method simply doesn't exist on `UpdateWithSet`. `:=` is an extension on `TypedColumn`.
+- `Delete.scala` — extension on `Table`. **Staged state machine**: `users.delete` → `DeleteBuilder` (has only `.where` and `.deleteAll`) → either `.where(...)` or `.deleteAll` → `DeleteReady` (`.compile`, `.returning*`, chained `.where`). `users.delete.compile` without a WHERE or explicit `.deleteAll` does not compile.
 
 **Select locking is gated to Tables.** `SelectBuilder[R <: Relation[Cols], Cols]` and `ProjectedSelect[R, Cols, Row]` thread the relation type through so `.forUpdate` / `.forShare` / `.forNoKeyUpdate` / `.forKeyShare` / `.skipLocked` / `.noWait` require `R <:< Table[Cols]` via an implicit `<:<` evidence. Calling them on a `View` is a compile error — Postgres would reject them at runtime anyway.
 
 `.offset(n)` without a prior `.limit(n)` is **allowed** — Postgres supports it per SQL:2008, and we don't lint valid SQL at the type level.
+
+## Builders split from execution: `CompiledQuery` / `CompiledCommand`
+
+Every builder's `.compile` returns one of two types — defined in [Compiled.scala](modules/core/src/main/scala/skunk/sharp/dsl/Compiled.scala):
+
+- `CompiledQuery[R]` — for SELECT, `RETURNING`-variants. Extensions: `.run`, `.unique`, `.option`, `.stream`, `.cursor`.
+- `CompiledCommand` — for INSERT/UPDATE/DELETE without RETURNING. Extensions: `.run`.
+
+All session-facing operations live as `inline` extensions on these two types, defined once — so every verb (including `RETURNING` variants) shares the full [`skunk.Session`](https://github.com/typelevel/skunk) execution surface (list-fetch, single-row, option, streaming, cursor). Usage: `users.select.where(…).compile.stream(session)`, `users.delete.where(…).compile.run(session)`, `users.insert(…).returning(u => u.id).compile.unique(session)`.
+
+`.prepare` / `.prepareR` are deliberately *not* exposed here — skunk's `PreparedQuery` takes differing argument values on each call, but our `AppliedFragment` has arguments baked in. Users who need true reusable prepared queries build a `skunk.Query[A, B]` directly.
 
 ## Compile-time SQL goal (design aspiration)
 

@@ -29,7 +29,7 @@ class InsertReturningSuite extends PgFixture {
               deleted_at = None
             ))
             .returning(u => u.id)
-            .unique(s)
+            .compile.unique(s)
           _ = assertEquals(returned, id)
         } yield ()
       }
@@ -50,7 +50,7 @@ class InsertReturningSuite extends PgFixture {
               deleted_at = None
             ))
             .returningTuple(u => (u.id, u.age))
-            .unique(s)
+            .compile.unique(s)
           _ = assertEquals(tup, (id, 55))
         } yield ()
       }

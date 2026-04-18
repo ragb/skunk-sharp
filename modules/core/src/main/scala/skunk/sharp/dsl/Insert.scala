@@ -1,7 +1,7 @@
 package skunk.sharp.dsl
 
 import cats.Reducible
-import skunk.{AppliedFragment, Codec, Fragment, Session}
+import skunk.{AppliedFragment, Codec, Fragment}
 import skunk.sharp.*
 import skunk.sharp.internal.{rowCodec, tupleCodec, CompileChecks}
 import skunk.util.Origin
@@ -118,10 +118,12 @@ final class InsertCommand[Cols <: Tuple] private[sharp] (
 ) {
 
   /**
-   * Compile into a skunk `AppliedFragment` ready to be executed as a command. Renders a multi-row `VALUES (…), (…)`
-   * when more than one row is present, plus any `ON CONFLICT` clause.
+   * Compile into a [[CompiledCommand]]. Use the extensions in [[Compiled]] (`.run`, `.prepare`, …) to execute. Renders
+   * a multi-row `VALUES (…), (…)` when more than one row is present, plus any `ON CONFLICT` clause.
    */
-  def compile: AppliedFragment = {
+  def compile: CompiledCommand = CompiledCommand(compileFragment)
+
+  private[sharp] def compileFragment: AppliedFragment = {
     val projections              = projected.map(c => s""""${c.name}"""").mkString(", ")
     val perRow: Codec[Tuple]     = tupleCodec(projected.map(_.codec))
     val rowEnc                   = perRow.values
@@ -134,13 +136,6 @@ final class InsertCommand[Cols <: Tuple] private[sharp] (
     val header      = TypedExpr.raw(s"INSERT INTO ${table.qualifiedName} ($projections) VALUES ")
     val withValues  = header |+| TypedExpr.joined(rowsApplied, ", ")
     withValues |+| conflictFragment
-  }
-
-  /** Execute against a skunk session. Returns the completion message. */
-  def run[F[_]](session: Session[F]): F[skunk.data.Completion] = {
-    val af  = compile
-    val cmd = af.fragment.command
-    session.execute(cmd)(af.argument)
   }
 
   /** Append a `RETURNING <expr>` clause. Single-value form. */
@@ -270,23 +265,10 @@ final class InsertReturning[Cols <: Tuple, R] private[sharp] (
   returnCodec: Codec[R]
 ) {
 
-  def compile: (AppliedFragment, Codec[R]) = {
+  def compile: CompiledQuery[R] = {
     val returningList = TypedExpr.joined(returning.map(_.render), ", ")
-    val applied       = cmd.compile |+| TypedExpr.raw(" RETURNING ") |+| returningList
-    (applied, returnCodec)
-  }
-
-  def run[F[_]](session: Session[F]): F[List[R]] = {
-    val (af, c) = compile
-    val query   = af.fragment.query(c)
-    session.execute(query)(af.argument)
-  }
-
-  /** Run and return exactly one row (the single inserted row). */
-  def unique[F[_]](session: Session[F]): F[R] = {
-    val (af, c) = compile
-    val query   = af.fragment.query(c)
-    session.unique(query)(af.argument)
+    val applied       = cmd.compileFragment |+| TypedExpr.raw(" RETURNING ") |+| returningList
+    CompiledQuery(applied, returnCodec)
   }
 
 }

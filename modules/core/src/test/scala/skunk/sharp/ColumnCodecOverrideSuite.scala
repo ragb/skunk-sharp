@@ -44,14 +44,14 @@ class ColumnCodecOverrideSuite extends munit.FunSuite {
   }
 
   test("TypedExpr.cast appends a Postgres ::type cast using the codec's short type name") {
-    val users   = Table.of[User]("users")
-    val (af, _) = users.select(u => u.age.cast[Long]).compile
+    val users = Table.of[User]("users")
+    val af    = users.select(u => u.age.cast[Long]).compile.af
     assertEquals(af.fragment.sql, """SELECT "age"::int8 FROM "users"""")
   }
 
   test("cast can be used in WHERE comparisons") {
-    val users   = Table.of[User]("users")
-    val (af, _) = users.select.where(u => u.id.cast[String] === "abc").compile
+    val users = Table.of[User]("users")
+    val af    = users.select.where(u => u.id.cast[String] === "abc").compile.af
     assertEquals(af.fragment.sql, """SELECT "id", "email", "age" FROM "users" WHERE "id"::text = $1""")
   }
 }

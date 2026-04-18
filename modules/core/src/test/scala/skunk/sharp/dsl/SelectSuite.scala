@@ -15,7 +15,7 @@ class SelectSuite extends munit.FunSuite {
   private val users = Table.of[User]("users")
 
   test("select.from emits whole-row SELECT with quoted identifiers") {
-    val (af, _) = users.select.compile
+    val af = users.select.compile.af
     assertEquals(
       af.fragment.sql,
       """SELECT "id", "email", "age", "created_at", "deleted_at" FROM "users""""
@@ -23,7 +23,7 @@ class SelectSuite extends munit.FunSuite {
   }
 
   test("where appends a WHERE clause") {
-    val (af, _) = users.select.where(u => u.email === "a@b").compile
+    val af = users.select.where(u => u.email === "a@b").compile.af
     assertEquals(
       af.fragment.sql,
       """SELECT "id", "email", "age", "created_at", "deleted_at" FROM "users" WHERE "email" = $1"""
@@ -31,94 +31,94 @@ class SelectSuite extends munit.FunSuite {
   }
 
   test("chained .where combines with AND") {
-    val (af, _) = users.select
+    val af = users.select
       .where(u => u.age >= 18)
       .where(u => u.deleted_at.isNull)
-      .compile
+      .compile.af
     assert(af.fragment.sql.contains("""WHERE ("age" >= $1 AND "deleted_at" IS NULL)"""))
   }
 
   test("limit and offset appear after WHERE") {
-    val (af, _) = users.select
+    val af = users.select
       .where(u => u.age >= 18)
       .limit(10)
       .offset(5)
-      .compile
+      .compile.af
     assert(af.fragment.sql.endsWith(" LIMIT 10 OFFSET 5"))
   }
 
   test("order by single column") {
-    val (af, _) = users.select.orderBy(u => u.created_at.desc).compile
+    val af = users.select.orderBy(u => u.created_at.desc).compile.af
     assert(af.fragment.sql.endsWith(""" ORDER BY "created_at" DESC"""))
   }
 
   test("order by multiple columns") {
-    val (af, _) = users.select.orderBy(u => (u.age.asc, u.email.asc)).compile
+    val af = users.select.orderBy(u => (u.age.asc, u.email.asc)).compile.af
     assert(af.fragment.sql.endsWith(""" ORDER BY "age" ASC, "email" ASC"""))
   }
 
   test("project single column via .apply") {
-    val (af, _) = users.select(u => u.email).compile
+    val af = users.select(u => u.email).compile.af
     assertEquals(af.fragment.sql, """SELECT "email" FROM "users"""")
   }
 
   test("project with a function call") {
-    val (af, _) = users.select(u => Pg.lower(u.email)).compile
+    val af = users.select(u => Pg.lower(u.email)).compile.af
     assertEquals(af.fragment.sql, """SELECT lower("email") FROM "users"""")
   }
 
   test("tuple projection via .apply yields a multi-column SELECT") {
-    val (af, _) = users.select(u => (u.email, u.age)).compile
+    val af = users.select(u => (u.email, u.age)).compile.af
     assertEquals(af.fragment.sql, """SELECT "email", "age" FROM "users"""")
   }
 
   test("named-tuple projection input compiles (labels used at call site only)") {
-    val (af, _) = users.select(u => (email = u.email, age = u.age)).compile
+    val af = users.select(u => (email = u.email, age = u.age)).compile.af
     assertEquals(af.fragment.sql, """SELECT "email", "age" FROM "users"""")
   }
 
   test(".as[CaseClass] maps projection rows into a case class") {
     case class Snapshot(email: String, age: Int)
-    val (af, _) = users.select(u => (u.email, u.age)).as[Snapshot].compile
+    val af = users.select(u => (u.email, u.age)).as[Snapshot].compile.af
     assertEquals(af.fragment.sql, """SELECT "email", "age" FROM "users"""")
   }
 
   test("distinctRows renders SELECT DISTINCT") {
-    val (af, _) = users.select.distinctRows.apply(u => u.age).compile
+    val af = users.select.distinctRows.apply(u => u.age).compile.af
     assertEquals(af.fragment.sql, """SELECT DISTINCT "age" FROM "users"""")
   }
 
   test("empty.select(…) renders a FROM-less query") {
-    val (af1, _) = empty.select(_ => Pg.now).compile
+    val af1 = empty.select(_ => Pg.now).compile.af
     assertEquals(af1.fragment.sql, "SELECT now()")
 
-    val (af2, _) = empty.select(_ => (Pg.now, Pg.currentDate)).compile
+    val af2 = empty.select(_ => (Pg.now, Pg.currentDate)).compile.af
     assertEquals(af2.fragment.sql, "SELECT now(), current_date")
   }
 
   test("FOR UPDATE appears after WHERE / ORDER BY / LIMIT / OFFSET") {
-    val (af, _) = users.select.where(u => u.age >= 18).orderBy(u => u.id.asc).limit(5).forUpdate.compile
+    val af = users.select.where(u => u.age >= 18).orderBy(u => u.id.asc).limit(5).forUpdate.compile.af
     assert(af.fragment.sql.endsWith(" FOR UPDATE"), clue = af.fragment.sql)
   }
 
   test("FOR UPDATE SKIP LOCKED") {
-    val (af, _) = users.select.forUpdate.skipLocked.compile
+    val af = users.select.forUpdate.skipLocked.compile.af
     assert(af.fragment.sql.endsWith(" FOR UPDATE SKIP LOCKED"), clue = af.fragment.sql)
   }
 
   test("FOR UPDATE NOWAIT") {
-    val (af, _) = users.select.forUpdate.noWait.compile
+    val af = users.select.forUpdate.noWait.compile.af
     assert(af.fragment.sql.endsWith(" FOR UPDATE NOWAIT"), clue = af.fragment.sql)
   }
 
   test("FOR SHARE / FOR NO KEY UPDATE / FOR KEY SHARE") {
-    assert(users.select.forShare.compile._1.fragment.sql.endsWith(" FOR SHARE"))
-    assert(users.select.forNoKeyUpdate.compile._1.fragment.sql.endsWith(" FOR NO KEY UPDATE"))
-    assert(users.select.forKeyShare.compile._1.fragment.sql.endsWith(" FOR KEY SHARE"))
+    assert(users.select.forShare.compile.af.fragment.sql.endsWith(" FOR SHARE"))
+    assert(users.select.forNoKeyUpdate.compile.af.fragment.sql.endsWith(" FOR NO KEY UPDATE"))
+    assert(users.select.forKeyShare.compile.af.fragment.sql.endsWith(" FOR KEY SHARE"))
   }
 
   test("locking carries through to ProjectedSelect") {
-    val (af, _) = users.select.forUpdate.skipLocked.apply(u => u.id).compile
+    val af = users.select.forUpdate.skipLocked.apply(u => u.id).compile.af
     assert(af.fragment.sql.endsWith(" FOR UPDATE SKIP LOCKED"), clue = af.fragment.sql)
   }
 

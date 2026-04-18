@@ -26,8 +26,8 @@ class ProjectionsSuite extends PgFixture {
             age = 21,
             created_at = OffsetDateTime.now(),
             deleted_at = None
-          )).run(s)
-          emails <- users.select.where(u => u.id === id).apply(u => u.email).run(s)
+          )).compile.run(s)
+          emails <- users.select.where(u => u.id === id).apply(u => u.email).compile.run(s)
           _ = assertEquals(emails, List("proj-single@example.com"))
         } yield ()
       }
@@ -45,8 +45,8 @@ class ProjectionsSuite extends PgFixture {
             age = 42,
             created_at = OffsetDateTime.now(),
             deleted_at = None
-          )).run(s)
-          rows <- users.select.where(u => u.id === id).apply(u => (u.email, u.age)).run(s)
+          )).compile.run(s)
+          rows <- users.select.where(u => u.id === id).apply(u => (u.email, u.age)).compile.run(s)
           _ = assertEquals(rows, List(("proj-tuple@example.com", 42)))
         } yield ()
       }
@@ -64,8 +64,8 @@ class ProjectionsSuite extends PgFixture {
             age = 33,
             created_at = OffsetDateTime.now(),
             deleted_at = None
-          )).run(s)
-          lowered <- users.select.where(u => u.id === id).apply(u => Pg.lower(u.email)).run(s)
+          )).compile.run(s)
+          lowered <- users.select.where(u => u.id === id).apply(u => Pg.lower(u.email)).compile.run(s)
           _ = assertEquals(lowered, List("uppercase@example.com"))
         } yield ()
       }

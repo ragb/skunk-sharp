@@ -1,8 +1,6 @@
 package skunk.sharp.dsl
 
-import cats.effect.MonadCancelThrow
-import cats.syntax.all.*
-import skunk.{AppliedFragment, Codec, Session}
+import skunk.Codec
 import skunk.sharp.*
 import skunk.sharp.internal.{rowCodec, tupleCodec}
 import skunk.sharp.where.Where
@@ -160,8 +158,10 @@ final class SelectBuilder[R <: Relation[Cols], Cols <: Tuple] private[sharp] (
   // (b) an explicit type parameter — `.cols[("id","email")](("id","email"))`; (c) wait for twiddles-backed tuple
   // ergonomics. Until then, use the function form: `select.from(users)(u => (u.id, u.email))`.
 
-  /** Compile the default whole-row SELECT into an `AppliedFragment` plus row codec. */
-  def compile: (AppliedFragment, Codec[ValuesOf[Cols]]) = {
+  /**
+   * Compile the default whole-row SELECT into a [[CompiledQuery]]. Use the extensions in [[Compiled]] to execute it.
+   */
+  def compile: CompiledQuery[NamedRowOf[Cols]] = {
     val cols        = relation.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
     val projections = cols.map(c => s""""${c.name}"""").mkString(", ")
     val keyword     = if (distinct) "SELECT DISTINCT " else "SELECT "
@@ -176,13 +176,7 @@ final class SelectBuilder[R <: Relation[Cols], Cols <: Tuple] private[sharp] (
     val withLimit   = limitOpt.fold(withOrder)(n => withOrder |+| TypedExpr.raw(s" LIMIT $n"))
     val withOffset  = offsetOpt.fold(withLimit)(n => withLimit |+| TypedExpr.raw(s" OFFSET $n"))
     val withLocking = lockingOpt.fold(withOffset)(l => withOffset |+| TypedExpr.raw(" " + l.sql))
-    (withLocking, rowCodec(relation.columns))
-  }
-
-  def run[F[_]: MonadCancelThrow](session: Session[F]): F[List[NamedRowOf[Cols]]] = {
-    val (af, codec) = compile
-    val query       = af.fragment.query(codec)
-    session.execute(query)(af.argument).map(_.asInstanceOf[List[NamedRowOf[Cols]]])
+    CompiledQuery(withLocking, rowCodec(relation.columns).asInstanceOf[Codec[NamedRowOf[Cols]]])
   }
 
 }
@@ -275,7 +269,7 @@ final class ProjectedSelect[R <: Relation[Cols], Cols <: Tuple, Row](
     )
   }
 
-  def compile: (AppliedFragment, Codec[Row]) = {
+  def compile: CompiledQuery[Row] = {
     val projList = TypedExpr.joined(projections.map(_.render), ", ")
     val keyword  = if (distinct) "SELECT DISTINCT " else "SELECT "
     val header   =
@@ -290,20 +284,7 @@ final class ProjectedSelect[R <: Relation[Cols], Cols <: Tuple, Row](
     val withLimit   = limitOpt.fold(withOrder)(n => withOrder |+| TypedExpr.raw(s" LIMIT $n"))
     val withOffset  = offsetOpt.fold(withLimit)(n => withLimit |+| TypedExpr.raw(s" OFFSET $n"))
     val withLocking = lockingOpt.fold(withOffset)(l => withOffset |+| TypedExpr.raw(" " + l.sql))
-    (withLocking, codec)
-  }
-
-  def run[F[_]](session: Session[F]): F[List[Row]] = {
-    val (af, c) = compile
-    val query   = af.fragment.query(c)
-    session.execute(query)(af.argument)
-  }
-
-  /** Run and return exactly one row. Fails if the row count is not 1. */
-  def unique[F[_]](session: Session[F]): F[Row] = {
-    val (af, c) = compile
-    val query   = af.fragment.query(c)
-    session.unique(query)(af.argument)
+    CompiledQuery(withLocking, codec)
   }
 
 }

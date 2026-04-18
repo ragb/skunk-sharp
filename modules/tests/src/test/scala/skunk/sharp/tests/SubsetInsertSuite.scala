@@ -25,7 +25,7 @@ class SubsetInsertSuite extends PgFixture {
           r <- events
             .insert((kind = "sign-in", payload = "user=alice"))
             .returningTuple(e => (e.id, e.kind, e.payload, e.created_at))
-            .unique(s)
+            .compile.unique(s)
           (id, kind, payload, createdAt) = r
           _                              = assert(id > 0, s"sequence PK was filled in, got $id")
           _                              = assertEquals(kind, "sign-in")
@@ -43,7 +43,7 @@ class SubsetInsertSuite extends PgFixture {
           row <- events
             .insert(SubsetInsertSuite.NewEvent(kind = "case-class", payload = "works"))
             .returningTuple(e => (e.id, e.kind, e.payload))
-            .unique(s)
+            .compile.unique(s)
           (id, kind, payload) = row
           _                   = assert(id > 0, s"sequence PK filled in for case-class insert, got $id")
           _                   = assertEquals(kind, "case-class")
@@ -62,7 +62,7 @@ class SubsetInsertSuite extends PgFixture {
           (kind = "c", payload = "three")
         )
         for {
-          inserted <- events.insert.values(rows).returning(e => e.kind).run(s)
+          inserted <- events.insert.values(rows).returning(e => e.kind).compile.run(s)
           _ = assertEquals(inserted, List("a", "b", "c"))
         } yield ()
       }

@@ -18,7 +18,7 @@ class InsertSuite extends munit.FunSuite {
   test("insert renders column list and placeholders") {
     val af = tasks
       .insert((id = UUID.randomUUID, title = "write docs", priority = 1, due = Option.empty[OffsetDateTime]))
-      .compile
+      .compile.af
 
     assertEquals(
       af.fragment.sql,
@@ -27,11 +27,11 @@ class InsertSuite extends munit.FunSuite {
   }
 
   test("insert.returning single column") {
-    val id      = UUID.randomUUID
-    val (af, _) = tasks
+    val id = UUID.randomUUID
+    val af = tasks
       .insert((id = id, title = "x", priority = 1, due = Option.empty[OffsetDateTime]))
       .returning(t => t.id)
-      .compile
+      .compile.af
 
     assertEquals(
       af.fragment.sql,
@@ -47,7 +47,7 @@ class InsertSuite extends munit.FunSuite {
         (id = id1, title = "a", priority = 1, due = Option.empty[OffsetDateTime]),
         (id = id2, title = "b", priority = 2, due = Option.empty[OffsetDateTime])
       )
-      .compile
+      .compile.af
 
     assertEquals(
       af.fragment.sql,
@@ -56,11 +56,11 @@ class InsertSuite extends munit.FunSuite {
   }
 
   test("insert.returningAll returns the whole row") {
-    val id      = UUID.randomUUID
-    val (af, _) = tasks
+    val id = UUID.randomUUID
+    val af = tasks
       .insert((id = id, title = "x", priority = 1, due = Option.empty[OffsetDateTime]))
       .returningAll
-      .compile
+      .compile.af
 
     assertEquals(
       af.fragment.sql,
@@ -72,7 +72,7 @@ class InsertSuite extends munit.FunSuite {
     val af = tasks
       .insert((id = UUID.randomUUID, title = "x", priority = 1, due = Option.empty[OffsetDateTime]))
       .onConflictDoNothing
-      .compile
+      .compile.af
     assert(af.fragment.sql.endsWith(" ON CONFLICT DO NOTHING"))
   }
 
@@ -81,7 +81,7 @@ class InsertSuite extends munit.FunSuite {
       .insert((id = UUID.randomUUID, title = "x", priority = 1, due = Option.empty[OffsetDateTime]))
       .onConflict(t => t.id)
       .doNothing
-      .compile
+      .compile.af
     assert(af.fragment.sql.endsWith("""ON CONFLICT ("id") DO NOTHING"""))
   }
 
@@ -90,7 +90,7 @@ class InsertSuite extends munit.FunSuite {
       .insert((id = UUID.randomUUID, title = "x", priority = 1, due = Option.empty[OffsetDateTime]))
       .onConflict(t => t.id)
       .doUpdateFromExcluded((t, ex) => (t.title := ex.title, t.priority := ex.priority))
-      .compile
+      .compile.af
 
     assertEquals(
       af.fragment.sql,
@@ -103,7 +103,7 @@ class InsertSuite extends munit.FunSuite {
       .insert((id = UUID.randomUUID, title = "x", priority = 1, due = Option.empty[OffsetDateTime]))
       .onConflict(t => t.id)
       .doUpdate(t => (t.title := "updated", t.priority := 9))
-      .compile
+      .compile.af
 
     assertEquals(
       af.fragment.sql,
@@ -115,7 +115,7 @@ class InsertSuite extends munit.FunSuite {
     val tasksWithDefaults = tasks.withDefault("id").withDefault("due")
     val af                = tasksWithDefaults
       .insert((title = "x", priority = 1))
-      .compile
+      .compile.af
 
     assertEquals(
       af.fragment.sql,
@@ -156,7 +156,7 @@ class InsertSuite extends munit.FunSuite {
       (id = UUID.randomUUID, title = "a", priority = 1, due = Option.empty[OffsetDateTime]),
       (id = UUID.randomUUID, title = "b", priority = 2, due = Option.empty[OffsetDateTime])
     )
-    val af = tasks.insert.values(rows).compile
+    val af = tasks.insert.values(rows).compile.af
 
     assertEquals(
       af.fragment.sql,
@@ -168,7 +168,7 @@ class InsertSuite extends munit.FunSuite {
     val rows = NonEmptyVector.of(
       (id = UUID.randomUUID, title = "a", priority = 1, due = Option.empty[OffsetDateTime])
     )
-    val af = tasks.insert.values(rows).compile
+    val af = tasks.insert.values(rows).compile.af
 
     assertEquals(
       af.fragment.sql,
@@ -178,7 +178,7 @@ class InsertSuite extends munit.FunSuite {
 
   test("insert accepts a case class instance (full row via Mirror.ProductOf)") {
     val row = Task(UUID.randomUUID, "write docs", 1, Option.empty[OffsetDateTime])
-    val af  = tasks.insert(row).compile
+    val af  = tasks.insert(row).compile.af
 
     assertEquals(
       af.fragment.sql,
@@ -189,7 +189,7 @@ class InsertSuite extends munit.FunSuite {
   test("insert accepts a case class that is a subset of the table (defaulted columns omitted)") {
     case class TaskInput(title: String, priority: Int)
     val tasksWithDefaults = tasks.withDefault("id").withDefault("due")
-    val af                = tasksWithDefaults.insert(TaskInput("x", 1)).compile
+    val af                = tasksWithDefaults.insert(TaskInput("x", 1)).compile.af
 
     assertEquals(
       af.fragment.sql,
@@ -202,7 +202,7 @@ class InsertSuite extends munit.FunSuite {
       Task(UUID.randomUUID, "a", 1, Option.empty[OffsetDateTime]),
       Task(UUID.randomUUID, "b", 2, Option.empty[OffsetDateTime])
     )
-    val af = tasks.insert.values(rows).compile
+    val af = tasks.insert.values(rows).compile.af
 
     assertEquals(
       af.fragment.sql,
@@ -211,11 +211,11 @@ class InsertSuite extends munit.FunSuite {
   }
 
   test("insert.returningTuple multiple columns") {
-    val id      = UUID.randomUUID
-    val (af, _) = tasks
+    val id = UUID.randomUUID
+    val af = tasks
       .insert((id = id, title = "x", priority = 1, due = Option.empty[OffsetDateTime]))
       .returningTuple(t => (t.id, t.priority))
-      .compile
+      .compile.af
 
     assertEquals(
       af.fragment.sql,

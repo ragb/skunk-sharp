@@ -30,18 +30,24 @@ class DslRoundTripSuite extends PgFixture {
             age = 30,
             created_at = now,
             deleted_at = None
-          )).run(s)
+          )).compile.run(s)
           _ <-
-            users.insert((id = bobId, email = "bob@example.com", age = 45, created_at = now, deleted_at = None)).run(s)
-          all <- users.select.run(s)
+            users.insert((
+              id = bobId,
+              email = "bob@example.com",
+              age = 45,
+              created_at = now,
+              deleted_at = None
+            )).compile.run(s)
+          all <- users.select.compile.run(s)
           _ = assertEquals(all.size, 2)
-          adult <- users.select.where(u => u.age >= 18).run(s)
+          adult <- users.select.where(u => u.age >= 18).compile.run(s)
           _ = assertEquals(adult.size, 2)
-          _     <- users.update.set(u => u.age := 31).where(u => u.id === aliceId).run(s)
-          alice <- users.select.where(u => u.id === aliceId).run(s)
+          _     <- users.update.set(u => u.age := 31).where(u => u.id === aliceId).compile.run(s)
+          alice <- users.select.where(u => u.id === aliceId).compile.run(s)
           _ = assertEquals(alice.map(_.age), List(31))
-          _      <- users.delete.where(u => u.id === bobId).run(s)
-          final_ <- users.select.run(s)
+          _      <- users.delete.where(u => u.id === bobId).compile.run(s)
+          final_ <- users.select.compile.run(s)
           _ = assertEquals(final_.size, 1)
         } yield ()
       }
@@ -56,12 +62,13 @@ class DslRoundTripSuite extends PgFixture {
         val c   = UUID.fromString("40000000-0000-0000-0000-000000000003")
         val now = OffsetDateTime.now()
         for {
-          _   <- users.insert((id = a, email = "aaa@x", age = 30, created_at = now, deleted_at = None)).run(s)
-          _   <- users.insert((id = b, email = "bbb@x", age = 10, created_at = now, deleted_at = None)).run(s)
-          _   <- users.insert((id = c, email = "ccc@x", age = 20, created_at = now, deleted_at = None)).run(s)
-          asc <- users.select.where(u => u.email.like("%@x")).orderBy(u => u.age.asc).apply(u => u.email).run(s)
+          _   <- users.insert((id = a, email = "aaa@x", age = 30, created_at = now, deleted_at = None)).compile.run(s)
+          _   <- users.insert((id = b, email = "bbb@x", age = 10, created_at = now, deleted_at = None)).compile.run(s)
+          _   <- users.insert((id = c, email = "ccc@x", age = 20, created_at = now, deleted_at = None)).compile.run(s)
+          asc <- users.select.where(u => u.email.like("%@x")).orderBy(u => u.age.asc).apply(u => u.email).compile.run(s)
           _ = assertEquals(asc, List("bbb@x", "ccc@x", "aaa@x"))
-          desc <- users.select.where(u => u.email.like("%@x")).orderBy(u => u.age.desc).apply(u => u.email).run(s)
+          desc <-
+            users.select.where(u => u.email.like("%@x")).orderBy(u => u.age.desc).apply(u => u.email).compile.run(s)
           _ = assertEquals(desc, List("aaa@x", "ccc@x", "bbb@x"))
         } yield ()
       }
@@ -79,8 +86,8 @@ class DslRoundTripSuite extends PgFixture {
             age = 25,
             created_at = OffsetDateTime.now(),
             deleted_at = None
-          )).run(s)
-          rows <- active.select.where(u => u.id === id).run(s)
+          )).compile.run(s)
+          rows <- active.select.where(u => u.id === id).compile.run(s)
           _ = assertEquals(rows.map(_.email), List("carol@example.com"))
         } yield ()
       }
