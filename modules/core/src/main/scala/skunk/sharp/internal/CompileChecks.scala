@@ -103,4 +103,17 @@ object CompileChecks {
         }
     }
 
+  /**
+   * Assert that the column name `N` is NOT already declared in `Cols`. Used by `Table.builder`'s `.column` /
+   * `.columnOpt` / `.columnDefaulted` / `.columnOptDefaulted` to catch accidental typos that would otherwise silently
+   * add a second column of the same name (e.g. `.column[UUID]("id") … .column[String]("id")`).
+   */
+  inline def requireColumnAbsent[Cols <: Tuple, N <: String & Singleton]: Unit =
+    inline if constValue[HasColumn[Cols, N]] then
+      error(
+        "skunk-sharp: duplicate column name \"" + constValue[N] +
+          "\". Columns already declared in this builder: [" + columnNamesString[Cols] + "]"
+      )
+    else ()
+
 }

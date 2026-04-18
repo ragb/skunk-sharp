@@ -59,4 +59,25 @@ class TableBuilderSuite extends munit.FunSuite {
 
     summon[NamedRowOf[users.columns.type] =:= (id: UUID, email: String, deleted_at: Option[OffsetDateTime])]
   }
+
+  test("declaring the same column name twice is a compile error (catches typos)") {
+    val errs = scala.compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.Table
+      import skunk.codec.all.*
+      Table.builder("users").column("id", uuid).column("id", int4)
+    """)
+    assert(errs.nonEmpty, "expected a compile error for duplicate column name")
+    val msg = errs.map(_.message).mkString("\n")
+    assert(msg.contains("duplicate column name"), s"error should say 'duplicate column name'; got: $msg")
+    assert(msg.contains("\"id\""), s"error should name the duplicate; got: $msg")
+  }
+
+  test("duplicate name caught by the inferred-codec .column[T] path too") {
+    val errs = scala.compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.Table
+      import skunk.sharp.pg.tags.*
+      Table.builder("users").column[Int4]("id").column[Varchar[64]]("id")
+    """)
+    assert(errs.nonEmpty, "expected a compile error for duplicate column name on inferred-codec path")
+  }
 }

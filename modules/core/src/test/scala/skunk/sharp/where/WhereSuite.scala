@@ -30,14 +30,24 @@ class WhereSuite extends munit.FunSuite {
     assertEquals(w.render.fragment.sql, """NOT (("age" < $1 OR "age" > $2))""")
   }
 
-  test("IN renders comma-separated placeholders") {
-    val w = cols.age.in(Seq(1, 2, 3))
+  test("IN renders comma-separated placeholders (from NonEmptyList)") {
+    val w = cols.age.in(cats.data.NonEmptyList.of(1, 2, 3))
     assertEquals(w.render.fragment.sql, """"age" IN ($1, $2, $3)""")
   }
 
-  test("empty IN renders FALSE and binds no params") {
-    val w = cols.age.in(Seq.empty[Int])
-    assertEquals(w.render.fragment.sql, "FALSE")
+  test("IN accepts any cats.Reducible container (NonEmptyVector here)") {
+    val w = cols.age.in(cats.data.NonEmptyVector.of(1, 2))
+    assertEquals(w.render.fragment.sql, """"age" IN ($1, $2)""")
+  }
+
+  test("empty input is a compile error (Seq is no longer accepted; Reducible guarantees non-empty)") {
+    val errs = scala.compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      val users = Table.of[WhereSuite.User]("users")
+      val cv    = ColumnsView(users.columns)
+      cv.age.in(Seq.empty[Int])
+    """)
+    assert(errs.nonEmpty, "expected a compile error for Seq on .in")
   }
 
   test("LIKE on string column") {

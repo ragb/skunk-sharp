@@ -342,12 +342,12 @@ final class ProjectedSelect[R <: Relation[Cols], Cols <: Tuple, Row](
     copy(lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.NoWait)))
 
   /**
-   * Lift result rows into a case class `T`. Purely about decoding — the SQL is unchanged. `Row` must already be a
-   * tuple whose element types line up with `T`'s fields (verified at compile time via `Mirror.ProductOf`).
+   * Lift result rows into a case class `T`. Purely about decoding — the SQL is unchanged. `Row` must already be a tuple
+   * whose element types line up with `T`'s fields (verified at compile time via `Mirror.ProductOf`).
    *
    * Named `.to` rather than `.as` to keep a clean separation from [[TypedExpr.as]], which renames a column in the
-   * emitted SQL (`<expr> AS "<label>"`). `.as` operates on one expression and changes rendering; `.to` operates on
-   * the whole row and changes decoding.
+   * emitted SQL (`<expr> AS "<label>"`). `.as` operates on one expression and changes rendering; `.to` operates on the
+   * whole row and changes decoding.
    */
   def to[T <: Product](using
     m: scala.deriving.Mirror.ProductOf[T] { type MirroredElemTypes = Row & Tuple }
@@ -458,8 +458,8 @@ type ExprOutputs[T <: Tuple] <: Tuple = T match {
  * Synthesising a named-tuple Row shape that mixes bare columns (whose singleton names we could track) with
  * `AliasedExpr[T, N]` elements is a roadmap item — the `AliasedExpr.N` singleton gives us the piece we were missing,
  * and the twiddles tuple library (or Scala 3's own tuple ops) can assemble the names tuple + values tuple into a
- * `NamedTuple[Ns, Vs]` at the type level. The challenge is side-stepping the match-type soundness issue that blocks
- * the naive `X match { case NamedTuple.AnyNamedTuple => … }` arm (opaque-type semantics leave a plain tuple
+ * `NamedTuple[Ns, Vs]` at the type level. The challenge is side-stepping the match-type soundness issue that blocks the
+ * naive `X match { case NamedTuple.AnyNamedTuple => … }` arm (opaque-type semantics leave a plain tuple
  * indistinguishable from a named tuple to the prover). To revisit with JOINs and the GROUP-BY compile-time check.
  */
 type ProjResult[X] = X match {
@@ -473,8 +473,15 @@ type LookupTypes[Cols <: Tuple, Names <: Tuple] <: Tuple = Names match {
   case n *: rest  => ColumnType[Cols, n & String & Singleton] *: LookupTypes[Cols, rest]
 }
 
-/** ORDER BY clause. Produced by `.asc` / `.desc` on a [[TypedColumn]]. */
-final case class OrderBy(sql: String)
+/**
+ * ORDER BY clause. Produced by `.asc` / `.desc` on a [[TypedColumn]]. Chain `.nullsFirst` / `.nullsLast` on an
+ * `OrderBy` to control where NULL values land — useful on nullable columns where Postgres's default (`NULLS LAST` for
+ * ASC, `NULLS FIRST` for DESC) doesn't match what you want.
+ */
+final case class OrderBy(sql: String) {
+  def nullsFirst: OrderBy = OrderBy(sql + " NULLS FIRST")
+  def nullsLast: OrderBy  = OrderBy(sql + " NULLS LAST")
+}
 
 extension [T, Null <: Boolean](col: TypedColumn[T, Null]) {
   def asc: OrderBy  = OrderBy(s""""${col.name}" ASC""")

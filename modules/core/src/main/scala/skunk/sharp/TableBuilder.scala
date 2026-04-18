@@ -1,6 +1,7 @@
 package skunk.sharp
 
 import skunk.Codec
+import skunk.sharp.internal.CompileChecks
 import skunk.sharp.pg.{PgTypeFor, PgTypes}
 
 /**
@@ -102,6 +103,7 @@ final class TableBuilder[Cols <: Tuple](
     primary: Boolean,
     unique: Boolean
   ): TableBuilder[Tuple.Append[Cols, Column[T, N, Null, Default]]] = {
+    CompileChecks.requireColumnAbsent[Cols, N]
     val col = Column[T, N, Null, Default](
       name = n,
       tpe = PgTypes.typeOf(codec),
@@ -124,6 +126,7 @@ final class TableBuilder[Cols <: Tuple](
     hasDefault: Default,
     unique: Boolean
   ): TableBuilder[Tuple.Append[Cols, Column[Option[T], N, true, Default]]] = {
+    CompileChecks.requireColumnAbsent[Cols, N]
     val col = Column[Option[T], N, true, Default](
       name = n,
       tpe = PgTypes.typeOf(codec),
@@ -163,6 +166,7 @@ object TableBuilder {
       primary: Boolean = false,
       unique: Boolean = false
     ): TableBuilder[Tuple.Append[Cols, Column[T, N, Null, Default]]] = {
+      CompileChecks.requireColumnAbsent[Cols, N]
       val col = Column[T, N, Null, Default](
         name = n,
         tpe = PgTypes.typeOf(codec),
@@ -192,6 +196,7 @@ object TableBuilder {
       n: N,
       unique: Boolean = false
     ): TableBuilder[Tuple.Append[Cols, Column[Option[T], N, true, Default]]] = {
+      CompileChecks.requireColumnAbsent[Cols, N]
       val col = Column[Option[T], N, true, Default](
         name = n,
         tpe = PgTypes.typeOf(codec),

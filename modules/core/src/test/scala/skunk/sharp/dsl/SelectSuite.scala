@@ -57,6 +57,14 @@ class SelectSuite extends munit.FunSuite {
     assert(af.fragment.sql.endsWith(""" ORDER BY "age" ASC, "email" ASC"""))
   }
 
+  test("order by nulls first / nulls last") {
+    val af1 = users.select.orderBy(u => u.deleted_at.desc.nullsLast).compile.af
+    assert(af1.fragment.sql.endsWith(""" ORDER BY "deleted_at" DESC NULLS LAST"""), af1.fragment.sql)
+
+    val af2 = users.select.orderBy(u => u.deleted_at.asc.nullsFirst).compile.af
+    assert(af2.fragment.sql.endsWith(""" ORDER BY "deleted_at" ASC NULLS FIRST"""), af2.fragment.sql)
+  }
+
   test("project single column via .apply") {
     val af = users.select(u => u.email).compile.af
     assertEquals(af.fragment.sql, """SELECT "email" FROM "users"""")

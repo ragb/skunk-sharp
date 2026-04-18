@@ -65,18 +65,20 @@ extension [T](lhs: TypedExpr[T])(using @unused ord: cats.Order[Stripped[T]]) {
 
 extension [T](lhs: TypedExpr[T]) {
 
-  /** `lhs IN (val1, val2, …)`. Empty input compiles to `FALSE`. */
-  def in(values: Seq[Stripped[T]])(using pf: PgTypeFor[Stripped[T]]): Where =
-    if values.isEmpty then Where(falseExpr)
-    else {
-      val literals = values.map(v => TypedExpr.lit(v).render).toList
-      val rendered =
-        lhs.render |+| TypedExpr.raw(" IN (") |+| TypedExpr.joined(literals, ", ") |+| TypedExpr.raw(")")
-      Where(new TypedExpr[Boolean] {
-        val render = rendered
-        val codec  = skunk.codec.all.bool
-      })
-    }
+  /**
+   * `lhs IN (val1, val2, …)`. Takes any `cats.Reducible` container — `NonEmptyList`, `NonEmptyVector`, `NonEmptyChain`,
+   * `NonEmptySeq`, … — so the non-emptiness is guaranteed at the type level and the generated SQL is always valid.
+   * Matches the [[skunk.sharp.dsl.InsertBuilder.values]] shape.
+   */
+  def in[F[_]: cats.Reducible](values: F[Stripped[T]])(using pf: PgTypeFor[Stripped[T]]): Where = {
+    val literals = cats.Reducible[F].toNonEmptyList(values).toList.map(v => TypedExpr.lit(v).render)
+    val rendered =
+      lhs.render |+| TypedExpr.raw(" IN (") |+| TypedExpr.joined(literals, ", ") |+| TypedExpr.raw(")")
+    Where(new TypedExpr[Boolean] {
+      val render = rendered
+      val codec  = skunk.codec.all.bool
+    })
+  }
 
 }
 
@@ -114,9 +116,3 @@ private def nullCheck(col: skunk.sharp.TypedColumn[?, ?], suffix: String): Where
     val codec  = skunk.codec.all.bool
   })
 }
-
-private lazy val falseExpr: TypedExpr[Boolean] =
-  new TypedExpr[Boolean] {
-    val render = TypedExpr.raw("FALSE")
-    val codec  = skunk.codec.all.bool
-  }
