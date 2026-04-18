@@ -176,6 +176,40 @@ class InsertSuite extends munit.FunSuite {
     )
   }
 
+  test("insert accepts a case class instance (full row via Mirror.ProductOf)") {
+    val row = Task(UUID.randomUUID, "write docs", 1, Option.empty[OffsetDateTime])
+    val af  = tasks.insert(row).compile
+
+    assertEquals(
+      af.fragment.sql,
+      """INSERT INTO "tasks" ("id", "title", "priority", "due") VALUES ($1, $2, $3, $4)"""
+    )
+  }
+
+  test("insert accepts a case class that is a subset of the table (defaulted columns omitted)") {
+    case class TaskInput(title: String, priority: Int)
+    val tasksWithDefaults = tasks.withDefault("id").withDefault("due")
+    val af                = tasksWithDefaults.insert(TaskInput("x", 1)).compile
+
+    assertEquals(
+      af.fragment.sql,
+      """INSERT INTO "tasks" ("title", "priority") VALUES ($1, $2)"""
+    )
+  }
+
+  test("insert.values batches case-class rows through cats.Reducible") {
+    val rows = NonEmptyList.of(
+      Task(UUID.randomUUID, "a", 1, Option.empty[OffsetDateTime]),
+      Task(UUID.randomUUID, "b", 2, Option.empty[OffsetDateTime])
+    )
+    val af = tasks.insert.values(rows).compile
+
+    assertEquals(
+      af.fragment.sql,
+      """INSERT INTO "tasks" ("id", "title", "priority", "due") VALUES ($1, $2, $3, $4), ($5, $6, $7, $8)"""
+    )
+  }
+
   test("insert.returningTuple multiple columns") {
     val id      = UUID.randomUUID
     val (af, _) = tasks

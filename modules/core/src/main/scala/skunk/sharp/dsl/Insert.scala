@@ -8,6 +8,7 @@ import skunk.util.Origin
 
 import scala.NamedTuple
 import scala.compiletime.constValueTuple
+import scala.deriving.Mirror
 
 /**
  * INSERT builder.
@@ -58,6 +59,34 @@ final class InsertBuilder[Cols <: Tuple] private[sharp] (table: Table[Cols]) {
     CompileChecks.requireValueTypesMatch[Cols, NamedTuple.Names[R], NamedTuple.DropNames[R]]
     val names = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
     val rs    = Reducible[F].toNonEmptyList(rows).toList.map(_.asInstanceOf[Tuple].toList)
+    InsertCommand.build(table, names, rs, OnConflict.None)
+  }
+
+  /**
+   * Insert a single row from a case class instance. Uses `Mirror.ProductOf[T]` to read the case class's field labels
+   * and types, runs the same subset/required/value-type compile-time checks as the named-tuple overload, and reads
+   * values at runtime via `productIterator`. Case classes that omit `.withDefault`ed columns from their shape are fine
+   * — the omitted columns are filled in by the database.
+   */
+  inline def apply[T <: Product](row: T)(using m: Mirror.ProductOf[T]): InsertCommand[Cols] = {
+    CompileChecks.requireAllNamesInCols[Cols, m.MirroredElemLabels]
+    CompileChecks.requireCoversRequired[Cols, m.MirroredElemLabels]
+    CompileChecks.requireValueTypesMatch[Cols, m.MirroredElemLabels, m.MirroredElemTypes]
+    val names = constValueTuple[m.MirroredElemLabels].toList.asInstanceOf[List[String]]
+    val vs    = row.productIterator.toList
+    InsertCommand.build(table, names, List(vs), OnConflict.None)
+  }
+
+  /**
+   * Batch case-class variant. Same contract as the named-tuple `.values`, but each row is a `T <: Product` instance
+   * resolved via its shared `Mirror.ProductOf[T]`.
+   */
+  inline def values[F[_]: Reducible, T <: Product](rows: F[T])(using m: Mirror.ProductOf[T]): InsertCommand[Cols] = {
+    CompileChecks.requireAllNamesInCols[Cols, m.MirroredElemLabels]
+    CompileChecks.requireCoversRequired[Cols, m.MirroredElemLabels]
+    CompileChecks.requireValueTypesMatch[Cols, m.MirroredElemLabels, m.MirroredElemTypes]
+    val names = constValueTuple[m.MirroredElemLabels].toList.asInstanceOf[List[String]]
+    val rs    = Reducible[F].toNonEmptyList(rows).toList.map(_.productIterator.toList)
     InsertCommand.build(table, names, rs, OnConflict.None)
   }
 

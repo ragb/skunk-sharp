@@ -8,6 +8,8 @@ import java.time.OffsetDateTime
 
 object SubsetInsertSuite {
   case class Event(id: Long, kind: String, payload: String, created_at: OffsetDateTime)
+
+  case class NewEvent(kind: String, payload: String)
 }
 
 class SubsetInsertSuite extends PgFixture {
@@ -29,6 +31,23 @@ class SubsetInsertSuite extends PgFixture {
           _                              = assertEquals(kind, "sign-in")
           _                              = assertEquals(payload, "user=alice")
           _                              = assert(createdAt != null, "created_at was filled in by DEFAULT now()")
+        } yield ()
+      }
+    }
+  }
+
+  test("insert accepts a case-class subset and the DB fills defaulted columns") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        for {
+          row <- events
+            .insert(SubsetInsertSuite.NewEvent(kind = "case-class", payload = "works"))
+            .returningTuple(e => (e.id, e.kind, e.payload))
+            .unique(s)
+          (id, kind, payload) = row
+          _                   = assert(id > 0, s"sequence PK filled in for case-class insert, got $id")
+          _                   = assertEquals(kind, "case-class")
+          _                   = assertEquals(payload, "works")
         } yield ()
       }
     }
