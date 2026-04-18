@@ -65,4 +65,32 @@ extension [T](expr: TypedExpr[T]) {
     TypedExpr(expr.render |+| TypedExpr.raw(s"::$castName"), pf.codec)
   }
 
+  /**
+   * Render the expression with a SQL column alias: `<expr> AS "<name>"`. The alias is captured in the result type via
+   * [[AliasedExpr]], so downstream match types can inspect the name (e.g. a future compile-time GROUP BY check, or
+   * alias-in-clause resolution, can walk the projection tuple and collect alias singletons).
+   *
+   * Meaningful in SELECT projections — Postgres accepts column aliases there and in `ORDER BY` / `GROUP BY` / `HAVING`
+   * (but not in `WHERE`, per SQL's logical-evaluation order). We don't gate the placement; Postgres raises a clear
+   * error for misuse.
+   */
+  def as[N <: String & Singleton](name: N): AliasedExpr[T, N] = {
+    val rendered = expr.render |+| TypedExpr.raw(s""" AS "$name"""")
+    val c        = expr.codec
+    new AliasedExpr[T, N] {
+      val aliasName = name
+      val render    = rendered
+      val codec     = c
+    }
+  }
+
+}
+
+/**
+ * A [[TypedExpr]] carrying a compile-time-known alias name (`<expr> AS "<N>"`). Produced by `expr.as("name")`; distinct
+ * from plain `TypedExpr` so projections that use `.as` can be introspected at the type level by match types that care
+ * about the alias (e.g. future compile-time checks for GROUP BY coverage or alias-in-clause resolution).
+ */
+trait AliasedExpr[T, N <: String & Singleton] extends TypedExpr[T] {
+  def aliasName: N
 }

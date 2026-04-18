@@ -38,6 +38,12 @@ package object dsl {
   type TypedExpr[T] = skunk.sharp.TypedExpr[T]
   val TypedExpr: skunk.sharp.TypedExpr.type = skunk.sharp.TypedExpr
 
+  type AliasedExpr[T, N <: String & Singleton] = skunk.sharp.AliasedExpr[T, N]
+
+  // Extension methods on TypedExpr[T] (cast, as). Exported here so callers that only pull `skunk.sharp.dsl.*` still
+  // see them.
+  export skunk.sharp.{as, cast}
+
   type TypedColumn[T, Null <: Boolean] = skunk.sharp.TypedColumn[T, Null]
 
   type ColumnsView[Cols <: Tuple] = skunk.sharp.ColumnsView[Cols]

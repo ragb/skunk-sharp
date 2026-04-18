@@ -95,4 +95,24 @@ class GroupBySuite extends munit.FunSuite {
     val af = users.select.having(_ => Pg.countAll > 0L).compile.af
     assert(af.fragment.sql.contains("""HAVING count(*) > $1"""), af.fragment.sql)
   }
+
+  test("TypedExpr.as aliases an aggregate in the projection") {
+    val af = users.select(u => (u.age, Pg.count(u.id).as("cnt"))).groupBy(u => u.age).compile.af
+    assertEquals(
+      af.fragment.sql,
+      """SELECT "age", count("id") AS "cnt" FROM "users" GROUP BY "age""""
+    )
+  }
+
+  test("TypedExpr.as also aliases a plain column reference") {
+    val af = users.select(u => u.email.as("mail")).compile.af
+    assertEquals(af.fragment.sql, """SELECT "email" AS "mail" FROM "users"""")
+  }
+
+  test("TypedExpr.as return type captures the alias name as a singleton") {
+    // The alias name `"cnt"` is carried in the result type as AliasedExpr[Long, "cnt"]. Downstream code (future GROUP
+    // BY coverage check, alias-in-clause resolution) can match on this type to extract the label.
+    val aliased: skunk.sharp.AliasedExpr[Long, "cnt"] = Pg.countAll.as("cnt")
+    assertEquals(aliased.aliasName, "cnt")
+  }
 }
