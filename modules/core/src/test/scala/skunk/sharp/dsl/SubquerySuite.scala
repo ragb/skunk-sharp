@@ -97,7 +97,9 @@ class SubquerySuite extends munit.FunSuite {
       .af
 
     assert(
-      af.fragment.sql.contains("""WHERE ("u"."age" >= $1 AND EXISTS (SELECT $2 FROM "posts" WHERE "user_id" = "u"."id"))"""),
+      af.fragment.sql.contains(
+        """WHERE ("u"."age" >= $1 AND EXISTS (SELECT $2 FROM "posts" WHERE "user_id" = "u"."id"))"""
+      ),
       af.fragment.sql
     )
   }

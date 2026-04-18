@@ -57,6 +57,7 @@ object View {
   inline def of[T <: Product]: OfCont[T] = new OfCont[T]
 
   final class OfCont[T <: Product] {
+
     inline def apply[Name <: String & Singleton](viewName: Name)(using
       m: Mirror.ProductOf[T]
     ): View[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes], Name] = {
@@ -67,6 +68,7 @@ object View {
         cols.asInstanceOf[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes]]
       )
     }
+
   }
 
 }

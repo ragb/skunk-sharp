@@ -7,10 +7,10 @@ import skunk.sharp.where.Where
 import scala.NamedTuple
 
 /**
- * N-table SQL joins. `.innerJoin` / `.leftJoin` / `.crossJoin` chain off any relation (or
- * [[AliasedRelation]]); each join appends a [[SourceEntry]] to a `Sources <: Tuple` carried at the type level.
- * The lambda passed to `.where` / `.select` / `.orderBy` / `.groupBy` / `.having` receives a `JoinedView[Sources]` —
- * a Scala 3 named tuple keyed by alias — so columns are reached as `r.<alias>.<column>`.
+ * N-table SQL joins. `.innerJoin` / `.leftJoin` / `.crossJoin` chain off any relation (or [[AliasedRelation]]); each
+ * join appends a [[SourceEntry]] to a `Sources <: Tuple` carried at the type level. The lambda passed to `.where` /
+ * `.select` / `.orderBy` / `.groupBy` / `.having` receives a `JoinedView[Sources]` — a Scala 3 named tuple keyed by
+ * alias — so columns are reached as `r.<alias>.<column>`.
  *
  * {{{
  *   users
@@ -95,9 +95,8 @@ private[sharp] def nullabilifyCols(cols: Tuple): Tuple = {
  *   - A [[Table]] `Table[Cols, Name]` — auto-aliased to the table's name.
  *   - A [[View]] `View[Cols, Name]` — auto-aliased to the view's name.
  *
- * Lets `users.innerJoin(posts)` work without explicit `.alias(...)`: the alias defaults to the relation's name,
- * pulled from the `Name` type parameter so it's usable as a NamedTuple label in the join's lambda view
- * (`r.users.id`).
+ * Lets `users.innerJoin(posts)` work without explicit `.alias(...)`: the alias defaults to the relation's name, pulled
+ * from the `Name` type parameter so it's usable as a NamedTuple label in the join's lambda view (`r.users.id`).
  */
 sealed trait AsAliased[T] {
   type R <: Relation[Cols]
@@ -109,23 +108,23 @@ sealed trait AsAliased[T] {
 object AsAliased {
 
   type Aux[T, R_ <: Relation[Cols_], Cols_ <: Tuple, Alias_ <: String & Singleton] = AsAliased[T] {
-    type R = R_
-    type Cols = Cols_
+    type R     = R_
+    type Cols  = Cols_
     type Alias = Alias_
   }
 
   given fromAliased[RR <: Relation[CC], CC <: Tuple, A <: String & Singleton]
     : AsAliased.Aux[AliasedRelation[RR, CC, A], RR, CC, A] = new AsAliased[AliasedRelation[RR, CC, A]] {
-    type R = RR
-    type Cols = CC
+    type R     = RR
+    type Cols  = CC
     type Alias = A
     def apply(a: AliasedRelation[RR, CC, A]): AliasedRelation[RR, CC, A] = a
   }
 
   given fromTable[CC <: Tuple, N <: String & Singleton]: AsAliased.Aux[Table[CC, N], Table[CC, N], CC, N] =
     new AsAliased[Table[CC, N]] {
-      type R = Table[CC, N]
-      type Cols = CC
+      type R     = Table[CC, N]
+      type Cols  = CC
       type Alias = N
       def apply(t: Table[CC, N]): AliasedRelation[Table[CC, N], CC, N] =
         new AliasedRelation[Table[CC, N], CC, N](t, t.name)
@@ -133,8 +132,8 @@ object AsAliased {
 
   given fromView[CC <: Tuple, N <: String & Singleton]: AsAliased.Aux[View[CC, N], View[CC, N], CC, N] =
     new AsAliased[View[CC, N]] {
-      type R = View[CC, N]
-      type Cols = CC
+      type R     = View[CC, N]
+      type Cols  = CC
       type Alias = N
       def apply(v: View[CC, N]): AliasedRelation[View[CC, N], CC, N] =
         new AliasedRelation[View[CC, N], CC, N](v, v.name)
@@ -145,28 +144,28 @@ object AsAliased {
 // ---- SourceEntry + match types over Sources ----------------------------------------------------
 
 /**
- * A single source in an N-source join. Carries both the declared column tuple (`Cols0`) and the effective one
- * (`Cols`, = `NullableCols[Cols0]` when attached via LEFT JOIN). The lambda passed to `.where` / `.select` sees
- * `Cols`; the `.on` lambda for the just-added source sees `Cols0`.
+ * A single source in an N-source join. Carries both the declared column tuple (`Cols0`) and the effective one (`Cols`, =
+ * `NullableCols[Cols0]` when attached via LEFT JOIN). The lambda passed to `.where` / `.select` sees `Cols`; the `.on`
+ * lambda for the just-added source sees `Cols0`.
  */
 final class SourceEntry[
-  R     <: Relation[Cols0],
+  R <: Relation[Cols0],
   Cols0 <: Tuple,
-  Cols  <: Tuple,
+  Cols <: Tuple,
   Alias <: String & Singleton
 ] private[sharp] (
   val relation: R,
   val alias: Alias,
   val originalCols: Cols0,
   val effectiveCols: Cols,
-  val kind: JoinKind,           // for the base source this is `Inner` (cosmetic — not rendered for index 0)
-  val onPredOpt: Option[Where]  // `None` for the base source and CROSS joins; `Some` for INNER/LEFT
+  val kind: JoinKind,          // for the base source this is `Inner` (cosmetic — not rendered for index 0)
+  val onPredOpt: Option[Where] // `None` for the base source and CROSS joins; `Some` for INNER/LEFT
 )
 
 /**
- * Aliases tuple: one alias literal per committed source. Pattern-matches `SourceEntry[?, ?, ?, a]` directly in the
- * `*:` arm — going through a separate `AliasOf` helper breaks reduction when `Ss` is constructed through multiple
- * steps because the inner match type stays abstract.
+ * Aliases tuple: one alias literal per committed source. Pattern-matches `SourceEntry[?, ?, ?, a]` directly in the `*:`
+ * arm — going through a separate `AliasOf` helper breaks reduction when `Ss` is constructed through multiple steps
+ * because the inner match type stays abstract.
  */
 type AliasesOf[Ss <: Tuple] <: Tuple = Ss match {
   case EmptyTuple                   => EmptyTuple
@@ -226,15 +225,15 @@ private[sharp] def buildOnView[Ss <: Tuple, CR0 <: Tuple, AR <: String & Singlet
 // ---- IncompleteJoin ----------------------------------------------------------------------------
 
 /**
- * Transitional state after `.innerJoin(x)` or `.leftJoin(x)`, before `.on(predicate)`. Only `.on` is exposed —
- * calling `.compile` / `.select` here is a compile error because the method isn't here.
+ * Transitional state after `.innerJoin(x)` or `.leftJoin(x)`, before `.on(predicate)`. Only `.on` is exposed — calling
+ * `.compile` / `.select` here is a compile error because the method isn't here.
  */
 final class IncompleteJoin[
-  Ss    <: Tuple,
-  RR    <: Relation[CR0],
-  CR0   <: Tuple,
-  CR    <: Tuple,            // = CR0 for INNER, NullableCols[CR0] for LEFT
-  AR    <: String & Singleton
+  Ss <: Tuple,
+  RR <: Relation[CR0],
+  CR0 <: Tuple,
+  CR <: Tuple, // = CR0 for INNER, NullableCols[CR0] for LEFT
+  AR <: String & Singleton
 ] private[sharp] (
   sources: Ss,
   pendingRelation: RR,
@@ -284,8 +283,8 @@ private[sharp] def aliasedFromEntry(s: SourceEntry[?, ?, ?, ?]): String =
 // ---- Join entry points -------------------------------------------------------------------------
 
 /**
- * `.innerJoin` / `.leftJoin` / `.crossJoin` on any relation-like value — bare `Table` / `View` (auto-aliased to its
- * own name) or an already-aliased `AliasedRelation`. The first chained call transitions from a bare relation to a
+ * `.innerJoin` / `.leftJoin` / `.crossJoin` on any relation-like value — bare `Table` / `View` (auto-aliased to its own
+ * name) or an already-aliased `AliasedRelation`. The first chained call transitions from a bare relation to a
  * single-source [[JoinBuilder]], from which further sources can be attached.
  */
 extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton](left: L)(using
@@ -348,4 +347,3 @@ private[sharp] def makeBaseEntry[L, RL <: Relation[CL], CL <: Tuple, AL <: Strin
   val cols = al.relation.columns.asInstanceOf[CL]
   new SourceEntry[RL, CL, CL, AL](al.relation, al.alias, cols, cols, JoinKind.Inner, None)
 }
-

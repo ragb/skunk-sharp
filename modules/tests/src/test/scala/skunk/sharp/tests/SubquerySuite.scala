@@ -28,7 +28,7 @@ class SubquerySuite extends PgFixture {
           _ <- users
             .insert((id = uidB, email = "no-posts@x", age = 31, deleted_at = Option.empty[OffsetDateTime]))
             .compile.run(s)
-          _ <- posts.insert((id = UUID.randomUUID, user_id = uidA, title = "hello")).compile.run(s)
+          _    <- posts.insert((id = UUID.randomUUID, user_id = uidA, title = "hello")).compile.run(s)
           rows <- users
             .select(u => u.email)
             .where(u => u.id.in(posts.select(p => p.user_id)))

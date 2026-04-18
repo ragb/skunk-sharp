@@ -3,7 +3,7 @@ package skunk.sharp.dsl
 import skunk.Codec
 import skunk.sharp.*
 import skunk.sharp.internal.{rowCodec, tupleCodec}
-import skunk.sharp.where.{Where, &&}
+import skunk.sharp.where.{&&, Where}
 
 /**
  * Unified SELECT builder — one class for single-source, JOINed, or CROSS-joined queries. Every lambda-taking method
@@ -199,7 +199,7 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
     val cols    = head.effectiveCols.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
     val projStr = cols.map(c => s""""${c.name}"""").mkString(", ")
     val keyword = if (distinct) "SELECT DISTINCT " else "SELECT "
-    val header =
+    val header  =
       if (head.relation.hasFromClause)
         TypedExpr.raw(s"$keyword$projStr FROM ${aliasedFromEntry(head)}")
       else
@@ -289,20 +289,25 @@ final class ProjectedSelect[Ss <: Tuple, Row](
 
   def forUpdate(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Row] =
     copy(lockingOpt = Some(Locking(LockMode.ForUpdate)))
+
   def forNoKeyUpdate(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Row] =
     copy(lockingOpt = Some(Locking(LockMode.ForNoKeyUpdate)))
+
   def forShare(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Row] =
     copy(lockingOpt = Some(Locking(LockMode.ForShare)))
+
   def forKeyShare(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Row] =
     copy(lockingOpt = Some(Locking(LockMode.ForKeyShare)))
+
   def skipLocked(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Row] =
     copy(lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.SkipLocked)))
+
   def noWait(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Row] =
     copy(lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.NoWait)))
 
   /**
-   * Lift result rows into a case class `T`. Pure decoder transformation — SQL is unchanged. `Row` must be a tuple
-   * whose element types align with `T`'s fields.
+   * Lift result rows into a case class `T`. Pure decoder transformation — SQL is unchanged. `Row` must be a tuple whose
+   * element types align with `T`'s fields.
    */
   def to[T <: Product](using
     m: scala.deriving.Mirror.ProductOf[T] { type MirroredElemTypes = Row & Tuple }
@@ -333,8 +338,8 @@ final class ProjectedSelect[Ss <: Tuple, Row](
       if (entries.isEmpty || !entries.head.relation.hasFromClause)
         TypedExpr.raw(keyword) |+| projList
       else {
-        val head       = entries.head
-        val headFrag   = TypedExpr.raw(keyword) |+| projList |+| TypedExpr.raw(s" FROM ${aliasedFromEntry(head)}")
+        val head     = entries.head
+        val headFrag = TypedExpr.raw(keyword) |+| projList |+| TypedExpr.raw(s" FROM ${aliasedFromEntry(head)}")
         entries.tail.foldLeft(headFrag) { (acc, s) =>
           val fromFrag = TypedExpr.raw(s" ${s.kind.sql} ${aliasedFromEntry(s)}")
           s.onPredOpt.fold(acc |+| fromFrag)(p => acc |+| fromFrag |+| TypedExpr.raw(" ON ") |+| p.render)
@@ -363,7 +368,7 @@ private[dsl] def renderClauses(
     if (groupBys.isEmpty) withWhere
     else withWhere |+| TypedExpr.raw(" GROUP BY ") |+| TypedExpr.joined(groupBys.map(_.render), ", ")
   val withHaving = havingOpt.fold(withGroup)(h => withGroup |+| TypedExpr.raw(" HAVING ") |+| h.render)
-  val withOrder =
+  val withOrder  =
     if (orderBys.isEmpty) withHaving
     else withHaving |+| TypedExpr.raw(" ORDER BY " + orderBys.map(_.sql).mkString(", "))
   val withLimit  = limitOpt.fold(withOrder)(n => withOrder |+| TypedExpr.raw(s" LIMIT $n"))
@@ -375,16 +380,18 @@ private[dsl] def renderClauses(
 
 /**
  * `.select` on any relation-like value — bare `Table` / `View` (auto-aliased to its own name) or an already-aliased
- * `AliasedRelation`. Produces a single-source [[SelectBuilder]], from which `.where` / `.select(f)` / `.innerJoin`
- * etc. can be called.
+ * `AliasedRelation`. Produces a single-source [[SelectBuilder]], from which `.where` / `.select(f)` / `.innerJoin` etc.
+ * can be called.
  */
 extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton](left: L)(using
   aL: AsAliased.Aux[L, RL, CL, AL]
 ) {
+
   def select: SelectBuilder[SourceEntry[RL, CL, CL, AL] *: EmptyTuple] = {
     val entry = makeBaseEntry[L, RL, CL, AL](aL, left)
     new SelectBuilder[SourceEntry[RL, CL, CL, AL] *: EmptyTuple](entry *: EmptyTuple)
   }
+
 }
 
 /**
@@ -392,7 +399,9 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton](left: L
  * main `.select` extension because `empty` has no alias / Name, so it can't flow through the `AsAliased` machinery.
  */
 extension (rel: skunk.sharp.empty.type) {
-  transparent inline def select[X](inline f: ColumnsView[EmptyTuple] => X): ProjectedSelect[EmptyTuple, ProjResult[X]] = {
+
+  transparent inline def select[X](inline f: ColumnsView[EmptyTuple] => X)
+    : ProjectedSelect[EmptyTuple, ProjResult[X]] = {
     val v = ColumnsView(EmptyTuple)
     f(v) match {
       case expr: TypedExpr[?] =>
@@ -427,17 +436,18 @@ extension (rel: skunk.sharp.empty.type) {
         )
     }
   }
+
 }
 
 // ---- Match type: view receiver for lambdas -----------------------------------------------------
 
 /**
  * The view type that `.where` / `.select` / `.orderBy` / `.groupBy` / `.having` receive. For a single source, this
- * reduces to `ColumnsView[Cols]` — the user writes `u.email`. For 2+ sources, it reduces to `JoinedView[Ss]` — the
- * user writes `r.users.email`.
+ * reduces to `ColumnsView[Cols]` — the user writes `u.email`. For 2+ sources, it reduces to `JoinedView[Ss]` — the user
+ * writes `r.users.email`.
  *
- * Pattern-matches the concrete `SourceEntry[?, ?, c, ?] *: EmptyTuple` shape directly in the first arm so the
- * reduction fires at call sites without needing extra evidence.
+ * Pattern-matches the concrete `SourceEntry[?, ?, c, ?] *: EmptyTuple` shape directly in the first arm so the reduction
+ * fires at call sites without needing extra evidence.
  */
 type SelectView[Ss <: Tuple] = Ss match {
   case SourceEntry[?, ?, c, ?] *: EmptyTuple => ColumnsView[c]
@@ -465,24 +475,30 @@ private[sharp] def buildSelectView[Ss <: Tuple](sources: Ss): SelectView[Ss] =
  * `SELECT … FOR UPDATE` and the other row-level locks.
  */
 sealed trait IsSingleTable[Ss]
+
 object IsSingleTable {
+
   given [Cols <: Tuple, N <: String & Singleton, A <: String & Singleton]
     : IsSingleTable[SourceEntry[Table[Cols, N], Cols, Cols, A] *: EmptyTuple] =
     new IsSingleTable[SourceEntry[Table[Cols, N], Cols, Cols, A] *: EmptyTuple] {}
+
 }
 
 /**
- * Evidence that `Ss` has exactly one source, of any kind (Table or View). Required for the whole-row default
- * `.compile` — multi-source builders must project first.
+ * Evidence that `Ss` has exactly one source, of any kind (Table or View). Required for the whole-row default `.compile`
+ * — multi-source builders must project first.
  */
 sealed trait IsSingleSource[Ss] {
   type Cols <: Tuple
 }
+
 object IsSingleSource {
   type Aux[Ss, C] = IsSingleSource[Ss] { type Cols = C }
+
   given [RR <: Relation[C], C <: Tuple, A <: String & Singleton]
     : IsSingleSource.Aux[SourceEntry[RR, C, C, A] *: EmptyTuple, C] =
     new IsSingleSource[SourceEntry[RR, C, C, A] *: EmptyTuple] { type Cols = C }
+
 }
 
 // ---- Locking enums + OrderBy + projection helpers ---------------------------------------------

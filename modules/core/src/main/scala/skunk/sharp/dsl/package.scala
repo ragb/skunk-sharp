@@ -63,7 +63,7 @@ package object dsl {
   type Where = skunk.sharp.where.Where
   val Where: skunk.sharp.where.Where.type = skunk.sharp.where.Where
 
-  export skunk.sharp.where.{!==, <, <=, ===, ====, >, >=, &&, ||, and, or, not, ilike, in, isNotNull, isNull, like}
+  export skunk.sharp.where.{!==, &&, <, <=, ===, ====, >, >=, ||, and, ilike, in, isNotNull, isNull, like, not, or}
   export skunk.sharp.where.Stripped
 
   // ---- Schema validation ----

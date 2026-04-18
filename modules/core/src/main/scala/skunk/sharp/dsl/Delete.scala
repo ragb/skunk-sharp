@@ -3,7 +3,7 @@ package skunk.sharp.dsl
 import skunk.{AppliedFragment, Codec}
 import skunk.sharp.*
 import skunk.sharp.internal.tupleCodec
-import skunk.sharp.where.{Where, &&}
+import skunk.sharp.where.{&&, Where}
 
 /**
  * DELETE builder — compile-time staged so you can't accidentally run a `DELETE FROM …` with no WHERE.

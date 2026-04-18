@@ -13,7 +13,7 @@ Skunk gives you correct encoders/decoders and the `sql""` macro, but queries sti
 
 ## Modules
 
-- `skunk-sharp-core` — the DSL, table/view descriptions, WHERE / ORDER BY / GROUP BY / HAVING / LIMIT / OFFSET, SELECT / INSERT / UPDATE / DELETE, two-table INNER/LEFT JOINs, row locking, `ON CONFLICT`, `RETURNING`, aggregates, and the schema validator.
+- `skunk-sharp-core` — the DSL: table/view descriptions, WHERE / ORDER BY / GROUP BY / HAVING / LIMIT / OFFSET, SELECT / INSERT / UPDATE / DELETE, N-way INNER / LEFT / CROSS JOINs with auto-alias, row locking, `ON CONFLICT`, `RETURNING`, aggregates, subqueries (scalar / `IN` / `EXISTS`, correlated or uncorrelated), and the schema validator.
 - `skunk-sharp-iron` — optional [Iron](https://iltotore.github.io/iron/) refinement support (e.g. `String :| MaxLength[256]` maps to `varchar(256)`).
 
 ## Quick tour
@@ -109,18 +109,53 @@ users.delete.where(u => u.id === id).returningAll.compile.unique(session)
 
 ### JOINs
 
+Auto-alias — the alias defaults to the table's name, so `.alias("u")` is optional:
+
 ```scala
-users.alias("u")
-  .innerJoin(posts.alias("p")).on(r => r.u.id ==== r.p.user_id)
-  .select(r => (r.u.email, r.p.title))
-  .where(r => r.p.created_at > cutoff)
+users
+  .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
+  .select(r => (r.users.email, r.posts.title))
+  .where(r => r.posts.created_at > cutoff)
   .compile.run(session)
 
 // LEFT JOIN flips right-side nullability at the type level.
+users
+  .leftJoin(posts).on(r => r.users.id ==== r.posts.user_id)
+  .select(r => (r.users.email, Pg.count(r.posts.id).as("n")))
+  .groupBy(r => r.users.email)
+  .compile.run(session)
+
+// CROSS JOIN — no `.on(...)` required. Same for chaining N sources.
+users.crossJoin(posts).select(r => (r.users.email, r.posts.title)).compile.run(session)
+
+// Chained after a single-source WHERE, and 3+ source joins:
+users.select.where(u => u.age >= 18)
+  .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
+  .leftJoin(tags).on(r => r.posts.id ==== r.tags.post_id)
+  .select(r => (r.users.email, r.posts.title, r.tags.name))
+  .compile.run(session)
+
+// Explicit aliases still work when the same table appears twice.
+users.alias("u1").innerJoin(users.alias("u2")).on(r => r.u1.id ==== r.u2.id)
+```
+
+### Subqueries
+
+`TypedExpr`-unified: scalar subqueries, `IN`, and `EXISTS` all take a builder — no inner `.compile` needed, correlation is automatic through lexical scope.
+
+```scala
+// Scalar subquery in projection (correlated — inner WHERE closes over outer `u.id`)
+users.alias("u").select(u =>
+  (u.email, posts.select(_ => Pg.countAll).where(p => p.user_id ==== u.id).asExpr)
+).compile.run(session)
+
+// IN subquery
+users.select.where(u => u.id.in(posts.select(p => p.user_id))).compile.run(session)
+
+// EXISTS — `Pg.exists` returns a TypedExpr[Boolean] usable directly in WHERE
 users.alias("u")
-  .leftJoin(posts.alias("p")).on(r => r.u.id ==== r.p.user_id)
-  .select(r => (r.u.email, Pg.count(r.p.id).as("n")))
-  .groupBy(r => r.u.email)
+  .select(u => u.email)
+  .where(u => u.age >= 18 && Pg.exists(posts.select(_ => lit(1)).where(p => p.user_id ==== u.id)))
   .compile.run(session)
 ```
 
@@ -182,11 +217,12 @@ Planned companion modules: `skunk-sharp-json` (based on skunk-circe, for `json`/
 
 See [CLAUDE.md](CLAUDE.md) for the design notes.
 
-- Implicit join aliases defaulting to the table name (requires singleton `Name` on `Table`/`View`).
-- Unified N-source SELECT (more than two tables in one JOIN chain).
-- Subqueries (scalar + `IN` / `EXISTS`) and window functions (`OVER (…)`).
+- Window functions (`OVER (…)`).
+- CTEs (`WITH …`).
+- `UNION` / `INTERSECT` / `EXCEPT`.
+- `FULL` / `RIGHT JOIN` (trivial additions to the existing join kinds).
 - Compile-time `GROUP BY` coverage check.
-- Companion modules for JSON, ltree, arrays, full-text search.
+- Companion modules for JSON (`skunk-sharp-json`, based on skunk-circe), ltree, arrays, full-text search, and PostGIS.
 - Move more of the SQL assembly into macros so only user-supplied parameters flow at runtime.
 - Laika + mdoc docs site.
 

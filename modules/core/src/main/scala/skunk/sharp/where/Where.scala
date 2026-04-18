@@ -7,16 +7,16 @@ import skunk.sharp.TypedExpr
  * alias so any expression producing a boolean value (user operators, `Pg.exists`, subqueries, extension-module
  * predicates) can be used directly without a `Where(...)` wrap at call sites.
  *
- * All chaining methods (`&&`, `and`, `||`, `or`, unary `!`, `not`) live as extension methods on `TypedExpr[Boolean]`
- * — see [[WhereOps]] below.
+ * All chaining methods (`&&`, `and`, `||`, `or`, unary `!`, `not`) live as extension methods on `TypedExpr[Boolean]` —
+ * see [[WhereOps]] below.
  */
 type Where = TypedExpr[Boolean]
 
 object Where {
 
   /**
-   * Identity helper kept for source compatibility with call sites that read more naturally as
-   * `Where(Pg.exists(sub))`. `Where(e)` now just is `e`, so prefer passing `TypedExpr[Boolean]` directly.
+   * Identity helper kept for source compatibility with call sites that read more naturally as `Where(Pg.exists(sub))`.
+   * `Where(e)` now just is `e`, so prefer passing `TypedExpr[Boolean]` directly.
    */
   inline def apply(expr: TypedExpr[Boolean]): Where = expr
 

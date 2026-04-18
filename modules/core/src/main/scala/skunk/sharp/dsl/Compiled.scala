@@ -72,8 +72,8 @@ extension (c: CompiledCommand) {
  * `col.in(...)`, or `Pg.exists(...)` and the outer compilation handles the inner too.
  *
  * Correlated subqueries: build the inner query inside an outer `.select` / `.where` lambda; outer
- * [[skunk.sharp.TypedColumn]]s are in lexical scope, their `render` emits alias-qualified SQL
- * (`"u"."id"`) that correlates at SQL-evaluation time.
+ * [[skunk.sharp.TypedColumn]]s are in lexical scope, their `render` emits alias-qualified SQL (`"u"."id"`) that
+ * correlates at SQL-evaluation time.
  */
 sealed trait AsSubquery[Q, T] {
   def toCompiled(q: Q): CompiledQuery[T]
@@ -105,6 +105,7 @@ object AsSubquery {
  * expected — SELECT projection, WHERE RHS, UPDATE SET, `col.in(q)`, `Pg.exists(q)`, etc.
  */
 extension [Q](q: Q) {
+
   def asExpr[T](using ev: AsSubquery[Q, T]): skunk.sharp.TypedExpr[T] = {
     val cq = ev.toCompiled(q)
     skunk.sharp.TypedExpr(
@@ -112,4 +113,5 @@ extension [Q](q: Q) {
       cq.codec
     )
   }
+
 }

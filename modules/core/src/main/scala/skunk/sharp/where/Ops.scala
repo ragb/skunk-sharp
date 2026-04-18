@@ -66,11 +66,11 @@ extension [T](lhs: TypedExpr[T])(using @unused ord: cats.Order[Stripped[T]]) {
 /**
  * Evidence that `Rhs` can sit on the right-hand side of `lhs IN (...)`. Ships two givens:
  *
- *   - A `Reducible` container of values (`NonEmptyList[T]`, `NonEmptyVector[T]`, …) → renders as
- *     `(lit1, lit2, …)` with each value bound as a parameter.
- *   - A [[skunk.sharp.dsl.CompiledQuery]]`[T]` → renders as `(<subquery>)`. Correlation is automatic when the
- *     subquery is built inside an outer `.where` / `.select` lambda — outer [[skunk.sharp.TypedColumn]]s render
- *     alias-qualified and reference the outer source.
+ *   - A `Reducible` container of values (`NonEmptyList[T]`, `NonEmptyVector[T]`, …) → renders as `(lit1, lit2, …)` with
+ *     each value bound as a parameter.
+ *   - A [[skunk.sharp.dsl.CompiledQuery]]`[T]` → renders as `(<subquery>)`. Correlation is automatic when the subquery
+ *     is built inside an outer `.where` / `.select` lambda — outer [[skunk.sharp.TypedColumn]]s render alias-qualified
+ *     and reference the outer source.
  *
  * Unified behind one `.in` extension to avoid Scala 3 overload-resolution pitfalls when re-exported from the `dsl`
  * package object.
@@ -102,8 +102,8 @@ object InRhs {
 extension [T](lhs: TypedExpr[T]) {
 
   /**
-   * `lhs IN (...)`. The right-hand side is anything with an [[InRhs]] instance — a `Reducible` container of values
-   * or a [[skunk.sharp.dsl.CompiledQuery]] for subquery IN.
+   * `lhs IN (...)`. The right-hand side is anything with an [[InRhs]] instance — a `Reducible` container of values or a
+   * [[skunk.sharp.dsl.CompiledQuery]] for subquery IN.
    */
   def in[Rhs](rhs: Rhs)(using ev: InRhs[Stripped[T], Rhs]): Where = {
     val rendered = lhs.render |+| TypedExpr.raw(" IN ") |+| ev.renderParens(rhs)
