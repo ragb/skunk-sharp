@@ -6,7 +6,7 @@ import skunk.sharp.dsl.*
 import java.util.UUID
 
 object JsonbSuite {
-  case class Document(id: UUID, body: Jsonb, metadata: Json)
+  case class Document(id: UUID, body: Jsonb[CirceJson], metadata: Json[CirceJson])
 }
 
 class JsonbSuite extends munit.FunSuite {

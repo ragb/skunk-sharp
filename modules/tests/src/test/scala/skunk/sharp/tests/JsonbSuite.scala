@@ -7,7 +7,7 @@ import skunk.sharp.circe.*
 import java.util.UUID
 
 object JsonbSuite {
-  case class Document(id: UUID, body: Jsonb)
+  case class Document(id: UUID, body: Jsonb[CirceJson])
 }
 
 class JsonbSuite extends PgFixture {
@@ -77,6 +77,32 @@ class JsonbSuite extends PgFixture {
           _ = assertEquals(withKey.toSet, Set(a))
           _ = assertEquals(anyContact.toSet, Set(a, b))
           _ = assertEquals(bothFields.toSet, Set(a))
+        } yield ()
+      }
+    }
+  }
+
+  test("typed jsonb — round-trip a case class directly (no io.circe.Json in sight)") {
+    import io.circe.{Codec => CirceCodec}
+
+    final case class Preferences(theme: String, notifications: Boolean, tags: List[String])
+        derives CirceCodec.AsObject
+
+    final case class TypedDoc(id: UUID, body: Jsonb[Preferences])
+
+    val typedDocs = Table.of[TypedDoc]("documents")
+    withContainers { containers =>
+      session(containers).use { s =>
+        val id    = UUID.randomUUID
+        val prefs = Preferences(theme = "dark", notifications = true, tags = List("a", "b"))
+        for {
+          _   <- typedDocs.insert((id = id, body = Jsonb(prefs))).compile.run(s)
+          row <- typedDocs
+            .select(d => d.body)
+            .where(d => d.id === id)
+            .compile.unique(s)
+          decoded: Preferences = row // compiles — no .asInstanceOf, just the opaque-type unwrap
+          _                    = assertEquals(decoded, prefs)
         } yield ()
       }
     }

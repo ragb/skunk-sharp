@@ -1,57 +1,83 @@
 package skunk.sharp.circe
 
 import io.circe.Json as CirceJson
+import io.circe.{Decoder, Encoder}
 import skunk.Codec
+import skunk.circe.codec.all as circeCodecs
 import skunk.sharp.pg.PgTypeFor
 
 /**
- * Tag types disambiguating Postgres's `json` and `jsonb` on a column's Scala-side Type. Both carry [[io.circe.Json]]
- * values at runtime (same wire format, same decoder), but the DSL picks the right codec based on which tag a column /
- * expression declares — same pattern as `Varchar[N]` / `Text` for strings.
+ * Parameterised tag types mapping Postgres `json` / `jsonb` columns to Scala values via circe.
  *
- * Use them in case classes consumed by `Table.of[T]` / `View.of[T]`:
+ *   - `Jsonb[io.circe.Json]` / `Json[io.circe.Json]` — raw JSON, no schema. Pick this when the shape is dynamic or you
+ *     want to traverse with the operators (`get`, `getText`, `path`, `contains`, …).
+ *   - `Jsonb[A]` / `Json[A]` where `A` has both a circe `Encoder[A]` and `Decoder[A]` — typed round-trip. The column
+ *     encodes from and decodes directly to `A`, same as skunk-circe's `jsonb[A]` / `json[A]` codecs.
+ *
+ * Example — mix typed and raw on the same row:
  *
  * {{{
- *   import skunk.sharp.json.*
+ *   import io.circe.{Decoder, Encoder, Codec as CirceCodec}
  *
- *   case class Document(id: UUID, body: Jsonb, metadata: Json)
+ *   case class Preferences(theme: String, notifications: Boolean) derives CirceCodec.AsObject
+ *
+ *   case class Document(
+ *     id:       UUID,
+ *     prefs:    Jsonb[Preferences],   // decodes straight into the case class
+ *     metadata: Jsonb[io.circe.Json]  // raw, traverse with .get / .path / ...
+ *   )
+ *
  *   val docs = Table.of[Document]("documents")
  * }}}
  *
- * Prefer [[Jsonb]] for new schema work — `jsonb` in Postgres is the indexable, operator-rich variant; `json` preserves
- * the source text and is rarely what you want. Most operators in this module are defined on `TypedExpr[Jsonb]` only.
+ * All operators (see [[JsonOps]]) accept any `TypedExpr[Jsonb[?]]` regardless of the type parameter — the operators act
+ * at the SQL level on jsonb bytes. When a navigation step "loses" the static shape (e.g. `.get("someField")`), the
+ * result widens to `Jsonb[io.circe.Json]`.
  */
 
-/** Postgres `json` (text-preserving). Use [[Jsonb]] for indexed / operator-rich columns. */
-opaque type Json <: CirceJson = CirceJson
+/** Postgres `json` (text-preserving). Prefer [[Jsonb]] for indexed / operator-rich columns. */
+opaque type Json[A] <: A = A
 
 object Json {
 
-  /** Construct a `Json`-tagged value from a circe `Json`. */
-  def apply(j: CirceJson): Json = j
+  /** Construct a `Json[A]`-tagged value from an `A`. */
+  def apply[A](a: A): Json[A] = a
 
-  /** Unwrap to the underlying circe `Json`. */
-  extension (j: Json) def unwrap: CirceJson = j
+  /** Unwrap to the underlying `A`. */
+  extension [A](j: Json[A]) def unwrap: A = j
 
-  given PgTypeFor[Json] = PgTypeFor.instance(codecs.json.asInstanceOf[Codec[Json]])
+  /** Typed codec — works for any `A` with circe `Encoder` + `Decoder`, including `io.circe.Json` itself. */
+  given [A](using enc: Encoder[A], dec: Decoder[A]): PgTypeFor[Json[A]] =
+    PgTypeFor.instance(circeCodecs.json[A].asInstanceOf[Codec[Json[A]]])
 
 }
 
 /** Postgres `jsonb` (binary, indexable, operator-rich). Most operators in this module target this tag. */
-opaque type Jsonb <: CirceJson = CirceJson
+opaque type Jsonb[A] <: A = A
 
 /**
- * Namespace for `Jsonb` — combines the tag companion (construct / unwrap / `PgTypeFor`) with the full [[PgJsonb]] trait
- * so `Jsonb.toJsonb`, `Jsonb.jsonbSet`, etc. are all available without extra imports.
+ * Namespace for `Jsonb[A]` — combines the tag companion (construct / unwrap / `PgTypeFor`) with the full [[PgJsonb]]
+ * trait so `Jsonb.toJsonb`, `Jsonb.jsonbSet`, etc. are all available without extra imports.
  */
 object Jsonb extends PgJsonb {
 
-  /** Construct a `Jsonb`-tagged value from a circe `Json`. */
-  def apply(j: CirceJson): Jsonb = j
+  /** Construct a `Jsonb[A]`-tagged value from an `A`. */
+  def apply[A](a: A): Jsonb[A] = a
 
-  /** Unwrap to the underlying circe `Json`. */
-  extension (j: Jsonb) def unwrap: CirceJson = j
+  /** Unwrap to the underlying `A`. */
+  extension [A](j: Jsonb[A]) def unwrap: A = j
 
-  given PgTypeFor[Jsonb] = PgTypeFor.instance(codecs.jsonb.asInstanceOf[Codec[Jsonb]])
+  /** Typed codec — works for any `A` with circe `Encoder` + `Decoder`, including `io.circe.Json`. */
+  given [A](using enc: Encoder[A], dec: Decoder[A]): PgTypeFor[Jsonb[A]] =
+    PgTypeFor.instance(circeCodecs.jsonb[A].asInstanceOf[Codec[Jsonb[A]]])
 
+}
+
+/**
+ * Backwards-compatible aliases for the common raw-JSON case. `RawJson.Jsonb` / `RawJson.Json` read cleaner than the
+ * full `Jsonb[io.circe.Json]` in case classes when the column really is schema-less.
+ */
+object RawJson {
+  type Jsonb = skunk.sharp.circe.Jsonb[CirceJson]
+  type Json  = skunk.sharp.circe.Json[CirceJson]
 }
