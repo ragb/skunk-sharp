@@ -15,6 +15,7 @@ ThisBuild / tlJdkRelease   := Some(17)
 ThisBuild / tlFatalWarnings := true
 
 val skunkV           = "1.0.0"
+val circeV           = "0.14.15"
 val catsEffectV      = "3.7.0"
 val munitV           = "1.2.4"
 val munitCatsEffectV = "2.1.0"
@@ -23,7 +24,7 @@ val testcontainersV  = "0.44.1"
 val dumboV           = "0.9.0-SNAPSHOT"
 val otel4sV          = "0.16.0"
 
-lazy val root = tlCrossRootProject.aggregate(core, iron, tests)
+lazy val root = tlCrossRootProject.aggregate(core, iron, json, tests)
 
 lazy val core = project
   .in(file("modules/core"))
@@ -49,9 +50,22 @@ lazy val iron = project
     )
   )
 
+lazy val json = project
+  .in(file("modules/json"))
+  .dependsOn(core)
+  .settings(
+    name := "skunk-sharp-json",
+    libraryDependencies ++= Seq(
+      "io.circe"      %% "circe-core"        % circeV,
+      "io.circe"      %% "circe-parser"      % circeV,
+      "org.scalameta" %% "munit"             % munitV           % Test,
+      "org.typelevel" %% "munit-cats-effect" % munitCatsEffectV % Test
+    )
+  )
+
 lazy val tests = project
   .in(file("modules/tests"))
-  .dependsOn(core, iron)
+  .dependsOn(core, iron, json)
   .enablePlugins(NoPublishPlugin)
   .settings(
     name := "skunk-sharp-tests",
