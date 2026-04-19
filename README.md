@@ -5,13 +5,22 @@
 
 A Scala 3 library for **compile-time checked Postgres queries** on top of [skunk](https://typelevel.org/skunk). Describe a table once, then write SELECT / INSERT / UPDATE / DELETE / JOIN statements where column names, operator/value types, nullability, INSERT completeness, and mutability (table vs view) are all verified by the compiler. Validate your table descriptions against a live database at service init.
 
-> :warning: Early development. APIs will change. **This is mostly an experiment** — see the goals below.
+> :warning: Early development. APIs will change. **This is mostly an experiment** — see the scope below.
+
+## Scope: this is not a SQL replacement
+
+**skunk-sharp does not replace SQL.** It is a *type-safer* way to write a subset of common SQL on top of skunk, and nothing more:
+
+- **SQL is the target.** The DSL mirrors the SQL you'd otherwise hand-write. If you already know SQL, skunk-sharp reads like SQL. If you want a query abstraction that hides SQL, look elsewhere — this isn't that.
+- **This won't cover every SQL feature, and it shouldn't try.** Postgres's SQL surface is vast. Attempting 100% coverage through a typed DSL would either mean a mountain of machinery nobody needs or a leaky abstraction that lies about what Postgres does. Neither is worth shipping.
+- **If you need the full flexibility of SQL, use skunk's `sql"…"` directly.** That interpolator is the ground truth. skunk-sharp covers the queries that are repetitive, mechanical, and easy to get wrong in string form (typo in a column name, comparison against the wrong type, forgetting a required column in an INSERT, nullable mishandled as non-null). Anything beyond that — recursive CTEs with clever tricks, window functions with custom frames, obscure `plpgsql`, server-side procedural code — belongs in raw SQL.
+- **Mixed use is fine and expected.** Your codebase can have skunk-sharp queries for the common cases and raw `sql"…"` queries for the complex ones. They share the same session; they share the same codecs. There's no lock-in either way.
 
 ## Goals and non-goals
 
 **Goals:**
 
-- A **type-safer** way to write SQL on top of skunk. Not replacing SQL — this is still SQL, just validated. Column names, operator/value types, nullability, INSERT completeness, mutation vs read-only (Table vs View), locking scope — all checked by the compiler.
+- A **type-safer** way to write the *common* subset of SQL on top of skunk. Column names, operator/value types, nullability, INSERT completeness, mutation vs read-only (Table vs View), locking scope — all checked by the compiler.
 - **Schema validation** against a live database at service init — `information_schema` diff, report-only or fail-fast.
 - **Scala 3 only.** Deliberately leaning into the modern type system: match types, opaque tags with upper bounds, extension methods, `inline`, named tuples, polymorphic function types.
 - **Compile-time as much as possible** — but not at any cost. Low-level macro wizardry is avoided when a match type + `inline` reads well enough. Macros are the last resort, not the first.
@@ -21,7 +30,8 @@ A Scala 3 library for **compile-time checked Postgres queries** on top of [skunk
 
 **Non-goals:**
 
-- **Not replacing SQL.** You still think in SQL. The DSL mirrors the SQL you'd write. If you want an ORM or a query abstraction, look elsewhere.
+- **Not replacing SQL.** Not an ORM. Not a query abstraction that hides the SQL shape. Drop to `sql"…"` whenever skunk-sharp doesn't fit.
+- **Not full SQL coverage.** Niche / rarely-used features stay in `sql"…"`. The DSL targets the common path.
 - **Not more than SQL — no DDL.** Schema is owned by migrations (dumbo, Flyway, whatever). We validate against it; we don't generate it.
 - **No speculative extension points.** We add extension hooks when a concrete module needs one (jsonb, ltree, arrays), not to "support a future that isn't now". Sealed stays sealed until an actual use case shows up.
 - **Not cross-database.** No MySQL, no SQLite, no H2.
