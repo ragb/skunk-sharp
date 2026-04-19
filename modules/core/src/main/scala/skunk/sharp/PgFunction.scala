@@ -1,6 +1,5 @@
 package skunk.sharp
 
-import skunk.Codec
 import skunk.sharp.pg.PgTypeFor
 
 /**
@@ -129,21 +128,25 @@ object Pg {
     TypedExpr(TypedExpr.raw("count(DISTINCT ") |+| expr.render |+| TypedExpr.raw(")"), skunk.codec.all.int8)
 
   /**
-   * `sum(expr)` — result type follows Postgres's actual rules, picked via the [[SumOut]] typeclass:
+   * `sum(expr)` — result type follows Postgres's actual rules, encoded as a type-level function via [[SumOf]]:
    *   - `sum(smallint | integer)` → `bigint` (`Long`)
    *   - `sum(bigint | numeric)` → `numeric` (`BigDecimal`)
    *   - `sum(real)` → `real` (`Float`)
    *   - `sum(double precision)` → `double precision` (`Double`)
+   *
+   * Codec for the result type is resolved via [[skunk.sharp.pg.PgTypeFor]] — no per-function typeclass needed. Users
+   * with custom numeric opaque types can either (a) provide a `PgTypeFor` and a `SumOf` case that routes through it,
+   * or (b) just use [[TypedExpr.cast]] at the call site.
    */
-  def sum[I](expr: TypedExpr[I])(using s: SumOut[I]): TypedExpr[s.Out] =
-    TypedExpr(TypedExpr.raw("sum(") |+| expr.render |+| TypedExpr.raw(")"), s.codec)
+  def sum[I](expr: TypedExpr[I])(using pf: PgTypeFor[SumOf[I]]): TypedExpr[SumOf[I]] =
+    TypedExpr(TypedExpr.raw("sum(") |+| expr.render |+| TypedExpr.raw(")"), pf.codec)
 
   /**
    * `avg(expr)` — result type per Postgres: integer / bigint / numeric → `numeric` (`BigDecimal`); `real` → `double
    * precision` (`Double`); `double` → `double precision` (`Double`).
    */
-  def avg[I](expr: TypedExpr[I])(using a: AvgOut[I]): TypedExpr[a.Out] =
-    TypedExpr(TypedExpr.raw("avg(") |+| expr.render |+| TypedExpr.raw(")"), a.codec)
+  def avg[I](expr: TypedExpr[I])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I]] =
+    TypedExpr(TypedExpr.raw("avg(") |+| expr.render |+| TypedExpr.raw(")"), pf.codec)
 
   /** `min(expr)` — same type as input. */
   def min[T](expr: TypedExpr[T]): TypedExpr[T] =
@@ -189,47 +192,19 @@ object Pg {
 }
 
 /**
- * Typeclass encoding Postgres's `sum(I)` result type. `Out` is the Scala type the SQL column decodes to; `codec` is the
- * skunk codec for that type. Instances cover the standard numeric inputs; third-party modules that ship their own
- * numeric-ish opaque types can provide instances.
+ * Type-level mapping of Postgres's `sum(I)` result type. Codec resolution for the result type flows through
+ * [[skunk.sharp.pg.PgTypeFor]] — no dedicated typeclass needed. Extend by adding a case here (for well-known numeric
+ * types) or by supplying your own `PgTypeFor[Out]` for a custom opaque type.
  */
-trait SumOut[I] {
-  type Out
-  def codec: Codec[Out]
+type SumOf[I] = I match {
+  case Short | Int            => Long
+  case Long | BigDecimal      => BigDecimal
+  case Float                  => Float
+  case Double                 => Double
 }
 
-object SumOut {
-  type Aux[I, O] = SumOut[I] { type Out = O }
-
-  private def instance[I, O](c: Codec[O]): SumOut.Aux[I, O] =
-    new SumOut[I] { type Out = O; val codec = c }
-
-  given SumOut.Aux[Short, Long]            = instance(skunk.codec.all.int8)
-  given SumOut.Aux[Int, Long]              = instance(skunk.codec.all.int8)
-  given SumOut.Aux[Long, BigDecimal]       = instance(skunk.codec.all.numeric)
-  given SumOut.Aux[BigDecimal, BigDecimal] = instance(skunk.codec.all.numeric)
-  given SumOut.Aux[Float, Float]           = instance(skunk.codec.all.float4)
-  given SumOut.Aux[Double, Double]         = instance(skunk.codec.all.float8)
-}
-
-/** Typeclass encoding Postgres's `avg(I)` result type. Same structure as [[SumOut]]. */
-trait AvgOut[I] {
-  type Out
-  def codec: Codec[Out]
-}
-
-object AvgOut {
-  type Aux[I, O] = AvgOut[I] { type Out = O }
-
-  private def instance[I, O](c: Codec[O]): AvgOut.Aux[I, O] =
-    new AvgOut[I] { type Out = O; val codec = c }
-
-  // Integral + numeric inputs all produce numeric.
-  given AvgOut.Aux[Short, BigDecimal]      = instance(skunk.codec.all.numeric)
-  given AvgOut.Aux[Int, BigDecimal]        = instance(skunk.codec.all.numeric)
-  given AvgOut.Aux[Long, BigDecimal]       = instance(skunk.codec.all.numeric)
-  given AvgOut.Aux[BigDecimal, BigDecimal] = instance(skunk.codec.all.numeric)
-  // Floating point stays in floating point.
-  given AvgOut.Aux[Float, Double]  = instance(skunk.codec.all.float8)
-  given AvgOut.Aux[Double, Double] = instance(skunk.codec.all.float8)
+/** Type-level mapping of Postgres's `avg(I)` result type. See [[SumOf]] for the same rationale. */
+type AvgOf[I] = I match {
+  case Short | Int | Long | BigDecimal => BigDecimal
+  case Float | Double                  => Double
 }
