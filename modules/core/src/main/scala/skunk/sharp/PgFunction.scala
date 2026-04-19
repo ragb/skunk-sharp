@@ -65,6 +65,13 @@ object PgOperator {
 }
 
 /**
+ * Shorthand: evidence that `T` (possibly wrapped in `Option`) is a string-like type — covers `String`, all string tag
+ * types (`Varchar[N]`, `Bpchar[N]`, `Text`), and their `Option` variants. Used as an implicit constraint on
+ * string-taking [[Pg]] functions so callers retain tag information through the call.
+ */
+type StrLike[T] = skunk.sharp.where.Stripped[T] <:< String
+
+/**
  * A small set of built-in Postgres functions provided out of the box. Users write `Pg.now`, `Pg.lower(col)`, etc.
  * Extension modules are expected to add their own namespaces (`Jsonb.`, `Ltree.`, …) following the same pattern.
  */
@@ -93,22 +100,17 @@ object Pg {
    * back: tag information is preserved in the Scala type (PG returns `text` on the wire, but `Varchar[N]` / `Text` etc.
    * all decode the same text bytes through the same codec, so the value is correct).
    */
-  def lower[T](e: TypedExpr[T])(using @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String): TypedExpr[T] =
-    TypedExpr(TypedExpr.raw("lower(") |+| e.render |+| TypedExpr.raw(")"), e.codec)
+  def lower[T](e: TypedExpr[T])(using StrLike[T]): TypedExpr[T] = stringPreserveFn("lower", e)
 
   /** `upper(s)` — fold to uppercase. Shape mirrors [[lower]]. */
-  def upper[T](e: TypedExpr[T])(using @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String): TypedExpr[T] =
-    TypedExpr(TypedExpr.raw("upper(") |+| e.render |+| TypedExpr.raw(")"), e.codec)
+  def upper[T](e: TypedExpr[T])(using StrLike[T]): TypedExpr[T] = stringPreserveFn("upper", e)
 
   /**
    * `length(s)` — character count. Output nullability tracks the input: `TypedExpr[String]` → `TypedExpr[Int]`;
    * `TypedExpr[Option[Varchar[N]]]` → `TypedExpr[Option[Int]]` (PG's strict null propagation).
    */
-  def length[T](e: TypedExpr[T])(using
-    @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String,
-    pf: PgTypeFor[Lift[T, Int]]
-  ): TypedExpr[Lift[T, Int]] =
-    TypedExpr(TypedExpr.raw("length(") |+| e.render |+| TypedExpr.raw(")"), pf.codec)
+  def length[T](e: TypedExpr[T])(using StrLike[T], PgTypeFor[Lift[T, Int]]): TypedExpr[Lift[T, Int]] =
+    stringToIntFn("length", e)
 
   /** `concat(a, b, c, …)` — string concatenation. Each arg may carry its own string-like tag. */
   def concat(args: TypedExpr[String]*): TypedExpr[String] =
@@ -125,24 +127,19 @@ object Pg {
   // execution time. Return type = input type so callers retain tag information (Int2, Numeric[P, S], …).
 
   /** `abs(x)` — absolute value. Same type as input. */
-  def abs[T](e: TypedExpr[T]): TypedExpr[T] =
-    TypedExpr(TypedExpr.raw("abs(") |+| e.render |+| TypedExpr.raw(")"), e.codec)
+  def abs[T](e: TypedExpr[T]): TypedExpr[T] = sameTypeFn("abs", e)
 
   /** `ceil(x)` — nearest integer greater than or equal to `x`. */
-  def ceil[T](e: TypedExpr[T]): TypedExpr[T] =
-    TypedExpr(TypedExpr.raw("ceil(") |+| e.render |+| TypedExpr.raw(")"), e.codec)
+  def ceil[T](e: TypedExpr[T]): TypedExpr[T] = sameTypeFn("ceil", e)
 
   /** `floor(x)` — nearest integer less than or equal to `x`. */
-  def floor[T](e: TypedExpr[T]): TypedExpr[T] =
-    TypedExpr(TypedExpr.raw("floor(") |+| e.render |+| TypedExpr.raw(")"), e.codec)
+  def floor[T](e: TypedExpr[T]): TypedExpr[T] = sameTypeFn("floor", e)
 
   /** `trunc(x)` — truncate toward zero. */
-  def trunc[T](e: TypedExpr[T]): TypedExpr[T] =
-    TypedExpr(TypedExpr.raw("trunc(") |+| e.render |+| TypedExpr.raw(")"), e.codec)
+  def trunc[T](e: TypedExpr[T]): TypedExpr[T] = sameTypeFn("trunc", e)
 
   /** `round(x)` — round to nearest integer. */
-  def round[T](e: TypedExpr[T]): TypedExpr[T] =
-    TypedExpr(TypedExpr.raw("round(") |+| e.render |+| TypedExpr.raw(")"), e.codec)
+  def round[T](e: TypedExpr[T]): TypedExpr[T] = sameTypeFn("round", e)
 
   /** `round(x, digits)` — round to `digits` places. Only defined for `numeric` in Postgres. */
   def round[T](e: TypedExpr[T], digits: Int): TypedExpr[T] =
@@ -179,8 +176,7 @@ object Pg {
   // -------- Math with fixed `Double` return (NULL-propagating) --------
 
   /** `sqrt(x)`. */
-  def sqrt[T](e: TypedExpr[T])(using pf: PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double]] =
-    TypedExpr(TypedExpr.raw("sqrt(") |+| e.render |+| TypedExpr.raw(")"), pf.codec)
+  def sqrt[T](e: TypedExpr[T])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double]] = doubleFn("sqrt", e)
 
   /** `power(a, b)` — `a` raised to the power `b`. Postgres always returns double precision. */
   def power[A, B](a: TypedExpr[A], b: TypedExpr[B])(using
@@ -192,16 +188,13 @@ object Pg {
     )
 
   /** `exp(x)`. */
-  def exp[T](e: TypedExpr[T])(using pf: PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double]] =
-    TypedExpr(TypedExpr.raw("exp(") |+| e.render |+| TypedExpr.raw(")"), pf.codec)
+  def exp[T](e: TypedExpr[T])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double]] = doubleFn("exp", e)
 
   /** `ln(x)`. */
-  def ln[T](e: TypedExpr[T])(using pf: PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double]] =
-    TypedExpr(TypedExpr.raw("ln(") |+| e.render |+| TypedExpr.raw(")"), pf.codec)
+  def ln[T](e: TypedExpr[T])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double]] = doubleFn("ln", e)
 
   /** `log(x)` — base-10. */
-  def log[T](e: TypedExpr[T])(using pf: PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double]] =
-    TypedExpr(TypedExpr.raw("log(") |+| e.render |+| TypedExpr.raw(")"), pf.codec)
+  def log[T](e: TypedExpr[T])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double]] = doubleFn("log", e)
 
   /** `pi()` — constant. */
   val pi: TypedExpr[Double] = TypedExpr(TypedExpr.raw("pi()"), skunk.codec.all.float8)
@@ -226,13 +219,10 @@ object Pg {
   // -------- String (preserve tag — return input type) --------
 
   /** `trim(s)` — strip leading / trailing whitespace. */
-  def trim[T](e: TypedExpr[T])(using @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String): TypedExpr[T] =
-    TypedExpr(TypedExpr.raw("trim(") |+| e.render |+| TypedExpr.raw(")"), e.codec)
+  def trim[T](e: TypedExpr[T])(using StrLike[T]): TypedExpr[T] = stringPreserveFn("trim", e)
 
   /** `trim(chars FROM s)` — strip any of `chars` from both ends. */
-  def trim[T](e: TypedExpr[T], chars: String)(using
-    @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String
-  ): TypedExpr[T] =
+  def trim[T](e: TypedExpr[T], chars: String)(using StrLike[T]): TypedExpr[T] =
     TypedExpr(
       TypedExpr.raw("trim(") |+| TypedExpr.lit(chars).render |+| TypedExpr.raw(" FROM ") |+| e.render |+|
         TypedExpr.raw(")"),
@@ -240,17 +230,13 @@ object Pg {
     )
 
   /** `ltrim(s)`. */
-  def ltrim[T](e: TypedExpr[T])(using @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String): TypedExpr[T] =
-    TypedExpr(TypedExpr.raw("ltrim(") |+| e.render |+| TypedExpr.raw(")"), e.codec)
+  def ltrim[T](e: TypedExpr[T])(using StrLike[T]): TypedExpr[T] = stringPreserveFn("ltrim", e)
 
   /** `rtrim(s)`. */
-  def rtrim[T](e: TypedExpr[T])(using @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String): TypedExpr[T] =
-    TypedExpr(TypedExpr.raw("rtrim(") |+| e.render |+| TypedExpr.raw(")"), e.codec)
+  def rtrim[T](e: TypedExpr[T])(using StrLike[T]): TypedExpr[T] = stringPreserveFn("rtrim", e)
 
   /** `replace(s, from, to)`. */
-  def replace[T](e: TypedExpr[T], from: String, to: String)(using
-    @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String
-  ): TypedExpr[T] =
+  def replace[T](e: TypedExpr[T], from: String, to: String)(using StrLike[T]): TypedExpr[T] =
     TypedExpr(
       TypedExpr.raw("replace(") |+| e.render |+| TypedExpr.raw(", ") |+| TypedExpr.lit(from).render |+|
         TypedExpr.raw(", ") |+| TypedExpr.lit(to).render |+| TypedExpr.raw(")"),
@@ -258,51 +244,30 @@ object Pg {
     )
 
   /** `substring(s FROM n)` — 1-indexed start, no length cap. */
-  def substring[T](e: TypedExpr[T], from: Int)(using
-    @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String
-  ): TypedExpr[T] =
-    TypedExpr(
-      TypedExpr.raw("substring(") |+| e.render |+| TypedExpr.raw(s" FROM $from)"),
-      e.codec
-    )
+  def substring[T](e: TypedExpr[T], from: Int)(using StrLike[T]): TypedExpr[T] =
+    TypedExpr(TypedExpr.raw("substring(") |+| e.render |+| TypedExpr.raw(s" FROM $from)"), e.codec)
 
   /** `substring(s FROM n FOR m)` — 1-indexed start, `m` characters. */
-  def substring[T](e: TypedExpr[T], from: Int, forLen: Int)(using
-    @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String
-  ): TypedExpr[T] =
-    TypedExpr(
-      TypedExpr.raw("substring(") |+| e.render |+| TypedExpr.raw(s" FROM $from FOR $forLen)"),
-      e.codec
-    )
+  def substring[T](e: TypedExpr[T], from: Int, forLen: Int)(using StrLike[T]): TypedExpr[T] =
+    TypedExpr(TypedExpr.raw("substring(") |+| e.render |+| TypedExpr.raw(s" FROM $from FOR $forLen)"), e.codec)
 
   /** `left(s, n)` — first `n` chars (negative `n` drops the last `|n|`). */
-  def left[T](e: TypedExpr[T], n: Int)(using
-    @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String
-  ): TypedExpr[T] =
+  def left[T](e: TypedExpr[T], n: Int)(using StrLike[T]): TypedExpr[T] =
     TypedExpr(TypedExpr.raw("left(") |+| e.render |+| TypedExpr.raw(s", $n)"), e.codec)
 
   /** `right(s, n)` — last `n` chars. */
-  def right[T](e: TypedExpr[T], n: Int)(using
-    @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String
-  ): TypedExpr[T] =
+  def right[T](e: TypedExpr[T], n: Int)(using StrLike[T]): TypedExpr[T] =
     TypedExpr(TypedExpr.raw("right(") |+| e.render |+| TypedExpr.raw(s", $n)"), e.codec)
 
   /** `repeat(s, n)` — `s` repeated `n` times. */
-  def repeat[T](e: TypedExpr[T], n: Int)(using
-    @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String
-  ): TypedExpr[T] =
+  def repeat[T](e: TypedExpr[T], n: Int)(using StrLike[T]): TypedExpr[T] =
     TypedExpr(TypedExpr.raw("repeat(") |+| e.render |+| TypedExpr.raw(s", $n)"), e.codec)
 
   /** `reverse(s)`. */
-  def reverse[T](e: TypedExpr[T])(using
-    @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String
-  ): TypedExpr[T] =
-    TypedExpr(TypedExpr.raw("reverse(") |+| e.render |+| TypedExpr.raw(")"), e.codec)
+  def reverse[T](e: TypedExpr[T])(using StrLike[T]): TypedExpr[T] = stringPreserveFn("reverse", e)
 
   /** `regexp_replace(s, pattern, replacement)`. */
-  def regexpReplace[T](e: TypedExpr[T], pattern: String, replacement: String)(using
-    @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String
-  ): TypedExpr[T] =
+  def regexpReplace[T](e: TypedExpr[T], pattern: String, replacement: String)(using StrLike[T]): TypedExpr[T] =
     TypedExpr(
       TypedExpr.raw("regexp_replace(") |+| e.render |+| TypedExpr.raw(", ") |+|
         TypedExpr.lit(pattern).render |+| TypedExpr.raw(", ") |+| TypedExpr.lit(replacement).render |+|
@@ -311,9 +276,7 @@ object Pg {
     )
 
   /** `split_part(s, delim, field)` — split `s` on `delim`, return the 1-indexed `field`-th piece. */
-  def splitPart[T](e: TypedExpr[T], delim: String, field: Int)(using
-    @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String
-  ): TypedExpr[T] =
+  def splitPart[T](e: TypedExpr[T], delim: String, field: Int)(using StrLike[T]): TypedExpr[T] =
     TypedExpr(
       TypedExpr.raw("split_part(") |+| e.render |+| TypedExpr.raw(", ") |+|
         TypedExpr.lit(delim).render |+| TypedExpr.raw(s", $field)"),
@@ -323,22 +286,16 @@ object Pg {
   // -------- String functions with fixed `Int` return (NULL-propagating via [[Lift]]) --------
 
   /** `char_length(s)` — character count (synonym of [[length]]). */
-  def charLength[T](e: TypedExpr[T])(using
-    @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String,
-    pf: PgTypeFor[Lift[T, Int]]
-  ): TypedExpr[Lift[T, Int]] =
-    TypedExpr(TypedExpr.raw("char_length(") |+| e.render |+| TypedExpr.raw(")"), pf.codec)
+  def charLength[T](e: TypedExpr[T])(using StrLike[T], PgTypeFor[Lift[T, Int]]): TypedExpr[Lift[T, Int]] =
+    stringToIntFn("char_length", e)
 
   /** `octet_length(s)` — byte count. */
-  def octetLength[T](e: TypedExpr[T])(using
-    @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String,
-    pf: PgTypeFor[Lift[T, Int]]
-  ): TypedExpr[Lift[T, Int]] =
-    TypedExpr(TypedExpr.raw("octet_length(") |+| e.render |+| TypedExpr.raw(")"), pf.codec)
+  def octetLength[T](e: TypedExpr[T])(using StrLike[T], PgTypeFor[Lift[T, Int]]): TypedExpr[Lift[T, Int]] =
+    stringToIntFn("octet_length", e)
 
   /** `position(substr IN str)` — 1-indexed; returns 0 if not found, NULL if `str` is NULL. */
   def position[T](substr: String, in: TypedExpr[T])(using
-    @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String,
+    ev: StrLike[T],
     pf: PgTypeFor[Lift[T, Int]]
   ): TypedExpr[Lift[T, Int]] =
     TypedExpr(
@@ -346,6 +303,25 @@ object Pg {
         in.render |+| TypedExpr.raw(")"),
       pf.codec
     )
+
+  // -------- Private shape helpers — collapse repeated "fn(e)" wrappers --------
+
+  private def sameTypeFn[T](name: String, e: TypedExpr[T]): TypedExpr[T] =
+    TypedExpr(TypedExpr.raw(s"$name(") |+| e.render |+| TypedExpr.raw(")"), e.codec)
+
+  private def stringPreserveFn[T](name: String, e: TypedExpr[T])(using StrLike[T]): TypedExpr[T] =
+    TypedExpr(TypedExpr.raw(s"$name(") |+| e.render |+| TypedExpr.raw(")"), e.codec)
+
+  private def doubleFn[T](name: String, e: TypedExpr[T])(using
+    pf: PgTypeFor[Lift[T, Double]]
+  ): TypedExpr[Lift[T, Double]] =
+    TypedExpr(TypedExpr.raw(s"$name(") |+| e.render |+| TypedExpr.raw(")"), pf.codec)
+
+  private def stringToIntFn[T](name: String, e: TypedExpr[T])(using
+    ev: StrLike[T],
+    pf: PgTypeFor[Lift[T, Int]]
+  ): TypedExpr[Lift[T, Int]] =
+    TypedExpr(TypedExpr.raw(s"$name(") |+| e.render |+| TypedExpr.raw(")"), pf.codec)
 
   // -------- Aggregate functions --------
   //
@@ -378,8 +354,8 @@ object Pg {
    *   - `sum(double precision)` → `double precision` (`Double`)
    *
    * Codec for the result type is resolved via [[skunk.sharp.pg.PgTypeFor]] — no per-function typeclass needed. Users
-   * with custom numeric opaque types can either (a) provide a `PgTypeFor` and a `SumOf` case that routes through it,
-   * or (b) just use [[TypedExpr.cast]] at the call site.
+   * with custom numeric opaque types can either (a) provide a `PgTypeFor` and a `SumOf` case that routes through it, or
+   * (b) just use [[TypedExpr.cast]] at the call site.
    */
   def sum[I](expr: TypedExpr[I])(using pf: PgTypeFor[SumOf[I]]): TypedExpr[SumOf[I]] =
     TypedExpr(TypedExpr.raw("sum(") |+| expr.render |+| TypedExpr.raw(")"), pf.codec)
@@ -455,10 +431,10 @@ type Lift[T, U] = T match {
  * types) or by supplying your own `PgTypeFor[Out]` for a custom opaque type.
  */
 type SumOf[I] = I match {
-  case Short | Int            => Long
-  case Long | BigDecimal      => BigDecimal
-  case Float                  => Float
-  case Double                 => Double
+  case Short | Int       => Long
+  case Long | BigDecimal => BigDecimal
+  case Float             => Float
+  case Double            => Double
 }
 
 /** Type-level mapping of Postgres's `avg(I)` result type. See [[SumOf]] for the same rationale. */
