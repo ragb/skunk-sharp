@@ -33,6 +33,7 @@ A Scala 3 library for **compile-time checked Postgres queries** on top of [skunk
 - **Not replacing SQL.** Not an ORM. Not a query abstraction that hides the SQL shape. Drop to `sql"…"` whenever skunk-sharp doesn't fit.
 - **Not full SQL coverage.** Niche / rarely-used features stay in `sql"…"`. The DSL targets the common path.
 - **Not more than SQL — no DDL.** Schema is owned by migrations (dumbo, Flyway, whatever). We validate against it; we don't generate it.
+- **No query optimisation of any kind.** skunk-sharp translates a typed builder to the corresponding SQL, nothing more — no rewrite passes, no predicate push-down, no join reordering, no hint injection. The Postgres planner is in charge. If a rendered query is slow, the fix is in the query you wrote (or in an `EXPLAIN` + index you're missing), not in anything we'll do to the tree.
 - **No speculative extension points.** We add extension hooks when a concrete module needs one (jsonb, ltree, arrays), not to "support a future that isn't now". Sealed stays sealed until an actual use case shows up.
 - **Not cross-database.** No MySQL, no SQLite, no H2.
 
