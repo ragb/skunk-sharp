@@ -108,6 +108,51 @@ class JsonbSuite extends PgFixture {
     }
   }
 
+  test("typed jsonb + operators — query with .getText / .hasKey / .contains over a Jsonb[CaseClass] column") {
+    import io.circe.{Codec => CirceCodec, Json => Cj}
+
+    final case class Profile(name: String, age: Int, tags: List[String])
+        derives CirceCodec.AsObject
+
+    final case class PDoc(id: UUID, body: Jsonb[Profile])
+
+    val pdocs = Table.of[PDoc]("documents")
+    withContainers { containers =>
+      session(containers).use { s =>
+        val alice = Profile("jb-alice", 30, List("admin"))
+        val bob   = Profile("jb-bob", 25, List("user"))
+        val idA   = UUID.randomUUID
+        val idB   = UUID.randomUUID
+        for {
+          _ <- pdocs.insert((id = idA, body = Jsonb(alice))).compile.run(s)
+          _ <- pdocs.insert((id = idB, body = Jsonb(bob))).compile.run(s)
+
+          // Filter via .getText — jsonb ->> 'name' = 'alice'.
+          aliceOnly <- pdocs
+            .select(d => d.body) // decodes straight to Profile
+            .where(d => d.body.getText("name") === "jb-alice")
+            .compile.run(s)
+
+          // Filter via .contains — jsonb @> '{"name":"jb-alice"}'::jsonb.
+          containsAlice <- pdocs
+            .select(d => d.id)
+            .where(d => d.body.contains(lit(Jsonb[Cj](Cj.obj("name" -> Cj.fromString("jb-alice"))))))
+            .compile.run(s)
+
+          // Project .getText as a String alongside .hasKey.
+          projected <- pdocs
+            .select(d => (d.id, d.body.getText("name"), d.body.hasKey("tags")))
+            .where(d => d.id === idA)
+            .compile.unique(s)
+
+          _ = assertEquals(aliceOnly, List(alice))
+          _ = assertEquals(containsAlice, List(idA))
+          _ = assertEquals(projected, (idA, "jb-alice", true))
+        } yield ()
+      }
+    }
+  }
+
   test("jsonb_set + jsonb_typeof via the Jsonb namespace") {
     withContainers { containers =>
       session(containers).use { s =>
