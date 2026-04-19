@@ -5,16 +5,32 @@
 
 A Scala 3 library for **compile-time checked Postgres queries** on top of [skunk](https://typelevel.org/skunk). Describe a table once, then write SELECT / INSERT / UPDATE / DELETE / JOIN statements where column names, operator/value types, nullability, INSERT completeness, and mutability (table vs view) are all verified by the compiler. Validate your table descriptions against a live database at service init.
 
-> :warning: Early development. APIs will change.
+> :warning: Early development. APIs will change. **This is mostly an experiment** — see the goals below.
 
-## Why?
+## Goals and non-goals
 
-Skunk gives you correct encoders/decoders and the `sql""` macro, but queries still live as SQL strings with codecs attached separately. If a column is renamed, a comparison targets the wrong type, or a nullable value is treated as non-null, you find out at runtime. skunk-sharp moves those failures into `sbt compile`, and validates that your declared tables still match the database at boot.
+**Goals:**
+
+- A **type-safer** way to write SQL on top of skunk. Not replacing SQL — this is still SQL, just validated. Column names, operator/value types, nullability, INSERT completeness, mutation vs read-only (Table vs View), locking scope — all checked by the compiler.
+- **Schema validation** against a live database at service init — `information_schema` diff, report-only or fail-fast.
+- **Scala 3 only.** Deliberately leaning into the modern type system: match types, opaque tags with upper bounds, extension methods, `inline`, named tuples, polymorphic function types.
+- **Compile-time as much as possible** — but not at any cost. Low-level macro wizardry is avoided when a match type + `inline` reads well enough. Macros are the last resort, not the first.
+- **AI-assisted delivery.** Function catalogues, operator sets, mechanical rewrites across modules — these are the kind of work an LLM is good at and a human is slow at. The design decisions stay with the human; the busywork doesn't.
+- **Extensible where it's cheap.** The DSL's vocabulary is `TypedExpr[T]`; third-party modules add operators and functions via `extension` methods, tags, and mixin traits (`Pg` is a stack of `PgNumeric`/`PgString`/… — users can swap in their own bundle).
+- **Postgres-only, skunk-only.** No pretence of multi-backend support. Postgres is rich enough and skunk is good enough that abstracting doesn't earn its keep.
+
+**Non-goals:**
+
+- **Not replacing SQL.** You still think in SQL. The DSL mirrors the SQL you'd write. If you want an ORM or a query abstraction, look elsewhere.
+- **Not more than SQL — no DDL.** Schema is owned by migrations (dumbo, Flyway, whatever). We validate against it; we don't generate it.
+- **No speculative extension points.** We add extension hooks when a concrete module needs one (jsonb, ltree, arrays), not to "support a future that isn't now". Sealed stays sealed until an actual use case shows up.
+- **Not cross-database.** No MySQL, no SQLite, no H2.
 
 ## Modules
 
 - `skunk-sharp-core` — the DSL: table/view descriptions, WHERE / ORDER BY / GROUP BY / HAVING / LIMIT / OFFSET, SELECT / INSERT / UPDATE / DELETE, N-way INNER / LEFT / CROSS JOINs with auto-alias, row locking, `ON CONFLICT`, `RETURNING`, aggregates, subqueries (scalar / `IN` / `EXISTS`, correlated or uncorrelated), and the schema validator.
 - `skunk-sharp-iron` — optional [Iron](https://iltotore.github.io/iron/) refinement support (e.g. `String :| MaxLength[256]` maps to `varchar(256)`).
+- `skunk-sharp-circe` — Postgres `json` / `jsonb` via [skunk-circe](https://typelevel.org/skunk), with parametric `Jsonb[A]` / `Json[A]` tags that round-trip typed case classes.
 
 ## Quick tour
 
