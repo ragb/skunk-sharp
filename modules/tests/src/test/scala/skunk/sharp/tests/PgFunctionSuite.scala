@@ -196,6 +196,26 @@ class PgFunctionSuite extends PgFixture {
     }
   }
 
+  // ---- Time accessors ----
+
+  test("now / currentTimestamp / currentDate / localTimestamp — all return the expected SQL types") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        for {
+          n  <- empty.select(_ => Pg.now).compile.unique(s)
+          ct <- empty.select(_ => Pg.currentTimestamp).compile.unique(s)
+          cd <- empty.select(_ => Pg.currentDate).compile.unique(s)
+          lt <- empty.select(_ => Pg.localTimestamp).compile.unique(s)
+          // Not asserting absolute values — just that we decoded something non-null.
+          _ = assert(n.toEpochSecond > 0L, n.toString)
+          _ = assert(ct.toEpochSecond > 0L, ct.toString)
+          _ = assert(cd.toEpochDay > 0L, cd.toString)
+          _ = assert(lt.toLocalDate.toEpochDay > 0L, lt.toString)
+        } yield ()
+      }
+    }
+  }
+
   test("concat / coalesce") {
     withContainers { containers =>
       session(containers).use { s =>
