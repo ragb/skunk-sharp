@@ -98,7 +98,7 @@ class TagsSuite extends munit.FunSuite {
 
   test("Pg.lower / Pg.upper / Pg.length accept tagged string columns (Varchar[N] / Bpchar[N])") {
     val customers = Table.of[Customer]("customers")
-    val af = customers
+    val af        = customers
       .select(c => (Pg.lower(c.email), Pg.upper(c.name), Pg.length(c.email)))
       .compile
       .af
@@ -111,7 +111,7 @@ class TagsSuite extends munit.FunSuite {
 
   test(".like / .ilike accept tagged string columns") {
     val customers = Table.of[Customer]("customers")
-    val af = customers
+    val af        = customers
       .select
       .where(c => c.email.like("%@example.com") && c.name.ilike("alice%"))
       .compile

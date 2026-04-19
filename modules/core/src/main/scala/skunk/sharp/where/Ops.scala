@@ -118,8 +118,8 @@ extension [T](lhs: TypedExpr[T]) {
 extension [T](lhs: TypedExpr[T])(using @unused ev: Stripped[T] <:< String) {
 
   /**
-   * `lhs LIKE pattern`. Works on any string-like column — `TypedExpr[String]`, tag types
-   * (`TypedExpr[Varchar[N]]`, `TypedExpr[Bpchar[N]]`, `TypedExpr[Text]`), and their `Option` variants.
+   * `lhs LIKE pattern`. Works on any string-like column — `TypedExpr[String]`, tag types (`TypedExpr[Varchar[N]]`,
+   * `TypedExpr[Bpchar[N]]`, `TypedExpr[Text]`), and their `Option` variants.
    */
   def like(pattern: String): Where = binOp("LIKE", lhs, TypedExpr.lit(pattern))
 
