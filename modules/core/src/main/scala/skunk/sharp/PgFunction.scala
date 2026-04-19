@@ -87,16 +87,30 @@ object Pg {
   val localTimestamp: TypedExpr[LocalDateTime] =
     TypedExpr(TypedExpr.raw("localtimestamp"), skunk.codec.all.timestamp)
 
-  /** `lower(s)`. */
-  val lower: TypedExpr[String] => TypedExpr[String] = PgFunction.unary[String, String]("lower")
+  /**
+   * `lower(s)` — fold to lowercase. Accepts any string-like `TypedExpr` (bare `String`, tag types like `Varchar[N]` /
+   * `Bpchar[N]` / `Text`, or their `Option` variants — anything where `Stripped[T] <:< String`). Returns the input
+   * type back: tag information is preserved in the Scala type (PG returns `text` on the wire, but `Varchar[N]` /
+   * `Text` etc. all decode the same text bytes through the same codec, so the value is correct).
+   */
+  def lower[T](e: TypedExpr[T])(using @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String): TypedExpr[T] =
+    TypedExpr(TypedExpr.raw("lower(") |+| e.render |+| TypedExpr.raw(")"), e.codec)
 
-  /** `upper(s)`. */
-  val upper: TypedExpr[String] => TypedExpr[String] = PgFunction.unary[String, String]("upper")
+  /** `upper(s)` — fold to uppercase. Shape mirrors [[lower]]. */
+  def upper[T](e: TypedExpr[T])(using @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String): TypedExpr[T] =
+    TypedExpr(TypedExpr.raw("upper(") |+| e.render |+| TypedExpr.raw(")"), e.codec)
 
-  /** `length(s)`. */
-  val length: TypedExpr[String] => TypedExpr[Int] = PgFunction.unary[String, Int]("length")
+  /**
+   * `length(s)` — character count. Output nullability tracks the input: `TypedExpr[String]` → `TypedExpr[Int]`;
+   * `TypedExpr[Option[Varchar[N]]]` → `TypedExpr[Option[Int]]` (PG's strict null propagation).
+   */
+  def length[T](e: TypedExpr[T])(using
+    @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String,
+    pf: PgTypeFor[Lift[T, Int]]
+  ): TypedExpr[Lift[T, Int]] =
+    TypedExpr(TypedExpr.raw("length(") |+| e.render |+| TypedExpr.raw(")"), pf.codec)
 
-  /** `concat(a, b, c, …)`. */
+  /** `concat(a, b, c, …)` — string concatenation. Each arg may carry its own string-like tag. */
   def concat(args: TypedExpr[String]*): TypedExpr[String] =
     PgFunction.nary[String]("concat", args*)
 
@@ -156,8 +170,13 @@ object Pg {
   def max[T](expr: TypedExpr[T]): TypedExpr[T] =
     TypedExpr(TypedExpr.raw("max(") |+| expr.render |+| TypedExpr.raw(")"), expr.codec)
 
-  /** `string_agg(expr, sep)` — concatenate string values with a separator. */
-  def stringAgg(expr: TypedExpr[String], sep: String): TypedExpr[String] =
+  /**
+   * `string_agg(expr, sep)` — concatenate string values with a separator. Accepts any string-like tag on the
+   * aggregated expression.
+   */
+  def stringAgg[T](expr: TypedExpr[T], sep: String)(using
+    @annotation.unused ev: skunk.sharp.where.Stripped[T] <:< String
+  ): TypedExpr[String] =
     TypedExpr(
       TypedExpr.raw("string_agg(") |+| expr.render |+| TypedExpr.raw(", ") |+|
         TypedExpr.lit(sep).render |+| TypedExpr.raw(")"),
@@ -189,6 +208,16 @@ object Pg {
     TypedExpr(TypedExpr.raw("NOT EXISTS (") |+| cq.af |+| TypedExpr.raw(")"), skunk.codec.all.bool)
   }
 
+}
+
+/**
+ * Preserve `T`'s nullability (or lack thereof) while changing the "base" type to `U`. Used by PG functions that have
+ * a fixed non-input return type but still propagate NULL — e.g. `length(null) → null`, so
+ * `length(TypedExpr[Option[String]]) → TypedExpr[Option[Int]]`.
+ */
+type Lift[T, U] = T match {
+  case Option[x] => Option[U]
+  case _         => U
 }
 
 /**
