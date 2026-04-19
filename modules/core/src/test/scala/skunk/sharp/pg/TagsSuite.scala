@@ -95,4 +95,29 @@ class TagsSuite extends munit.FunSuite {
     )
     assert(c.email.startsWith("hello"), c.email)
   }
+
+  test("Pg.lower / Pg.upper / Pg.length accept tagged string columns (Varchar[N] / Bpchar[N])") {
+    val customers = Table.of[Customer]("customers")
+    val af        = customers
+      .select(c => (Pg.lower(c.email), Pg.upper(c.name), Pg.length(c.email)))
+      .compile
+      .af
+
+    assertEquals(
+      af.fragment.sql,
+      """SELECT lower("email"), upper("name"), length("email") FROM "customers""""
+    )
+  }
+
+  test(".like / .ilike accept tagged string columns") {
+    val customers = Table.of[Customer]("customers")
+    val af        = customers
+      .select
+      .where(c => c.email.like("%@example.com") && c.name.ilike("alice%"))
+      .compile
+      .af
+
+    assert(af.fragment.sql.contains("""LIKE $1"""), af.fragment.sql)
+    assert(af.fragment.sql.contains("""ILIKE $2"""), af.fragment.sql)
+  }
 }

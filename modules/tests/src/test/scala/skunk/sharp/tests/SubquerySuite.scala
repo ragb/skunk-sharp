@@ -65,6 +65,33 @@ class SubquerySuite extends PgFixture {
     }
   }
 
+  test("correlated NOT EXISTS — users with no posts") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val uidWith = UUID.randomUUID
+        val uidWO   = UUID.randomUUID
+        for {
+          _ <- users
+            .insert((id = uidWith, email = "nex-with@x", age = 50, deleted_at = Option.empty[OffsetDateTime]))
+            .compile.run(s)
+          _ <- users
+            .insert((id = uidWO, email = "nex-without@x", age = 51, deleted_at = Option.empty[OffsetDateTime]))
+            .compile.run(s)
+          _    <- posts.insert((id = UUID.randomUUID, user_id = uidWith, title = "nex")).compile.run(s)
+          rows <- users
+            .alias("u")
+            .select(u => u.email)
+            .where(u =>
+              u.id.in(cats.data.NonEmptyList.of(uidWith, uidWO)) &&
+                Pg.notExists(posts.select(_ => lit(1)).where(p => p.user_id ==== u.id))
+            )
+            .compile.run(s)
+          _ = assertEquals(rows, List("nex-without@x"))
+        } yield ()
+      }
+    }
+  }
+
   test("correlated scalar subquery in projection — email + per-user post count") {
     withContainers { containers =>
       session(containers).use { s =>

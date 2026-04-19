@@ -132,4 +132,62 @@ class GroupBySuite extends PgFixture {
       }
     }
   }
+
+  test("countDistinct — deduplicates across input rows") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        for {
+          _ <- users.insert((id = UUID.randomUUID, email = "cd1@x", age = 99, deleted_at = None)).compile.run(s)
+          _ <- users.insert((id = UUID.randomUUID, email = "cd2@x", age = 99, deleted_at = None)).compile.run(s)
+          _ <- users.insert((id = UUID.randomUUID, email = "cd3@x", age = 100, deleted_at = None)).compile.run(s)
+          n <- users.select(u => Pg.countDistinct(u.age)).where(u => u.age >= 99).compile.unique(s)
+          _ = assert(n >= 2L, s"distinct ages ≥ 99 should be ≥ 2, got $n")
+        } yield ()
+      }
+    }
+  }
+
+  test("stringAgg concatenates emails per age-bucket using a separator") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val bucket = 77
+        for {
+          _ <- users.insert((id = UUID.randomUUID, email = "sa1@x", age = bucket, deleted_at = None)).compile.run(s)
+          _ <- users.insert((id = UUID.randomUUID, email = "sa2@x", age = bucket, deleted_at = None)).compile.run(s)
+          concat <- users.select(u => Pg.stringAgg(u.email, ", ")).where(u => u.age === bucket).compile.unique(s)
+          _ = assert(concat.contains("sa1@x") && concat.contains("sa2@x"), s"got '$concat'")
+          _ = assert(concat.contains(", "), s"separator missing: '$concat'")
+        } yield ()
+      }
+    }
+  }
+
+  test("boolAnd / boolOr over a predicate expression") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val bucket = 55
+        for {
+          _ <- users.insert((id = UUID.randomUUID, email = "ba1@x", age = bucket, deleted_at = None)).compile.run(s)
+          _ <- users.insert((id = UUID.randomUUID, email = "ba2@x", age = bucket, deleted_at = None)).compile.run(s)
+          // All rows in this bucket have age >= 10 — boolAnd should be true.
+          allPos <- users
+            .select(u => Pg.boolAnd(u.age >= 10))
+            .where(u => u.age === bucket)
+            .compile.unique(s)
+          // Not all are ≥ 100 — boolAnd should be false, boolOr should also be false.
+          allBig <- users
+            .select(u => Pg.boolAnd(u.age >= 100))
+            .where(u => u.age === bucket)
+            .compile.unique(s)
+          anyBig <- users
+            .select(u => Pg.boolOr(u.age >= 100))
+            .where(u => u.age === bucket)
+            .compile.unique(s)
+          _ = assertEquals(allPos, true)
+          _ = assertEquals(allBig, false)
+          _ = assertEquals(anyBig, false)
+        } yield ()
+      }
+    }
+  }
 }
