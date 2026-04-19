@@ -1,4 +1,4 @@
-package skunk.sharp.json
+package skunk.sharp.circe
 
 import io.circe.Json as CirceJson
 import skunk.sharp.dsl.*

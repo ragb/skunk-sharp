@@ -2,7 +2,7 @@ package skunk.sharp.tests
 
 import io.circe.Json as CirceJson
 import skunk.sharp.dsl.*
-import skunk.sharp.json.*
+import skunk.sharp.circe.*
 
 import java.util.UUID
 
