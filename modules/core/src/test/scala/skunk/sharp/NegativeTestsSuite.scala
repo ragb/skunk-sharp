@@ -494,4 +494,40 @@ class NegativeTestsSuite extends munit.FunSuite {
     """)
     assert(errs.nonEmpty, "alias collision against an earlier source (not just the previous) should be rejected")
   }
+
+  // ---- INSERT … SELECT (.from) shape checks --------------------------------------------------
+
+  test("insert.from accepts a whole-row select when source shape superset-matches the target") {
+    // `inbox` has every required column the target needs, plus the optional `deleted_at` — the target's
+    // `.withDefault("created_at")` column can be filled by Postgres.
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      val users = Table.of[User]("users").withDefault("created_at")
+      val inbox = Table.of[User]("users_inbox")
+      users.insert.from(inbox.select).compile
+    """)
+    assert(errs.isEmpty, s"shape-compatible insert.from should compile; got: ${errs.map(_.message).mkString("\n")}")
+  }
+
+  test("insert.from rejects a source whose row shape drops a required target column") {
+    // `Trimmed` is a user-shape missing `age`, which is required on the target (no `.withDefault`). The source
+    // select's whole-row named tuple therefore won't cover `age`, and the compile-time subset/covers check fires.
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import java.util.UUID
+      import java.time.OffsetDateTime
+      import NegativeTestsSuite.User
+      case class Trimmed(id: UUID, email: String, created_at: OffsetDateTime, deleted_at: Option[OffsetDateTime])
+      val users   = Table.of[User]("users")
+      val trimmed = Table.of[Trimmed]("users_inbox")
+      users.insert.from(trimmed.select).compile
+    """)
+    assert(errs.nonEmpty, "insert.from with missing required target column should be rejected")
+    val msg = errs.map(_.message).mkString("\n")
+    assert(
+      msg.contains("age") || msg.contains("missing"),
+      s"error should name the missing column; got: $msg"
+    )
+  }
 }

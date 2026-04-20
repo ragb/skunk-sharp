@@ -222,4 +222,57 @@ class InsertSuite extends munit.FunSuite {
       """INSERT INTO "tasks" ("id", "title", "priority", "due") VALUES ($1, $2, $3, $4) RETURNING "id", "priority""""
     )
   }
+
+  // ---- INSERT … SELECT -------------------------------------------------------------------------
+
+  test("insert.from whole-row select — column list mirrors target, inner SELECT inlined") {
+    val src = Table.of[Task]("tasks_inbox")
+    val af  = tasks.insert.from(src.select).compile.af
+
+    assertEquals(
+      af.fragment.sql,
+      """INSERT INTO "tasks" ("id", "title", "priority", "due") SELECT "id", "title", "priority", "due" FROM "tasks_inbox""""
+    )
+  }
+
+  test("insert.from + inner WHERE — single outer .compile, inner parameters flow through") {
+    val src = Table.of[Task]("tasks_inbox")
+    val af  = tasks.insert.from(src.select.where(t => t.priority >= 3)).compile.af
+
+    assertEquals(
+      af.fragment.sql,
+      """INSERT INTO "tasks" ("id", "title", "priority", "due") SELECT "id", "title", "priority", "due" FROM "tasks_inbox" WHERE "priority" >= $1"""
+    )
+  }
+
+  test("insert.from composes with ON CONFLICT DO NOTHING") {
+    val src = Table.of[Task]("tasks_inbox")
+    val af  = tasks
+      .insert
+      .from(src.select)
+      .onConflict(t => t.id)
+      .doNothing
+      .compile
+      .af
+
+    assertEquals(
+      af.fragment.sql,
+      """INSERT INTO "tasks" ("id", "title", "priority", "due") SELECT "id", "title", "priority", "due" FROM "tasks_inbox" ON CONFLICT ("id") DO NOTHING"""
+    )
+  }
+
+  test("insert.from composes with RETURNING") {
+    val src = Table.of[Task]("tasks_inbox")
+    val af  = tasks
+      .insert
+      .from(src.select)
+      .returning(t => t.id)
+      .compile
+      .af
+
+    assertEquals(
+      af.fragment.sql,
+      """INSERT INTO "tasks" ("id", "title", "priority", "due") SELECT "id", "title", "priority", "due" FROM "tasks_inbox" RETURNING "id""""
+    )
+  }
 }

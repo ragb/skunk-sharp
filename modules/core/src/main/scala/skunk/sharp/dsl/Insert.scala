@@ -90,6 +90,34 @@ final class InsertBuilder[Cols <: Tuple] private[sharp] (table: Table[Cols, ?]) 
     InsertCommand.build(table, names, rs, OnConflict.None)
   }
 
+  /**
+   * `INSERT INTO … SELECT …` — insert rows coming from another query. The source is anything with an [[AsSubquery]]
+   * instance whose result row is a named tuple: a `SelectBuilder` / `ProjectedSelect` / `CompiledQuery` / `SetOpQuery`
+   * whose projection has named fields. This includes both the whole-row form (`users.select`) and the explicit named
+   * projection (`users.select(u => (id = u.id, email = u.email))`).
+   *
+   * The named-tuple's field names must be a subset of the target table's columns (same rule as the values-insert path),
+   * must cover every required (non-defaulted) column, and each value type must match the target column's declared Scala
+   * type. All three checks happen at compile time.
+   *
+   * The inner query's SQL is held as a thunk — no inner `.compile` materialises eagerly; the outer
+   * `.compile.run(session)` is the single terminal step.
+   *
+   * {{{
+   *   usersArchive.insert.from(
+   *     users.select(u => (id = u.id, email = u.email, archived_at = Pg.now))
+   *       .where(u => u.deleted_at.isNotNull)
+   *   ).compile.run(session)
+   * }}}
+   */
+  inline def from[Q, Row <: NamedTuple.AnyNamedTuple](src: Q)(using ev: AsSubquery[Q, Row]): InsertCommand[Cols] = {
+    CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[Row]]
+    CompileChecks.requireCoversRequired[Cols, NamedTuple.Names[Row]]
+    CompileChecks.requireValueTypesMatch[Cols, NamedTuple.Names[Row], NamedTuple.DropNames[Row]]
+    val names = constValueTuple[NamedTuple.Names[Row]].toList.asInstanceOf[List[String]]
+    InsertCommand.buildFromQuery(table, names, ev.render(src), OnConflict.None)
+  }
+
 }
 
 /** ON CONFLICT clause. */
@@ -110,10 +138,23 @@ object OnConflict {
   final case class TargetDoUpdate(columns: List[String], assignments: List[SetAssignment[?]]) extends OnConflict
 }
 
+/**
+ * The source of rows for an INSERT. Either a literal tuple of `VALUES` rows (single- and multi-row insert, case-class
+ * insert) or a deferred sub-query (`INSERT INTO t (cols) SELECT …`). Held as a thunk for the query case so the inner
+ * compilation is triggered only when the outer INSERT's `.compile` fires — matching the single-`.compile` rule the rest
+ * of the DSL upholds.
+ */
+sealed trait InsertSource
+
+object InsertSource {
+  final case class Values(rows: List[List[Any]])            extends InsertSource
+  final case class FromQuery(render: () => AppliedFragment) extends InsertSource
+}
+
 final class InsertCommand[Cols <: Tuple] private[sharp] (
   private[sharp] val table: Table[Cols, ?],
   private[sharp] val projected: List[Column[?, ?, ?, ?]],
-  private[sharp] val rows: List[List[Any]],
+  private[sharp] val source: InsertSource,
   private[sharp] val conflict: OnConflict
 ) {
 
@@ -124,18 +165,25 @@ final class InsertCommand[Cols <: Tuple] private[sharp] (
   def compile: CompiledCommand = CompiledCommand(compileFragment)
 
   private[sharp] def compileFragment: AppliedFragment = {
-    val projections              = projected.map(c => s""""${c.name}"""").mkString(", ")
-    val perRow: Codec[Tuple]     = tupleCodec(projected.map(_.codec))
-    val rowEnc                   = perRow.values
-    val rowFrag: Fragment[Tuple] = Fragment(
-      parts = List(Right(rowEnc.sql)),
-      encoder = rowEnc,
-      origin = Origin.unknown
-    )
-    val rowsApplied = rows.map(r => rowFrag(Tuple.fromArray(r.toArray[Any])))
-    val header      = TypedExpr.raw(s"INSERT INTO ${table.qualifiedName} ($projections) VALUES ")
-    val withValues  = header |+| TypedExpr.joined(rowsApplied, ", ")
-    withValues |+| conflictFragment
+    val projections = projected.map(c => s""""${c.name}"""").mkString(", ")
+    val header      = TypedExpr.raw(s"INSERT INTO ${table.qualifiedName} ($projections) ")
+    val body        = source match {
+      case InsertSource.Values(rows) =>
+        val perRow: Codec[Tuple]     = tupleCodec(projected.map(_.codec))
+        val rowEnc                   = perRow.values
+        val rowFrag: Fragment[Tuple] = Fragment(
+          parts = List(Right(rowEnc.sql)),
+          encoder = rowEnc,
+          origin = Origin.unknown
+        )
+        val rowsApplied = rows.map(r => rowFrag(Tuple.fromArray(r.toArray[Any])))
+        TypedExpr.raw("VALUES ") |+| TypedExpr.joined(rowsApplied, ", ")
+      // `INSERT … SELECT` — the inner SELECT's fragment is rendered on demand. Any bound parameters in the inner
+      // query flow straight through because `AppliedFragment` carries both SQL and arguments.
+      case InsertSource.FromQuery(thunk) =>
+        thunk()
+    }
+    header |+| body |+| conflictFragment
   }
 
   /** Append a `RETURNING <expr>` clause. Single-value form. */
@@ -218,7 +266,7 @@ final class InsertCommand[Cols <: Tuple] private[sharp] (
     }
 
   private[sharp] def withConflict(c: OnConflict): InsertCommand[Cols] =
-    new InsertCommand[Cols](table, projected, rows, c)
+    new InsertCommand[Cols](table, projected, source, c)
 
   private[sharp] def tableColumns: Cols = table.columns
 }
@@ -234,14 +282,31 @@ object InsertCommand {
     names: List[String],
     rows: List[List[Any]],
     conflict: OnConflict
-  ): InsertCommand[Cols] = {
+  ): InsertCommand[Cols] =
+    new InsertCommand[Cols](table, lookupProjected(table, names), InsertSource.Values(rows), conflict)
+
+  /**
+   * INSERT…SELECT variant: instead of a list of `VALUES` rows, the body is whatever the inner query renders. The
+   * rendering thunk keeps the inner compile deferred so users still write `.compile` only on the outer INSERT.
+   */
+  private[sharp] def buildFromQuery[Cols <: Tuple](
+    table: Table[Cols, ?],
+    names: List[String],
+    render: () => AppliedFragment,
+    conflict: OnConflict
+  ): InsertCommand[Cols] =
+    new InsertCommand[Cols](table, lookupProjected(table, names), InsertSource.FromQuery(render), conflict)
+
+  private def lookupProjected[Cols <: Tuple](
+    table: Table[Cols, ?],
+    names: List[String]
+  ): List[Column[?, ?, ?, ?]] = {
     val allCols = table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
-    val proj    = names.map(n =>
+    names.map(n =>
       allCols.find(_.name == n).getOrElse(
         sys.error(s"skunk-sharp: column $n passed compile check but not found at runtime in ${table.name}")
       )
     )
-    new InsertCommand[Cols](table, proj, rows, conflict)
   }
 
 }
