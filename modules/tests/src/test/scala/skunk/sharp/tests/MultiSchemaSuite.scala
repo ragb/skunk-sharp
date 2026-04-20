@@ -36,7 +36,9 @@ class MultiSchemaSuite extends PgFixture {
     Dumbo.withResourcesIn[IO]("migrations-multischema").apply(conn).runMigration.void
 
   private val products = Table.of[Product]("products").inSchema("app").withPrimary("id")
-  private val events   = Table.of[Event]("events").inSchema("audit").withDefault("id").withDefault("occurred_at")
+
+  private val events =
+    Table.of[Event]("events").inSchema("audit").withPrimary("id").withDefault("id").withDefault("occurred_at")
 
   test("insert + select round-trip on a schema-qualified table (app.products)") {
     withContainers { containers =>

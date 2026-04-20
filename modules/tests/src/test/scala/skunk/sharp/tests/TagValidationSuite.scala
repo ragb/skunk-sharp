@@ -17,7 +17,7 @@ object TagValidationSuite {
 class TagValidationSuite extends PgFixture {
   import TagValidationSuite.*
 
-  private val parties      = Table.of[Party]("parties").withDefault("id").withDefault("balance")
+  private val parties      = Table.of[Party]("parties").withPrimary("id").withDefault("id").withDefault("balance")
   private val wrongVarchar = Table.of[PartyWrongVarchar]("parties").withDefault("id").withDefault("balance")
   private val wrongNumeric = Table.of[PartyWrongNumeric]("parties").withDefault("id").withDefault("balance")
 
