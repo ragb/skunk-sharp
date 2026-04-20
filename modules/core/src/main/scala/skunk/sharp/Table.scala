@@ -1,6 +1,6 @@
 package skunk.sharp
 
-import skunk.sharp.internal.{deriveColumns, ColumnsFromMirror, CompileChecks}
+import skunk.sharp.internal.{CompileChecks, DeriveColumns}
 
 import scala.annotation.unused
 import scala.compiletime.constValueTuple
@@ -197,15 +197,9 @@ object Table {
   final class OfCont[T <: Product] {
 
     inline def apply[Name <: String & Singleton](tableName: Name)(using
-      m: Mirror.ProductOf[T]
-    ): Table[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes], Name] = {
-      val cols = deriveColumns[m.MirroredElemLabels, m.MirroredElemTypes]
-      Table[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes], Name](
-        tableName,
-        None,
-        cols.asInstanceOf[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes]]
-      )
-    }
+      m: Mirror.ProductOf[T],
+      dc: DeriveColumns[m.MirroredElemLabels, m.MirroredElemTypes]
+    ): Table[dc.Out, Name] = Table[dc.Out, Name](tableName, None, dc.value)
 
   }
 

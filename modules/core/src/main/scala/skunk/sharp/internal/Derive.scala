@@ -3,60 +3,90 @@ package skunk.sharp.internal
 import skunk.sharp.Column
 import skunk.sharp.pg.{PgTypeFor, PgTypes}
 
-import scala.compiletime.{constValue, erasedValue, summonInline}
+import scala.util.NotGiven
 
 /**
- * Map a `Mirror.ProductOf[T]`'s label/type tuples to the type-level tuple of [[skunk.sharp.Column]]s.
+ * Typeclass dispatch for deriving column tuples from a `Mirror.ProductOf[T]`'s `(Labels, Types)` pair.
  *
- * Option-wrapped fields become nullable columns; everything else is non-null. The resulting columns carry an empty
- * `Attrs` tuple — defaults / primary / unique are declared explicitly via `withDefault("name")` /
- * `withPrimary("name")` / `withUnique("name")` on the resulting table.
+ * Why a typeclass instead of a match type? The natural match-type implementation dispatches on `Option[t]` head vs.
+ * non-`Option` head, and Scala 3 requires the non-`Option` branch's scrutinee to be **provably disjoint** from
+ * `Option`. That works for concrete types (`String`, `Int`), and for opaque subtypes with an explicit upper bound
+ * (iron's `opaque type IronType[A, T] <: A = A` — `IronType[String, C]` is provably `<: String`, disjoint from
+ * `Option`). It **fails** for unbounded opaque aliases like refined's `opaque type Refined[T, P] = T` (no upper bound
+ * visible outside the defining scope — Scala can't prove `Refined[String, C]` is not an `Option`, reduction stalls).
+ *
+ * Typeclass resolution uses `<:<` directly, which CAN see through opaque types correctly. `NotGiven[T <:< Option[?]]`
+ * fires for any `T` not provably an `Option`, which covers unbounded opaques, concrete classes, iron types, and so on.
+ * The four instances below form an induction over the label/type tuples.
  */
-type ColumnsFromMirror[Labels <: Tuple, Types <: Tuple] <: Tuple = (Labels, Types) match {
-  case (EmptyTuple, EmptyTuple)   => EmptyTuple
-  case (l *: lt, Option[t] *: tt) =>
-    Column[Option[t], l & String & Singleton, true, EmptyTuple] *: ColumnsFromMirror[lt, tt]
-  case (l *: lt, t *: tt) =>
-    Column[t, l & String & Singleton, false, EmptyTuple] *: ColumnsFromMirror[lt, tt]
+sealed trait DeriveColumns[Labels <: Tuple, Types <: Tuple] {
+  type Out <: Tuple
+  def value: Out
 }
 
-/**
- * Runtime counterpart to [[ColumnsFromMirror]]: builds the tuple of [[Column]] values by summoning a [[PgTypeFor]] for
- * each field type. The column's skunk `Type` is read from the codec (`codec.types.head`) so no separate type registry
- * is needed.
- */
-inline def deriveColumns[Labels <: Tuple, Types <: Tuple]: Tuple =
-  inline erasedValue[Labels] match {
-    case _: EmptyTuple =>
-      EmptyTuple
-    case _: (l *: ls) =>
-      inline erasedValue[Types] match {
-        case _: (Option[t] *: ts) =>
-          val pf    = summonInline[PgTypeFor[t]]
-          val name  = constValue[l].asInstanceOf[String & Singleton]
-          val codec = pf.codec.opt
-          Column(
-            name = name,
-            tpe = PgTypes.typeOf(pf.codec),
-            codec = codec,
-            isNullable = true,
-            hasDefault = false,
-            isPrimary = false,
-            isUnique = false,
-            uniqueGroups = Set.empty[String]
-          ) *: deriveColumns[ls, ts]
-        case _: (t *: ts) =>
-          val pf   = summonInline[PgTypeFor[t]]
-          val name = constValue[l].asInstanceOf[String & Singleton]
-          Column(
-            name = name,
-            tpe = PgTypes.typeOf(pf.codec),
-            codec = pf.codec,
-            isNullable = false,
-            hasDefault = false,
-            isPrimary = false,
-            isUnique = false,
-            uniqueGroups = Set.empty[String]
-          ) *: deriveColumns[ls, ts]
-      }
+object DeriveColumns {
+
+  type Aux[Labels <: Tuple, Types <: Tuple, Out0 <: Tuple] = DeriveColumns[Labels, Types] { type Out = Out0 }
+
+  given empty: DeriveColumns.Aux[EmptyTuple, EmptyTuple, EmptyTuple] = new DeriveColumns[EmptyTuple, EmptyTuple] {
+    type Out = EmptyTuple
+    def value: EmptyTuple = EmptyTuple
   }
+
+  /**
+   * Head element is `Option[T]` → the column is nullable, carries `Option[T]` at the Scala level, codec wrapped with
+   * `.opt`. Higher priority than [[nonOptionCase]] because its bound on the head is more specific.
+   */
+  given optionCase[L <: String & Singleton, T, Ls <: Tuple, Ts <: Tuple, Rest <: Tuple](using
+    label: ValueOf[L],
+    pf: PgTypeFor[T],
+    rest: DeriveColumns.Aux[Ls, Ts, Rest]
+  ): DeriveColumns.Aux[L *: Ls, Option[T] *: Ts, Column[Option[T], L, true, EmptyTuple] *: Rest] =
+    new DeriveColumns[L *: Ls, Option[T] *: Ts] {
+      type Out = Column[Option[T], L, true, EmptyTuple] *: Rest
+
+      def value: Out = {
+        val col = Column[Option[T], L, true, EmptyTuple](
+          name = label.value,
+          tpe = PgTypes.typeOf(pf.codec),
+          codec = pf.codec.opt,
+          isNullable = true,
+          hasDefault = false,
+          isPrimary = false,
+          isUnique = false,
+          uniqueGroups = Set.empty
+        )
+        (col *: rest.value).asInstanceOf[Out]
+      }
+    }
+
+  /**
+   * Head element is *not* `Option[_]` — non-nullable column. `NotGiven[T <:< Option[?]]` guards resolution. Unbounded
+   * opaque types pass this guard (no `<:<` exists), concrete non-Option classes pass, iron's subtype-bounded opaque
+   * types pass.
+   */
+  given nonOptionCase[L <: String & Singleton, T, Ls <: Tuple, Ts <: Tuple, Rest <: Tuple](using
+    label: ValueOf[L],
+    pf: PgTypeFor[T],
+    notOption: NotGiven[T <:< Option[?]],
+    rest: DeriveColumns.Aux[Ls, Ts, Rest]
+  ): DeriveColumns.Aux[L *: Ls, T *: Ts, Column[T, L, false, EmptyTuple] *: Rest] =
+    new DeriveColumns[L *: Ls, T *: Ts] {
+      type Out = Column[T, L, false, EmptyTuple] *: Rest
+
+      def value: Out = {
+        val col = Column[T, L, false, EmptyTuple](
+          name = label.value,
+          tpe = PgTypes.typeOf(pf.codec),
+          codec = pf.codec,
+          isNullable = false,
+          hasDefault = false,
+          isPrimary = false,
+          isUnique = false,
+          uniqueGroups = Set.empty
+        )
+        (col *: rest.value).asInstanceOf[Out]
+      }
+    }
+
+}
