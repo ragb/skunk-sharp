@@ -13,6 +13,9 @@ object SchemaValidatorSuite {
   // Intentionally wrong: `emails` is not a column; `age` declared as String instead of Int; `created_at` nullability
   // claim is wrong.
   case class BrokenUser(id: UUID, emails: String, age: String, created_at: Option[OffsetDateTime])
+
+  // Exercises composite PK + named composite UNIQUE + single-column UNIQUE. Matches V7__orders.sql.
+  case class Order(tenant_id: UUID, order_id: Long, slug: String, external_id: String, created_at: OffsetDateTime)
 }
 
 class SchemaValidatorSuite extends PgFixture {
@@ -114,8 +117,8 @@ class SchemaValidatorSuite extends PgFixture {
         SchemaValidator.validate[IO](s, wrongUnique).map { report =>
           assert(
             report.mismatches.exists {
-              case Mismatch.UniqueConstraintMissing(_, "age") => true
-              case _                                          => false
+              case Mismatch.UniqueConstraintMissing(_, "age", cols) => cols == Set("age")
+              case _                                                => false
             },
             s"expected UniqueConstraintMissing(age), got: ${report.mismatches.map(_.pretty).mkString("; ")}"
           )
@@ -132,7 +135,7 @@ class SchemaValidatorSuite extends PgFixture {
         SchemaValidator.validate[IO](s, pkOnly).map { report =>
           assert(
             report.mismatches.exists {
-              case Mismatch.ExtraUniqueConstraint(_, "email") => true
+              case Mismatch.ExtraUniqueConstraint(_, _, cols) => cols == Set("email")
               case _                                          => false
             },
             s"expected ExtraUniqueConstraint(email), got: ${report.mismatches.map(_.pretty).mkString("; ")}"
@@ -153,6 +156,83 @@ class SchemaValidatorSuite extends PgFixture {
               case _                                   => false
             },
             s"expected ExtraPrimaryKey(id), got: ${report.mismatches.map(_.pretty).mkString("; ")}"
+          )
+        }
+      }
+    }
+  }
+
+  // ---- Composite constraints (PR: composite PK + composite UNIQUE) --------------------------------
+
+  test("validate accepts a composite PK + composite UNIQUE + single-column UNIQUE declaration") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val orders = Table.of[Order]("orders")
+          .withCompositePrimary[("tenant_id", "order_id")]
+          .withUniqueIndex["uq_orders_tenant_slug", ("tenant_id", "slug")]
+          .withUnique("external_id")
+          .withDefault("created_at")
+
+        SchemaValidator.validate[IO](s, orders).map { report =>
+          assert(report.isValid, s"expected valid, got: ${report.mismatches.map(_.pretty).mkString("; ")}")
+        }
+      }
+    }
+  }
+
+  test("validate flags a mis-declared composite PK (wrong column set)") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        // DB PK is (tenant_id, order_id). Declare (tenant_id, slug) instead — expect PrimaryKeyColumnsDiffer.
+        val wrongPk = Table.of[Order]("orders").withCompositePrimary[("tenant_id", "slug")]
+        SchemaValidator.validate[IO](s, wrongPk).map { report =>
+          assert(
+            report.mismatches.exists {
+              case Mismatch.PrimaryKeyColumnsDiffer(_, exp, act) =>
+                exp == Set("tenant_id", "slug") && act == Set("tenant_id", "order_id")
+              case _ => false
+            },
+            s"expected PrimaryKeyColumnsDiffer, got: ${report.mismatches.map(_.pretty).mkString("; ")}"
+          )
+        }
+      }
+    }
+  }
+
+  test("validate flags a missing composite UNIQUE when declared but absent in DB") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        // Declare a composite unique on (slug, external_id) — doesn't exist in DB.
+        val orders = Table.of[Order]("orders")
+          .withCompositePrimary[("tenant_id", "order_id")]
+          .withUniqueIndex["uq_bogus", ("slug", "external_id")]
+        SchemaValidator.validate[IO](s, orders).map { report =>
+          assert(
+            report.mismatches.exists {
+              case Mismatch.UniqueConstraintMissing(_, "uq_bogus", cols) => cols == Set("slug", "external_id")
+              case _                                                     => false
+            },
+            s"expected UniqueConstraintMissing(uq_bogus), got: ${report.mismatches.map(_.pretty).mkString("; ")}"
+          )
+        }
+      }
+    }
+  }
+
+  test("validate flags ExtraUniqueConstraint for a DB composite unique the declaration misses") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        // Declare only PK + external_id unique — miss the (tenant_id, slug) composite. Expect ExtraUniqueConstraint.
+        val orders = Table.of[Order]("orders")
+          .withCompositePrimary[("tenant_id", "order_id")]
+          .withUnique("external_id")
+        SchemaValidator.validate[IO](s, orders).map { report =>
+          assert(
+            report.mismatches.exists {
+              case Mismatch.ExtraUniqueConstraint(_, _, cols) => cols == Set("tenant_id", "slug")
+              case _                                          => false
+            },
+            s"expected ExtraUniqueConstraint on (tenant_id, slug), got: ${report.mismatches.map(_.pretty).mkString("; ")}"
           )
         }
       }

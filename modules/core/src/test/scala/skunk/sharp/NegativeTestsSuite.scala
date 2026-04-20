@@ -207,4 +207,120 @@ class NegativeTestsSuite extends munit.FunSuite {
     """)
     assert(errs.nonEmpty, "expected a compile error when the table has no declared constraints")
   }
+
+  // ---- Composite .onConflict evidence (HasCompositeUniqueness) -------------------------------
+
+  test(".onConflict rejects a single-column target when the column is part of a composite PK") {
+    // Being part of a composite PK doesn't qualify a column for single-column `.onConflict`. Postgres requires the
+    // target to match an entire constraint.
+    val errs = typeCheckErrors("""
+      import skunk.sharp.*
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      import java.time.OffsetDateTime
+      val users = Table.of[User]("users").withCompositePrimary[("id", "email")]
+      users
+        .insert((
+          id = java.util.UUID.randomUUID,
+          email = "x",
+          age = 1,
+          created_at = OffsetDateTime.now(),
+          deleted_at = Option.empty[OffsetDateTime]
+        ))
+        .onConflict(u => u.id)   // partial PK — should be rejected
+        .doNothing
+        .compile
+    """)
+    assert(errs.nonEmpty, "expected rejection for single-col onConflict on a composite-PK column")
+  }
+
+  test(".onConflictComposite accepts the full composite-PK tuple") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.*
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      import java.time.OffsetDateTime
+      val users = Table.of[User]("users").withCompositePrimary[("id", "email")]
+      users
+        .insert((
+          id = java.util.UUID.randomUUID,
+          email = "x",
+          age = 1,
+          created_at = OffsetDateTime.now(),
+          deleted_at = Option.empty[OffsetDateTime]
+        ))
+        .onConflictComposite(u => (u.id, u.email))
+        .doNothing
+        .compile
+    """)
+    assert(errs.isEmpty, s"expected no errors for full composite PK target; got: ${errs.map(_.message).mkString("\n")}")
+  }
+
+  test(".onConflictComposite accepts columns in any order (set-equality)") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.*
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      import java.time.OffsetDateTime
+      val users = Table.of[User]("users").withCompositePrimary[("id", "email")]
+      users
+        .insert((
+          id = java.util.UUID.randomUUID,
+          email = "x",
+          age = 1,
+          created_at = OffsetDateTime.now(),
+          deleted_at = Option.empty[OffsetDateTime]
+        ))
+        .onConflictComposite(u => (u.email, u.id))   // reversed order — should still compile
+        .doNothing
+        .compile
+    """)
+    assert(errs.isEmpty, s"expected no errors for reversed composite PK target; got: ${errs.map(_.message).mkString("\n")}")
+  }
+
+  test(".onConflictComposite rejects a tuple that doesn't exactly match a declared composite group") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.*
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      import java.time.OffsetDateTime
+      val users = Table.of[User]("users").withCompositePrimary[("id", "email")]
+      users
+        .insert((
+          id = java.util.UUID.randomUUID,
+          email = "x",
+          age = 1,
+          created_at = OffsetDateTime.now(),
+          deleted_at = Option.empty[OffsetDateTime]
+        ))
+        .onConflictComposite(u => (u.id, u.age))   // "age" is not part of any group
+        .doNothing
+        .compile
+    """)
+    assert(errs.nonEmpty, "expected rejection for onConflictComposite with a non-matching column set")
+  }
+
+  test(".onConflictComposite accepts a named composite unique index") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.*
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      import java.time.OffsetDateTime
+      val users = Table.of[User]("users")
+        .withPrimary("id")
+        .withUniqueIndex["uq_email_age", ("email", "age")]
+      users
+        .insert((
+          id = java.util.UUID.randomUUID,
+          email = "x",
+          age = 1,
+          created_at = OffsetDateTime.now(),
+          deleted_at = Option.empty[OffsetDateTime]
+        ))
+        .onConflictComposite(u => (u.email, u.age))
+        .doNothing
+        .compile
+    """)
+    assert(errs.isEmpty, s"expected no errors for named composite unique target; got: ${errs.map(_.message).mkString("\n")}")
+  }
 }

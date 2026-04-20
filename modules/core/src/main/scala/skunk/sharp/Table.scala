@@ -2,6 +2,8 @@ package skunk.sharp
 
 import skunk.sharp.internal.{deriveColumns, ColumnsFromMirror, CompileChecks}
 
+import scala.annotation.unused
+import scala.compiletime.constValueTuple
 import scala.deriving.Mirror
 
 /**
@@ -43,25 +45,91 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
   }
 
   /**
-   * Mark a column as primary key. Adds the [[ColumnAttr.Primary]] marker to that column's `Attrs` tuple, making
-   * `.onConflict(c => c.<n>)` accepted at compile time.
+   * Mark a column as a single-column primary key. Appends a `ColumnAttr.Pk[(N)]` marker so
+   * `.onConflict(c => c.<N>)` is accepted at compile time via [[HasUniqueness]].
+   *
+   * For composite primary keys — where the PK spans multiple columns — use [[withCompositePrimary]] instead.
    */
-  inline def withPrimary[N <: String & Singleton](inline n: N): Table[Table.AddAttr[Cols, N, ColumnAttr.Primary], Name] = {
+  inline def withPrimary[N <: String & Singleton](inline n: N)
+    : Table[Table.AddAttr[Cols, N, ColumnAttr.Pk[N *: EmptyTuple]], Name] = {
     CompileChecks.requireColumn[Cols, N]
     val updated = Table.updateCol[Cols, N](columns, n, _.copy(isPrimary = true))
-    copy(columns = updated.asInstanceOf[Table.AddAttr[Cols, N, ColumnAttr.Primary]])
-      .asInstanceOf[Table[Table.AddAttr[Cols, N, ColumnAttr.Primary], Name]]
+    copy(columns = updated.asInstanceOf[Table.AddAttr[Cols, N, ColumnAttr.Pk[N *: EmptyTuple]]])
+      .asInstanceOf[Table[Table.AddAttr[Cols, N, ColumnAttr.Pk[N *: EmptyTuple]], Name]]
   }
 
   /**
-   * Mark a column as unique. Adds the [[ColumnAttr.Unique]] marker to that column's `Attrs` tuple, making
-   * `.onConflict(c => c.<n>)` accepted at compile time.
+   * Mark several columns as jointly making up a composite primary key. Each listed column receives
+   * `ColumnAttr.Pk[Ns]` (the full tuple of PK column names), so composite
+   * `.onConflictComposite(c => (c.a, c.b))` checks for exact set-equality against `Ns` via [[HasCompositeUniqueness]].
+   *
+   * Column names are passed as a **type argument** — a tuple type of string literals. Type arguments preserve literal
+   * singletons (value-level tuple literals would widen to `(String, String)` and break the match-type machinery).
+   *
+   * {{{
+   *   Table.of[Order]("orders").withCompositePrimary[("tenant_id", "order_id")]
+   * }}}
    */
-  inline def withUnique[N <: String & Singleton](inline n: N): Table[Table.AddAttr[Cols, N, ColumnAttr.Unique], Name] = {
+  inline def withCompositePrimary[Ns <: NonEmptyTuple](using
+    @unused ev: Tuple.Union[Ns] <:< (String & Singleton)
+  ): Table[Table.AddCompositePk[Cols, Ns], Name] = {
+    CompileChecks.requireAllNamesInCols[Cols, Ns]
+    val names   = constValueTuple[Ns].toList.asInstanceOf[List[String]]
+    val nameSet = names.toSet
+    val updated =
+      Table.mapCols(columns, (c: Column[Any, String & Singleton, Boolean, Tuple]) =>
+        if (nameSet.contains(c.name)) c.copy(isPrimary = true) else c
+      )
+    copy(columns = updated.asInstanceOf[Table.AddCompositePk[Cols, Ns]])
+      .asInstanceOf[Table[Table.AddCompositePk[Cols, Ns], Name]]
+  }
+
+  /**
+   * Mark a column as having a single-column `UNIQUE` constraint. Appends `ColumnAttr.Uq[N, (N)]` (the constraint's
+   * "name" is the column name itself, matching Postgres's default naming) so `.onConflict(c => c.<N>)` accepts this
+   * column.
+   *
+   * For composite unique indexes (one constraint spanning multiple columns), use [[withUniqueIndex]].
+   */
+  inline def withUnique[N <: String & Singleton](inline n: N)
+    : Table[Table.AddAttr[Cols, N, ColumnAttr.Uq[N, N *: EmptyTuple]], Name] = {
     CompileChecks.requireColumn[Cols, N]
-    val updated = Table.updateCol[Cols, N](columns, n, _.copy(isUnique = true))
-    copy(columns = updated.asInstanceOf[Table.AddAttr[Cols, N, ColumnAttr.Unique]])
-      .asInstanceOf[Table[Table.AddAttr[Cols, N, ColumnAttr.Unique], Name]]
+    val nameStr = compiletime.constValue[N]: String
+    val updated = Table.updateCol[Cols, N](
+      columns,
+      n,
+      c => c.copy(isUnique = true, uniqueGroups = c.uniqueGroups + nameStr)
+    )
+    copy(columns = updated.asInstanceOf[Table.AddAttr[Cols, N, ColumnAttr.Uq[N, N *: EmptyTuple]]])
+      .asInstanceOf[Table[Table.AddAttr[Cols, N, ColumnAttr.Uq[N, N *: EmptyTuple]], Name]]
+  }
+
+  /**
+   * Mark several columns as jointly making up a named `UNIQUE` constraint. Each listed column receives
+   * `ColumnAttr.Uq[ConstraintName, Ns]`, so composite `.onConflictComposite(c => (c.a, c.b))` is accepted as long as
+   * its column set is set-equal to `Ns`.
+   *
+   * Both arguments are **type arguments** — string literals as type parameters preserve their singleton types; the
+   * corresponding value-level literals would widen. `ConstraintName` is the SQL constraint name (surfaced by the
+   * schema validator in `Mismatch` messages).
+   *
+   * {{{
+   *   Table.of[Order]("orders").withUniqueIndex["uq_orders_tenant_slug", ("tenant_id", "slug")]
+   * }}}
+   */
+  inline def withUniqueIndex[ConstraintName <: String & Singleton, Ns <: NonEmptyTuple](using
+    @unused ev: Tuple.Union[Ns] <:< (String & Singleton)
+  ): Table[Table.AddCompositeUq[Cols, ConstraintName, Ns], Name] = {
+    CompileChecks.requireAllNamesInCols[Cols, Ns]
+    val cname   = compiletime.constValue[ConstraintName]: String
+    val names   = constValueTuple[Ns].toList.asInstanceOf[List[String]]
+    val nameSet = names.toSet
+    val updated =
+      Table.mapCols(columns, (c: Column[Any, String & Singleton, Boolean, Tuple]) =>
+        if (nameSet.contains(c.name)) c.copy(isUnique = true, uniqueGroups = c.uniqueGroups + cname) else c
+      )
+    copy(columns = updated.asInstanceOf[Table.AddCompositeUq[Cols, ConstraintName, Ns]])
+      .asInstanceOf[Table[Table.AddCompositeUq[Cols, ConstraintName, Ns], Name]]
   }
 
   /**
@@ -82,11 +150,29 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
    * Mark a column as having a database-side default. Adds the [[ColumnAttr.Default]] marker to that column's `Attrs`
    * so INSERTs that omit the column become legal at the type level.
    */
-  inline def withDefault[N <: String & Singleton](inline n: N): Table[Table.AddAttr[Cols, N, ColumnAttr.Default], Name] = {
+  inline def withDefault[N <: String & Singleton](inline n: N)
+    : Table[Table.AddAttr[Cols, N, ColumnAttr.Default], Name] = {
     CompileChecks.requireColumn[Cols, N]
     val updated = Table.updateCol[Cols, N](columns, n, _.copy(hasDefault = true))
     copy(columns = updated.asInstanceOf[Table.AddAttr[Cols, N, ColumnAttr.Default]])
       .asInstanceOf[Table[Table.AddAttr[Cols, N, ColumnAttr.Default], Name]]
+  }
+
+  /**
+   * PK columns in declaration order. Derived from the per-column `isPrimary` flag. Used by [[skunk.sharp.validation]]
+   * to diff against `information_schema.table_constraints`.
+   */
+  def pkColumns: List[String] =
+    columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].filter(_.isPrimary).map(_.name: String)
+
+  /**
+   * UNIQUE constraints as (name → column-list) pairs. Derived by inverting per-column `uniqueGroups`: two columns that
+   * share a group name belong to the same UNIQUE constraint.
+   */
+  def uniqueIndexes: Map[String, List[String]] = {
+    val cols = columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
+    cols.flatMap(c => c.uniqueGroups.toList.map(g => g -> (c.name: String)))
+      .groupMap(_._1)(_._2)
   }
 
 }
@@ -130,6 +216,30 @@ object Table {
     case EmptyTuple                      => EmptyTuple
   }
 
+  /**
+   * Type-level: append `ColumnAttr.Pk[Ns]` to every column whose name is in `Ns`. All listed columns end up with the
+   * same `Pk[Ns]` marker, which is what [[HasCompositeUniqueness]] matches against.
+   */
+  type AddCompositePk[Cols <: Tuple, Ns <: Tuple] <: Tuple = Cols match {
+    case Column[t, n, nu, attrs] *: tail => Contains[n, Ns] match {
+        case true  => Column[t, n, nu, Tuple.Append[attrs, ColumnAttr.Pk[Ns]]] *: AddCompositePk[tail, Ns]
+        case false => Column[t, n, nu, attrs] *: AddCompositePk[tail, Ns]
+      }
+    case EmptyTuple => EmptyTuple
+  }
+
+  /**
+   * Type-level: append `ColumnAttr.Uq[Name, Ns]` to every column whose name is in `Ns`. Parallels [[AddCompositePk]]
+   * but for named `UNIQUE` constraints.
+   */
+  type AddCompositeUq[Cols <: Tuple, Name <: String & Singleton, Ns <: Tuple] <: Tuple = Cols match {
+    case Column[t, n, nu, attrs] *: tail => Contains[n, Ns] match {
+        case true  => Column[t, n, nu, Tuple.Append[attrs, ColumnAttr.Uq[Name, Ns]]] *: AddCompositeUq[tail, Name, Ns]
+        case false => Column[t, n, nu, attrs] *: AddCompositeUq[tail, Name, Ns]
+      }
+    case EmptyTuple => EmptyTuple
+  }
+
   /** Runtime helper: walk the columns tuple, apply `f` to the column whose singleton-name matches `n`. */
   private[sharp] def updateCol[Cols <: Tuple, N <: String & Singleton](
     cols: Cols,
@@ -140,6 +250,18 @@ object Table {
       case c: Column[?, ?, ?, ?] if c.name == n =>
         f(c.asInstanceOf[Column[Any, N, Boolean, Tuple]])
       case other => other
+    }
+    Tuple.fromArray(updated.toArray[Any])
+  }
+
+  /** Runtime helper: apply `f` to every column in the tuple. */
+  private[sharp] def mapCols(
+    cols: Tuple,
+    f: Column[Any, String & Singleton, Boolean, Tuple] => Column[Any, String & Singleton, Boolean, Tuple]
+  ): Tuple = {
+    val updated = cols.toList.map {
+      case c: Column[?, ?, ?, ?] => f(c.asInstanceOf[Column[Any, String & Singleton, Boolean, Tuple]])
+      case other                 => other
     }
     Tuple.fromArray(updated.toArray[Any])
   }

@@ -72,17 +72,29 @@ object Mismatch {
 
   }
 
-  /** Declared `.withUnique(column)` but no matching single-column `UNIQUE` constraint in the database. */
-  final case class UniqueConstraintMissing(relation: String, column: String) extends Mismatch {
-    def pretty = s"relation $relation: expected a unique constraint on $column but none found in the database"
+  /**
+   * Declared `.withUnique(column)` / `.withUniqueIndex(name, cols)` but no matching `UNIQUE` constraint in the
+   * database. `name` is the constraint name (matches the DB's `constraint_name`); `columns` is the full column set.
+   * Single-column unique constraints use the column name as `name`, matching Postgres's default naming convention.
+   */
+  final case class UniqueConstraintMissing(relation: String, name: String, columns: Set[String]) extends Mismatch {
+
+    def pretty =
+      s"relation $relation: expected unique constraint \"$name\" on ${columns.mkString("(", ", ", ")")} but none found " +
+        "in the database"
+
   }
 
   /**
-   * Database has a single-column unique constraint on a column that isn't declared `.withUnique`. Usually informational
-   * (an index-backed unique that the Scala description doesn't know about); report so callers see it.
+   * Database has a `UNIQUE` constraint that the Scala description doesn't declare (by name). Usually informational;
+   * report so callers can tighten their declaration. `name` is the DB's `constraint_name`, `columns` its column set.
    */
-  final case class ExtraUniqueConstraint(relation: String, column: String) extends Mismatch {
-    def pretty = s"relation $relation: DB has a unique constraint on $column that is not declared"
+  final case class ExtraUniqueConstraint(relation: String, name: String, columns: Set[String]) extends Mismatch {
+
+    def pretty =
+      s"relation $relation: DB has unique constraint \"$name\" on ${columns.mkString("(", ", ", ")")} that is not " +
+        "declared"
+
   }
 
 }
