@@ -11,8 +11,8 @@ object SelectRelationSuite {
 }
 
 /**
- * Round-trip `.asRelation(alias)` against a real database. A filtered `users.select` is promoted to a derived relation,
- * then selected from and joined — verifying the outer `.compile` walks the stored thunk, that parameters flow through
+ * Round-trip `.alias(alias)` against a real database. A filtered `users.select` is promoted to a derived relation, then
+ * selected from and joined — verifying the outer `.compile` walks the stored thunk, that parameters flow through
  * correctly, and that the join sees the inner relation's column types.
  */
 class SelectRelationSuite extends PgFixture {
@@ -36,7 +36,7 @@ class SelectRelationSuite extends PgFixture {
           // Narrow by email pattern too so this assertion doesn't trip on rows seeded by sibling tests.
           seniors = users.select
             .where(u => u.age >= 60 && u.email.like(s"%-$tag@x"))
-            .asRelation("seniors")
+            .alias("seniors")
           _ <- assertIO(
             seniors.select(s0 => s0.email).compile.run(s).map(_.toSet),
             Set(s"old-$tag@x")
@@ -64,7 +64,7 @@ class SelectRelationSuite extends PgFixture {
           ).compile.run(s)
           adults = users.select
             .where(u => u.age >= 18 && u.email.like(s"%-$tag@x"))
-            .asRelation("adults")
+            .alias("adults")
           _ <- assertIO(
             adults
               .innerJoin(posts)

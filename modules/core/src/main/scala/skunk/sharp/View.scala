@@ -22,6 +22,9 @@ final case class View[Cols <: Tuple, Name <: String & Singleton](
   columns: Cols
 ) extends Relation[Cols] {
 
+  /** A bare `View` is its own alias — parallel to `Table`. */
+  type Alias = Name
+  val currentAlias: Name        = name
   val expectedTableType: String = "VIEW"
 
   /** Place the view in a non-default schema. */

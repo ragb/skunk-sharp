@@ -25,6 +25,9 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
   columns: Cols
 ) extends Relation[Cols] {
 
+  /** A bare `Table` is its own alias — `users.innerJoin(posts)` flows through without any `.alias("u")` call. */
+  type Alias = Name
+  val currentAlias: Name        = name
   val expectedTableType: String = "BASE TABLE"
 
   /** Place the table in a non-default schema. */

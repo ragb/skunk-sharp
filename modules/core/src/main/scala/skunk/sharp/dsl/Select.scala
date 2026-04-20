@@ -105,23 +105,23 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
   /** Attach another source via INNER JOIN. Transitions to [[IncompleteJoin]] — call `.on(...)` to finalise. */
   def innerJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton](
     next: T
-  )(using a: AsAliased.Aux[T, RR, CR, AR]): IncompleteJoin[Ss, RR, CR, CR, AR] = {
-    val ar   = a(next)
-    val cols = ar.relation.columns.asInstanceOf[CR]
-    new IncompleteJoin[Ss, RR, CR, CR, AR](sources, ar.relation, ar.alias, cols, cols, JoinKind.Inner)
+  )(using a: AsRelation.Aux[T, RR, CR, AR]): IncompleteJoin[Ss, RR, CR, CR, AR] = {
+    val rel  = a(next)
+    val cols = rel.columns.asInstanceOf[CR]
+    new IncompleteJoin[Ss, RR, CR, CR, AR](sources, rel, a.aliasValue(next), cols, cols, JoinKind.Inner)
   }
 
   /** Attach another source via LEFT JOIN. Right-side cols become nullable for subsequent `.where` / `.select`. */
   def leftJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton](
     next: T
-  )(using a: AsAliased.Aux[T, RR, CR, AR]): IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR] = {
-    val ar           = a(next)
-    val origCols     = ar.relation.columns.asInstanceOf[CR]
+  )(using a: AsRelation.Aux[T, RR, CR, AR]): IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR] = {
+    val rel          = a(next)
+    val origCols     = rel.columns.asInstanceOf[CR]
     val effectiveCls = nullabilifyCols(origCols).asInstanceOf[NullableCols[CR]]
     new IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR](
       sources,
-      ar.relation,
-      ar.alias,
+      rel,
+      a.aliasValue(next),
       origCols,
       effectiveCls,
       JoinKind.Left
@@ -131,10 +131,10 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
   /** Attach another source via CROSS JOIN. No `.on(...)` required. */
   def crossJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton](
     next: T
-  )(using a: AsAliased.Aux[T, RR, CR, AR]): SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]] = {
-    val ar    = a(next)
-    val cols  = ar.relation.columns.asInstanceOf[CR]
-    val entry = new SourceEntry[RR, CR, CR, AR](ar.relation, ar.alias, cols, cols, JoinKind.Cross, None)
+  )(using a: AsRelation.Aux[T, RR, CR, AR]): SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]] = {
+    val rel   = a(next)
+    val cols  = rel.columns.asInstanceOf[CR]
+    val entry = new SourceEntry[RR, CR, CR, AR](rel, a.aliasValue(next), cols, cols, JoinKind.Cross, None)
     val next2 = (sources :* entry).asInstanceOf[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]]
     new SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]](
       next2,
@@ -414,12 +414,12 @@ private[dsl] def renderClauses(
 // ---- Entry points -----------------------------------------------------------------------------
 
 /**
- * `.select` on any relation-like value — bare `Table` / `View` (auto-aliased to its own name) or an already-aliased
- * `AliasedRelation`. Produces a single-source [[SelectBuilder]], from which `.where` / `.select(f)` / `.innerJoin` etc.
- * can be called.
+ * `.select` on any relation-like value — bare `Table` / `View` (auto-aliased to its own name) or any relation
+ * re-aliased via `.alias("…")`. Produces a single-source [[SelectBuilder]], from which `.where` / `.select(f)` /
+ * `.innerJoin` etc. can be called.
  */
 extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton](left: L)(using
-  aL: AsAliased.Aux[L, RL, CL, AL]
+  aL: AsRelation.Aux[L, RL, CL, AL]
 ) {
 
   def select: SelectBuilder[SourceEntry[RL, CL, CL, AL] *: EmptyTuple] = {
@@ -431,7 +431,7 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton](left: L
 
 /**
  * `empty.select(f)` — FROM-less SELECT, e.g. `empty.select(_ => Pg.now)` → `SELECT now()`. Lives separately from the
- * main `.select` extension because `empty` has no alias / Name, so it can't flow through the `AsAliased` machinery.
+ * main `.select` extension because `empty` has no alias / Name, so it can't flow through the `AsRelation` machinery.
  */
 extension (rel: skunk.sharp.empty.type) {
 
