@@ -37,8 +37,8 @@ object TypedColumn {
    * Build a `TypedColumn` from a [[Column]] descriptor. The column-name singleton type is preserved on the resulting
    * `TypedColumn` so downstream DSL features (notably `.onConflict`'s `HasUniqueness` evidence) can read it.
    */
-  def of[T, N <: String & Singleton, Null <: Boolean, D <: Boolean, P <: Boolean, U <: Boolean](
-    c: Column[T, N, Null, D, P, U]
+  def of[T, N <: String & Singleton, Null <: Boolean, Attrs <: Tuple](
+    c: Column[T, N, Null, Attrs]
   ): TypedColumn[T, Null, N] =
     new TypedColumn[T, Null, N](c.name, c.codec)
 
@@ -46,8 +46,8 @@ object TypedColumn {
    * Build a `TypedColumn` whose rendering is prefixed with a table/alias qualifier (`"u"."col"`). By default the
    * qualifier is double-quoted — safe for arbitrary user-provided aliases.
    */
-  def qualified[T, N <: String & Singleton, Null <: Boolean, D <: Boolean, P <: Boolean, U <: Boolean](
-    c: Column[T, N, Null, D, P, U],
+  def qualified[T, N <: String & Singleton, Null <: Boolean, Attrs <: Tuple](
+    c: Column[T, N, Null, Attrs],
     qualifier: String
   ): TypedColumn[T, Null, N] =
     new TypedColumn[T, Null, N](c.name, c.codec, Some(qualifier), quoteQualifier = true)
@@ -57,8 +57,8 @@ object TypedColumn {
    * `"excluded"."col"`). Needed for Postgres pseudo-tables like `excluded` — a quoted `"excluded"` would be treated as
    * a user identifier and fail to reference the incoming-row pseudo-table in `ON CONFLICT DO UPDATE`.
    */
-  def qualifiedRaw[T, N <: String & Singleton, Null <: Boolean, D <: Boolean, P <: Boolean, U <: Boolean](
-    c: Column[T, N, Null, D, P, U],
+  def qualifiedRaw[T, N <: String & Singleton, Null <: Boolean, Attrs <: Tuple](
+    c: Column[T, N, Null, Attrs],
     qualifier: String
   ): TypedColumn[T, Null, N] =
     new TypedColumn[T, Null, N](c.name, c.codec, Some(qualifier), quoteQualifier = false)

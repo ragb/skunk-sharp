@@ -112,7 +112,7 @@ object OnConflict {
 
 final class InsertCommand[Cols <: Tuple] private[sharp] (
   private[sharp] val table: Table[Cols, ?],
-  private[sharp] val projected: List[Column[?, ?, ?, ?, ?, ?]],
+  private[sharp] val projected: List[Column[?, ?, ?, ?]],
   private[sharp] val rows: List[List[Any]],
   private[sharp] val conflict: OnConflict
 ) {
@@ -156,8 +156,8 @@ final class InsertCommand[Cols <: Tuple] private[sharp] (
   /** Append `RETURNING <all columns>` — the whole row, same shape as the table's default named-tuple projection. */
   def returningAll: InsertReturning[Cols, NamedRowOf[Cols]] = {
     val exprs =
-      table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?, ?, ?]]].map(c =>
-        TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Boolean, Boolean, Boolean]])
+      table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
+        TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
       )
     val codec = rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
     new InsertReturning[Cols, NamedRowOf[Cols]](this, exprs, codec)
@@ -225,7 +225,7 @@ object InsertCommand {
     rows: List[List[Any]],
     conflict: OnConflict
   ): InsertCommand[Cols] = {
-    val allCols = table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?, ?, ?]]]
+    val allCols = table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
     val proj    = names.map(n =>
       allCols.find(_.name == n).getOrElse(
         sys.error(s"skunk-sharp: column $n passed compile check but not found at runtime in ${table.name}")

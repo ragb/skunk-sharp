@@ -15,19 +15,19 @@ class ColumnCodecOverrideSuite extends munit.FunSuite {
 
   test("Table.of picks default PgTypeFor codec (String → text, Int → int4, UUID → uuid)") {
     val users = Table.of[User]("users")
-    val cols  = users.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?, ?, ?]]]
+    val cols  = users.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
     assertEquals(cols.map(_.tpe), List(Type.uuid, Type.text, Type.int4))
   }
 
   test("withColumnCodec overrides codec — tpe is read from the new codec") {
     val users = Table.of[User]("users").withColumnCodec("email", varchar(256))
-    val cols  = users.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?, ?, ?]]]
+    val cols  = users.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
     assertEquals(cols.map(_.tpe), List(Type.uuid, Type.varchar(256), Type.int4))
   }
 
   test("withColumn is the primitive; sugar methods delegate to it") {
     val users = Table.of[User]("users").withColumn("email")(_.copy(isPrimary = true, isUnique = true))
-    val email = users.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?, ?, ?]]].find(_.name == "email").get
+    val email = users.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].find(_.name == "email").get
     assertEquals(email.isPrimary, true)
     assertEquals(email.isUnique, true)
   }
@@ -39,7 +39,7 @@ class ColumnCodecOverrideSuite extends munit.FunSuite {
       .column("email", varchar(320))
       .column("age", int8)
       .build
-    val cols = users.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?, ?, ?]]]
+    val cols = users.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
     assertEquals(cols.map(_.tpe), List(Type.uuid, Type.varchar(320), Type.int8))
   }
 

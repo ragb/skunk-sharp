@@ -8,7 +8,8 @@ import scala.deriving.Mirror
  * A writable Postgres relation (a `BASE TABLE`).
  *
  * `Cols` is a heterogeneous tuple of [[Column]]s describing the table's shape. It is the authoritative source of truth
- * for column names, types, nullability, and defaults; the DSL's match types consume it for compile-time query checking.
+ * for column names, types, nullability, and declared attributes; the DSL's match types consume it for compile-time
+ * query checking.
  *
  * `Name` is the singleton type of the table's name — carried so JOIN extensions can default the alias to the table's
  * name when the user didn't supply an explicit `.alias(...)`.
@@ -29,43 +30,38 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
 
   /**
    * Primitive: rewrite one column's metadata with `f`. The lambda receives the column at its runtime erasure
-   * (`Column[Any, N, Boolean, Boolean, Boolean, Boolean]`) and must return a column of the same shape — this is the
-   * compromise that keeps the method usable while `Cols` is still abstract in the method body. In practice:
-   *
-   *   - `c.copy(tpe = …, codec = …)` — fine **as long as** the new codec's Scala value type matches the column's
-   *     declared `T` (e.g. `Codec[String]` for a String column, not `Codec[Int]`). Use `.cast[U]` at query time for
-   *     genuine value-type changes.
+   * (`Column[Any, N, Boolean, Tuple]`) and must return a column of the same shape.
    *
    * Unknown names produce a friendly compile error. Use [[withPrimary]] / [[withUnique]] / [[withDefault]] for the
-   * common constraint modifiers — those also flip the corresponding phantom type parameters on `Cols`.
+   * common attribute modifiers — those also flip the corresponding `Attrs`-tuple markers on `Cols`.
    */
   inline def withColumn[N <: String & Singleton](inline n: N)(
-    f: Column[Any, N, Boolean, Boolean, Boolean, Boolean] => Column[Any, N, Boolean, Boolean, Boolean, Boolean]
+    f: Column[Any, N, Boolean, Tuple] => Column[Any, N, Boolean, Tuple]
   ): Table[Cols, Name] = {
     CompileChecks.requireColumn[Cols, N]
     copy(columns = Table.updateCol[Cols, N](columns, n, f).asInstanceOf[Cols])
   }
 
   /**
-   * Mark a column as primary key. Flips the `IsPrimary` phantom on that column so `.onConflict(c => c.<n>)` is
-   * accepted at compile time.
+   * Mark a column as primary key. Adds the [[ColumnAttr.Primary]] marker to that column's `Attrs` tuple, making
+   * `.onConflict(c => c.<n>)` accepted at compile time.
    */
-  inline def withPrimary[N <: String & Singleton](inline n: N): Table[Table.SetPrimary[Cols, N], Name] = {
+  inline def withPrimary[N <: String & Singleton](inline n: N): Table[Table.AddAttr[Cols, N, ColumnAttr.Primary], Name] = {
     CompileChecks.requireColumn[Cols, N]
     val updated = Table.updateCol[Cols, N](columns, n, _.copy(isPrimary = true))
-    copy(columns = updated.asInstanceOf[Table.SetPrimary[Cols, N]])
-      .asInstanceOf[Table[Table.SetPrimary[Cols, N], Name]]
+    copy(columns = updated.asInstanceOf[Table.AddAttr[Cols, N, ColumnAttr.Primary]])
+      .asInstanceOf[Table[Table.AddAttr[Cols, N, ColumnAttr.Primary], Name]]
   }
 
   /**
-   * Mark a column as unique. Flips the `IsUnique` phantom on that column so `.onConflict(c => c.<n>)` is accepted at
-   * compile time.
+   * Mark a column as unique. Adds the [[ColumnAttr.Unique]] marker to that column's `Attrs` tuple, making
+   * `.onConflict(c => c.<n>)` accepted at compile time.
    */
-  inline def withUnique[N <: String & Singleton](inline n: N): Table[Table.SetUnique[Cols, N], Name] = {
+  inline def withUnique[N <: String & Singleton](inline n: N): Table[Table.AddAttr[Cols, N, ColumnAttr.Unique], Name] = {
     CompileChecks.requireColumn[Cols, N]
     val updated = Table.updateCol[Cols, N](columns, n, _.copy(isUnique = true))
-    copy(columns = updated.asInstanceOf[Table.SetUnique[Cols, N]])
-      .asInstanceOf[Table[Table.SetUnique[Cols, N], Name]]
+    copy(columns = updated.asInstanceOf[Table.AddAttr[Cols, N, ColumnAttr.Unique]])
+      .asInstanceOf[Table[Table.AddAttr[Cols, N, ColumnAttr.Unique], Name]]
   }
 
   /**
@@ -83,14 +79,14 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
     )
 
   /**
-   * Mark a column as having a database-side default. Flips the `Default` phantom parameter on that column so INSERTs
-   * that omit the column become legal at the type level.
+   * Mark a column as having a database-side default. Adds the [[ColumnAttr.Default]] marker to that column's `Attrs`
+   * so INSERTs that omit the column become legal at the type level.
    */
-  inline def withDefault[N <: String & Singleton](inline n: N): Table[Table.SetDefault[Cols, N], Name] = {
+  inline def withDefault[N <: String & Singleton](inline n: N): Table[Table.AddAttr[Cols, N, ColumnAttr.Default], Name] = {
     CompileChecks.requireColumn[Cols, N]
     val updated = Table.updateCol[Cols, N](columns, n, _.copy(hasDefault = true))
-    copy(columns = updated.asInstanceOf[Table.SetDefault[Cols, N]])
-      .asInstanceOf[Table[Table.SetDefault[Cols, N], Name]]
+    copy(columns = updated.asInstanceOf[Table.AddAttr[Cols, N, ColumnAttr.Default]])
+      .asInstanceOf[Table[Table.AddAttr[Cols, N, ColumnAttr.Default], Name]]
   }
 
 }
@@ -127,36 +123,22 @@ object Table {
 
   }
 
-  /** Type-level: flip the `Default` phantom on the column named `N`. */
-  type SetDefault[Cols <: Tuple, N <: String & Singleton] <: Tuple = Cols match {
-    case Column[t, N, nu, d, p, u] *: tail => Column[t, N, nu, true, p, u] *: tail
-    case h *: tail                         => h *: SetDefault[tail, N]
-    case EmptyTuple                        => EmptyTuple
-  }
-
-  /** Type-level: flip the `IsPrimary` phantom on the column named `N`. */
-  type SetPrimary[Cols <: Tuple, N <: String & Singleton] <: Tuple = Cols match {
-    case Column[t, N, nu, d, p, u] *: tail => Column[t, N, nu, d, true, u] *: tail
-    case h *: tail                         => h *: SetPrimary[tail, N]
-    case EmptyTuple                        => EmptyTuple
-  }
-
-  /** Type-level: flip the `IsUnique` phantom on the column named `N`. */
-  type SetUnique[Cols <: Tuple, N <: String & Singleton] <: Tuple = Cols match {
-    case Column[t, N, nu, d, p, u] *: tail => Column[t, N, nu, d, p, true] *: tail
-    case h *: tail                         => h *: SetUnique[tail, N]
-    case EmptyTuple                        => EmptyTuple
+  /** Type-level: append an attribute marker `A` to the `Attrs` tuple of the column named `N`. */
+  type AddAttr[Cols <: Tuple, N <: String & Singleton, A] <: Tuple = Cols match {
+    case Column[t, N, nu, attrs] *: tail => Column[t, N, nu, Tuple.Append[attrs, A]] *: tail
+    case h *: tail                       => h *: AddAttr[tail, N, A]
+    case EmptyTuple                      => EmptyTuple
   }
 
   /** Runtime helper: walk the columns tuple, apply `f` to the column whose singleton-name matches `n`. */
   private[sharp] def updateCol[Cols <: Tuple, N <: String & Singleton](
     cols: Cols,
     n: N,
-    f: Column[Any, N, Boolean, Boolean, Boolean, Boolean] => Column[Any, N, Boolean, Boolean, Boolean, Boolean]
+    f: Column[Any, N, Boolean, Tuple] => Column[Any, N, Boolean, Tuple]
   ): Tuple = {
     val updated = cols.toList.map {
-      case c: Column[?, ?, ?, ?, ?, ?] if c.name == n =>
-        f(c.asInstanceOf[Column[Any, N, Boolean, Boolean, Boolean, Boolean]])
+      case c: Column[?, ?, ?, ?] if c.name == n =>
+        f(c.asInstanceOf[Column[Any, N, Boolean, Tuple]])
       case other => other
     }
     Tuple.fromArray(updated.toArray[Any])

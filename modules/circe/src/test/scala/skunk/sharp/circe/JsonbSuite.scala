@@ -15,7 +15,7 @@ class JsonbSuite extends munit.FunSuite {
   private val docs = Table.of[Document]("documents")
 
   test("Jsonb / Json tags resolve to jsonb / json codec types") {
-    val cols = docs.columns.toList.asInstanceOf[List[skunk.sharp.Column[?, ?, ?, ?, ?, ?]]]
+    val cols = docs.columns.toList.asInstanceOf[List[skunk.sharp.Column[?, ?, ?, ?]]]
     assertEquals(cols.map(_.tpe), List(skunk.data.Type.uuid, skunk.data.Type.jsonb, skunk.data.Type.json))
   }
 

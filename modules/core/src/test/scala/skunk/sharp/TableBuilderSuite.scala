@@ -23,7 +23,7 @@ class TableBuilderSuite extends munit.FunSuite {
     assertEquals(users.name, "users")
     assertEquals(users.schema, Option.empty[String])
 
-    val cols = users.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?, ?, ?]]]
+    val cols = users.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
     assertEquals(cols.size, 4)
     assertEquals(cols.map(_.name), List("id", "email", "created_at", "deleted_at"))
     assertEquals(

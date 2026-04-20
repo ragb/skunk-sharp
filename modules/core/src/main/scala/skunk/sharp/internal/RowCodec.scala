@@ -17,7 +17,7 @@ def rowCodec[Cols <: Tuple](cols: Cols): Codec[ValuesOf[Cols]] =
     case EmptyTuple =>
       RowCodec.empty.asInstanceOf[Codec[ValuesOf[Cols]]]
     case head *: tail =>
-      val col       = head.asInstanceOf[Column[?, ?, ?, ?, ?, ?]]
+      val col       = head.asInstanceOf[Column[?, ?, ?, ?]]
       val tailCodec = rowCodec(tail)
       RowCodec.cons(col.codec, tailCodec).asInstanceOf[Codec[ValuesOf[Cols]]]
   }

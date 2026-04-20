@@ -6,8 +6,8 @@ package skunk.sharp
  * chosen column's singleton-typed name from a user lambda.
  */
 type TypedColumnsOf[Cols <: Tuple] <: Tuple = Cols match {
-  case Column[t, n, nu, d, p, u] *: tail => TypedColumn[t, nu, n] *: TypedColumnsOf[tail]
-  case EmptyTuple                        => EmptyTuple
+  case Column[t, n, nu, attrs] *: tail => TypedColumn[t, nu, n] *: TypedColumnsOf[tail]
+  case EmptyTuple                      => EmptyTuple
 }
 
 /**
@@ -24,7 +24,7 @@ object ColumnsView {
     val typed: Array[Any] =
       cols
         .toList
-        .map(c => TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Boolean, Boolean, Boolean]]))
+        .map(c => TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]]))
         .toArray[Any]
     Tuple.fromArray(typed).asInstanceOf[ColumnsView[Cols]]
   }
@@ -39,7 +39,7 @@ object ColumnsView {
         .toList
         .map(c =>
           TypedColumn.qualified(
-            c.asInstanceOf[Column[Any, "x", Boolean, Boolean, Boolean, Boolean]],
+            c.asInstanceOf[Column[Any, "x", Boolean, Tuple]],
             qualifier
           )
         )
@@ -58,7 +58,7 @@ object ColumnsView {
         .toList
         .map(c =>
           TypedColumn.qualifiedRaw(
-            c.asInstanceOf[Column[Any, "x", Boolean, Boolean, Boolean, Boolean]],
+            c.asInstanceOf[Column[Any, "x", Boolean, Tuple]],
             qualifier
           )
         )

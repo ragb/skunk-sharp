@@ -8,16 +8,16 @@ import scala.compiletime.{constValue, erasedValue, summonInline}
 /**
  * Map a `Mirror.ProductOf[T]`'s label/type tuples to the type-level tuple of [[skunk.sharp.Column]]s.
  *
- * Option-wrapped fields become nullable columns; everything else is non-null. Nothing about defaults / primary /
- * unique is inferred from the case class — those are declared explicitly via `withDefault("name")` /
+ * Option-wrapped fields become nullable columns; everything else is non-null. The resulting columns carry an empty
+ * `Attrs` tuple — defaults / primary / unique are declared explicitly via `withDefault("name")` /
  * `withPrimary("name")` / `withUnique("name")` on the resulting table.
  */
 type ColumnsFromMirror[Labels <: Tuple, Types <: Tuple] <: Tuple = (Labels, Types) match {
   case (EmptyTuple, EmptyTuple)   => EmptyTuple
   case (l *: lt, Option[t] *: tt) =>
-    Column[Option[t], l & String & Singleton, true, false, false, false] *: ColumnsFromMirror[lt, tt]
+    Column[Option[t], l & String & Singleton, true, EmptyTuple] *: ColumnsFromMirror[lt, tt]
   case (l *: lt, t *: tt) =>
-    Column[t, l & String & Singleton, false, false, false, false] *: ColumnsFromMirror[lt, tt]
+    Column[t, l & String & Singleton, false, EmptyTuple] *: ColumnsFromMirror[lt, tt]
 }
 
 /**

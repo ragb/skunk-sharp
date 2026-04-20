@@ -196,7 +196,7 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
   def compile(using ev: IsSingleSource[Ss]): CompiledQuery[NamedRowOf[ev.Cols]] = {
     val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
     val head    = entries.head
-    val cols    = head.effectiveCols.toList.asInstanceOf[List[Column[?, ?, ?, ?, ?, ?]]]
+    val cols    = head.effectiveCols.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
     val projStr = cols.map(c => s""""${c.name}"""").mkString(", ")
     val keyword = if (distinct) "SELECT DISTINCT " else "SELECT "
     val header  =

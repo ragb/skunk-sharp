@@ -16,7 +16,7 @@ class TagsSuite extends munit.FunSuite {
 
   test("Table.of picks the tag-driven codec (Varchar[256] → varchar(256), Int2 → int2)") {
     val customers = Table.of[Customer]("customers")
-    val cols      = customers.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?, ?, ?]]]
+    val cols      = customers.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
     assertEquals(
       cols.map(_.tpe),
       List(Type.uuid, Type.varchar(256), Type.int2, Type.bpchar(8))
@@ -34,7 +34,7 @@ class TagsSuite extends munit.FunSuite {
       .withPrimary("id")
       .withUnique("email")
 
-    val cols = customers.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?, ?, ?]]]
+    val cols = customers.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
     assertEquals(
       cols.map(_.tpe),
       List(Type.uuid, Type.varchar(256), Type.int2, Type.bpchar(8))
@@ -52,7 +52,7 @@ class TagsSuite extends munit.FunSuite {
       .column[Varchar[256]]("email")
       .build
       .withPrimary("id")
-    val cols = customers.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?, ?, ?]]]
+    val cols = customers.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
     assertEquals(cols.map(_.tpe), List(Type.uuid, Type.varchar(256)))
   }
 
@@ -62,7 +62,7 @@ class TagsSuite extends munit.FunSuite {
       .column[UUID]("id")
       .columnOpt[Varchar[128]]("alias")
       .build
-    val cols  = customers.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?, ?, ?]]]
+    val cols  = customers.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
     val alias = cols.find(_.name == "alias").get
     assertEquals(alias.tpe, Type.varchar(128))
     assert(alias.isNullable)
@@ -75,7 +75,7 @@ class TagsSuite extends munit.FunSuite {
       .column[Varchar[256]]("email")
       .build
       .withPrimary("id")
-    val cols = customers.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?, ?, ?]]]
+    val cols = customers.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
     val id   = cols.find(_.name == "id").get
     assertEquals(id.tpe, Type.int8)
     assert(id.hasDefault)
@@ -86,7 +86,7 @@ class TagsSuite extends munit.FunSuite {
       .builder("billing")
       .column[Numeric[10, 2]]("amount")
       .build
-    val cols = billing.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?, ?, ?]]]
+    val cols = billing.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
     assertEquals(cols.map(_.tpe), List(Type.numeric(10, 2)))
   }
 

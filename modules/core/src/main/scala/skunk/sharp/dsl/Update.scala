@@ -109,8 +109,8 @@ final class UpdateReady[Cols <: Tuple] private[sharp] (
   /** Append `RETURNING <all columns>` — whole-row projection (same shape as the table's default SELECT). */
   def returningAll: MutationReturning[NamedRowOf[Cols]] = {
     val exprs =
-      table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?, ?, ?]]].map(c =>
-        TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Boolean, Boolean, Boolean]])
+      table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
+        TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
       )
     val codec = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
     new MutationReturning[NamedRowOf[Cols]](compileFragment, exprs, codec)
