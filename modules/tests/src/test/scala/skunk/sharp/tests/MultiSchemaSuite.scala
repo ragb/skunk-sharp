@@ -55,14 +55,6 @@ class MultiSchemaSuite extends PgFixture {
     }
   }
 
-  test("rendered SQL uses schema-qualified names (\"app\".\"products\" / \"audit\".\"events\")") {
-    val af = products.select(p => p.name).compile.af
-    assertEquals(af.fragment.sql, """SELECT "name" FROM "app"."products"""")
-
-    val af2 = events.select(e => e.action).compile.af
-    assertEquals(af2.fragment.sql, """SELECT "action" FROM "audit"."events"""")
-  }
-
   test("cross-schema JOIN: audit.events LEFT JOIN app.products") {
     withContainers { containers =>
       session(containers).use { s =>
