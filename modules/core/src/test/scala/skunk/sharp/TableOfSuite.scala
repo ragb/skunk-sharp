@@ -7,6 +7,22 @@ import java.util.UUID
 
 object TableOfSuite {
   case class User(id: UUID, email: String, createdAt: OffsetDateTime, deletedAt: Option[OffsetDateTime])
+
+  /**
+   * Unbounded opaque alias — the shape that refined 0.11.x uses for `Refined[T, P]`. No `<: T` upper bound visible
+   * outside this object, so match types can't prove disjointness from `Option[_]`. The typeclass-based
+   * [[skunk.sharp.internal.DeriveColumns]] tolerates this; locking in #54.
+   */
+  opaque type Opaque[+T] = T
+  object Opaque {
+    def apply[T](t: T): Opaque[T] = t
+
+    // Fallback PgTypeFor — mirrors refined's `refinedPgTypeFor` / iron's `refinedPgTypeFor` pattern.
+    given opaquePgTypeFor[T](using base: skunk.sharp.pg.PgTypeFor[T]): skunk.sharp.pg.PgTypeFor[Opaque[T]] =
+      skunk.sharp.pg.PgTypeFor.instance(base.codec.asInstanceOf[skunk.Codec[Opaque[T]]])
+  }
+
+  case class Person(id: Int, email: Opaque[String], age: Opaque[Int])
 }
 
 class TableOfSuite extends munit.FunSuite {
@@ -34,6 +50,17 @@ class TableOfSuite extends munit.FunSuite {
       cols.map(_.name).zip(cols.map(_.isUnique)),
       List("id" -> false, "email" -> true, "createdAt" -> false, "deletedAt" -> false)
     )
+  }
+
+  test("Table.of handles unbounded opaque aliases (regression for #54)") {
+    // Without typeclass dispatch, `Person.email: Opaque[String]` would stall ColumnsFromMirror's Option[_] check
+    // because an unbounded opaque isn't provably disjoint from `Option`. The typeclass-based DeriveColumns resolves
+    // cleanly via `NotGiven[T <:< Option[?]]`.
+    val people = Table.of[TableOfSuite.Person]("people")
+
+    val cols = people.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
+    assertEquals(cols.map(_.name), List("id", "email", "age"))
+    assertEquals(cols.map(_.isNullable), List(false, false, false))
   }
 
   test("withDefault flips runtime hasDefault flag and advances the Default phantom") {
