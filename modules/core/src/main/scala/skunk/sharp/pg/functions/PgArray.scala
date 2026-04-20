@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Rui Batista
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package skunk.sharp.pg.functions
 
 import skunk.codec.all as pg
@@ -7,8 +23,8 @@ import skunk.sharp.pg.{IsArray, PgTypeFor}
 
 /**
  * Built-in Postgres array functions — `array_length`, `cardinality`, `array_append`, `array_prepend`, `array_cat`,
- * `array_position`, `array_positions`, `array_remove`, `array_replace`, `array_to_string`, `string_to_array`,
- * `unnest`, plus the `array_agg` aggregate.
+ * `array_position`, `array_positions`, `array_remove`, `array_replace`, `array_to_string`, `string_to_array`, `unnest`,
+ * plus the `array_agg` aggregate.
  *
  * Operators (`@>`, `<@`, `&&`, `||`, `= ANY`) live as extension methods in [[skunk.sharp.pg.ArrayOps]].
  *
@@ -127,8 +143,8 @@ trait PgArray {
 
   /**
    * `unnest(a)` — set-returning function. Only meaningful in a FROM / LATERAL / SELECT-list context; renders the SQL
-   * but the DSL doesn't yet have a set-returning-source abstraction, so this is primarily here for use in raw
-   * fragments or subqueries.
+   * but the DSL doesn't yet have a set-returning-source abstraction, so this is primarily here for use in raw fragments
+   * or subqueries.
    */
   def unnest[A, E](a: TypedExpr[A])(using
     @annotation.unused ev: IsArray.Aux[A, E],

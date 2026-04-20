@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Rui Batista
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package skunk.sharp
 
 /**
@@ -126,8 +142,8 @@ type HasUniqueness[Cols <: Tuple, N <: String & Singleton] <: Boolean = Cols mat
 
 /** Scan a column's `Attrs` for a `Pk[Members]` or `Uq[_, Members]` marker whose `Members` is set-equal to `Ns`. */
 type HasGroupMatching[Attrs <: Tuple, Ns <: Tuple] <: Boolean = Attrs match {
-  case EmptyTuple                        => false
-  case ColumnAttr.Pk[members] *: tail    => TupleSetEq[members, Ns] match {
+  case EmptyTuple                     => false
+  case ColumnAttr.Pk[members] *: tail => TupleSetEq[members, Ns] match {
       case true  => true
       case false => HasGroupMatching[tail, Ns]
     }
@@ -135,7 +151,7 @@ type HasGroupMatching[Attrs <: Tuple, Ns <: Tuple] <: Boolean = Attrs match {
       case true  => true
       case false => HasGroupMatching[tail, Ns]
     }
-  case h *: tail                         => HasGroupMatching[tail, Ns]
+  case h *: tail => HasGroupMatching[tail, Ns]
 }
 
 /**
@@ -168,9 +184,9 @@ type GroupNames[G <: Tuple] <: Tuple = G match {
 
 /**
  * Marker typeclass: evidence that `E` is a bare [[TypedColumn]] reference with singleton name `N`. Powers
- * [[GroupCoverage]]'s typeclass-based dispatch — match-type dispatch can't distinguish `TypedColumn` from
- * `TypedExpr` since the former extends the latter (match types require *provable* disjointness, which subtype
- * relationships defeat).
+ * [[GroupCoverage]]'s typeclass-based dispatch — match-type dispatch can't distinguish `TypedColumn` from `TypedExpr`
+ * since the former extends the latter (match types require *provable* disjointness, which subtype relationships
+ * defeat).
  */
 sealed trait IsTypedCol[E] {
   type N <: String & Singleton
@@ -226,11 +242,11 @@ object AllCovered {
 }
 
 /**
- * Compile-time GROUP BY coverage gate. Summons iff either no GROUP BY is declared (vacuous) or every bare column in
- * the projection also appears in the GROUP BY. Aggregates, literals, function-call expressions, aliased expressions
- * pass unconditionally. GROUP BY expressions that are not bare columns (e.g.
- * `.groupBy(u => Pg.dateTrunc("day", u.created))`) don't contribute names; queries relying on that form aren't
- * helped by this check and should drop to hand SQL.
+ * Compile-time GROUP BY coverage gate. Summons iff either no GROUP BY is declared (vacuous) or every bare column in the
+ * projection also appears in the GROUP BY. Aggregates, literals, function-call expressions, aliased expressions pass
+ * unconditionally. GROUP BY expressions that are not bare columns (e.g.
+ * `.groupBy(u => Pg.dateTrunc("day", u.created))`) don't contribute names; queries relying on that form aren't helped
+ * by this check and should drop to hand SQL.
  */
 sealed trait GroupCoverage[Proj <: Tuple, G <: Tuple]
 

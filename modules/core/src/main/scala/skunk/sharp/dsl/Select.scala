@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Rui Batista
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package skunk.sharp.dsl
 
 import skunk.Codec
@@ -56,8 +72,8 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
 
   /**
    * `GROUP BY …` on a pre-projection builder — runtime-only. Coverage of the later projection isn't type-checked here
-   * because we don't know the projection yet; use the `.select(...).groupBy(...)` order (or the whole-row
-   * [[compile]]) to get the compile-time check via [[GroupCoverage]].
+   * because we don't know the projection yet; use the `.select(...).groupBy(...)` order (or the whole-row [[compile]])
+   * to get the compile-time check via [[GroupCoverage]].
    */
   def groupBy(f: SelectView[Ss] => TypedExpr[?] | Tuple): SelectBuilder[Ss] = {
     val fresh = f(view) match {
@@ -154,8 +170,8 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
   /**
    * Projection — pick the columns / expressions to return. Single `TypedExpr[T]` → row is `T`; tuple (named or
    * positional) → row is the tuple of expression output types. `X` is threaded as the projection phantom (`Proj`) on
-   * the resulting [[ProjectedSelect]] so downstream [[ProjectedSelect.groupBy]] / [[ProjectedSelect.compile]] can
-   * check GROUP BY coverage.
+   * the resulting [[ProjectedSelect]] so downstream [[ProjectedSelect.groupBy]] / [[ProjectedSelect.compile]] can check
+   * GROUP BY coverage.
    */
   transparent inline def select[X](inline f: SelectView[Ss] => X)
     : ProjectedSelect[Ss, NormProj[X], EmptyTuple, ProjResult[X]] = {
@@ -209,7 +225,7 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
     val keyword = if (distinct) "SELECT DISTINCT " else "SELECT "
     val header  =
       if (head.relation.hasFromClause)
-        TypedExpr.raw(s"$keyword$projStr FROM ${aliasedFromEntry(head)}")
+        TypedExpr.raw(s"$keyword$projStr FROM ") |+| aliasedFromEntry(head)
       else
         TypedExpr.raw(s"$keyword$projStr")
     val withClauses = renderClauses(header, whereOpt, groupBys, havingOpt, orderBys, limitOpt, offsetOpt, lockingOpt)
@@ -362,8 +378,8 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
 
   /**
    * Compile into an [[CompiledQuery]]. Enforces [[GroupCoverage]] — if GROUP BY is declared, every bare-column element
-   * in the projection must appear in the GROUP BY; aggregates, literals, aliased expressions are free. When no GROUP
-   * BY is declared, the check is vacuous.
+   * in the projection must appear in the GROUP BY; aggregates, literals, aliased expressions are free. When no GROUP BY
+   * is declared, the check is vacuous.
    */
   def compile(using @scala.annotation.unused ev: GroupCoverage[Proj, Groups]): CompiledQuery[Row] = {
     val entries  = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
@@ -374,9 +390,9 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
         TypedExpr.raw(keyword) |+| projList
       else {
         val head     = entries.head
-        val headFrag = TypedExpr.raw(keyword) |+| projList |+| TypedExpr.raw(s" FROM ${aliasedFromEntry(head)}")
+        val headFrag = TypedExpr.raw(keyword) |+| projList |+| TypedExpr.raw(" FROM ") |+| aliasedFromEntry(head)
         entries.tail.foldLeft(headFrag) { (acc, s) =>
-          val fromFrag = TypedExpr.raw(s" ${s.kind.sql} ${aliasedFromEntry(s)}")
+          val fromFrag = TypedExpr.raw(s" ${s.kind.sql} ") |+| aliasedFromEntry(s)
           s.onPredOpt.fold(acc |+| fromFrag)(p => acc |+| fromFrag |+| TypedExpr.raw(" ON ") |+| p.render)
         }
       }

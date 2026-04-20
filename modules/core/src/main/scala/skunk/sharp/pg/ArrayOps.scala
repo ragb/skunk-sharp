@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Rui Batista
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package skunk.sharp.pg
 
 import skunk.codec.all as pg
@@ -29,14 +45,14 @@ object IsArray {
  * `List[T]`-typed columns.
  *
  * Operator mapping:
- *   - `.contains(other)`    → `a @> other`
+ *   - `.contains(other)` → `a @> other`
  *   - `.containedBy(other)` → `a <@ other`
- *   - `.overlaps(other)`    → `a && other`
- *   - `.concat(other)`      → `a || other`
- *   - `elem.elemOf(a)`      → `elem = ANY(a)`
+ *   - `.overlaps(other)` → `a && other`
+ *   - `.concat(other)` → `a || other`
+ *   - `elem.elemOf(a)` → `elem = ANY(a)`
  *
- * Postgres doesn't have a native `col IN array` form — `= ANY(…)` is the idiomatic alternative, surfaced as
- * `.elemOf`. Use `.in(NonEmptyList.of(…))` for classical `IN (literal-list)` / `IN (subquery)` via `skunk.sharp.where`.
+ * Postgres doesn't have a native `col IN array` form — `= ANY(…)` is the idiomatic alternative, surfaced as `.elemOf`.
+ * Use `.in(NonEmptyList.of(…))` for classical `IN (literal-list)` / `IN (subquery)` via `skunk.sharp.where`.
  */
 object ArrayOps {
 

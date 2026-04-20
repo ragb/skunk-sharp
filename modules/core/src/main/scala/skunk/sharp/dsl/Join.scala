@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Rui Batista
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package skunk.sharp.dsl
 
 import skunk.Codec
@@ -137,6 +153,21 @@ object AsAliased {
         new AliasedRelation[View[CC, N], CC, N](v, v.name)
     }
 
+  /**
+   * A derived [[SelectRelation]] — the result of `users.select.where(…).asRelation("active")` — auto-aliases to the
+   * name supplied at construction. It already carries its own `fromFragment` (emitting `(<inner>) AS "<alias>"`), so
+   * the rest of the join machinery treats it the same as a Table or View.
+   */
+  given fromSelectRelation[CC <: Tuple, N <: String & Singleton]
+    : AsAliased.Aux[SelectRelation[CC, N], SelectRelation[CC, N], CC, N] =
+    new AsAliased[SelectRelation[CC, N]] {
+      type R     = SelectRelation[CC, N]
+      type Cols  = CC
+      type Alias = N
+      def apply(r: SelectRelation[CC, N]): AliasedRelation[SelectRelation[CC, N], CC, N] =
+        new AliasedRelation[SelectRelation[CC, N], CC, N](r, r.name)
+    }
+
 }
 
 // ---- SourceEntry + match types over Sources ----------------------------------------------------
@@ -270,13 +301,11 @@ final class IncompleteJoin[
  * Render `"schema"."name" AS "alias"`, eliding the `AS` clause when the alias equals the relation's unqualified name
  * (the auto-alias case) — `"public"."posts"` already implies `"posts"` as the default alias.
  */
-private[sharp] def aliasedFrom(ar: AliasedRelation[?, ?, ?]): String =
-  if (ar.alias == ar.relation.name) ar.relation.qualifiedName
-  else s"""${ar.relation.qualifiedName} AS "${ar.alias}""""
+private[sharp] def aliasedFrom(ar: AliasedRelation[?, ?, ?]): skunk.AppliedFragment =
+  ar.relation.fromFragment(ar.alias)
 
-private[sharp] def aliasedFromEntry(s: SourceEntry[?, ?, ?, ?]): String =
-  if (s.alias == s.relation.name) s.relation.qualifiedName
-  else s"""${s.relation.qualifiedName} AS "${s.alias}""""
+private[sharp] def aliasedFromEntry(s: SourceEntry[?, ?, ?, ?]): skunk.AppliedFragment =
+  s.relation.fromFragment(s.alias)
 
 // ---- Join entry points -------------------------------------------------------------------------
 

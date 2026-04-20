@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Rui Batista
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package skunk.sharp.pg
 
 import cats.{Alternative, Foldable}
@@ -6,18 +22,18 @@ import skunk.codec.all as pg
 import skunk.data.Arr
 
 /**
- * Postgres array support — [[PgTypeFor]] instances for `Arr[T]` over the primitive element types skunk ships codecs
- * for (`int2`, `int4`, `int8`, `numeric`, `float4`, `float8`, `text`) plus a generic instance for any cats
- * `Alternative[F]` — `List[T]`, `Vector[T]`, `Chain[T]`, `LazyList[T]` all work out of the box. Operators (`@>`,
- * `<@`, `&&`, `||`) and functions (`array_length`, `array_append`, `cardinality`, …) live in
- * [[skunk.sharp.pg.functions.PgArray]], mixed into [[skunk.sharp.Pg]].
+ * Postgres array support — [[PgTypeFor]] instances for `Arr[T]` over the primitive element types skunk ships codecs for
+ * (`int2`, `int4`, `int8`, `numeric`, `float4`, `float8`, `text`) plus a generic instance for any cats `Alternative[F]`
+ * — `List[T]`, `Vector[T]`, `Chain[T]`, `LazyList[T]` all work out of the box. Operators (`@>`, `<@`, `&&`, `||`) and
+ * functions (`array_length`, `array_append`, `cardinality`, …) live in [[skunk.sharp.pg.functions.PgArray]], mixed into
+ * [[skunk.sharp.Pg]].
  *
  * The canonical Scala representation of a Postgres array is skunk's [[skunk.data.Arr]] — one-to-one with the wire
  * format and supports multi-dimensional arrays. Users who prefer a Scala collection in their case classes (`List`,
  * `Vector`, …) get it transparently via the `collPgTypeFor` given.
  *
- * `NonEmptyList` / `NonEmptyVector` etc. intentionally aren't covered — they can't be constructed from an empty
- * array. Users needing non-empty guarantees should decode into `Arr[T]` / `List[T]` and validate at the boundary.
+ * `NonEmptyList` / `NonEmptyVector` etc. intentionally aren't covered — they can't be constructed from an empty array.
+ * Users needing non-empty guarantees should decode into `Arr[T]` / `List[T]` and validate at the boundary.
  */
 object arrays {
 
@@ -26,8 +42,10 @@ object arrays {
    * dimensional shape flattens to a single-dimensional `F[T]`.
    */
   extension [T](arr: Arr[T]) {
+
     def to[F[_]](using F: Alternative[F]): F[T] =
       arr.flattenTo(List).foldLeft(F.empty[T])((acc, x) => acc <+> F.pure(x))
+
   }
 
   /** Build a one-dimensional Postgres array from any cats-foldable collection. */
@@ -37,13 +55,13 @@ object arrays {
 
   // ---- Arr[T] codecs -----------------------------------------------------------------------------
 
-  given arrShortPgTypeFor:      PgTypeFor[Arr[Short]]      = PgTypeFor.instance(pg._int2)
-  given arrIntPgTypeFor:        PgTypeFor[Arr[Int]]        = PgTypeFor.instance(pg._int4)
-  given arrLongPgTypeFor:       PgTypeFor[Arr[Long]]       = PgTypeFor.instance(pg._int8)
+  given arrShortPgTypeFor: PgTypeFor[Arr[Short]]           = PgTypeFor.instance(pg._int2)
+  given arrIntPgTypeFor: PgTypeFor[Arr[Int]]               = PgTypeFor.instance(pg._int4)
+  given arrLongPgTypeFor: PgTypeFor[Arr[Long]]             = PgTypeFor.instance(pg._int8)
   given arrBigDecimalPgTypeFor: PgTypeFor[Arr[BigDecimal]] = PgTypeFor.instance(pg._numeric)
-  given arrFloatPgTypeFor:      PgTypeFor[Arr[Float]]      = PgTypeFor.instance(pg._float4)
-  given arrDoublePgTypeFor:     PgTypeFor[Arr[Double]]     = PgTypeFor.instance(pg._float8)
-  given arrStringPgTypeFor:     PgTypeFor[Arr[String]]     = PgTypeFor.instance(pg._text)
+  given arrFloatPgTypeFor: PgTypeFor[Arr[Float]]           = PgTypeFor.instance(pg._float4)
+  given arrDoublePgTypeFor: PgTypeFor[Arr[Double]]         = PgTypeFor.instance(pg._float8)
+  given arrStringPgTypeFor: PgTypeFor[Arr[String]]         = PgTypeFor.instance(pg._text)
 
   // ---- Generic collection codec ------------------------------------------------------------------
   //

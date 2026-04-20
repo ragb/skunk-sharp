@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Rui Batista
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package skunk.sharp
 
 import scala.compiletime.testing.*
@@ -275,7 +291,10 @@ class NegativeTestsSuite extends munit.FunSuite {
         .doNothing
         .compile
     """)
-    assert(errs.isEmpty, s"expected no errors for reversed composite PK target; got: ${errs.map(_.message).mkString("\n")}")
+    assert(
+      errs.isEmpty,
+      s"expected no errors for reversed composite PK target; got: ${errs.map(_.message).mkString("\n")}"
+    )
   }
 
   test(".onConflictComposite rejects a tuple that doesn't exactly match a declared composite group") {
@@ -321,7 +340,10 @@ class NegativeTestsSuite extends munit.FunSuite {
         .doNothing
         .compile
     """)
-    assert(errs.isEmpty, s"expected no errors for named composite unique target; got: ${errs.map(_.message).mkString("\n")}")
+    assert(
+      errs.isEmpty,
+      s"expected no errors for named composite unique target; got: ${errs.map(_.message).mkString("\n")}"
+    )
   }
 
   // ---- GROUP BY coverage (GroupCoverage) -----------------------------------------------------
@@ -366,7 +388,10 @@ class NegativeTestsSuite extends munit.FunSuite {
         .groupBy(u => (u.age, u.email))
         .compile
     """)
-    assert(errs.isEmpty, s"multi-col GROUP BY should cover multi-col projection; got: ${errs.map(_.message).mkString("\n")}")
+    assert(
+      errs.isEmpty,
+      s"multi-col GROUP BY should cover multi-col projection; got: ${errs.map(_.message).mkString("\n")}"
+    )
   }
 
   test("GROUP BY coverage — partial coverage (GROUP BY misses one projection column) rejects") {
@@ -392,7 +417,10 @@ class NegativeTestsSuite extends munit.FunSuite {
         .groupBy(u => u.age)
         .compile
     """)
-    assert(errs.isEmpty, s"aggregates should be free of coverage requirement; got: ${errs.map(_.message).mkString("\n")}")
+    assert(
+      errs.isEmpty,
+      s"aggregates should be free of coverage requirement; got: ${errs.map(_.message).mkString("\n")}"
+    )
   }
 
   test("GROUP BY coverage — aliased expressions are free of coverage") {
@@ -406,5 +434,28 @@ class NegativeTestsSuite extends munit.FunSuite {
         .compile
     """)
     assert(errs.isEmpty, s"aliased aggregates should compile; got: ${errs.map(_.message).mkString("\n")}")
+  }
+
+  // ---- Set-op row compatibility (AsSubquery on both sides of .union / .intersect / .except) --
+
+  test("UNION accepts two whole-row selects of the same relation") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      val users = Table.of[User]("users")
+      users.select.union(users.select).compile
+    """)
+    assert(errs.isEmpty, s"row-compatible UNION should compile; got: ${errs.map(_.message).mkString("\n")}")
+  }
+
+  test("UNION rejects arms with different projection shapes") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      val users = Table.of[User]("users")
+      // Left projects (email), right projects (email, age) — row-incompatible.
+      users.select(u => u.email).union(users.select(u => (u.email, u.age))).compile
+    """)
+    assert(errs.nonEmpty, "UNION with mismatched projection shapes should not compile")
   }
 }

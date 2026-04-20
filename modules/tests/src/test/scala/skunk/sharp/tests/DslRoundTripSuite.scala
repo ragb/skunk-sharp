@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Rui Batista
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package skunk.sharp.tests
 
 import skunk.sharp.dsl.*
@@ -24,8 +40,20 @@ class DslRoundTripSuite extends PgFixture {
         val now     = OffsetDateTime.now()
         for {
           _ <- users.insert.values(
-            (id = aliceId, email = "alice@example.com", age = 30, created_at = now, deleted_at = Option.empty[OffsetDateTime]),
-            (id = bobId, email = "bob@example.com", age = 45, created_at = now, deleted_at = Option.empty[OffsetDateTime])
+            (
+              id = aliceId,
+              email = "alice@example.com",
+              age = 30,
+              created_at = now,
+              deleted_at = Option.empty[OffsetDateTime]
+            ),
+            (
+              id = bobId,
+              email = "bob@example.com",
+              age = 45,
+              created_at = now,
+              deleted_at = Option.empty[OffsetDateTime]
+            )
           ).compile.run(s)
           _ <- assertIO(users.select.compile.run(s).map(_.size), 2)
           _ <- assertIO(users.select.where(u => u.age >= 18).compile.run(s).map(_.size), 2)

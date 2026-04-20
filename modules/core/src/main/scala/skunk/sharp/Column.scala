@@ -1,11 +1,27 @@
+/*
+ * Copyright 2026 Rui Batista
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package skunk.sharp
 
 import skunk.Codec
 import skunk.data.Type
 
 /**
- * Type-level attribute markers carried on [[Column]]'s `Attrs` phantom tuple. Each marker is an empty sealed trait
- * used only as a phantom — never instantiated. A column's `Attrs` tuple contains zero or more of these, in any order;
+ * Type-level attribute markers carried on [[Column]]'s `Attrs` phantom tuple. Each marker is an empty sealed trait used
+ * only as a phantom — never instantiated. A column's `Attrs` tuple contains zero or more of these, in any order;
  * [[Contains]] is the only operation that inspects them.
  *
  * Third-party modules can ship their own markers (e.g. `Generated`, `Identity`) by defining a trait and an
@@ -71,8 +87,8 @@ object ColumnAttrValue {
  *     compile-time evidence of insert defaulting and `.onConflict(...)` targeting.
  *
  * `attrs` is the runtime mirror of the `Attrs` phantom — one list of [[ColumnAttrValue]]s carrying the same facts.
- * Schema validation and other runtime code reads this list directly; there's no separate set of boolean fields to
- * keep in sync.
+ * Schema validation and other runtime code reads this list directly; there's no separate set of boolean fields to keep
+ * in sync.
  *
  * `tpe` is the skunk [[skunk.data.Type]] of the column — we store it rather than a custom enum so we inherit skunk's
  * full built-in type registry.
