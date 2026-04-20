@@ -40,16 +40,37 @@ class RefinedSuite extends munit.FunSuite {
   }
 
   test("refined bridge: String Refined MaxSize[N] picks varchar(n)") {
-    val parties = Table.of[Party]("parties")
-    val cols    = parties.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
-    val name    = cols.find(_.name == "name").get
+    val parties = Table
+      .builder("parties")
+      .column[Name]("name")
+      .build
+
+    val cols = parties.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
+    val name = cols.find(_.name == "name").get
     assertEquals(name.tpe, Type.varchar(64))
   }
 
   test("refined bridge: String Refined Size[Equal[N]] picks bpchar(n)") {
-    val parties = Table.of[Party]("parties")
-    val cols    = parties.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
-    val postal  = cols.find(_.name == "postalCode").get
+    val parties = Table
+      .builder("parties")
+      .column[Postal]("postalCode")
+      .build
+
+    val cols   = parties.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
+    val postal = cols.find(_.name == "postalCode").get
     assertEquals(postal.tpe, Type.bpchar(5))
+  }
+
+  test("refined columns participate in the DSL (ColumnsView selector access)") {
+    val people = Table
+      .builder("people")
+      .column[Int]("id")
+      .column[Email]("email")
+      .column[Age]("age")
+      .build
+
+    val cv = ColumnsView(people.columns)
+    val emailCol: TypedColumn[Email, false, "email"] = cv.email
+    assertEquals(emailCol.name, "email")
   }
 }
