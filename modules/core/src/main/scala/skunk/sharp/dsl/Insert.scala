@@ -185,12 +185,22 @@ final class InsertCommand[Cols <: Tuple] private[sharp] (
   }
 
   /**
-   * Start a targeted `ON CONFLICT (c1, c2, …) …` clause on a *composite* target. No `HasUniqueness` check happens here:
-   * composite unique constraints aren't declarable on the Scala side yet — see the `.withUniqueIndex(name, cols*)`
-   * roadmap item. Postgres still raises at execution time if the declared set doesn't match a composite unique /
-   * exclusion constraint.
+   * Start a targeted `ON CONFLICT (c1, c2, …) …` clause on a *composite* target — the target must exactly match a
+   * declared `.withCompositePrimary(...)` or `.withUniqueIndex(...)` column set (set-equality, order-independent).
+   * Powered by [[HasCompositeUniqueness]] evidence.
+   *
+   * {{{
+   *   val orders = Table.of[Order]("orders").withCompositePrimary(("tenant_id", "order_id"))
+   *
+   *   orders.insert(row).onConflictComposite(o => (o.tenant_id, o.order_id)).doNothing.compile  // ✓
+   *   orders.insert(row).onConflictComposite(o => (o.tenant_id, o.slug)).doNothing.compile       // compile error
+   * }}}
    */
-  def onConflictComposite(f: ColumnsView[Cols] => Tuple): OnConflictBuilder[Cols] = {
+  def onConflictComposite[T <: NonEmptyTuple](
+    f: ColumnsView[Cols] => T
+  )(using
+    ev: HasCompositeUniqueness[Cols, NamesOfTypedCols[T]] =:= true
+  ): OnConflictBuilder[Cols] = {
     val view  = ColumnsView(table.columns)
     val names = f(view).toList.asInstanceOf[List[TypedColumn[?, ?, ?]]].map(_.name)
     new OnConflictBuilder[Cols](this, names)

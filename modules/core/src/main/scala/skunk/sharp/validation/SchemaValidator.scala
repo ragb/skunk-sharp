@@ -5,7 +5,7 @@ import cats.syntax.all.*
 import skunk.*
 import skunk.codec.all.*
 import skunk.implicits.*
-import skunk.sharp.{Column, Relation}
+import skunk.sharp.{Column, Relation, Table}
 import skunk.sharp.pg.PgTypes
 
 /**
@@ -129,31 +129,34 @@ object SchemaValidator {
   }
 
   /**
-   * Compare declared `isPrimary` / `isUnique` flags against the database's `PRIMARY KEY` and single-column `UNIQUE`
-   * constraints.
+   * Compare declared primary-key and unique-constraint data against the database. Handles both single-column and
+   * composite constraints:
    *
-   * Scope: set-based comparison for composite PKs (ordering inside a composite PK isn't declarable today); only
-   * single-column `UNIQUE` constraints (composite uniques need a separate `.withUniqueIndex(name, cols*)` DSL, see the
-   * issues board).
+   *   - PK: set-based comparison of columns (ordering inside a composite PK isn't declarable today).
+   *   - UNIQUE: keyed by constraint name on both sides, so a declared `.withUnique("email")` (auto-name `"email"`) and
+   *     a `.withUniqueIndex("uq_tenant_slug", ("tenant_id", "slug"))` are diffed separately and independently.
    */
   private def diffConstraints(
     label: String,
     relation: Relation[?],
     rows: List[ConstraintRow]
   ): ValidationReport = {
-    val cols                          = relation.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
-    val declaredPkCols: Set[String]   = cols.filter(_.isPrimary).map(_.name: String).toSet
-    val declaredUniqCols: Set[String] = cols.filter(c => c.isUnique && !c.isPrimary).map(_.name: String).toSet
+    val cols                        = relation.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
+    val declaredPkCols: Set[String] = cols.filter(_.isPrimary).map(_.name: String).toSet
+
+    // Declared unique constraints, keyed by constraint name.
+    val declaredUniques: Map[String, Set[String]] = relation match {
+      case t: Table[?, ?] => t.uniqueIndexes.view.mapValues(_.toSet).toMap
+      case _              => Map.empty
+    }
 
     // Group DB constraint rows by constraint name, then bucket by kind.
     val byConstraint: Map[(String, String), Set[String]] =
       rows.groupMap(r => (r.kind, r.name))(_.column).view.mapValues(_.toSet).toMap
     val actualPkColsOpt: Option[Set[String]] =
       byConstraint.collectFirst { case ((kind, _), cs) if kind == "PRIMARY KEY" => cs }
-    val actualSingleCol_UniqueCols: Set[String] =
-      byConstraint.iterator.collect {
-        case ((kind, _), cs) if kind == "UNIQUE" && cs.sizeIs == 1 => cs.head
-      }.toSet
+    val actualUniques: Map[String, Set[String]] =
+      byConstraint.iterator.collect { case ((kind, name), cs) if kind == "UNIQUE" => name -> cs }.toMap
 
     val pkMismatches: List[Mismatch] = (declaredPkCols.isEmpty, actualPkColsOpt) match {
       case (true, None)                                      => Nil
@@ -164,12 +167,27 @@ object SchemaValidator {
       case _ => Nil
     }
 
-    val missingUnique = (declaredUniqCols -- actualSingleCol_UniqueCols).toList.sorted
-      .map(Mismatch.UniqueConstraintMissing(label, _))
-    val extraUnique = (actualSingleCol_UniqueCols -- declaredUniqCols -- declaredPkCols).toList.sorted
-      .map(Mismatch.ExtraUniqueConstraint(label, _))
+    // Match UNIQUE constraints by their column set, not by name — Postgres auto-generates names for inline
+    // `UNIQUE` columns (`<table>_<col>_key`) while the DSL defaults to the user-facing column name for the
+    // `.withUnique(col)` shorthand. Matching by column set (which is unambiguous, since Postgres forbids two unique
+    // constraints on the same set of columns) gracefully handles both. We still carry the declared or DB name through
+    // so `Mismatch` messages are identifiable.
+    val declaredByCols: Map[Set[String], String] =
+      declaredUniques.iterator.map { case (n, cs) => cs -> n }.toMap
+    val actualByCols: Map[Set[String], String] =
+      actualUniques.iterator.map { case (n, cs) => cs -> n }.toMap
 
-    ValidationReport(pkMismatches ++ missingUnique ++ extraUnique)
+    val uniqueMismatches: List[Mismatch] = {
+      val missing = (declaredByCols.keySet -- actualByCols.keySet).toList
+        .sortBy(_.toList.sorted.mkString(","))
+        .map(cs => Mismatch.UniqueConstraintMissing(label, declaredByCols(cs), cs))
+      val extra = (actualByCols.keySet -- declaredByCols.keySet).toList
+        .sortBy(_.toList.sorted.mkString(","))
+        .map(cs => Mismatch.ExtraUniqueConstraint(label, actualByCols(cs), cs))
+      missing ++ extra
+    }
+
+    ValidationReport(pkMismatches ++ uniqueMismatches)
   }
 
   private def diffColumns(label: String, relation: Relation[?], actual: List[ColumnInfo]): ValidationReport = {
