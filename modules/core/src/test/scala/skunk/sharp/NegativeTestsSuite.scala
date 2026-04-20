@@ -442,4 +442,56 @@ class NegativeTestsSuite extends munit.FunSuite {
     """)
     assert(errs.nonEmpty, "UNION with mismatched projection shapes should not compile")
   }
+
+  // ---- Join alias-distinctness (AliasNotUsed) ------------------------------------------------
+
+  test("self-join with two implicit aliases is a compile error — force .alias() on at least one side") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      val users = Table.of[User]("users")
+      users.innerJoin(users).on(r => r.users.id ==== r.users.id)
+    """)
+    assert(errs.nonEmpty, "self-join with matching implicit aliases should be rejected")
+    val msg = errs.map(_.message).mkString("\n")
+    assert(
+      msg.contains("already in use") || msg.contains("AliasNotUsed"),
+      s"error should mention the alias collision; got: $msg"
+    )
+  }
+
+  test("self-join with distinct explicit aliases compiles") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      val users = Table.of[User]("users")
+      users.alias("u1").innerJoin(users.alias("u2")).on(r => r.u1.id ==== r.u2.id)
+    """)
+    assert(errs.isEmpty, s"distinct-alias self-join should compile; got: ${errs.map(_.message).mkString("\n")}")
+  }
+
+  test("mixing one implicit alias with an explicit distinct alias compiles") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      val users = Table.of[User]("users")
+      users.innerJoin(users.alias("u2")).on(r => r.users.id ==== r.u2.id)
+    """)
+    assert(errs.isEmpty, s"implicit + distinct explicit should compile; got: ${errs.map(_.message).mkString("\n")}")
+  }
+
+  test("three-way join catches a collision against any earlier source, not just the previous one") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import java.util.UUID
+      import NegativeTestsSuite.User
+      case class Post(id: UUID, user_id: UUID, title: String)
+      val users = Table.of[User]("users")
+      val posts = Table.of[Post]("posts")
+      users
+        .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
+        .innerJoin(users).on(r => r.users.id ==== r.posts.user_id)   // third source collides with the first
+    """)
+    assert(errs.nonEmpty, "alias collision against an earlier source (not just the previous) should be rejected")
+  }
 }

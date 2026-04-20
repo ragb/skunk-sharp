@@ -102,19 +102,28 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
 
   // ---- Attach more sources (upgrade single-source → multi-source) -------------------------------
 
-  /** Attach another source via INNER JOIN. Transitions to [[IncompleteJoin]] — call `.on(...)` to finalise. */
-  def innerJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton](
+  /**
+   * Attach another source via INNER JOIN. Transitions to [[IncompleteJoin]] — call `.on(...)` to finalise. The new
+   * source's alias must not clash with any already-committed source alias (enforced by `AliasNotUsed`).
+   */
+  def innerJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](
     next: T
-  )(using a: AsRelation.Aux[T, RR, CR, AR]): IncompleteJoin[Ss, RR, CR, CR, AR] = {
+  )(using
+    a: AsRelation.Aux[T, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
+  ): IncompleteJoin[Ss, RR, CR, CR, AR] = {
     val rel  = a(next)
     val cols = rel.columns.asInstanceOf[CR]
     new IncompleteJoin[Ss, RR, CR, CR, AR](sources, rel, a.aliasValue(next), cols, cols, JoinKind.Inner)
   }
 
   /** Attach another source via LEFT JOIN. Right-side cols become nullable for subsequent `.where` / `.select`. */
-  def leftJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton](
+  def leftJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](
     next: T
-  )(using a: AsRelation.Aux[T, RR, CR, AR]): IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR] = {
+  )(using
+    a: AsRelation.Aux[T, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
+  ): IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR] = {
     val rel          = a(next)
     val origCols     = rel.columns.asInstanceOf[CR]
     val effectiveCls = nullabilifyCols(origCols).asInstanceOf[NullableCols[CR]]
@@ -129,9 +138,12 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
   }
 
   /** Attach another source via CROSS JOIN. No `.on(...)` required. */
-  def crossJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton](
+  def crossJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](
     next: T
-  )(using a: AsRelation.Aux[T, RR, CR, AR]): SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]] = {
+  )(using
+    a: AsRelation.Aux[T, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
+  ): SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]] = {
     val rel   = a(next)
     val cols  = rel.columns.asInstanceOf[CR]
     val entry = new SourceEntry[RR, CR, CR, AR](rel, a.aliasValue(next), cols, cols, JoinKind.Cross, None)
@@ -418,12 +430,12 @@ private[dsl] def renderClauses(
  * re-aliased via `.alias("…")`. Produces a single-source [[SelectBuilder]], from which `.where` / `.select(f)` /
  * `.innerJoin` etc. can be called.
  */
-extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton](left: L)(using
-  aL: AsRelation.Aux[L, RL, CL, AL]
+extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: AliasMode](left: L)(using
+  aL: AsRelation.Aux[L, RL, CL, AL, ML]
 ) {
 
   def select: SelectBuilder[SourceEntry[RL, CL, CL, AL] *: EmptyTuple] = {
-    val entry = makeBaseEntry[L, RL, CL, AL](aL, left)
+    val entry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     new SelectBuilder[SourceEntry[RL, CL, CL, AL] *: EmptyTuple](entry *: EmptyTuple)
   }
 

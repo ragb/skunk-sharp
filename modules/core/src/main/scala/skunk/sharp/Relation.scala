@@ -3,6 +3,19 @@ package skunk.sharp
 import skunk.AppliedFragment
 
 /**
+ * Marker for whether a relation's alias was defaulted from its own identity (`Implicit` — Table/View using their name)
+ * or supplied explicitly by the user (`Explicit` — via `.alias("x")`). Operations can require a specific mode in their
+ * evidence — today used only to drive error-message wording, but wired as type members so future rules (e.g. "this
+ * position needs an explicit alias") can plug in without a Relation-level refactor.
+ */
+sealed trait AliasMode
+
+object AliasMode {
+  sealed trait Implicit extends AliasMode
+  sealed trait Explicit extends AliasMode
+}
+
+/**
  * A Postgres relation — anything that can appear in a FROM / JOIN position.
  *
  * Four kinds in practice:
@@ -11,20 +24,28 @@ import skunk.AppliedFragment
  *   - A subquery promoted via `<selectBuilder>.alias("name")` — a derived relation.
  *   - (future) VALUES / set-returning functions — same shape, their own `fromFragmentWith` override.
  *
- * Every relation carries its own **alias** at the type level via the `Alias` type member, which drives two things:
+ * Every relation carries its own **alias** at the type level via the `Alias` type member, plus a [[AliasMode]] marker
+ * saying how the alias was obtained:
+ *   - [[AliasMode.Implicit]] — defaulted from the relation's own name (Tables / Views).
+ *   - [[AliasMode.Explicit]] — supplied via `.alias("x")` on a Relation or a SelectBuilder.
+ *
+ * Both modes satisfy the JOIN machinery's "must have an alias" requirement. Positions that don't need an alias
+ * (INSERT…SELECT, set-op operands, scalar subqueries via `.asExpr`) don't go through `AsRelation` at all — they take
+ * queries directly via `AsSubquery`, so a bare `SelectBuilder` works there without any `.alias` ceremony. FROM / JOIN
+ * position requires a `Relation` (and therefore an alias).
+ *
+ * The `Alias` singleton drives two things:
  *   - how the relation renders into FROM (`"users" AS "u"` for an explicit alias; bare `"users"` when the alias equals
  *     the relation's own name and no `AS` is needed);
  *   - the `NamedTuple` labels seen inside `JoinedView` for multi-source queries (`r.u.email`, `r.posts.title`).
- *
- * `Table` / `View` default `Alias = Name` so writing `users.innerJoin(posts)` is free of ceremony — the alias is the
- * relation's own name. `someBuilder.alias("u")` (on a `SelectBuilder`) produces a fresh relation whose `Alias` is the
- * supplied singleton and whose `fromFragmentWith` renders `(<inner SQL>) AS "<alias>"`. The `.alias` extension on a
- * plain `Relation` returns a re-aliased copy — same kind, different alias — backed by a tiny internal wrapper.
  */
 trait Relation[Cols <: Tuple] {
 
   /** Singleton alias type — carried so JOIN views can label named-tuple fields with the alias at compile time. */
   type Alias <: String & Singleton
+
+  /** Implicit (from name) vs Explicit (from `.alias("x")`) — see [[AliasMode]]. */
+  type Mode <: AliasMode
 
   /**
    * The alias value carried by this relation. Tables and views default it to their name; subqueries / re-aliased
@@ -89,6 +110,7 @@ trait Relation[Cols <: Tuple] {
  */
 case object empty extends Relation[EmptyTuple] {
   type Alias = ""
+  type Mode  = AliasMode.Implicit
   val currentAlias: ""                = ""
   val name: String                    = ""
   val schema: Option[String]          = None

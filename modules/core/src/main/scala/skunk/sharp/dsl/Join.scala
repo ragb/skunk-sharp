@@ -43,11 +43,12 @@ import scala.NamedTuple
  */
 extension [Cols <: Tuple](r: Relation[Cols]) {
 
-  def alias[A <: String & Singleton](a: A): Relation[Cols] { type Alias = A } = {
+  def alias[A <: String & Singleton](a: A): Relation[Cols] { type Alias = A; type Mode = AliasMode.Explicit } = {
     val underlying = r
     val newAlias   = a
     new Relation[Cols] {
       type Alias = A
+      type Mode  = AliasMode.Explicit
       val currentAlias: A                 = newAlias
       def name: String                    = underlying.name
       def columns: Cols                   = underlying.columns
@@ -86,13 +87,17 @@ extension [Cols <: Tuple](r: Relation[Cols]) {
  */
 extension [Ss <: Tuple](sb: SelectBuilder[Ss])(using ev: IsSingleSource[Ss]) {
 
-  def alias[A <: String & Singleton](a: A): Relation[ev.Cols] { type Alias = A } = {
+  def alias[A <: String & Singleton](a: A): Relation[ev.Cols] {
+    type Alias = A
+    type Mode  = AliasMode.Explicit
+  } = {
     val newAlias = a
     val cols = sb.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].head.effectiveCols.asInstanceOf[ev.Cols]
     // Inner compile runs only when `fromFragmentWith` is invoked (during outer-query rendering).
     val renderInner: () => AppliedFragment = () => sb.compile(using ev).af
     new Relation[ev.Cols] {
       type Alias = A
+      type Mode  = AliasMode.Explicit
       val currentAlias: A           = newAlias
       val name: String              = newAlias // derived relations have no separate identity — alias IS the name
       val schema: Option[String]    = None
@@ -157,37 +162,77 @@ sealed trait AsRelation[T] {
   type Rel <: Relation[Cols]
   type Cols <: Tuple
   type Alias <: String & Singleton
+  type Mode <: AliasMode
   def apply(t: T): Rel
 
   /**
-   * Retrieve the alias as an `Alias`-typed value. Exists because path-dependent access `rel.alias` from a caller scope
-   * where `Rel` is an abstract type parameter doesn't auto-reduce to `Alias` — Scala won't collapse the refinement
-   * `Rel { type Alias = Alias }` at use sites. The typeclass witnesses the equality once, here, and hands the value
-   * back at the refined type so call sites don't need `.asInstanceOf`.
+   * Retrieve the alias as an `Alias`-typed value. Exists because path-dependent access `rel.currentAlias` from a caller
+   * scope where `Rel` is an abstract type parameter doesn't auto-reduce to `Alias` — Scala won't collapse the
+   * refinement `Rel { type Alias = Alias }` at use sites. The typeclass witnesses the equality once, here, and hands
+   * the value back at the refined type so call sites don't need `.asInstanceOf`.
    */
   def aliasValue(t: T): Alias
 }
 
 object AsRelation {
 
-  type Aux[T, R0 <: Relation[C0], C0 <: Tuple, A <: String & Singleton] = AsRelation[T] {
+  type Aux[T, R0 <: Relation[C0], C0 <: Tuple, A <: String & Singleton, M <: AliasMode] = AsRelation[T] {
     type Rel   = R0
     type Cols  = C0
     type Alias = A
+    type Mode  = M
   }
 
   /**
-   * The only given — any `Relation[CC]` with a known `Alias = A` satisfies the contract. Table / View / the subquery
-   * relation produced by `sb.alias("x")` / the re-aliased wrapper all flow through this single instance.
+   * The only given — any `Relation[CC]` with a known `Alias = A` and `Mode = M` satisfies the contract. Table / View
+   * (Mode = Implicit), `.alias("x")`-wrapped relations (Mode = Explicit), and the subquery relation produced by
+   * `sb.alias("x")` (also Mode = Explicit) all flow through this single instance.
    */
-  given fromRelation[R <: Relation[CC] { type Alias = A }, CC <: Tuple, A <: String & Singleton]
-    : AsRelation.Aux[R, R, CC, A] = new AsRelation[R] {
+  given fromRelation[
+    R <: Relation[CC] { type Alias = A; type Mode = M },
+    CC <: Tuple,
+    A <: String & Singleton,
+    M <: AliasMode
+  ]: AsRelation.Aux[R, R, CC, A, M] = new AsRelation[R] {
     type Rel   = R
     type Cols  = CC
     type Alias = A
+    type Mode  = M
     def apply(r: R): R      = r
     def aliasValue(r: R): A = r.currentAlias
   }
+
+}
+
+// ---- AliasNotUsed: compile-time distinct-alias check for JOIN --------------------------------
+
+/**
+ * Evidence that the singleton alias `A` is **not** already among the already-committed source aliases in `Ss`. Summoned
+ * by every `innerJoin` / `leftJoin` / `crossJoin` so a self-join like `users.innerJoin(users)` — where both sides
+ * default to the implicit alias `"users"` — is rejected at compile time with a pointed error. Postgres would reject it
+ * at runtime anyway; this surfaces the problem at build time and points at the fix.
+ *
+ * The recursion walks `Ss` term-by-term, demanding `NotGiven[A =:= head]` at each step. Singleton alias types erase to
+ * distinct references, so `=:=` between two different singletons has no instance and `NotGiven` succeeds; two
+ * occurrences of the same singleton reduce to the identity `=:=` and `NotGiven` fails.
+ *
+ * To self-join legitimately, supply explicit aliases on at least one side:
+ * `users.alias("u1").innerJoin(users.alias("u2")).on(r => r.u1.id ==== r.u2.id)`.
+ */
+@scala.annotation.implicitNotFound(
+  "Relation alias `${A}` is already in use by another source in this query. Use `.alias(\"…\")` to give this source a distinct alias (e.g. for a self-join: `users.alias(\"u1\").innerJoin(users.alias(\"u2\"))`)."
+)
+sealed trait AliasNotUsed[A <: String & Singleton, Ss <: Tuple]
+
+object AliasNotUsed {
+
+  given atEmpty[A <: String & Singleton]: AliasNotUsed[A, EmptyTuple] =
+    new AliasNotUsed[A, EmptyTuple] {}
+
+  given atCons[A <: String & Singleton, H <: String & Singleton, T <: Tuple](using
+    scala.util.NotGiven[A =:= H],
+    AliasNotUsed[A, T]
+  ): AliasNotUsed[A, H *: T] = new AliasNotUsed[A, H *: T] {}
 
 }
 
@@ -337,15 +382,20 @@ private[sharp] def aliasedFromEntry(s: SourceEntry[?, ?, ?, ?]): skunk.AppliedFr
  * `.innerJoin` / `.leftJoin` / `.crossJoin` on any relation-like value — bare `Table` / `View` (auto-aliased to its own
  * name) or an already-aliased `Relation` from `.alias("…")` / `<sb>.alias("…")` / `<setOp>.alias("…")`.
  */
-extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton](left: L)(using
-  aL: AsRelation.Aux[L, RL, CL, AL]
+extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: AliasMode](left: L)(using
+  aL: AsRelation.Aux[L, RL, CL, AL, ML]
 ) {
 
-  /** `INNER JOIN` — right-side columns keep their declared types. */
-  def innerJoin[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton](right: R)(using
-    aR: AsRelation.Aux[R, RR, CR, AR]
+  /**
+   * `INNER JOIN` — right-side columns keep their declared types. Requires the right side's alias to be distinct from
+   * the left's; a self-join with two implicit aliases like `users.innerJoin(users)` is rejected at compile time — use
+   * `.alias("u1")` / `.alias("u2")` on either side to disambiguate.
+   */
+  def innerJoin[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](right: R)(using
+    aR: AsRelation.Aux[R, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
   ): IncompleteJoin[SourceEntry[RL, CL, CL, AL] *: EmptyTuple, RR, CR, CR, AR] = {
-    val baseEntry = makeBaseEntry[L, RL, CL, AL](aL, left)
+    val baseEntry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val rel       = aR(right)
     val rCols     = rel.columns.asInstanceOf[CR]
     new IncompleteJoin[SourceEntry[RL, CL, CL, AL] *: EmptyTuple, RR, CR, CR, AR](
@@ -359,10 +409,11 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton](left: L
   }
 
   /** `LEFT JOIN` — right-side column value types are wrapped in `Option`; `.opt` on the codecs at runtime. */
-  def leftJoin[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton](right: R)(using
-    aR: AsRelation.Aux[R, RR, CR, AR]
+  def leftJoin[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](right: R)(using
+    aR: AsRelation.Aux[R, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
   ): IncompleteJoin[SourceEntry[RL, CL, CL, AL] *: EmptyTuple, RR, CR, NullableCols[CR], AR] = {
-    val baseEntry    = makeBaseEntry[L, RL, CL, AL](aL, left)
+    val baseEntry    = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val rel          = aR(right)
     val origCols     = rel.columns.asInstanceOf[CR]
     val effectiveCls = nullabilifyCols(origCols).asInstanceOf[NullableCols[CR]]
@@ -377,10 +428,11 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton](left: L
   }
 
   /** `CROSS JOIN` — no predicate required; transitions straight to a two-source [[SelectBuilder]]. */
-  def crossJoin[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton](right: R)(using
-    aR: AsRelation.Aux[R, RR, CR, AR]
+  def crossJoin[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](right: R)(using
+    aR: AsRelation.Aux[R, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
   ): SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR])] = {
-    val baseEntry = makeBaseEntry[L, RL, CL, AL](aL, left)
+    val baseEntry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val rel       = aR(right)
     val rCols     = rel.columns.asInstanceOf[CR]
     val rEntry    =
@@ -390,8 +442,8 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton](left: L
 
 }
 
-private[sharp] def makeBaseEntry[L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton](
-  aL: AsRelation.Aux[L, RL, CL, AL],
+private[sharp] def makeBaseEntry[L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: AliasMode](
+  aL: AsRelation.Aux[L, RL, CL, AL, ML],
   left: L
 ): SourceEntry[RL, CL, CL, AL] = {
   val rel  = aL(left)

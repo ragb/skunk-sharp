@@ -27,6 +27,7 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
 
   /** A bare `Table` is its own alias — `users.innerJoin(posts)` flows through without any `.alias("u")` call. */
   type Alias = Name
+  type Mode  = AliasMode.Implicit
   val currentAlias: Name        = name
   val expectedTableType: String = "BASE TABLE"
 
