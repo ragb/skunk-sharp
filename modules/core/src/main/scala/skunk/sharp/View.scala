@@ -1,7 +1,7 @@
 package skunk.sharp
 
 import skunk.Codec
-import skunk.sharp.internal.{deriveColumns, ColumnsFromMirror}
+import skunk.sharp.internal.DeriveColumns
 import skunk.sharp.pg.PgTypes
 
 import scala.deriving.Mirror
@@ -59,15 +59,9 @@ object View {
   final class OfCont[T <: Product] {
 
     inline def apply[Name <: String & Singleton](viewName: Name)(using
-      m: Mirror.ProductOf[T]
-    ): View[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes], Name] = {
-      val cols = deriveColumns[m.MirroredElemLabels, m.MirroredElemTypes]
-      View[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes], Name](
-        viewName,
-        None,
-        cols.asInstanceOf[ColumnsFromMirror[m.MirroredElemLabels, m.MirroredElemTypes]]
-      )
-    }
+      m: Mirror.ProductOf[T],
+      dc: DeriveColumns[m.MirroredElemLabels, m.MirroredElemTypes]
+    ): View[dc.Out, Name] = View[dc.Out, Name](viewName, None, dc.value)
 
   }
 
