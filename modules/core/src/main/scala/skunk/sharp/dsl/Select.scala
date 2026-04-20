@@ -56,8 +56,8 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
 
   /**
    * `GROUP BY …` on a pre-projection builder — runtime-only. Coverage of the later projection isn't type-checked here
-   * because we don't know the projection yet; use the `.select(...).groupBy(...)` order (or the whole-row
-   * [[compile]]) to get the compile-time check via [[GroupCoverage]].
+   * because we don't know the projection yet; use the `.select(...).groupBy(...)` order (or the whole-row [[compile]])
+   * to get the compile-time check via [[GroupCoverage]].
    */
   def groupBy(f: SelectView[Ss] => TypedExpr[?] | Tuple): SelectBuilder[Ss] = {
     val fresh = f(view) match {
@@ -102,26 +102,35 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
 
   // ---- Attach more sources (upgrade single-source → multi-source) -------------------------------
 
-  /** Attach another source via INNER JOIN. Transitions to [[IncompleteJoin]] — call `.on(...)` to finalise. */
-  def innerJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton](
+  /**
+   * Attach another source via INNER JOIN. Transitions to [[IncompleteJoin]] — call `.on(...)` to finalise. The new
+   * source's alias must not clash with any already-committed source alias (enforced by `AliasNotUsed`).
+   */
+  def innerJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](
     next: T
-  )(using a: AsAliased.Aux[T, RR, CR, AR]): IncompleteJoin[Ss, RR, CR, CR, AR] = {
-    val ar   = a(next)
-    val cols = ar.relation.columns.asInstanceOf[CR]
-    new IncompleteJoin[Ss, RR, CR, CR, AR](sources, ar.relation, ar.alias, cols, cols, JoinKind.Inner)
+  )(using
+    a: AsRelation.Aux[T, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
+  ): IncompleteJoin[Ss, RR, CR, CR, AR] = {
+    val rel  = a(next)
+    val cols = rel.columns.asInstanceOf[CR]
+    new IncompleteJoin[Ss, RR, CR, CR, AR](sources, rel, a.aliasValue(next), cols, cols, JoinKind.Inner)
   }
 
   /** Attach another source via LEFT JOIN. Right-side cols become nullable for subsequent `.where` / `.select`. */
-  def leftJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton](
+  def leftJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](
     next: T
-  )(using a: AsAliased.Aux[T, RR, CR, AR]): IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR] = {
-    val ar           = a(next)
-    val origCols     = ar.relation.columns.asInstanceOf[CR]
+  )(using
+    a: AsRelation.Aux[T, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
+  ): IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR] = {
+    val rel          = a(next)
+    val origCols     = rel.columns.asInstanceOf[CR]
     val effectiveCls = nullabilifyCols(origCols).asInstanceOf[NullableCols[CR]]
     new IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR](
       sources,
-      ar.relation,
-      ar.alias,
+      rel,
+      a.aliasValue(next),
       origCols,
       effectiveCls,
       JoinKind.Left
@@ -129,12 +138,15 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
   }
 
   /** Attach another source via CROSS JOIN. No `.on(...)` required. */
-  def crossJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton](
+  def crossJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](
     next: T
-  )(using a: AsAliased.Aux[T, RR, CR, AR]): SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]] = {
-    val ar    = a(next)
-    val cols  = ar.relation.columns.asInstanceOf[CR]
-    val entry = new SourceEntry[RR, CR, CR, AR](ar.relation, ar.alias, cols, cols, JoinKind.Cross, None)
+  )(using
+    a: AsRelation.Aux[T, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
+  ): SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]] = {
+    val rel   = a(next)
+    val cols  = rel.columns.asInstanceOf[CR]
+    val entry = new SourceEntry[RR, CR, CR, AR](rel, a.aliasValue(next), cols, cols, JoinKind.Cross, None)
     val next2 = (sources :* entry).asInstanceOf[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]]
     new SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]](
       next2,
@@ -154,8 +166,8 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
   /**
    * Projection — pick the columns / expressions to return. Single `TypedExpr[T]` → row is `T`; tuple (named or
    * positional) → row is the tuple of expression output types. `X` is threaded as the projection phantom (`Proj`) on
-   * the resulting [[ProjectedSelect]] so downstream [[ProjectedSelect.groupBy]] / [[ProjectedSelect.compile]] can
-   * check GROUP BY coverage.
+   * the resulting [[ProjectedSelect]] so downstream [[ProjectedSelect.groupBy]] / [[ProjectedSelect.compile]] can check
+   * GROUP BY coverage.
    */
   transparent inline def select[X](inline f: SelectView[Ss] => X)
     : ProjectedSelect[Ss, NormProj[X], EmptyTuple, ProjResult[X]] = {
@@ -209,7 +221,7 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
     val keyword = if (distinct) "SELECT DISTINCT " else "SELECT "
     val header  =
       if (head.relation.hasFromClause)
-        TypedExpr.raw(s"$keyword$projStr FROM ${aliasedFromEntry(head)}")
+        TypedExpr.raw(s"$keyword$projStr FROM ") |+| aliasedFromEntry(head)
       else
         TypedExpr.raw(s"$keyword$projStr")
     val withClauses = renderClauses(header, whereOpt, groupBys, havingOpt, orderBys, limitOpt, offsetOpt, lockingOpt)
@@ -362,8 +374,8 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
 
   /**
    * Compile into an [[CompiledQuery]]. Enforces [[GroupCoverage]] — if GROUP BY is declared, every bare-column element
-   * in the projection must appear in the GROUP BY; aggregates, literals, aliased expressions are free. When no GROUP
-   * BY is declared, the check is vacuous.
+   * in the projection must appear in the GROUP BY; aggregates, literals, aliased expressions are free. When no GROUP BY
+   * is declared, the check is vacuous.
    */
   def compile(using @scala.annotation.unused ev: GroupCoverage[Proj, Groups]): CompiledQuery[Row] = {
     val entries  = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
@@ -374,9 +386,9 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
         TypedExpr.raw(keyword) |+| projList
       else {
         val head     = entries.head
-        val headFrag = TypedExpr.raw(keyword) |+| projList |+| TypedExpr.raw(s" FROM ${aliasedFromEntry(head)}")
+        val headFrag = TypedExpr.raw(keyword) |+| projList |+| TypedExpr.raw(" FROM ") |+| aliasedFromEntry(head)
         entries.tail.foldLeft(headFrag) { (acc, s) =>
-          val fromFrag = TypedExpr.raw(s" ${s.kind.sql} ${aliasedFromEntry(s)}")
+          val fromFrag = TypedExpr.raw(s" ${s.kind.sql} ") |+| aliasedFromEntry(s)
           s.onPredOpt.fold(acc |+| fromFrag)(p => acc |+| fromFrag |+| TypedExpr.raw(" ON ") |+| p.render)
         }
       }
@@ -414,16 +426,16 @@ private[dsl] def renderClauses(
 // ---- Entry points -----------------------------------------------------------------------------
 
 /**
- * `.select` on any relation-like value — bare `Table` / `View` (auto-aliased to its own name) or an already-aliased
- * `AliasedRelation`. Produces a single-source [[SelectBuilder]], from which `.where` / `.select(f)` / `.innerJoin` etc.
- * can be called.
+ * `.select` on any relation-like value — bare `Table` / `View` (auto-aliased to its own name) or any relation
+ * re-aliased via `.alias("…")`. Produces a single-source [[SelectBuilder]], from which `.where` / `.select(f)` /
+ * `.innerJoin` etc. can be called.
  */
-extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton](left: L)(using
-  aL: AsAliased.Aux[L, RL, CL, AL]
+extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: AliasMode](left: L)(using
+  aL: AsRelation.Aux[L, RL, CL, AL, ML]
 ) {
 
   def select: SelectBuilder[SourceEntry[RL, CL, CL, AL] *: EmptyTuple] = {
-    val entry = makeBaseEntry[L, RL, CL, AL](aL, left)
+    val entry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     new SelectBuilder[SourceEntry[RL, CL, CL, AL] *: EmptyTuple](entry *: EmptyTuple)
   }
 
@@ -431,7 +443,7 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton](left: L
 
 /**
  * `empty.select(f)` — FROM-less SELECT, e.g. `empty.select(_ => Pg.now)` → `SELECT now()`. Lives separately from the
- * main `.select` extension because `empty` has no alias / Name, so it can't flow through the `AsAliased` machinery.
+ * main `.select` extension because `empty` has no alias / Name, so it can't flow through the `AsRelation` machinery.
  */
 extension (rel: skunk.sharp.empty.type) {
 

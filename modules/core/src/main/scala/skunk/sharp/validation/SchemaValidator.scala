@@ -94,6 +94,9 @@ object SchemaValidator {
     }
 
   private def validateOne[F[_]: Concurrent](session: Session[F], relation: Relation[?]): F[ValidationReport] = {
+    // Derived relations (subquery-as-relation, VALUES, set-returning functions) aren't registered in
+    // `information_schema` — skip them. They carry an empty `expectedTableType` as the marker.
+    if (relation.expectedTableType.isEmpty) return ValidationReport.empty.pure[F]
     val schema = relation.schema.getOrElse("public")
     val label  = relation.qualifiedName
     for {

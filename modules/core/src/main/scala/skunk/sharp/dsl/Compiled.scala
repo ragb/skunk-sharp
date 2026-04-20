@@ -62,43 +62,71 @@ extension (c: CompiledCommand) {
 }
 
 /**
- * Subquery support — typeclass-based. A subquery is anything that can be turned into a [[CompiledQuery]]`[T]`:
+ * Subquery support — typeclass-based. A subquery is anything that can produce a [[Codec]]`[T]` plus a deferred SQL
+ * thunk:
  *
  *   - a fully `.compile`d query (identity instance),
  *   - a [[ProjectedSelect]]`[Ss, T]` with an explicit projection (compiled on demand),
- *   - a [[SelectBuilder]]`[Ss]` anchored at a single source whose whole-row is `T` (compiled on demand).
+ *   - a [[SelectBuilder]]`[Ss]` anchored at a single source whose whole-row is `T` (compiled on demand),
+ *   - a [[SetOpQuery]]`[T]` built from chained `UNION` / `INTERSECT` / `EXCEPT`.
  *
  * This way users don't have to call `.compile` on inner queries — they pass the builder directly to `.asExpr`,
  * `col.in(...)`, or `Pg.exists(...)` and the outer compilation handles the inner too.
+ *
+ * Codec extraction (`codec`) is expected to be cheap — no SQL rendered. Rendering (`render`) is a thunk so callers that
+ * don't need the fragment yet (like [[SetOpQuery]] chaining) can defer all SQL materialisation to the single outer
+ * `.compile` call.
  *
  * Correlated subqueries: build the inner query inside an outer `.select` / `.where` lambda; outer
  * [[skunk.sharp.TypedColumn]]s are in lexical scope, their `render` emits alias-qualified SQL (`"u"."id"`) that
  * correlates at SQL-evaluation time.
  */
 sealed trait AsSubquery[Q, T] {
-  def toCompiled(q: Q): CompiledQuery[T]
+  def codec(q: Q): Codec[T]
+  def render(q: Q): () => AppliedFragment
+  final def toCompiled(q: Q): CompiledQuery[T] = CompiledQuery(render(q)(), codec(q))
 }
 
 object AsSubquery {
 
   given identity[T]: AsSubquery[CompiledQuery[T], T] = new AsSubquery[CompiledQuery[T], T] {
-    def toCompiled(q: CompiledQuery[T]): CompiledQuery[T] = q
+    def codec(q: CompiledQuery[T]): Codec[T]               = q.codec
+    def render(q: CompiledQuery[T]): () => AppliedFragment = () => q.af
   }
 
   given fromProjected[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, T](using
     ev: skunk.sharp.GroupCoverage[Proj, Groups]
   ): AsSubquery[ProjectedSelect[Ss, Proj, Groups, T], T] =
     new AsSubquery[ProjectedSelect[Ss, Proj, Groups, T], T] {
-      def toCompiled(q: ProjectedSelect[Ss, Proj, Groups, T]): CompiledQuery[T] = q.compile(using ev)
+      def codec(q: ProjectedSelect[Ss, Proj, Groups, T]): Codec[T]               = q.codec
+      def render(q: ProjectedSelect[Ss, Proj, Groups, T]): () => AppliedFragment = () => q.compile(using ev).af
     }
 
-  /** Whole-row SelectBuilder → subquery of NamedRow. Relies on the same IsSingleSource evidence `.compile` uses. */
-  given fromSelectBuilder[Ss <: Tuple, C <: Tuple](using
-    ev: IsSingleSource.Aux[Ss, C]
-  ): AsSubquery[SelectBuilder[Ss], skunk.sharp.NamedRowOf[C]] =
-    new AsSubquery[SelectBuilder[Ss], skunk.sharp.NamedRowOf[C]] {
-      def toCompiled(b: SelectBuilder[Ss]): CompiledQuery[skunk.sharp.NamedRowOf[C]] = b.compile(using ev)
+  /**
+   * Whole-row SelectBuilder → subquery of NamedRow. Relies on the same `IsSingleSource` evidence `.compile` uses.
+   *
+   * The result-type `R` is split from the `NamedRowOf[C]` computation via a `=:=` constraint so the compiler can
+   * satisfy it even when `R` has already been reduced at the call site (e.g. when chaining `.union` → `.intersect` on a
+   * `SetOpQuery[R]` whose `R` the earlier step already normalised to the concrete named-tuple form). Matching the two
+   * shapes directly — `AsSubquery[SelectBuilder[Ss], NamedRowOf[C]]` — loses that round-trip: Scala won't always expand
+   * the match type inside `NamedRowOf` during implicit search.
+   */
+  given fromSelectBuilder[Ss <: Tuple, C <: Tuple, R](using
+    ev: IsSingleSource.Aux[Ss, C],
+    eq: R =:= skunk.sharp.NamedRowOf[C]
+  ): AsSubquery[SelectBuilder[Ss], R] =
+    new AsSubquery[SelectBuilder[Ss], R] {
+      def codec(b: SelectBuilder[Ss]): Codec[R] = {
+        val entries = b.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
+        skunk.sharp.internal.rowCodec(entries.head.effectiveCols).asInstanceOf[Codec[R]]
+      }
+      def render(b: SelectBuilder[Ss]): () => AppliedFragment = () => b.compile(using ev).af
     }
+
+  given fromSetOp[T]: AsSubquery[SetOpQuery[T], T] = new AsSubquery[SetOpQuery[T], T] {
+    def codec(q: SetOpQuery[T]): Codec[T]               = q.codec
+    def render(q: SetOpQuery[T]): () => AppliedFragment = q.renderFn
+  }
 
 }
 
@@ -108,12 +136,10 @@ object AsSubquery {
  */
 extension [Q](q: Q) {
 
-  def asExpr[T](using ev: AsSubquery[Q, T]): skunk.sharp.TypedExpr[T] = {
-    val cq = ev.toCompiled(q)
+  def asExpr[T](using ev: AsSubquery[Q, T]): skunk.sharp.TypedExpr[T] =
     skunk.sharp.TypedExpr(
-      skunk.sharp.TypedExpr.raw("(") |+| cq.af |+| skunk.sharp.TypedExpr.raw(")"),
-      cq.codec
+      skunk.sharp.TypedExpr.raw("(") |+| ev.render(q)() |+| skunk.sharp.TypedExpr.raw(")"),
+      ev.codec(q)
     )
-  }
 
 }

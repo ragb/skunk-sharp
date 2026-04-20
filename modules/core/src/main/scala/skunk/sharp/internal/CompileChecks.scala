@@ -75,8 +75,8 @@ object CompileChecks {
    */
   inline def requireCoversRequired[Cols <: Tuple, Ns <: Tuple]: Unit =
     inline erasedValue[Cols] match {
-      case _: EmptyTuple                           => ()
-      case _: (Column[t, n, nu, attrs] *: tail)    =>
+      case _: EmptyTuple                        => ()
+      case _: (Column[t, n, nu, attrs] *: tail) =>
         inline if constValue[skunk.sharp.Contains[skunk.sharp.ColumnAttr.Default, attrs]] then
           requireCoversRequired[tail, Ns]
         else

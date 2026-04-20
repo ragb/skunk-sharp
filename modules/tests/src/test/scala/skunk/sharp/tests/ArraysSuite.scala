@@ -25,9 +25,9 @@ class ArraysSuite extends PgFixture {
             (id = 103, tags = Arr("sql"), score = 30)
           ).compile.run(s)
           rows <- posts.select.where(p => p.id.in(NonEmptyList.of(101, 102, 103))).compile.run(s)
-          _ = assertEquals(rows.map(_.id).toSet, Set(101, 102, 103))
+          _      = assertEquals(rows.map(_.id).toSet, Set(101, 102, 103))
           tag101 = rows.find(_.id == 101).get.tags.flattenTo(List)
-          _ = assertEquals(tag101, List("scala", "pg"))
+          _      = assertEquals(tag101, List("scala", "pg"))
         } yield ()
       }
     }
@@ -118,7 +118,7 @@ class ArraysSuite extends PgFixture {
         for {
           _ <- posts.insert.values(
             (id = 601, tags = Arr("a", "b", "c"), score = 1),
-            (id = 602, tags = Arr("a", "b"),      score = 2)
+            (id = 602, tags = Arr("a", "b"), score = 2)
           ).compile.run(s)
           lens <- posts
             .select(p => (p.id, Pg.arrayLength(p.tags), Pg.cardinality(p.tags)))
@@ -156,7 +156,7 @@ class ArraysSuite extends PgFixture {
         case class VecPost(id: Int, tags: Vector[String], score: Int)
         val vecPosts = Table.of[VecPost]("array_posts").withPrimary("id")
         for {
-          _ <- vecPosts.insert((id = 701, tags = Vector("v1", "v2"), score = 7)).compile.run(s)
+          _   <- vecPosts.insert((id = 701, tags = Vector("v1", "v2"), score = 7)).compile.run(s)
           row <- vecPosts.select.where(p => p.id === 701).compile.unique(s)
           _ = assertEquals(row.tags, Vector("v1", "v2"))
         } yield ()

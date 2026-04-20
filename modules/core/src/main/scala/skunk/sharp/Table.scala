@@ -25,6 +25,10 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
   columns: Cols
 ) extends Relation[Cols] {
 
+  /** A bare `Table` is its own alias — `users.innerJoin(posts)` flows through without any `.alias("u")` call. */
+  type Alias = Name
+  type Mode  = AliasMode.Implicit
+  val currentAlias: Name        = name
   val expectedTableType: String = "BASE TABLE"
 
   /** Place the table in a non-default schema. */
@@ -45,8 +49,8 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
   }
 
   /**
-   * Mark a column as a single-column primary key. Appends a `ColumnAttr.Pk[(N)]` marker so
-   * `.onConflict(c => c.<N>)` is accepted at compile time via [[HasUniqueness]].
+   * Mark a column as a single-column primary key. Appends a `ColumnAttr.Pk[(N)]` marker so `.onConflict(c => c.<N>)` is
+   * accepted at compile time via [[HasUniqueness]].
    *
    * For composite primary keys — where the PK spans multiple columns — use [[withCompositePrimary]] instead.
    */
@@ -54,7 +58,9 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
     : Table[Table.AddAttr[Cols, N, ColumnAttr.Pk[N *: EmptyTuple]], Name] = {
     CompileChecks.requireColumn[Cols, N]
     val nameStr = compiletime.constValue[N]: String
-    val updated = Table.updateCol[Cols, N](columns, n,
+    val updated = Table.updateCol[Cols, N](
+      columns,
+      n,
       c => c.copy(attrs = c.attrs :+ ColumnAttrValue.Pk(List(nameStr)))
     )
     copy(columns = updated.asInstanceOf[Table.AddAttr[Cols, N, ColumnAttr.Pk[N *: EmptyTuple]]])
@@ -62,9 +68,9 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
   }
 
   /**
-   * Mark several columns as jointly making up a composite primary key. Each listed column receives
-   * `ColumnAttr.Pk[Ns]` (the full tuple of PK column names), so composite
-   * `.onConflictComposite(c => (c.a, c.b))` checks for exact set-equality against `Ns` via [[HasCompositeUniqueness]].
+   * Mark several columns as jointly making up a composite primary key. Each listed column receives `ColumnAttr.Pk[Ns]`
+   * (the full tuple of PK column names), so composite `.onConflictComposite(c => (c.a, c.b))` checks for exact
+   * set-equality against `Ns` via [[HasCompositeUniqueness]].
    *
    * Column names are passed as a **type argument** — a tuple type of string literals. Type arguments preserve literal
    * singletons (value-level tuple literals would widen to `(String, String)` and break the match-type machinery).
@@ -81,8 +87,10 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
     val nameSet = names.toSet
     val marker  = ColumnAttrValue.Pk(names)
     val updated =
-      Table.mapCols(columns, (c: Column[Any, String & Singleton, Boolean, Tuple]) =>
-        if (nameSet.contains(c.name)) c.copy(attrs = c.attrs :+ marker) else c
+      Table.mapCols(
+        columns,
+        (c: Column[Any, String & Singleton, Boolean, Tuple]) =>
+          if (nameSet.contains(c.name)) c.copy(attrs = c.attrs :+ marker) else c
       )
     copy(columns = updated.asInstanceOf[Table.AddCompositePk[Cols, Ns]])
       .asInstanceOf[Table[Table.AddCompositePk[Cols, Ns], Name]]
@@ -114,8 +122,8 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
    * its column set is set-equal to `Ns`.
    *
    * Both arguments are **type arguments** — string literals as type parameters preserve their singleton types; the
-   * corresponding value-level literals would widen. `ConstraintName` is the SQL constraint name (surfaced by the
-   * schema validator in `Mismatch` messages).
+   * corresponding value-level literals would widen. `ConstraintName` is the SQL constraint name (surfaced by the schema
+   * validator in `Mismatch` messages).
    *
    * {{{
    *   Table.of[Order]("orders").withUniqueIndex["uq_orders_tenant_slug", ("tenant_id", "slug")]
@@ -130,8 +138,10 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
     val nameSet = names.toSet
     val marker  = ColumnAttrValue.Uq(cname, names)
     val updated =
-      Table.mapCols(columns, (c: Column[Any, String & Singleton, Boolean, Tuple]) =>
-        if (nameSet.contains(c.name)) c.copy(attrs = c.attrs :+ marker) else c
+      Table.mapCols(
+        columns,
+        (c: Column[Any, String & Singleton, Boolean, Tuple]) =>
+          if (nameSet.contains(c.name)) c.copy(attrs = c.attrs :+ marker) else c
       )
     copy(columns = updated.asInstanceOf[Table.AddCompositeUq[Cols, ConstraintName, Ns]])
       .asInstanceOf[Table[Table.AddCompositeUq[Cols, ConstraintName, Ns], Name]]
@@ -152,13 +162,15 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
     )
 
   /**
-   * Mark a column as having a database-side default. Adds the [[ColumnAttr.Default]] marker to that column's `Attrs`
-   * so INSERTs that omit the column become legal at the type level.
+   * Mark a column as having a database-side default. Adds the [[ColumnAttr.Default]] marker to that column's `Attrs` so
+   * INSERTs that omit the column become legal at the type level.
    */
   inline def withDefault[N <: String & Singleton](inline n: N)
     : Table[Table.AddAttr[Cols, N, ColumnAttr.Default], Name] = {
     CompileChecks.requireColumn[Cols, N]
-    val updated = Table.updateCol[Cols, N](columns, n,
+    val updated = Table.updateCol[Cols, N](
+      columns,
+      n,
       c => c.copy(attrs = c.attrs :+ ColumnAttrValue.Default)
     )
     copy(columns = updated.asInstanceOf[Table.AddAttr[Cols, N, ColumnAttr.Default]])
@@ -167,8 +179,8 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
 
   /**
    * PK columns — the full member list, in the declaration order stored on the `Pk` marker. Used by
-   * [[skunk.sharp.validation]] to diff against `information_schema.table_constraints`. Returns `Nil` if no column
-   * has a `Pk` marker.
+   * [[skunk.sharp.validation]] to diff against `information_schema.table_constraints`. Returns `Nil` if no column has a
+   * `Pk` marker.
    */
   def pkColumns: List[String] = {
     val cols = columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]

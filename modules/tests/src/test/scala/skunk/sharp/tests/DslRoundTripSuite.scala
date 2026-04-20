@@ -24,8 +24,20 @@ class DslRoundTripSuite extends PgFixture {
         val now     = OffsetDateTime.now()
         for {
           _ <- users.insert.values(
-            (id = aliceId, email = "alice@example.com", age = 30, created_at = now, deleted_at = Option.empty[OffsetDateTime]),
-            (id = bobId, email = "bob@example.com", age = 45, created_at = now, deleted_at = Option.empty[OffsetDateTime])
+            (
+              id = aliceId,
+              email = "alice@example.com",
+              age = 30,
+              created_at = now,
+              deleted_at = Option.empty[OffsetDateTime]
+            ),
+            (
+              id = bobId,
+              email = "bob@example.com",
+              age = 45,
+              created_at = now,
+              deleted_at = Option.empty[OffsetDateTime]
+            )
           ).compile.run(s)
           _ <- assertIO(users.select.compile.run(s).map(_.size), 2)
           _ <- assertIO(users.select.where(u => u.age >= 18).compile.run(s).map(_.size), 2)

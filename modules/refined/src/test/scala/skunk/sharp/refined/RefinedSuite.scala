@@ -69,7 +69,7 @@ class RefinedSuite extends munit.FunSuite {
       .column[Age]("age")
       .build
 
-    val cv = ColumnsView(people.columns)
+    val cv                                           = ColumnsView(people.columns)
     val emailCol: TypedColumn[Email, false, "email"] = cv.email
     assertEquals(emailCol.name, "email")
   }

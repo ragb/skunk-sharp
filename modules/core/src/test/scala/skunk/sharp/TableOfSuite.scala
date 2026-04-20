@@ -14,12 +14,14 @@ object TableOfSuite {
    * [[skunk.sharp.internal.DeriveColumns]] tolerates this; locking in #54.
    */
   opaque type Opaque[+T] = T
+
   object Opaque {
     def apply[T](t: T): Opaque[T] = t
 
     // Fallback PgTypeFor — mirrors refined's `refinedPgTypeFor` / iron's `refinedPgTypeFor` pattern.
     given opaquePgTypeFor[T](using base: skunk.sharp.pg.PgTypeFor[T]): skunk.sharp.pg.PgTypeFor[Opaque[T]] =
       skunk.sharp.pg.PgTypeFor.instance(base.codec.asInstanceOf[skunk.Codec[Opaque[T]]])
+
   }
 
   case class Person(id: Int, email: Opaque[String], age: Opaque[Int])

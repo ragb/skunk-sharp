@@ -32,7 +32,9 @@ given varcharFromMaxSize[N <: Int](using pf: PgTypeFor[Varchar[N]]): PgTypeFor[S
   PgTypeFor.instance(pf.codec.asInstanceOf[Codec[String Refined MaxSize[N]]])
 
 /** `String Refined Size[Equal[N]]` ⇒ `bpchar(n)`. Mirrors Iron's `FixedLength[N]` bridge. */
-given bpcharFromSizeEqual[N <: Int](using pf: PgTypeFor[Bpchar[N]])
+given bpcharFromSizeEqual[N <: Int](using
+  pf: PgTypeFor[Bpchar[N]]
+)
   : PgTypeFor[String Refined Size[Equal[N]]] =
   PgTypeFor.instance(pf.codec.asInstanceOf[Codec[String Refined Size[Equal[N]]]])
 

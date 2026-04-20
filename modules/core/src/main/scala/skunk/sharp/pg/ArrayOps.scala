@@ -29,14 +29,14 @@ object IsArray {
  * `List[T]`-typed columns.
  *
  * Operator mapping:
- *   - `.contains(other)`    → `a @> other`
+ *   - `.contains(other)` → `a @> other`
  *   - `.containedBy(other)` → `a <@ other`
- *   - `.overlaps(other)`    → `a && other`
- *   - `.concat(other)`      → `a || other`
- *   - `elem.elemOf(a)`      → `elem = ANY(a)`
+ *   - `.overlaps(other)` → `a && other`
+ *   - `.concat(other)` → `a || other`
+ *   - `elem.elemOf(a)` → `elem = ANY(a)`
  *
- * Postgres doesn't have a native `col IN array` form — `= ANY(…)` is the idiomatic alternative, surfaced as
- * `.elemOf`. Use `.in(NonEmptyList.of(…))` for classical `IN (literal-list)` / `IN (subquery)` via `skunk.sharp.where`.
+ * Postgres doesn't have a native `col IN array` form — `= ANY(…)` is the idiomatic alternative, surfaced as `.elemOf`.
+ * Use `.in(NonEmptyList.of(…))` for classical `IN (literal-list)` / `IN (subquery)` via `skunk.sharp.where`.
  */
 object ArrayOps {
 

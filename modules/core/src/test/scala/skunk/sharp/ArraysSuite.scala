@@ -120,7 +120,7 @@ class ArraysSuite extends munit.FunSuite {
     val vector: Vector[String] = arr.to[Vector]
     val chain: Chain[String]   = arr.to[Chain]
 
-    assertEquals(list,   List("a", "b", "c"))
+    assertEquals(list, List("a", "b", "c"))
     assertEquals(vector, Vector("a", "b", "c"))
     assertEquals(chain.toList, List("a", "b", "c"))
 

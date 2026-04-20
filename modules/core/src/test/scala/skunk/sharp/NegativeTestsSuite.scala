@@ -275,7 +275,10 @@ class NegativeTestsSuite extends munit.FunSuite {
         .doNothing
         .compile
     """)
-    assert(errs.isEmpty, s"expected no errors for reversed composite PK target; got: ${errs.map(_.message).mkString("\n")}")
+    assert(
+      errs.isEmpty,
+      s"expected no errors for reversed composite PK target; got: ${errs.map(_.message).mkString("\n")}"
+    )
   }
 
   test(".onConflictComposite rejects a tuple that doesn't exactly match a declared composite group") {
@@ -321,7 +324,10 @@ class NegativeTestsSuite extends munit.FunSuite {
         .doNothing
         .compile
     """)
-    assert(errs.isEmpty, s"expected no errors for named composite unique target; got: ${errs.map(_.message).mkString("\n")}")
+    assert(
+      errs.isEmpty,
+      s"expected no errors for named composite unique target; got: ${errs.map(_.message).mkString("\n")}"
+    )
   }
 
   // ---- GROUP BY coverage (GroupCoverage) -----------------------------------------------------
@@ -366,7 +372,10 @@ class NegativeTestsSuite extends munit.FunSuite {
         .groupBy(u => (u.age, u.email))
         .compile
     """)
-    assert(errs.isEmpty, s"multi-col GROUP BY should cover multi-col projection; got: ${errs.map(_.message).mkString("\n")}")
+    assert(
+      errs.isEmpty,
+      s"multi-col GROUP BY should cover multi-col projection; got: ${errs.map(_.message).mkString("\n")}"
+    )
   }
 
   test("GROUP BY coverage — partial coverage (GROUP BY misses one projection column) rejects") {
@@ -392,7 +401,10 @@ class NegativeTestsSuite extends munit.FunSuite {
         .groupBy(u => u.age)
         .compile
     """)
-    assert(errs.isEmpty, s"aggregates should be free of coverage requirement; got: ${errs.map(_.message).mkString("\n")}")
+    assert(
+      errs.isEmpty,
+      s"aggregates should be free of coverage requirement; got: ${errs.map(_.message).mkString("\n")}"
+    )
   }
 
   test("GROUP BY coverage — aliased expressions are free of coverage") {
@@ -406,5 +418,80 @@ class NegativeTestsSuite extends munit.FunSuite {
         .compile
     """)
     assert(errs.isEmpty, s"aliased aggregates should compile; got: ${errs.map(_.message).mkString("\n")}")
+  }
+
+  // ---- Set-op row compatibility (AsSubquery on both sides of .union / .intersect / .except) --
+
+  test("UNION accepts two whole-row selects of the same relation") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      val users = Table.of[User]("users")
+      users.select.union(users.select).compile
+    """)
+    assert(errs.isEmpty, s"row-compatible UNION should compile; got: ${errs.map(_.message).mkString("\n")}")
+  }
+
+  test("UNION rejects arms with different projection shapes") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      val users = Table.of[User]("users")
+      // Left projects (email), right projects (email, age) — row-incompatible.
+      users.select(u => u.email).union(users.select(u => (u.email, u.age))).compile
+    """)
+    assert(errs.nonEmpty, "UNION with mismatched projection shapes should not compile")
+  }
+
+  // ---- Join alias-distinctness (AliasNotUsed) ------------------------------------------------
+
+  test("self-join with two implicit aliases is a compile error — force .alias() on at least one side") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      val users = Table.of[User]("users")
+      users.innerJoin(users).on(r => r.users.id ==== r.users.id)
+    """)
+    assert(errs.nonEmpty, "self-join with matching implicit aliases should be rejected")
+    val msg = errs.map(_.message).mkString("\n")
+    assert(
+      msg.contains("already in use") || msg.contains("AliasNotUsed"),
+      s"error should mention the alias collision; got: $msg"
+    )
+  }
+
+  test("self-join with distinct explicit aliases compiles") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      val users = Table.of[User]("users")
+      users.alias("u1").innerJoin(users.alias("u2")).on(r => r.u1.id ==== r.u2.id)
+    """)
+    assert(errs.isEmpty, s"distinct-alias self-join should compile; got: ${errs.map(_.message).mkString("\n")}")
+  }
+
+  test("mixing one implicit alias with an explicit distinct alias compiles") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      val users = Table.of[User]("users")
+      users.innerJoin(users.alias("u2")).on(r => r.users.id ==== r.u2.id)
+    """)
+    assert(errs.isEmpty, s"implicit + distinct explicit should compile; got: ${errs.map(_.message).mkString("\n")}")
+  }
+
+  test("three-way join catches a collision against any earlier source, not just the previous one") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import java.util.UUID
+      import NegativeTestsSuite.User
+      case class Post(id: UUID, user_id: UUID, title: String)
+      val users = Table.of[User]("users")
+      val posts = Table.of[Post]("posts")
+      users
+        .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
+        .innerJoin(users).on(r => r.users.id ==== r.posts.user_id)   // third source collides with the first
+    """)
+    assert(errs.nonEmpty, "alias collision against an earlier source (not just the previous) should be rejected")
   }
 }
