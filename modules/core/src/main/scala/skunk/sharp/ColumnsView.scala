@@ -11,6 +11,15 @@ type TypedColumnsOf[Cols <: Tuple] <: Tuple = Cols match {
 }
 
 /**
+ * Extract the column-name tuple from a tuple of `TypedColumn`s. Used by composite `.onConflict` to derive the set of
+ * target column names at the type level from what the user wrote in the lambda.
+ */
+type NamesOfTypedCols[T <: Tuple] <: Tuple = T match {
+  case EmptyTuple                    => EmptyTuple
+  case TypedColumn[t, nu, n] *: tail => n *: NamesOfTypedCols[tail]
+}
+
+/**
  * A named tuple carrying one [[TypedColumn]] per column, keyed by column name. This is the `cols` value that appears
  * inside WHERE/SELECT lambdas — `cols.email` resolves (via Scala 3.8 named-tuple Selectable support) to
  * `TypedColumn[String, false]` or whatever the declared types demand.

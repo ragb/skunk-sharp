@@ -42,7 +42,8 @@ inline def deriveColumns[Labels <: Tuple, Types <: Tuple]: Tuple =
             isNullable = true,
             hasDefault = false,
             isPrimary = false,
-            isUnique = false
+            isUnique = false,
+            uniqueGroups = Set.empty[String]
           ) *: deriveColumns[ls, ts]
         case _: (t *: ts) =>
           val pf   = summonInline[PgTypeFor[t]]
@@ -54,7 +55,8 @@ inline def deriveColumns[Labels <: Tuple, Types <: Tuple]: Tuple =
             isNullable = false,
             hasDefault = false,
             isPrimary = false,
-            isUnique = false
+            isUnique = false,
+            uniqueGroups = Set.empty[String]
           ) *: deriveColumns[ls, ts]
       }
   }
