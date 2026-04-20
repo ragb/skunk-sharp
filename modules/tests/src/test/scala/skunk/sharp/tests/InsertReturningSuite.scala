@@ -1,6 +1,5 @@
 package skunk.sharp.tests
 
-import cats.effect.IO
 import skunk.sharp.dsl.*
 
 import java.time.OffsetDateTime
@@ -20,17 +19,19 @@ class InsertReturningSuite extends PgFixture {
       session(containers).use { s =>
         val id = UUID.fromString("dddddddd-dddd-dddd-dddd-dddddddddddd")
         for {
-          returned <- users
-            .insert((
-              id = id,
-              email = "ret-single@example.com",
-              age = 27,
-              created_at = OffsetDateTime.now(),
-              deleted_at = None
-            ))
-            .returning(u => u.id)
-            .compile.unique(s)
-          _ = assertEquals(returned, id)
+          _ <- assertIO(
+            users
+              .insert((
+                id = id,
+                email = "ret-single@example.com",
+                age = 27,
+                created_at = OffsetDateTime.now(),
+                deleted_at = None
+              ))
+              .returning(u => u.id)
+              .compile.unique(s),
+            id
+          )
         } yield ()
       }
     }
@@ -41,17 +42,19 @@ class InsertReturningSuite extends PgFixture {
       session(containers).use { s =>
         val id = UUID.fromString("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
         for {
-          tup <- users
-            .insert((
-              id = id,
-              email = "ret-tuple@example.com",
-              age = 55,
-              created_at = OffsetDateTime.now(),
-              deleted_at = None
-            ))
-            .returningTuple(u => (u.id, u.age))
-            .compile.unique(s)
-          _ = assertEquals(tup, (id, 55))
+          _ <- assertIO(
+            users
+              .insert((
+                id = id,
+                email = "ret-tuple@example.com",
+                age = 55,
+                created_at = OffsetDateTime.now(),
+                deleted_at = None
+              ))
+              .returningTuple(u => (u.id, u.age))
+              .compile.unique(s),
+            (id, 55)
+          )
         } yield ()
       }
     }

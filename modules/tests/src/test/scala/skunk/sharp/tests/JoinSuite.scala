@@ -1,6 +1,5 @@
 package skunk.sharp.tests
 
-import cats.effect.IO
 import skunk.sharp.dsl.*
 
 import java.time.OffsetDateTime
@@ -28,15 +27,17 @@ class JoinSuite extends PgFixture {
           _ <- users
             .insert((id = uid, email = "join-u@x", age = 30, deleted_at = Option.empty[OffsetDateTime]))
             .compile.run(s)
-          _    <- posts.insert((id = pid, user_id = uid, title = "hello")).compile.run(s)
-          rows <- users
-            .innerJoin(posts)
-            .on(r => r.users.id ==== r.posts.user_id)
-            .select(r => (r.users.email, r.posts.title))
-            .where(r => r.posts.id === pid)
-            .compile
-            .run(s)
-          _ = assertEquals(rows, List(("join-u@x", "hello")))
+          _ <- posts.insert((id = pid, user_id = uid, title = "hello")).compile.run(s)
+          _ <- assertIO(
+            users
+              .innerJoin(posts)
+              .on(r => r.users.id ==== r.posts.user_id)
+              .select(r => (r.users.email, r.posts.title))
+              .where(r => r.posts.id === pid)
+              .compile
+              .run(s),
+            List(("join-u@x", "hello"))
+          )
         } yield ()
       }
     }
@@ -50,14 +51,16 @@ class JoinSuite extends PgFixture {
           _ <- users
             .insert((id = uid, email = "solo@x", age = 40, deleted_at = Option.empty[OffsetDateTime]))
             .compile.run(s)
-          rows <- users
-            .leftJoin(posts)
-            .on(r => r.users.id ==== r.posts.user_id)
-            .select(r => (r.users.email, r.posts.title))
-            .where(r => r.users.id === uid)
-            .compile
-            .run(s)
-          _ = assertEquals(rows, List(("solo@x", Option.empty[String])))
+          _ <- assertIO(
+            users
+              .leftJoin(posts)
+              .on(r => r.users.id ==== r.posts.user_id)
+              .select(r => (r.users.email, r.posts.title))
+              .where(r => r.users.id === uid)
+              .compile
+              .run(s),
+            List(("solo@x", Option.empty[String]))
+          )
         } yield ()
       }
     }
@@ -71,18 +74,20 @@ class JoinSuite extends PgFixture {
           _ <- users
             .insert((id = uid, email = "many@x", age = 28, deleted_at = Option.empty[OffsetDateTime]))
             .compile.run(s)
-          _    <- posts.insert((id = UUID.randomUUID, user_id = uid, title = "a")).compile.run(s)
-          _    <- posts.insert((id = UUID.randomUUID, user_id = uid, title = "b")).compile.run(s)
-          _    <- posts.insert((id = UUID.randomUUID, user_id = uid, title = "c")).compile.run(s)
-          rows <- users
-            .leftJoin(posts)
-            .on(r => r.users.id ==== r.posts.user_id)
-            .select(r => (r.users.email, Pg.count(r.posts.id).as("n")))
-            .where(r => r.users.id === uid)
-            .groupBy(r => r.users.email)
-            .compile
-            .run(s)
-          _ = assertEquals(rows, List(("many@x", 3L)))
+          _ <- posts.insert((id = UUID.randomUUID, user_id = uid, title = "a")).compile.run(s)
+          _ <- posts.insert((id = UUID.randomUUID, user_id = uid, title = "b")).compile.run(s)
+          _ <- posts.insert((id = UUID.randomUUID, user_id = uid, title = "c")).compile.run(s)
+          _ <- assertIO(
+            users
+              .leftJoin(posts)
+              .on(r => r.users.id ==== r.posts.user_id)
+              .select(r => (r.users.email, Pg.count(r.posts.id).as("n")))
+              .where(r => r.users.id === uid)
+              .groupBy(r => r.users.email)
+              .compile
+              .run(s),
+            List(("many@x", 3L))
+          )
         } yield ()
       }
     }
@@ -97,19 +102,18 @@ class JoinSuite extends PgFixture {
           _ <- users
             .insert((id = uid, email = "chain@x", age = 33, deleted_at = Option.empty[OffsetDateTime]))
             .compile.run(s)
-          _    <- posts.insert((id = pid, user_id = uid, title = "chain-post")).compile.run(s)
-          _    <- tags.insert((id = UUID.randomUUID, post_id = pid, name = "alpha")).compile.run(s)
-          _    <- tags.insert((id = UUID.randomUUID, post_id = pid, name = "beta")).compile.run(s)
-          rows <- users
-            .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
-            .leftJoin(tags).on(r => r.posts.id ==== r.tags.post_id)
-            .select(r => (r.users.email, r.posts.title, r.tags.name))
-            .where(r => r.users.id === uid)
-            .orderBy(r => r.tags.name.asc)
-            .compile
-            .run(s)
-          _ = assertEquals(
-            rows,
+          _ <- posts.insert((id = pid, user_id = uid, title = "chain-post")).compile.run(s)
+          _ <- tags.insert((id = UUID.randomUUID, post_id = pid, name = "alpha")).compile.run(s)
+          _ <- tags.insert((id = UUID.randomUUID, post_id = pid, name = "beta")).compile.run(s)
+          _ <- assertIO(
+            users
+              .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
+              .leftJoin(tags).on(r => r.posts.id ==== r.tags.post_id)
+              .select(r => (r.users.email, r.posts.title, r.tags.name))
+              .where(r => r.users.id === uid)
+              .orderBy(r => r.tags.name.asc)
+              .compile
+              .run(s),
             List(
               ("chain@x", "chain-post", Option("alpha")),
               ("chain@x", "chain-post", Option("beta"))
@@ -129,14 +133,16 @@ class JoinSuite extends PgFixture {
           _ <- users
             .insert((id = uid, email = "cross@x", age = 27, deleted_at = Option.empty[OffsetDateTime]))
             .compile.run(s)
-          _    <- posts.insert((id = pid, user_id = uid, title = "cross-post")).compile.run(s)
-          rows <- users
-            .crossJoin(posts)
-            .select(r => (r.users.email, r.posts.title))
-            .where(r => r.users.id ==== r.posts.user_id && r.users.id === uid)
-            .compile
-            .run(s)
-          _ = assertEquals(rows, List(("cross@x", "cross-post")))
+          _ <- posts.insert((id = pid, user_id = uid, title = "cross-post")).compile.run(s)
+          _ <- assertIO(
+            users
+              .crossJoin(posts)
+              .select(r => (r.users.email, r.posts.title))
+              .where(r => r.users.id ==== r.posts.user_id && r.users.id === uid)
+              .compile
+              .run(s),
+            List(("cross@x", "cross-post"))
+          )
         } yield ()
       }
     }
@@ -151,16 +157,18 @@ class JoinSuite extends PgFixture {
           _ <- users
             .insert((id = uid, email = "aliased@x", age = 22, deleted_at = Option.empty[OffsetDateTime]))
             .compile.run(s)
-          _    <- posts.insert((id = pid, user_id = uid, title = "aliased-hello")).compile.run(s)
-          rows <- users
-            .alias("u")
-            .innerJoin(posts.alias("p"))
-            .on(r => r.u.id ==== r.p.user_id)
-            .select(r => (r.u.email, r.p.title))
-            .where(r => r.p.id === pid)
-            .compile
-            .run(s)
-          _ = assertEquals(rows, List(("aliased@x", "aliased-hello")))
+          _ <- posts.insert((id = pid, user_id = uid, title = "aliased-hello")).compile.run(s)
+          _ <- assertIO(
+            users
+              .alias("u")
+              .innerJoin(posts.alias("p"))
+              .on(r => r.u.id ==== r.p.user_id)
+              .select(r => (r.u.email, r.p.title))
+              .where(r => r.p.id === pid)
+              .compile
+              .run(s),
+            List(("aliased@x", "aliased-hello"))
+          )
         } yield ()
       }
     }

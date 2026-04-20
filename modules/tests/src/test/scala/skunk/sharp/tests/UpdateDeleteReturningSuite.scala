@@ -27,12 +27,14 @@ class UpdateDeleteReturningSuite extends PgFixture {
             created_at = OffsetDateTime.now(),
             deleted_at = None
           )).compile.run(s)
-          returned <- users.update
-            .set(u => u.email := "new@example.com")
-            .where(u => u.id === id)
-            .returning(u => u.email)
-            .compile.unique(s)
-          _ = assertEquals(returned, "new@example.com")
+          _ <- assertIO(
+            users.update
+              .set(u => u.email := "new@example.com")
+              .where(u => u.id === id)
+              .returning(u => u.email)
+              .compile.unique(s),
+            "new@example.com"
+          )
         } yield ()
       }
     }
@@ -50,12 +52,14 @@ class UpdateDeleteReturningSuite extends PgFixture {
             created_at = OffsetDateTime.now(),
             deleted_at = None
           )).compile.run(s)
-          tup <- users.update
-            .set(u => u.age := 99)
-            .where(u => u.id === id)
-            .returningTuple(u => (u.id, u.age))
-            .compile.unique(s)
-          _ = assertEquals(tup, (id, 99))
+          _ <- assertIO(
+            users.update
+              .set(u => u.age := 99)
+              .where(u => u.id === id)
+              .returningTuple(u => (u.id, u.age))
+              .compile.unique(s),
+            (id, 99)
+          )
         } yield ()
       }
     }
@@ -73,8 +77,10 @@ class UpdateDeleteReturningSuite extends PgFixture {
             created_at = OffsetDateTime.now(),
             deleted_at = None
           )).compile.run(s)
-          returned <- users.delete.where(u => u.id === id).returning(u => u.email).compile.unique(s)
-          _ = assertEquals(returned, "gone@example.com")
+          _ <- assertIO(
+            users.delete.where(u => u.id === id).returning(u => u.email).compile.unique(s),
+            "gone@example.com"
+          )
         } yield ()
       }
     }

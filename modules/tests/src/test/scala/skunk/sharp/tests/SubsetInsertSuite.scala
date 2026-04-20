@@ -1,7 +1,6 @@
 package skunk.sharp.tests
 
 import cats.data.NonEmptyList
-import cats.effect.IO
 import skunk.sharp.dsl.*
 
 import java.time.OffsetDateTime
@@ -62,8 +61,7 @@ class SubsetInsertSuite extends PgFixture {
           (kind = "c", payload = "three")
         )
         for {
-          inserted <- events.insert.values(rows).returning(e => e.kind).compile.run(s)
-          _ = assertEquals(inserted, List("a", "b", "c"))
+          _ <- assertIO(events.insert.values(rows).returning(e => e.kind).compile.run(s), List("a", "b", "c"))
         } yield ()
       }
     }

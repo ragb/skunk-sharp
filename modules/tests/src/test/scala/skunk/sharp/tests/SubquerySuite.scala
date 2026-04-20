@@ -28,12 +28,14 @@ class SubquerySuite extends PgFixture {
           _ <- users
             .insert((id = uidB, email = "no-posts@x", age = 31, deleted_at = Option.empty[OffsetDateTime]))
             .compile.run(s)
-          _    <- posts.insert((id = UUID.randomUUID, user_id = uidA, title = "hello")).compile.run(s)
-          rows <- users
-            .select(u => u.email)
-            .where(u => u.id.in(posts.select(p => p.user_id)))
-            .compile.run(s)
-          _ = assertEquals(rows, List("has-posts@x"))
+          _ <- posts.insert((id = UUID.randomUUID, user_id = uidA, title = "hello")).compile.run(s)
+          _ <- assertIO(
+            users
+              .select(u => u.email)
+              .where(u => u.id.in(posts.select(p => p.user_id)))
+              .compile.run(s),
+            List("has-posts@x")
+          )
         } yield ()
       }
     }
@@ -54,12 +56,14 @@ class SubquerySuite extends PgFixture {
           _ <- posts.insert((id = UUID.randomUUID, user_id = uidWith, title = "ex")).compile.run(s)
           // Inner query built inside the outer lambda — references u.id (an outer column) by closure. The
           // outer alias makes u.id render as "u"."id" so Postgres correlates it to the outer source.
-          rows <- users
-            .alias("u")
-            .select(u => u.email)
-            .where(u => Pg.exists(posts.select(_ => lit(1)).where(p => p.user_id ==== u.id)))
-            .compile.run(s)
-          _ = assertEquals(rows.toSet, Set("has-posts@x", "exw@x"))
+          _ <- assertIO(
+            users
+              .alias("u")
+              .select(u => u.email)
+              .where(u => Pg.exists(posts.select(_ => lit(1)).where(p => p.user_id ==== u.id)))
+              .compile.run(s).map(_.toSet),
+            Set("has-posts@x", "exw@x")
+          )
         } yield ()
       }
     }
@@ -77,16 +81,18 @@ class SubquerySuite extends PgFixture {
           _ <- users
             .insert((id = uidWO, email = "nex-without@x", age = 51, deleted_at = Option.empty[OffsetDateTime]))
             .compile.run(s)
-          _    <- posts.insert((id = UUID.randomUUID, user_id = uidWith, title = "nex")).compile.run(s)
-          rows <- users
-            .alias("u")
-            .select(u => u.email)
-            .where(u =>
-              u.id.in(cats.data.NonEmptyList.of(uidWith, uidWO)) &&
-                Pg.notExists(posts.select(_ => lit(1)).where(p => p.user_id ==== u.id))
-            )
-            .compile.run(s)
-          _ = assertEquals(rows, List("nex-without@x"))
+          _ <- posts.insert((id = UUID.randomUUID, user_id = uidWith, title = "nex")).compile.run(s)
+          _ <- assertIO(
+            users
+              .alias("u")
+              .select(u => u.email)
+              .where(u =>
+                u.id.in(cats.data.NonEmptyList.of(uidWith, uidWO)) &&
+                  Pg.notExists(posts.select(_ => lit(1)).where(p => p.user_id ==== u.id))
+              )
+              .compile.run(s),
+            List("nex-without@x")
+          )
         } yield ()
       }
     }
@@ -100,19 +106,21 @@ class SubquerySuite extends PgFixture {
           _ <- users
             .insert((id = uid, email = "scalar@x", age = 22, deleted_at = Option.empty[OffsetDateTime]))
             .compile.run(s)
-          _    <- posts.insert((id = UUID.randomUUID, user_id = uid, title = "a")).compile.run(s)
-          _    <- posts.insert((id = UUID.randomUUID, user_id = uid, title = "b")).compile.run(s)
-          rows <- users
-            .alias("u")
-            .select(u =>
-              (
-                u.email,
-                posts.select(_ => Pg.countAll).where(p => p.user_id ==== u.id).asExpr
+          _ <- posts.insert((id = UUID.randomUUID, user_id = uid, title = "a")).compile.run(s)
+          _ <- posts.insert((id = UUID.randomUUID, user_id = uid, title = "b")).compile.run(s)
+          _ <- assertIO(
+            users
+              .alias("u")
+              .select(u =>
+                (
+                  u.email,
+                  posts.select(_ => Pg.countAll).where(p => p.user_id ==== u.id).asExpr
+                )
               )
-            )
-            .where(u => u.id === uid)
-            .compile.run(s)
-          _ = assertEquals(rows, List(("scalar@x", 2L)))
+              .where(u => u.id === uid)
+              .compile.run(s),
+            List(("scalar@x", 2L))
+          )
         } yield ()
       }
     }
