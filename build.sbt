@@ -21,11 +21,12 @@ val catsEffectV      = "3.7.0"
 val munitV           = "1.2.4"
 val munitCatsEffectV = "2.1.0"
 val ironV            = "3.0.2"
+val refinedV         = "0.11.3"
 val testcontainersV  = "0.44.1"
 val dumboV           = "0.9.0-SNAPSHOT"
 val otel4sV          = "0.16.0"
 
-lazy val root = tlCrossRootProject.aggregate(core, iron, circe, tests)
+lazy val root = tlCrossRootProject.aggregate(core, iron, refined, circe, tests)
 
 lazy val core = project
   .in(file("modules/core"))
@@ -51,6 +52,18 @@ lazy val iron = project
     )
   )
 
+lazy val refined = project
+  .in(file("modules/refined"))
+  .dependsOn(core)
+  .settings(
+    name := "skunk-sharp-refined",
+    libraryDependencies ++= Seq(
+      "eu.timepit"    %% "refined"           % refinedV,
+      "org.scalameta" %% "munit"             % munitV           % Test,
+      "org.typelevel" %% "munit-cats-effect" % munitCatsEffectV % Test
+    )
+  )
+
 lazy val circe = project
   .in(file("modules/circe"))
   .dependsOn(core)
@@ -66,7 +79,7 @@ lazy val circe = project
 
 lazy val tests = project
   .in(file("modules/tests"))
-  .dependsOn(core, iron, circe)
+  .dependsOn(core, iron, refined, circe)
   .enablePlugins(NoPublishPlugin)
   .settings(
     name := "skunk-sharp-tests",
