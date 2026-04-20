@@ -1,6 +1,6 @@
 package skunk.sharp.tests
 
-import cats.syntax.all.*
+import cats.data.NonEmptyList
 import skunk.sharp.dsl.*
 
 import java.time.OffsetDateTime
@@ -18,18 +18,13 @@ class GroupBySuite extends PgFixture {
   test("aggregate count(*) and count(col) return the row count") {
     withContainers { containers =>
       session(containers).use { s =>
-        val rows = List(
-          (email = "g1@x", age = 20, deleted_at = Option.empty[OffsetDateTime]),
-          (email = "g2@x", age = 25, deleted_at = Option.empty[OffsetDateTime]),
-          (email = "g3@x", age = 30, deleted_at = Option.empty[OffsetDateTime])
+        val rows = NonEmptyList.of(
+          (id = UUID.randomUUID, email = "g1@x", age = 20, deleted_at = Option.empty[OffsetDateTime]),
+          (id = UUID.randomUUID, email = "g2@x", age = 25, deleted_at = Option.empty[OffsetDateTime]),
+          (id = UUID.randomUUID, email = "g3@x", age = 30, deleted_at = Option.empty[OffsetDateTime])
         )
         for {
-          _ <- rows.traverse_(r =>
-            users
-              .insert((id = UUID.randomUUID, email = r.email, age = r.age, deleted_at = r.deleted_at))
-              .compile
-              .run(s)
-          )
+          _     <- users.insert.values(rows).compile.run(s)
           total <- users.select(_ => Pg.countAll).compile.unique(s)
           _ = assert(total >= 3L, s"expected at least 3 rows, got $total")
           _ <- assertIO(users.select(u => Pg.count(u.age)).compile.unique(s), total)
@@ -41,18 +36,13 @@ class GroupBySuite extends PgFixture {
   test("GROUP BY age with count + having") {
     withContainers { containers =>
       session(containers).use { s =>
-        val seed = List(
-          (email = "gb1@x", age = 21),
-          (email = "gb2@x", age = 21),
-          (email = "gb3@x", age = 22)
+        val seed = NonEmptyList.of(
+          (id = UUID.randomUUID, email = "gb1@x", age = 21, deleted_at = Option.empty[OffsetDateTime]),
+          (id = UUID.randomUUID, email = "gb2@x", age = 21, deleted_at = Option.empty[OffsetDateTime]),
+          (id = UUID.randomUUID, email = "gb3@x", age = 22, deleted_at = Option.empty[OffsetDateTime])
         )
         for {
-          _ <- seed.traverse_(r =>
-            users
-              .insert((id = UUID.randomUUID, email = r.email, age = r.age, deleted_at = None))
-              .compile
-              .run(s)
-          )
+          _    <- users.insert.values(seed).compile.run(s)
           rows <- users
             .select(u => (u.age, Pg.count(u.id)))
             .groupBy(u => u.age)
@@ -71,12 +61,10 @@ class GroupBySuite extends PgFixture {
     withContainers { containers =>
       session(containers).use { s =>
         for {
-          _ <- users
-            .insert((id = UUID.randomUUID, email = "m1@x", age = 10, deleted_at = None))
-            .compile.run(s)
-          _ <- users
-            .insert((id = UUID.randomUUID, email = "m2@x", age = 30, deleted_at = None))
-            .compile.run(s)
+          _ <- users.insert.values(
+            (id = UUID.randomUUID, email = "m1@x", age = 10, deleted_at = Option.empty[OffsetDateTime]),
+            (id = UUID.randomUUID, email = "m2@x", age = 30, deleted_at = Option.empty[OffsetDateTime])
+          ).compile.run(s)
           stats <- users
             .select(u => (Pg.sum(u.age), Pg.avg(u.age), Pg.min(u.age), Pg.max(u.age)))
             .compile
@@ -105,18 +93,13 @@ class GroupBySuite extends PgFixture {
   test("aliased column + aliased aggregate with GROUP BY: SELECT age AS a, count(id) AS n") {
     withContainers { containers =>
       session(containers).use { s =>
-        val seed = List(
-          (email = "al1@x", age = 41),
-          (email = "al2@x", age = 41),
-          (email = "al3@x", age = 42)
+        val seed = NonEmptyList.of(
+          (id = UUID.randomUUID, email = "al1@x", age = 41, deleted_at = Option.empty[OffsetDateTime]),
+          (id = UUID.randomUUID, email = "al2@x", age = 41, deleted_at = Option.empty[OffsetDateTime]),
+          (id = UUID.randomUUID, email = "al3@x", age = 42, deleted_at = Option.empty[OffsetDateTime])
         )
         for {
-          _ <- seed.traverse_(r =>
-            users
-              .insert((id = UUID.randomUUID, email = r.email, age = r.age, deleted_at = None))
-              .compile
-              .run(s)
-          )
+          _    <- users.insert.values(seed).compile.run(s)
           rows <- users
             .select(u => (u.age.as("a"), Pg.count(u.id).as("n")))
             .groupBy(u => u.age)
@@ -135,9 +118,11 @@ class GroupBySuite extends PgFixture {
     withContainers { containers =>
       session(containers).use { s =>
         for {
-          _ <- users.insert((id = UUID.randomUUID, email = "cd1@x", age = 99, deleted_at = None)).compile.run(s)
-          _ <- users.insert((id = UUID.randomUUID, email = "cd2@x", age = 99, deleted_at = None)).compile.run(s)
-          _ <- users.insert((id = UUID.randomUUID, email = "cd3@x", age = 100, deleted_at = None)).compile.run(s)
+          _ <- users.insert.values(
+            (id = UUID.randomUUID, email = "cd1@x", age = 99, deleted_at = Option.empty[OffsetDateTime]),
+            (id = UUID.randomUUID, email = "cd2@x", age = 99, deleted_at = Option.empty[OffsetDateTime]),
+            (id = UUID.randomUUID, email = "cd3@x", age = 100, deleted_at = Option.empty[OffsetDateTime])
+          ).compile.run(s)
           n <- users.select(u => Pg.countDistinct(u.age)).where(u => u.age >= 99).compile.unique(s)
           _ = assert(n >= 2L, s"distinct ages ≥ 99 should be ≥ 2, got $n")
         } yield ()
@@ -150,8 +135,10 @@ class GroupBySuite extends PgFixture {
       session(containers).use { s =>
         val bucket = 77
         for {
-          _ <- users.insert((id = UUID.randomUUID, email = "sa1@x", age = bucket, deleted_at = None)).compile.run(s)
-          _ <- users.insert((id = UUID.randomUUID, email = "sa2@x", age = bucket, deleted_at = None)).compile.run(s)
+          _ <- users.insert.values(
+            (id = UUID.randomUUID, email = "sa1@x", age = bucket, deleted_at = Option.empty[OffsetDateTime]),
+            (id = UUID.randomUUID, email = "sa2@x", age = bucket, deleted_at = Option.empty[OffsetDateTime])
+          ).compile.run(s)
           concat <- users.select(u => Pg.stringAgg(u.email, ", ")).where(u => u.age === bucket).compile.unique(s)
           _ = assert(concat.contains("sa1@x") && concat.contains("sa2@x"), s"got '$concat'")
           _ = assert(concat.contains(", "), s"separator missing: '$concat'")
@@ -165,8 +152,10 @@ class GroupBySuite extends PgFixture {
       session(containers).use { s =>
         val bucket = 55
         for {
-          _ <- users.insert((id = UUID.randomUUID, email = "ba1@x", age = bucket, deleted_at = None)).compile.run(s)
-          _ <- users.insert((id = UUID.randomUUID, email = "ba2@x", age = bucket, deleted_at = None)).compile.run(s)
+          _ <- users.insert.values(
+            (id = UUID.randomUUID, email = "ba1@x", age = bucket, deleted_at = Option.empty[OffsetDateTime]),
+            (id = UUID.randomUUID, email = "ba2@x", age = bucket, deleted_at = Option.empty[OffsetDateTime])
+          ).compile.run(s)
           // All rows in this bucket have age >= 10 — boolAnd should be true.
           _ <- assertIO(
             users

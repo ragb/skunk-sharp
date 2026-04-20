@@ -74,9 +74,11 @@ class JoinSuite extends PgFixture {
           _ <- users
             .insert((id = uid, email = "many@x", age = 28, deleted_at = Option.empty[OffsetDateTime]))
             .compile.run(s)
-          _ <- posts.insert((id = UUID.randomUUID, user_id = uid, title = "a")).compile.run(s)
-          _ <- posts.insert((id = UUID.randomUUID, user_id = uid, title = "b")).compile.run(s)
-          _ <- posts.insert((id = UUID.randomUUID, user_id = uid, title = "c")).compile.run(s)
+          _ <- posts.insert.values(
+            (id = UUID.randomUUID, user_id = uid, title = "a"),
+            (id = UUID.randomUUID, user_id = uid, title = "b"),
+            (id = UUID.randomUUID, user_id = uid, title = "c")
+          ).compile.run(s)
           _ <- assertIO(
             users
               .leftJoin(posts)
@@ -103,8 +105,10 @@ class JoinSuite extends PgFixture {
             .insert((id = uid, email = "chain@x", age = 33, deleted_at = Option.empty[OffsetDateTime]))
             .compile.run(s)
           _ <- posts.insert((id = pid, user_id = uid, title = "chain-post")).compile.run(s)
-          _ <- tags.insert((id = UUID.randomUUID, post_id = pid, name = "alpha")).compile.run(s)
-          _ <- tags.insert((id = UUID.randomUUID, post_id = pid, name = "beta")).compile.run(s)
+          _ <- tags.insert.values(
+            (id = UUID.randomUUID, post_id = pid, name = "alpha"),
+            (id = UUID.randomUUID, post_id = pid, name = "beta")
+          ).compile.run(s)
           _ <- assertIO(
             users
               .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)

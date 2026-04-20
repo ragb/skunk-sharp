@@ -23,21 +23,10 @@ class DslRoundTripSuite extends PgFixture {
         val bobId   = UUID.fromString("22222222-2222-2222-2222-222222222222")
         val now     = OffsetDateTime.now()
         for {
-          _ <- users.insert((
-            id = aliceId,
-            email = "alice@example.com",
-            age = 30,
-            created_at = now,
-            deleted_at = None
-          )).compile.run(s)
-          _ <-
-            users.insert((
-              id = bobId,
-              email = "bob@example.com",
-              age = 45,
-              created_at = now,
-              deleted_at = None
-            )).compile.run(s)
+          _ <- users.insert.values(
+            (id = aliceId, email = "alice@example.com", age = 30, created_at = now, deleted_at = Option.empty[OffsetDateTime]),
+            (id = bobId, email = "bob@example.com", age = 45, created_at = now, deleted_at = Option.empty[OffsetDateTime])
+          ).compile.run(s)
           _ <- assertIO(users.select.compile.run(s).map(_.size), 2)
           _ <- assertIO(users.select.where(u => u.age >= 18).compile.run(s).map(_.size), 2)
           _ <- users.update.set(u => u.age := 31).where(u => u.id === aliceId).compile.run(s)
@@ -57,9 +46,11 @@ class DslRoundTripSuite extends PgFixture {
         val c   = UUID.fromString("40000000-0000-0000-0000-000000000003")
         val now = OffsetDateTime.now()
         for {
-          _ <- users.insert((id = a, email = "aaa@x", age = 30, created_at = now, deleted_at = None)).compile.run(s)
-          _ <- users.insert((id = b, email = "bbb@x", age = 10, created_at = now, deleted_at = None)).compile.run(s)
-          _ <- users.insert((id = c, email = "ccc@x", age = 20, created_at = now, deleted_at = None)).compile.run(s)
+          _ <- users.insert.values(
+            (id = a, email = "aaa@x", age = 30, created_at = now, deleted_at = Option.empty[OffsetDateTime]),
+            (id = b, email = "bbb@x", age = 10, created_at = now, deleted_at = Option.empty[OffsetDateTime]),
+            (id = c, email = "ccc@x", age = 20, created_at = now, deleted_at = Option.empty[OffsetDateTime])
+          ).compile.run(s)
           _ <- assertIO(
             users.select.where(u => u.email.like("%@x")).orderBy(u => u.age.asc).apply(u => u.email).compile.run(s),
             List("bbb@x", "ccc@x", "aaa@x")
