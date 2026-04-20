@@ -123,9 +123,7 @@ final class TableBuilder[Cols <: Tuple, Name <: String & Singleton](
       tpe = PgTypes.typeOf(codec),
       codec = codec,
       isNullable = isNullable,
-      hasDefault = hasDefault,
-      isPrimary = false,
-      isUnique = false
+      attrs = if (hasDefault) List(ColumnAttrValue.Default) else Nil
     )
     new TableBuilder(
       name,
@@ -145,9 +143,7 @@ final class TableBuilder[Cols <: Tuple, Name <: String & Singleton](
       tpe = PgTypes.typeOf(codec),
       codec = codec.opt,
       isNullable = true,
-      hasDefault = hasDefault,
-      isPrimary = false,
-      isUnique = false
+      attrs = if (hasDefault) List(ColumnAttrValue.Default) else Nil
     )
     new TableBuilder(
       name,
@@ -182,9 +178,7 @@ object TableBuilder {
         tpe = PgTypes.typeOf(codec),
         codec = codec,
         isNullable = isNullable,
-        hasDefault = hasDefault,
-        isPrimary = false,
-        isUnique = false
+        attrs = if (hasDefault) List(ColumnAttrValue.Default) else Nil
       )
       new TableBuilder(
         b.name,
@@ -211,9 +205,7 @@ object TableBuilder {
         tpe = PgTypes.typeOf(codec),
         codec = codec.opt,
         isNullable = true,
-        hasDefault = hasDefault,
-        isPrimary = false,
-        isUnique = false
+        attrs = if (hasDefault) List(ColumnAttrValue.Default) else Nil
       )
       new TableBuilder(
         b.name,

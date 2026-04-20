@@ -40,10 +40,7 @@ inline def deriveColumns[Labels <: Tuple, Types <: Tuple]: Tuple =
             tpe = PgTypes.typeOf(pf.codec),
             codec = codec,
             isNullable = true,
-            hasDefault = false,
-            isPrimary = false,
-            isUnique = false,
-            uniqueGroups = Set.empty[String]
+            attrs = Nil
           ) *: deriveColumns[ls, ts]
         case _: (t *: ts) =>
           val pf   = summonInline[PgTypeFor[t]]
@@ -53,10 +50,7 @@ inline def deriveColumns[Labels <: Tuple, Types <: Tuple]: Tuple =
             tpe = PgTypes.typeOf(pf.codec),
             codec = pf.codec,
             isNullable = false,
-            hasDefault = false,
-            isPrimary = false,
-            isUnique = false,
-            uniqueGroups = Set.empty[String]
+            attrs = Nil
           ) *: deriveColumns[ls, ts]
       }
   }

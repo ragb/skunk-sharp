@@ -53,7 +53,10 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
   inline def withPrimary[N <: String & Singleton](inline n: N)
     : Table[Table.AddAttr[Cols, N, ColumnAttr.Pk[N *: EmptyTuple]], Name] = {
     CompileChecks.requireColumn[Cols, N]
-    val updated = Table.updateCol[Cols, N](columns, n, _.copy(isPrimary = true))
+    val nameStr = compiletime.constValue[N]: String
+    val updated = Table.updateCol[Cols, N](columns, n,
+      c => c.copy(attrs = c.attrs :+ ColumnAttrValue.Pk(List(nameStr)))
+    )
     copy(columns = updated.asInstanceOf[Table.AddAttr[Cols, N, ColumnAttr.Pk[N *: EmptyTuple]]])
       .asInstanceOf[Table[Table.AddAttr[Cols, N, ColumnAttr.Pk[N *: EmptyTuple]], Name]]
   }
@@ -76,9 +79,10 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
     CompileChecks.requireAllNamesInCols[Cols, Ns]
     val names   = constValueTuple[Ns].toList.asInstanceOf[List[String]]
     val nameSet = names.toSet
+    val marker  = ColumnAttrValue.Pk(names)
     val updated =
       Table.mapCols(columns, (c: Column[Any, String & Singleton, Boolean, Tuple]) =>
-        if (nameSet.contains(c.name)) c.copy(isPrimary = true) else c
+        if (nameSet.contains(c.name)) c.copy(attrs = c.attrs :+ marker) else c
       )
     copy(columns = updated.asInstanceOf[Table.AddCompositePk[Cols, Ns]])
       .asInstanceOf[Table[Table.AddCompositePk[Cols, Ns], Name]]
@@ -98,7 +102,7 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
     val updated = Table.updateCol[Cols, N](
       columns,
       n,
-      c => c.copy(isUnique = true, uniqueGroups = c.uniqueGroups + nameStr)
+      c => c.copy(attrs = c.attrs :+ ColumnAttrValue.Uq(nameStr, List(nameStr)))
     )
     copy(columns = updated.asInstanceOf[Table.AddAttr[Cols, N, ColumnAttr.Uq[N, N *: EmptyTuple]]])
       .asInstanceOf[Table[Table.AddAttr[Cols, N, ColumnAttr.Uq[N, N *: EmptyTuple]], Name]]
@@ -124,9 +128,10 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
     val cname   = compiletime.constValue[ConstraintName]: String
     val names   = constValueTuple[Ns].toList.asInstanceOf[List[String]]
     val nameSet = names.toSet
+    val marker  = ColumnAttrValue.Uq(cname, names)
     val updated =
       Table.mapCols(columns, (c: Column[Any, String & Singleton, Boolean, Tuple]) =>
-        if (nameSet.contains(c.name)) c.copy(isUnique = true, uniqueGroups = c.uniqueGroups + cname) else c
+        if (nameSet.contains(c.name)) c.copy(attrs = c.attrs :+ marker) else c
       )
     copy(columns = updated.asInstanceOf[Table.AddCompositeUq[Cols, ConstraintName, Ns]])
       .asInstanceOf[Table[Table.AddCompositeUq[Cols, ConstraintName, Ns], Name]]
@@ -153,26 +158,35 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
   inline def withDefault[N <: String & Singleton](inline n: N)
     : Table[Table.AddAttr[Cols, N, ColumnAttr.Default], Name] = {
     CompileChecks.requireColumn[Cols, N]
-    val updated = Table.updateCol[Cols, N](columns, n, _.copy(hasDefault = true))
+    val updated = Table.updateCol[Cols, N](columns, n,
+      c => c.copy(attrs = c.attrs :+ ColumnAttrValue.Default)
+    )
     copy(columns = updated.asInstanceOf[Table.AddAttr[Cols, N, ColumnAttr.Default]])
       .asInstanceOf[Table[Table.AddAttr[Cols, N, ColumnAttr.Default], Name]]
   }
 
   /**
-   * PK columns in declaration order. Derived from the per-column `isPrimary` flag. Used by [[skunk.sharp.validation]]
-   * to diff against `information_schema.table_constraints`.
+   * PK columns — the full member list, in the declaration order stored on the `Pk` marker. Used by
+   * [[skunk.sharp.validation]] to diff against `information_schema.table_constraints`. Returns `Nil` if no column
+   * has a `Pk` marker.
    */
-  def pkColumns: List[String] =
-    columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].filter(_.isPrimary).map(_.name: String)
+  def pkColumns: List[String] = {
+    val cols = columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
+    cols.iterator
+      .flatMap(_.attrs.collectFirst { case ColumnAttrValue.Pk(ms) => ms })
+      .nextOption()
+      .getOrElse(Nil)
+  }
 
   /**
-   * UNIQUE constraints as (name → column-list) pairs. Derived by inverting per-column `uniqueGroups`: two columns that
-   * share a group name belong to the same UNIQUE constraint.
+   * UNIQUE constraints as `name → columns` pairs. Each `Uq(name, members)` marker on any participating column carries
+   * the full group identity; duplicates across columns of the same group collapse.
    */
   def uniqueIndexes: Map[String, List[String]] = {
     val cols = columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
-    cols.flatMap(c => c.uniqueGroups.toList.map(g => g -> (c.name: String)))
-      .groupMap(_._1)(_._2)
+    cols.iterator
+      .flatMap(_.attrs.collect { case ColumnAttrValue.Uq(n, ms) => n -> ms })
+      .toMap
   }
 
 }

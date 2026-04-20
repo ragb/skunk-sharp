@@ -90,9 +90,7 @@ final class ViewBuilder[Cols <: Tuple, Name <: String & Singleton](
       tpe = PgTypes.typeOf(codec),
       codec = codec,
       isNullable = false,
-      hasDefault = false,
-      isPrimary = false,
-      isUnique = false
+      attrs = Nil
     )
     new ViewBuilder(
       name,
@@ -111,9 +109,7 @@ final class ViewBuilder[Cols <: Tuple, Name <: String & Singleton](
       tpe = PgTypes.typeOf(codec),
       codec = codec.opt,
       isNullable = true,
-      hasDefault = false,
-      isPrimary = false,
-      isUnique = false
+      attrs = Nil
     )
     new ViewBuilder(
       name,
