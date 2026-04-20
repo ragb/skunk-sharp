@@ -41,6 +41,25 @@ object ColumnAttr {
 }
 
 /**
+ * Runtime mirror of [[ColumnAttr]] phantom markers — instantiated, carried in a column's `attrs` list, and consumed by
+ * the schema validator and any runtime code that needs to diff against `information_schema`. A single source of truth
+ * replaces the old quartet of `isPrimary` / `isUnique` / `hasDefault` / `uniqueGroups` term fields.
+ */
+sealed trait ColumnAttrValue
+
+object ColumnAttrValue {
+
+  case object Default extends ColumnAttrValue
+
+  /** Participation in the primary key — `members` is the full tuple of PK column names (a single-col PK has one). */
+  final case class Pk(members: List[String]) extends ColumnAttrValue
+
+  /** Participation in a named UNIQUE constraint — `members` lists every column the constraint covers. */
+  final case class Uq(name: String, members: List[String]) extends ColumnAttrValue
+
+}
+
+/**
  * Phantom-typed column descriptor.
  *
  *   - `T` — the Scala value type of the column (use `Option[_]` for nullable columns).
@@ -51,9 +70,9 @@ object ColumnAttr {
  *     additions). Checked by [[Contains]] / [[HasUniqueness]] / [[HasCompositeUniqueness]] / [[ColumnDefault]] for
  *     compile-time evidence of insert defaulting and `.onConflict(...)` targeting.
  *
- * Term-level `hasDefault` / `isPrimary` / `isUnique` flags mirror the phantom markers for simple single-column checks;
- * the table-level [[Table.pk]] / [[Table.uniques]] lists carry the full composite constraint shape for the schema
- * validator to diff against `information_schema.table_constraints`.
+ * `attrs` is the runtime mirror of the `Attrs` phantom — one list of [[ColumnAttrValue]]s carrying the same facts.
+ * Schema validation and other runtime code reads this list directly; there's no separate set of boolean fields to
+ * keep in sync.
  *
  * `tpe` is the skunk [[skunk.data.Type]] of the column — we store it rather than a custom enum so we inherit skunk's
  * full built-in type registry.
@@ -63,11 +82,22 @@ final case class Column[T, N <: String & Singleton, Null <: Boolean, Attrs <: Tu
   tpe: Type,
   codec: Codec[T],
   isNullable: Null,
-  hasDefault: Boolean = false,
-  isPrimary: Boolean = false,
-  isUnique: Boolean = false,
-  uniqueGroups: Set[String] = Set.empty
+  attrs: List[ColumnAttrValue] = Nil
 ) {
 
   def qualifiedIdent: String = s""""$name""""
+
+  /** `true` iff the column participates in the primary key. Derived from [[attrs]]. */
+  def isPrimary: Boolean = attrs.exists(_.isInstanceOf[ColumnAttrValue.Pk])
+
+  /** `true` iff the column participates in any UNIQUE constraint. Derived from [[attrs]]. */
+  def isUnique: Boolean = attrs.exists(_.isInstanceOf[ColumnAttrValue.Uq])
+
+  /** `true` iff the column has a declared database-side default. Derived from [[attrs]]. */
+  def hasDefault: Boolean = attrs.contains(ColumnAttrValue.Default)
+
+  /** Names of the UNIQUE constraints this column participates in. Derived from [[attrs]]. */
+  def uniqueGroups: Set[String] =
+    attrs.iterator.collect { case ColumnAttrValue.Uq(name, _) => name }.toSet
+
 }

@@ -77,9 +77,7 @@ private[sharp] def nullabilifyCols(cols: Tuple): Tuple = {
         tpe = c.tpe,
         codec = c.codec.asInstanceOf[Codec[Any]].opt.asInstanceOf[Codec[Any]],
         isNullable = true,
-        hasDefault = c.hasDefault,
-        isPrimary = c.isPrimary,
-        isUnique = c.isUnique
+        attrs = c.attrs
       )
     case other =>
       other

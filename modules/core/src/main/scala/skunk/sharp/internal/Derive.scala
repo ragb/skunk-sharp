@@ -17,7 +17,7 @@ import scala.util.NotGiven
  *
  * Typeclass resolution uses `<:<` directly, which CAN see through opaque types correctly. `NotGiven[T <:< Option[?]]`
  * fires for any `T` not provably an `Option`, which covers unbounded opaques, concrete classes, iron types, and so on.
- * The four instances below form an induction over the label/type tuples.
+ * The three instances below form an induction over the label/type tuples.
  */
 sealed trait DeriveColumns[Labels <: Tuple, Types <: Tuple] {
   type Out <: Tuple
@@ -51,10 +51,7 @@ object DeriveColumns {
           tpe = PgTypes.typeOf(pf.codec),
           codec = pf.codec.opt,
           isNullable = true,
-          hasDefault = false,
-          isPrimary = false,
-          isUnique = false,
-          uniqueGroups = Set.empty
+          attrs = Nil
         )
         (col *: rest.value).asInstanceOf[Out]
       }
@@ -80,10 +77,7 @@ object DeriveColumns {
           tpe = PgTypes.typeOf(pf.codec),
           codec = pf.codec,
           isNullable = false,
-          hasDefault = false,
-          isPrimary = false,
-          isUnique = false,
-          uniqueGroups = Set.empty
+          attrs = Nil
         )
         (col *: rest.value).asInstanceOf[Out]
       }

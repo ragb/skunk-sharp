@@ -26,7 +26,9 @@ class ColumnCodecOverrideSuite extends munit.FunSuite {
   }
 
   test("withColumn is the primitive; sugar methods delegate to it") {
-    val users = Table.of[User]("users").withColumn("email")(_.copy(isPrimary = true, isUnique = true))
+    val users = Table.of[User]("users").withColumn("email")(c =>
+      c.copy(attrs = List(ColumnAttrValue.Pk(List("email")), ColumnAttrValue.Uq("email", List("email"))))
+    )
     val email = users.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].find(_.name == "email").get
     assertEquals(email.isPrimary, true)
     assertEquals(email.isUnique, true)
