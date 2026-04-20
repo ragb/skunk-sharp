@@ -154,3 +154,92 @@ type HasCompositeUniqueness[Cols <: Tuple, Ns <: Tuple] <: Boolean = Cols match 
     }
   case EmptyTuple => false
 }
+
+/**
+ * Extract column-name singletons from a tuple of GROUP BY expressions. Only bare [[TypedColumn]] references contribute
+ * a name — expressions, function calls, literals skip. Used by [[GroupCoverage]] to collect the set of column names a
+ * caller's GROUP BY provides.
+ */
+type GroupNames[G <: Tuple] <: Tuple = G match {
+  case EmptyTuple                    => EmptyTuple
+  case TypedColumn[t, nu, n] *: tail => n *: GroupNames[tail]
+  case h *: tail                     => GroupNames[tail]
+}
+
+/**
+ * Marker typeclass: evidence that `E` is a bare [[TypedColumn]] reference with singleton name `N`. Powers
+ * [[GroupCoverage]]'s typeclass-based dispatch — match-type dispatch can't distinguish `TypedColumn` from
+ * `TypedExpr` since the former extends the latter (match types require *provable* disjointness, which subtype
+ * relationships defeat).
+ */
+sealed trait IsTypedCol[E] {
+  type N <: String & Singleton
+}
+
+object IsTypedCol {
+
+  type Aux[E, N0 <: String & Singleton] = IsTypedCol[E] { type N = N0 }
+
+  given fromTypedColumn[T, Null <: Boolean, N_ <: String & Singleton]
+    : IsTypedCol.Aux[TypedColumn[T, Null, N_], N_] = new IsTypedCol[TypedColumn[T, Null, N_]] {
+    type N = N_
+  }
+
+}
+
+/**
+ * Coverage witness for a single projection element:
+ *   - If `E` is a `TypedColumn[_, _, N]` whose `N` is in `GNames` — covered.
+ *   - If `E` is *not* a column (aggregate, literal, aliased expression, …) — covered unconditionally.
+ *   - If `E` is a column whose name is NOT in `GNames` — no instance resolves → compile error.
+ */
+sealed trait ElemCoverage[E, GNames <: Tuple]
+
+object ElemCoverage {
+
+  given columnCovered[E, N <: String & Singleton, GNames <: Tuple](using
+    col: IsTypedCol.Aux[E, N],
+    ev: Contains[N, GNames] =:= true
+  ): ElemCoverage[E, GNames] = new ElemCoverage[E, GNames] {}
+
+  given nonColumn[E, GNames <: Tuple](using
+    nc: scala.util.NotGiven[IsTypedCol[E]]
+  ): ElemCoverage[E, GNames] = new ElemCoverage[E, GNames] {}
+
+}
+
+/**
+ * Every element of `Proj` has [[ElemCoverage]] under `GNames`. Walks the projection tuple inductively — given instance
+ * resolution handles each element individually.
+ */
+sealed trait AllCovered[Proj <: Tuple, GNames <: Tuple]
+
+object AllCovered {
+
+  given empty[GNames <: Tuple]: AllCovered[EmptyTuple, GNames] = new AllCovered[EmptyTuple, GNames] {}
+
+  given cons[H, Rest <: Tuple, GNames <: Tuple](using
+    h: ElemCoverage[H, GNames],
+    r: AllCovered[Rest, GNames]
+  ): AllCovered[H *: Rest, GNames] = new AllCovered[H *: Rest, GNames] {}
+
+}
+
+/**
+ * Compile-time GROUP BY coverage gate. Summons iff either no GROUP BY is declared (vacuous) or every bare column in
+ * the projection also appears in the GROUP BY. Aggregates, literals, function-call expressions, aliased expressions
+ * pass unconditionally. GROUP BY expressions that are not bare columns (e.g.
+ * `.groupBy(u => Pg.dateTrunc("day", u.created))`) don't contribute names; queries relying on that form aren't
+ * helped by this check and should drop to hand SQL.
+ */
+sealed trait GroupCoverage[Proj <: Tuple, G <: Tuple]
+
+object GroupCoverage {
+
+  given empty[Proj <: Tuple]: GroupCoverage[Proj, EmptyTuple] = new GroupCoverage[Proj, EmptyTuple] {}
+
+  given nonEmpty[Proj <: Tuple, G <: NonEmptyTuple](using
+    ev: AllCovered[Proj, GroupNames[G]]
+  ): GroupCoverage[Proj, G] = new GroupCoverage[Proj, G] {}
+
+}

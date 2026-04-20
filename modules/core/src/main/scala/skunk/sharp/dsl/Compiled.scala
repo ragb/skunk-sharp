@@ -85,9 +85,11 @@ object AsSubquery {
     def toCompiled(q: CompiledQuery[T]): CompiledQuery[T] = q
   }
 
-  given fromProjected[Ss <: Tuple, T]: AsSubquery[ProjectedSelect[Ss, T], T] =
-    new AsSubquery[ProjectedSelect[Ss, T], T] {
-      def toCompiled(q: ProjectedSelect[Ss, T]): CompiledQuery[T] = q.compile
+  given fromProjected[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, T](using
+    ev: skunk.sharp.GroupCoverage[Proj, Groups]
+  ): AsSubquery[ProjectedSelect[Ss, Proj, Groups, T], T] =
+    new AsSubquery[ProjectedSelect[Ss, Proj, Groups, T], T] {
+      def toCompiled(q: ProjectedSelect[Ss, Proj, Groups, T]): CompiledQuery[T] = q.compile(using ev)
     }
 
   /** Whole-row SelectBuilder → subquery of NamedRow. Relies on the same IsSingleSource evidence `.compile` uses. */

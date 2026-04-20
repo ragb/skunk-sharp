@@ -54,7 +54,11 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
     copy(orderBys = orderBys ++ fresh)
   }
 
-  /** `GROUP BY …`. Coverage is not type-checked (Postgres raises runtime on misalignment). */
+  /**
+   * `GROUP BY …` on a pre-projection builder — runtime-only. Coverage of the later projection isn't type-checked here
+   * because we don't know the projection yet; use the `.select(...).groupBy(...)` order (or the whole-row
+   * [[compile]]) to get the compile-time check via [[GroupCoverage]].
+   */
   def groupBy(f: SelectView[Ss] => TypedExpr[?] | Tuple): SelectBuilder[Ss] = {
     val fresh = f(view) match {
       case e: TypedExpr[?] => List(e)
@@ -149,13 +153,16 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
 
   /**
    * Projection — pick the columns / expressions to return. Single `TypedExpr[T]` → row is `T`; tuple (named or
-   * positional) → row is the tuple of expression output types.
+   * positional) → row is the tuple of expression output types. `X` is threaded as the projection phantom (`Proj`) on
+   * the resulting [[ProjectedSelect]] so downstream [[ProjectedSelect.groupBy]] / [[ProjectedSelect.compile]] can
+   * check GROUP BY coverage.
    */
-  transparent inline def select[X](inline f: SelectView[Ss] => X): ProjectedSelect[Ss, ProjResult[X]] = {
+  transparent inline def select[X](inline f: SelectView[Ss] => X)
+    : ProjectedSelect[Ss, NormProj[X], EmptyTuple, ProjResult[X]] = {
     val v = view
     f(v) match {
       case expr: TypedExpr[?] =>
-        new ProjectedSelect[Ss, ProjResult[X]](
+        new ProjectedSelect[Ss, NormProj[X], EmptyTuple, ProjResult[X]](
           sources,
           distinct,
           List(expr),
@@ -171,7 +178,7 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
       case tup: NonEmptyTuple =>
         val exprs = tup.toList.asInstanceOf[List[TypedExpr[?]]]
         val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ProjResult[X]]]
-        new ProjectedSelect[Ss, ProjResult[X]](
+        new ProjectedSelect[Ss, NormProj[X], EmptyTuple, ProjResult[X]](
           sources,
           distinct,
           exprs,
@@ -187,7 +194,8 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
     }
   }
 
-  transparent inline def apply[X](inline f: SelectView[Ss] => X): ProjectedSelect[Ss, ProjResult[X]] = select[X](f)
+  transparent inline def apply[X](inline f: SelectView[Ss] => X)
+    : ProjectedSelect[Ss, NormProj[X], EmptyTuple, ProjResult[X]] = select[X](f)
 
   /**
    * Whole-row `.compile` — only available on single-source builders. Multi-source builders must project first via
@@ -213,8 +221,12 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
 /**
  * A SELECT with an explicit projection list — rows have shape `Row` instead of the relation's default named tuple.
  * Shared between single-source and multi-source queries; the `Ss` parameter carries the full shape.
+ *
+ *   - `Proj` is the tuple-normalised projection (`X *: EmptyTuple` for single-expr, the tuple itself for multi-expr).
+ *     Threaded from `.select[X](f)` so downstream `.groupBy` / `.compile` can check coverage.
+ *   - `Groups` is the tuple of GROUP BY expressions; starts `EmptyTuple`, extended by `.groupBy[G]`.
  */
-final class ProjectedSelect[Ss <: Tuple, Row](
+final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
   private[sharp] val sources: Ss,
   private[sharp] val distinct: Boolean,
   private[sharp] val projections: List[TypedExpr[?]],
@@ -239,8 +251,8 @@ final class ProjectedSelect[Ss <: Tuple, Row](
     limitOpt: Option[Int] = limitOpt,
     offsetOpt: Option[Int] = offsetOpt,
     lockingOpt: Option[Locking] = lockingOpt
-  ): ProjectedSelect[Ss, Row] =
-    new ProjectedSelect[Ss, Row](
+  ): ProjectedSelect[Ss, Proj, Groups, Row] =
+    new ProjectedSelect[Ss, Proj, Groups, Row](
       sources,
       distinct,
       projections,
@@ -256,12 +268,12 @@ final class ProjectedSelect[Ss <: Tuple, Row](
 
   private def view: SelectView[Ss] = buildSelectView[Ss](sources)
 
-  def where(f: SelectView[Ss] => Where): ProjectedSelect[Ss, Row] = {
+  def where(f: SelectView[Ss] => Where): ProjectedSelect[Ss, Proj, Groups, Row] = {
     val next = whereOpt.fold(f(view))(_ && f(view))
     copy(whereOpt = Some(next))
   }
 
-  def orderBy(f: SelectView[Ss] => OrderBy | Tuple): ProjectedSelect[Ss, Row] = {
+  def orderBy(f: SelectView[Ss] => OrderBy | Tuple): ProjectedSelect[Ss, Proj, Groups, Row] = {
     val fresh = f(view) match {
       case ob: OrderBy => List(ob)
       case t: Tuple    => t.toList.asInstanceOf[List[OrderBy]]
@@ -269,40 +281,58 @@ final class ProjectedSelect[Ss <: Tuple, Row](
     copy(orderBys = orderBys ++ fresh)
   }
 
-  def groupBy(f: SelectView[Ss] => TypedExpr[?] | Tuple): ProjectedSelect[Ss, Row] = {
-    val fresh = f(view) match {
+  /**
+   * `GROUP BY …`. `G` is captured as a phantom — bare-column elements contribute their names to [[Groups]] for the
+   * eventual coverage check at `.compile` time. Accumulates across multiple calls via `Tuple.Concat`.
+   */
+  transparent inline def groupBy[G](inline f: SelectView[Ss] => G)
+    : ProjectedSelect[Ss, Proj, Tuple.Concat[Groups, NormProj[G]], Row] = {
+    val v     = view
+    val fresh = f(v) match {
       case e: TypedExpr[?] => List(e)
       case t: Tuple        => t.toList.asInstanceOf[List[TypedExpr[?]]]
     }
-    copy(groupBys = groupBys ++ fresh)
+    new ProjectedSelect[Ss, Proj, Tuple.Concat[Groups, NormProj[G]], Row](
+      sources,
+      distinct,
+      projections,
+      codec,
+      whereOpt,
+      groupBys ++ fresh,
+      havingOpt,
+      orderBys,
+      limitOpt,
+      offsetOpt,
+      lockingOpt
+    )
   }
 
-  def having(f: SelectView[Ss] => Where): ProjectedSelect[Ss, Row] = {
+  def having(f: SelectView[Ss] => Where): ProjectedSelect[Ss, Proj, Groups, Row] = {
     val next = havingOpt.fold(f(view))(_ && f(view))
     copy(havingOpt = Some(next))
   }
 
-  def limit(n: Int): ProjectedSelect[Ss, Row]  = copy(limitOpt = Some(n))
-  def offset(n: Int): ProjectedSelect[Ss, Row] = copy(offsetOpt = Some(n))
+  def limit(n: Int): ProjectedSelect[Ss, Proj, Groups, Row]  = copy(limitOpt = Some(n))
+  def offset(n: Int): ProjectedSelect[Ss, Proj, Groups, Row] = copy(offsetOpt = Some(n))
 
-  def distinctRows: ProjectedSelect[Ss, Row] = copy(distinct = true)
+  def distinctRows: ProjectedSelect[Ss, Proj, Groups, Row] = copy(distinct = true)
 
-  def forUpdate(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Row] =
+  def forUpdate(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, Row] =
     copy(lockingOpt = Some(Locking(LockMode.ForUpdate)))
 
-  def forNoKeyUpdate(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Row] =
+  def forNoKeyUpdate(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, Row] =
     copy(lockingOpt = Some(Locking(LockMode.ForNoKeyUpdate)))
 
-  def forShare(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Row] =
+  def forShare(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, Row] =
     copy(lockingOpt = Some(Locking(LockMode.ForShare)))
 
-  def forKeyShare(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Row] =
+  def forKeyShare(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, Row] =
     copy(lockingOpt = Some(Locking(LockMode.ForKeyShare)))
 
-  def skipLocked(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Row] =
+  def skipLocked(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, Row] =
     copy(lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.SkipLocked)))
 
-  def noWait(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Row] =
+  def noWait(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, Row] =
     copy(lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.NoWait)))
 
   /**
@@ -311,11 +341,11 @@ final class ProjectedSelect[Ss <: Tuple, Row](
    */
   def to[T <: Product](using
     m: scala.deriving.Mirror.ProductOf[T] { type MirroredElemTypes = Row & Tuple }
-  ): ProjectedSelect[Ss, T] = {
+  ): ProjectedSelect[Ss, Proj, Groups, T] = {
     val newCodec: Codec[T] = codec.imap[T](r => m.fromProduct(r.asInstanceOf[Product]))(t =>
       Tuple.fromProductTyped[T](t)(using m).asInstanceOf[Row]
     )
-    new ProjectedSelect[Ss, T](
+    new ProjectedSelect[Ss, Proj, Groups, T](
       sources,
       distinct,
       projections,
@@ -330,7 +360,12 @@ final class ProjectedSelect[Ss <: Tuple, Row](
     )
   }
 
-  def compile: CompiledQuery[Row] = {
+  /**
+   * Compile into an [[CompiledQuery]]. Enforces [[GroupCoverage]] — if GROUP BY is declared, every bare-column element
+   * in the projection must appear in the GROUP BY; aggregates, literals, aliased expressions are free. When no GROUP
+   * BY is declared, the check is vacuous.
+   */
+  def compile(using @scala.annotation.unused ev: GroupCoverage[Proj, Groups]): CompiledQuery[Row] = {
     val entries  = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
     val projList = TypedExpr.joined(projections.map(_.render), ", ")
     val keyword  = if (distinct) "SELECT DISTINCT " else "SELECT "
@@ -401,11 +436,11 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton](left: L
 extension (rel: skunk.sharp.empty.type) {
 
   transparent inline def select[X](inline f: ColumnsView[EmptyTuple] => X)
-    : ProjectedSelect[EmptyTuple, ProjResult[X]] = {
+    : ProjectedSelect[EmptyTuple, NormProj[X], EmptyTuple, ProjResult[X]] = {
     val v = ColumnsView(EmptyTuple)
     f(v) match {
       case expr: TypedExpr[?] =>
-        new ProjectedSelect[EmptyTuple, ProjResult[X]](
+        new ProjectedSelect[EmptyTuple, NormProj[X], EmptyTuple, ProjResult[X]](
           EmptyTuple,
           false,
           List(expr),
@@ -421,7 +456,7 @@ extension (rel: skunk.sharp.empty.type) {
       case tup: NonEmptyTuple =>
         val exprs = tup.toList.asInstanceOf[List[TypedExpr[?]]]
         val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ProjResult[X]]]
-        new ProjectedSelect[EmptyTuple, ProjResult[X]](
+        new ProjectedSelect[EmptyTuple, NormProj[X], EmptyTuple, ProjResult[X]](
           EmptyTuple,
           false,
           exprs,
@@ -532,6 +567,15 @@ type ExprOutputs[T <: Tuple] <: Tuple = T match {
 type ProjResult[X] = X match {
   case TypedExpr[t]  => t
   case NonEmptyTuple => ExprOutputs[X & NonEmptyTuple]
+}
+
+/**
+ * Normalise a projection / GROUP BY lambda return type into a tuple: a single `TypedExpr[_]` becomes a one-element
+ * tuple; a tuple stays as-is. Feeds the [[GroupCoverage]] check uniformly regardless of single-vs-multi form.
+ */
+type NormProj[X] <: Tuple = X match {
+  case NonEmptyTuple => X & Tuple
+  case _             => X *: EmptyTuple
 }
 
 /** Type-level lookup: tuple of column names → tuple of value types. */

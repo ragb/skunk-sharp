@@ -323,4 +323,88 @@ class NegativeTestsSuite extends munit.FunSuite {
     """)
     assert(errs.isEmpty, s"expected no errors for named composite unique target; got: ${errs.map(_.message).mkString("\n")}")
   }
+
+  // ---- GROUP BY coverage (GroupCoverage) -----------------------------------------------------
+
+  test("GROUP BY coverage — projection with only aggregates compiles without GROUP BY") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      val users = Table.of[User]("users")
+      users.select(_ => Pg.countAll).compile
+    """)
+    assert(errs.isEmpty, s"pure-aggregate projection should compile; got: ${errs.map(_.message).mkString("\n")}")
+  }
+
+  test("GROUP BY coverage — bare column in projection with matching GROUP BY compiles") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      val users = Table.of[User]("users")
+      users.select(u => (u.age, Pg.count(u.id))).groupBy(u => u.age).compile
+    """)
+    assert(errs.isEmpty, s"covered projection should compile; got: ${errs.map(_.message).mkString("\n")}")
+  }
+
+  test("GROUP BY coverage — bare column in projection WITHOUT GROUP BY rejects") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      val users = Table.of[User]("users")
+      users.select(u => (u.age, Pg.count(u.id))).groupBy(u => u.email).compile
+    """)
+    assert(errs.nonEmpty, "projecting a bare column not in GROUP BY should be a compile error")
+  }
+
+  test("GROUP BY coverage — multi-column GROUP BY covers multi-column projection") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      val users = Table.of[User]("users")
+      users
+        .select(u => (u.age, u.email, Pg.count(u.id)))
+        .groupBy(u => (u.age, u.email))
+        .compile
+    """)
+    assert(errs.isEmpty, s"multi-col GROUP BY should cover multi-col projection; got: ${errs.map(_.message).mkString("\n")}")
+  }
+
+  test("GROUP BY coverage — partial coverage (GROUP BY misses one projection column) rejects") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      val users = Table.of[User]("users")
+      users
+        .select(u => (u.age, u.email, Pg.count(u.id)))
+        .groupBy(u => u.age)
+        .compile
+    """)
+    assert(errs.nonEmpty, "GROUP BY that covers only some of the bare columns should fail")
+  }
+
+  test("GROUP BY coverage — aggregates (Pg.count, Pg.sum) skip coverage requirement") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      val users = Table.of[User]("users")
+      users
+        .select(u => (u.age, Pg.count(u.id), Pg.sum(u.age), Pg.max(u.email)))
+        .groupBy(u => u.age)
+        .compile
+    """)
+    assert(errs.isEmpty, s"aggregates should be free of coverage requirement; got: ${errs.map(_.message).mkString("\n")}")
+  }
+
+  test("GROUP BY coverage — aliased expressions are free of coverage") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      val users = Table.of[User]("users")
+      users
+        .select(u => (u.age, Pg.count(u.id).as("cnt")))
+        .groupBy(u => u.age)
+        .compile
+    """)
+    assert(errs.isEmpty, s"aliased aggregates should compile; got: ${errs.map(_.message).mkString("\n")}")
+  }
 }
