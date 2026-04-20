@@ -40,6 +40,51 @@ object Mismatch {
 
   }
 
+  /** Declared primary-key column(s) found, but the database has no primary key at all on this relation. */
+  final case class PrimaryKeyMissing(relation: String, expected: Set[String]) extends Mismatch {
+    def pretty = s"relation $relation: expected primary key on ${expected.mkString("(", ", ", ")")} but DB has none"
+  }
+
+  /**
+   * Declared primary-key column set differs from the database's. Matching is set-based — ordering inside a composite PK
+   * isn't tracked at declaration time today, so `(a, b)` declared vs `(b, a)` in DB is not reported.
+   */
+  final case class PrimaryKeyColumnsDiffer(
+    relation: String,
+    expected: Set[String],
+    actual: Set[String]
+  ) extends Mismatch {
+
+    def pretty =
+      s"relation $relation: expected primary key on ${expected.mkString("(", ", ", ")")} but DB has " +
+        actual.mkString("(", ", ", ")")
+
+  }
+
+  /**
+   * Database has a primary key but nothing in the Scala description flags one. Usually a declaration gap — reported so
+   * callers can decide whether to tighten the description.
+   */
+  final case class ExtraPrimaryKey(relation: String, actual: Set[String]) extends Mismatch {
+
+    def pretty =
+      s"relation $relation: DB has a primary key on ${actual.mkString("(", ", ", ")")} but nothing is declared"
+
+  }
+
+  /** Declared `.withUnique(column)` but no matching single-column `UNIQUE` constraint in the database. */
+  final case class UniqueConstraintMissing(relation: String, column: String) extends Mismatch {
+    def pretty = s"relation $relation: expected a unique constraint on $column but none found in the database"
+  }
+
+  /**
+   * Database has a single-column unique constraint on a column that isn't declared `.withUnique`. Usually informational
+   * (an index-backed unique that the Scala description doesn't know about); report so callers see it.
+   */
+  final case class ExtraUniqueConstraint(relation: String, column: String) extends Mismatch {
+    def pretty = s"relation $relation: DB has a unique constraint on $column that is not declared"
+  }
+
 }
 
 /** Result of comparing one-or-more declared relations to a live Postgres schema. */
