@@ -30,3 +30,4 @@ object Pg
     with PgAggregate
     with PgNull
     with PgSubquery
+    with PgArray

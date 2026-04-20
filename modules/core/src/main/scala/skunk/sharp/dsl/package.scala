@@ -87,6 +87,20 @@ package object dsl {
   type PgTypeFor[T] = skunk.sharp.pg.PgTypeFor[T]
   val PgTypeFor: skunk.sharp.pg.PgTypeFor.type = skunk.sharp.pg.PgTypeFor
 
+  // ---- Arrays ----
+  // `Arr[T]` is skunk's native Postgres-array type; `skunk.sharp.pg.arrays.given` ships `PgTypeFor[Arr[T]]` for
+  // primitive element types plus a generic cats `Alternative + Foldable` derivation that covers `List`, `Vector`,
+  // `Chain`, `LazyList`, …. `.to[F]` / `.toArr` bridge between skunk's `Arr[T]` and any cats-foldable collection.
+  //
+  // Array operators (`@>`, `<@`, `&&`, `||`, `= ANY(…)` as `.contains` / `.containedBy` / `.overlaps` / `.concat` /
+  // `.elemOf`) and functions live in [[skunk.sharp.pg.ArrayOps]] / [[skunk.sharp.Pg]] — `.contains` / `.containedBy`
+  // are intentionally *not* re-exported here because they clash with similarly-named extensions in the circe module
+  // (jsonb `@>` / `<@`). Import `skunk.sharp.pg.ArrayOps.*` where array ops are needed.
+  type Arr[T] = skunk.data.Arr[T]
+  val Arr: skunk.data.Arr.type = skunk.data.Arr
+  export skunk.sharp.pg.arrays.given
+  export skunk.sharp.pg.arrays.{to, toArr}
+
   // ---- Literal shorthands ----
   //
   // `lit(1)` / `lit("x")` is the short form of [[skunk.sharp.TypedExpr.lit]]. Anywhere a `TypedExpr[T]` is required
