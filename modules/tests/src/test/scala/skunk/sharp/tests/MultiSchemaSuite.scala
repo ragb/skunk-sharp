@@ -65,12 +65,10 @@ class MultiSchemaSuite extends PgFixture {
           _ <- products
             .insert((id = pid, name = Varchar[256]("gadget"), price = Numeric[10, 2](BigDecimal("1.00"))))
             .compile.run(s)
-          _ <- events
-            .insert((action = Varchar[64]("view"), product_id = Some(pid)))
-            .compile.run(s)
-          _ <- events
-            .insert((action = Varchar[64]("heartbeat"), product_id = Option.empty[UUID]))
-            .compile.run(s)
+          _ <- events.insert.values(
+            (action = Varchar[64]("view"), product_id = Some(pid)),
+            (action = Varchar[64]("heartbeat"), product_id = Option.empty[UUID])
+          ).compile.run(s)
           // LEFT JOIN: all events back, with product name when the event has a product_id.
           rows <- events
             .leftJoin(products)

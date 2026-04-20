@@ -49,8 +49,10 @@ class JsonbSuite extends PgFixture {
         val inactive = CirceJson.obj("status" -> CirceJson.fromString("inactive"), "n" -> CirceJson.fromInt(2))
         val probe    = CirceJson.obj("status" -> CirceJson.fromString("active"))
         for {
-          _ <- docs.insert((id = matches, body = Jsonb(active))).compile.run(s)
-          _ <- docs.insert((id = misses, body = Jsonb(inactive))).compile.run(s)
+          _ <- docs.insert.values(
+            (id = matches, body = Jsonb(active)),
+            (id = misses, body = Jsonb(inactive))
+          ).compile.run(s)
           _ <- assertIO(
             docs
               .select(d => d.id)
@@ -71,8 +73,10 @@ class JsonbSuite extends PgFixture {
         val withEmail    = CirceJson.obj("email" -> CirceJson.fromString("a@x"), "tag" -> CirceJson.fromString("t"))
         val withoutEmail = CirceJson.obj("phone" -> CirceJson.fromString("555"))
         for {
-          _ <- docs.insert((id = a, body = Jsonb(withEmail))).compile.run(s)
-          _ <- docs.insert((id = b, body = Jsonb(withoutEmail))).compile.run(s)
+          _ <- docs.insert.values(
+            (id = a, body = Jsonb(withEmail)),
+            (id = b, body = Jsonb(withoutEmail))
+          ).compile.run(s)
           _ <- assertIO(docs.select(d => d.id).where(d => d.body.hasKey("email")).compile.run(s).map(_.toSet), Set(a))
           _ <- assertIO(
             docs.select(d => d.id).where(d => d.body.hasAnyKey("email", "phone")).compile.run(s).map(_.toSet),
@@ -129,8 +133,10 @@ class JsonbSuite extends PgFixture {
         val idA   = UUID.randomUUID
         val idB   = UUID.randomUUID
         for {
-          _ <- pdocs.insert((id = idA, body = Jsonb(alice))).compile.run(s)
-          _ <- pdocs.insert((id = idB, body = Jsonb(bob))).compile.run(s)
+          _ <- pdocs.insert.values(
+            (id = idA, body = Jsonb(alice)),
+            (id = idB, body = Jsonb(bob))
+          ).compile.run(s)
 
           // Filter via .getText — jsonb ->> 'name' = 'alice'. The IO returns `List[Jsonb[Profile]]`; opaque-type
           // direction (`Jsonb[A] <: A`) means we need to widen explicitly to match the expected `List[Profile]`.

@@ -22,12 +22,10 @@ class SubquerySuite extends PgFixture {
         val uidA = UUID.randomUUID
         val uidB = UUID.randomUUID
         for {
-          _ <- users
-            .insert((id = uidA, email = "has-posts@x", age = 30, deleted_at = Option.empty[OffsetDateTime]))
-            .compile.run(s)
-          _ <- users
-            .insert((id = uidB, email = "no-posts@x", age = 31, deleted_at = Option.empty[OffsetDateTime]))
-            .compile.run(s)
+          _ <- users.insert.values(
+            (id = uidA, email = "has-posts@x", age = 30, deleted_at = Option.empty[OffsetDateTime]),
+            (id = uidB, email = "no-posts@x", age = 31, deleted_at = Option.empty[OffsetDateTime])
+          ).compile.run(s)
           _ <- posts.insert((id = UUID.randomUUID, user_id = uidA, title = "hello")).compile.run(s)
           _ <- assertIO(
             users
@@ -47,12 +45,10 @@ class SubquerySuite extends PgFixture {
         val uidWith = UUID.randomUUID
         val uidWO   = UUID.randomUUID
         for {
-          _ <- users
-            .insert((id = uidWith, email = "exw@x", age = 40, deleted_at = Option.empty[OffsetDateTime]))
-            .compile.run(s)
-          _ <- users
-            .insert((id = uidWO, email = "exo@x", age = 41, deleted_at = Option.empty[OffsetDateTime]))
-            .compile.run(s)
+          _ <- users.insert.values(
+            (id = uidWith, email = "exw@x", age = 40, deleted_at = Option.empty[OffsetDateTime]),
+            (id = uidWO, email = "exo@x", age = 41, deleted_at = Option.empty[OffsetDateTime])
+          ).compile.run(s)
           _ <- posts.insert((id = UUID.randomUUID, user_id = uidWith, title = "ex")).compile.run(s)
           // Inner query built inside the outer lambda — references u.id (an outer column) by closure. The
           // outer alias makes u.id render as "u"."id" so Postgres correlates it to the outer source.
@@ -75,12 +71,10 @@ class SubquerySuite extends PgFixture {
         val uidWith = UUID.randomUUID
         val uidWO   = UUID.randomUUID
         for {
-          _ <- users
-            .insert((id = uidWith, email = "nex-with@x", age = 50, deleted_at = Option.empty[OffsetDateTime]))
-            .compile.run(s)
-          _ <- users
-            .insert((id = uidWO, email = "nex-without@x", age = 51, deleted_at = Option.empty[OffsetDateTime]))
-            .compile.run(s)
+          _ <- users.insert.values(
+            (id = uidWith, email = "nex-with@x", age = 50, deleted_at = Option.empty[OffsetDateTime]),
+            (id = uidWO, email = "nex-without@x", age = 51, deleted_at = Option.empty[OffsetDateTime])
+          ).compile.run(s)
           _ <- posts.insert((id = UUID.randomUUID, user_id = uidWith, title = "nex")).compile.run(s)
           _ <- assertIO(
             users
@@ -106,8 +100,10 @@ class SubquerySuite extends PgFixture {
           _ <- users
             .insert((id = uid, email = "scalar@x", age = 22, deleted_at = Option.empty[OffsetDateTime]))
             .compile.run(s)
-          _ <- posts.insert((id = UUID.randomUUID, user_id = uid, title = "a")).compile.run(s)
-          _ <- posts.insert((id = UUID.randomUUID, user_id = uid, title = "b")).compile.run(s)
+          _ <- posts.insert.values(
+            (id = UUID.randomUUID, user_id = uid, title = "a"),
+            (id = UUID.randomUUID, user_id = uid, title = "b")
+          ).compile.run(s)
           _ <- assertIO(
             users
               .alias("u")
