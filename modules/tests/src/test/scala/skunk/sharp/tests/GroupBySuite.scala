@@ -1,6 +1,5 @@
 package skunk.sharp.tests
 
-import cats.effect.IO
 import cats.syntax.all.*
 import skunk.sharp.dsl.*
 
@@ -31,10 +30,9 @@ class GroupBySuite extends PgFixture {
               .compile
               .run(s)
           )
-          total  <- users.select(_ => Pg.countAll).compile.unique(s)
-          ageCnt <- users.select(u => Pg.count(u.age)).compile.unique(s)
+          total <- users.select(_ => Pg.countAll).compile.unique(s)
           _ = assert(total >= 3L, s"expected at least 3 rows, got $total")
-          _ = assertEquals(ageCnt, total)
+          _ <- assertIO(users.select(u => Pg.count(u.age)).compile.unique(s), total)
         } yield ()
       }
     }
@@ -170,22 +168,28 @@ class GroupBySuite extends PgFixture {
           _ <- users.insert((id = UUID.randomUUID, email = "ba1@x", age = bucket, deleted_at = None)).compile.run(s)
           _ <- users.insert((id = UUID.randomUUID, email = "ba2@x", age = bucket, deleted_at = None)).compile.run(s)
           // All rows in this bucket have age >= 10 — boolAnd should be true.
-          allPos <- users
-            .select(u => Pg.boolAnd(u.age >= 10))
-            .where(u => u.age === bucket)
-            .compile.unique(s)
+          _ <- assertIO(
+            users
+              .select(u => Pg.boolAnd(u.age >= 10))
+              .where(u => u.age === bucket)
+              .compile.unique(s),
+            true
+          )
           // Not all are ≥ 100 — boolAnd should be false, boolOr should also be false.
-          allBig <- users
-            .select(u => Pg.boolAnd(u.age >= 100))
-            .where(u => u.age === bucket)
-            .compile.unique(s)
-          anyBig <- users
-            .select(u => Pg.boolOr(u.age >= 100))
-            .where(u => u.age === bucket)
-            .compile.unique(s)
-          _ = assertEquals(allPos, true)
-          _ = assertEquals(allBig, false)
-          _ = assertEquals(anyBig, false)
+          _ <- assertIO(
+            users
+              .select(u => Pg.boolAnd(u.age >= 100))
+              .where(u => u.age === bucket)
+              .compile.unique(s),
+            false
+          )
+          _ <- assertIO(
+            users
+              .select(u => Pg.boolOr(u.age >= 100))
+              .where(u => u.age === bucket)
+              .compile.unique(s),
+            false
+          )
         } yield ()
       }
     }

@@ -49,13 +49,15 @@ class JsonbSuite extends PgFixture {
         val inactive = CirceJson.obj("status" -> CirceJson.fromString("inactive"), "n" -> CirceJson.fromInt(2))
         val probe    = CirceJson.obj("status" -> CirceJson.fromString("active"))
         for {
-          _   <- docs.insert((id = matches, body = Jsonb(active))).compile.run(s)
-          _   <- docs.insert((id = misses, body = Jsonb(inactive))).compile.run(s)
-          ids <- docs
-            .select(d => d.id)
-            .where(d => d.body.contains(lit(Jsonb(probe))))
-            .compile.run(s)
-          _ = assertEquals(ids.toSet, Set(matches))
+          _ <- docs.insert((id = matches, body = Jsonb(active))).compile.run(s)
+          _ <- docs.insert((id = misses, body = Jsonb(inactive))).compile.run(s)
+          _ <- assertIO(
+            docs
+              .select(d => d.id)
+              .where(d => d.body.contains(lit(Jsonb(probe))))
+              .compile.run(s).map(_.toSet),
+            Set(matches)
+          )
         } yield ()
       }
     }
@@ -69,14 +71,17 @@ class JsonbSuite extends PgFixture {
         val withEmail    = CirceJson.obj("email" -> CirceJson.fromString("a@x"), "tag" -> CirceJson.fromString("t"))
         val withoutEmail = CirceJson.obj("phone" -> CirceJson.fromString("555"))
         for {
-          _          <- docs.insert((id = a, body = Jsonb(withEmail))).compile.run(s)
-          _          <- docs.insert((id = b, body = Jsonb(withoutEmail))).compile.run(s)
-          withKey    <- docs.select(d => d.id).where(d => d.body.hasKey("email")).compile.run(s)
-          anyContact <- docs.select(d => d.id).where(d => d.body.hasAnyKey("email", "phone")).compile.run(s)
-          bothFields <- docs.select(d => d.id).where(d => d.body.hasAllKeys("email", "tag")).compile.run(s)
-          _ = assertEquals(withKey.toSet, Set(a))
-          _ = assertEquals(anyContact.toSet, Set(a, b))
-          _ = assertEquals(bothFields.toSet, Set(a))
+          _ <- docs.insert((id = a, body = Jsonb(withEmail))).compile.run(s)
+          _ <- docs.insert((id = b, body = Jsonb(withoutEmail))).compile.run(s)
+          _ <- assertIO(docs.select(d => d.id).where(d => d.body.hasKey("email")).compile.run(s).map(_.toSet), Set(a))
+          _ <- assertIO(
+            docs.select(d => d.id).where(d => d.body.hasAnyKey("email", "phone")).compile.run(s).map(_.toSet),
+            Set(a, b)
+          )
+          _ <- assertIO(
+            docs.select(d => d.id).where(d => d.body.hasAllKeys("email", "tag")).compile.run(s).map(_.toSet),
+            Set(a)
+          )
         } yield ()
       }
     }
@@ -127,27 +132,34 @@ class JsonbSuite extends PgFixture {
           _ <- pdocs.insert((id = idA, body = Jsonb(alice))).compile.run(s)
           _ <- pdocs.insert((id = idB, body = Jsonb(bob))).compile.run(s)
 
-          // Filter via .getText — jsonb ->> 'name' = 'alice'.
-          aliceOnly <- pdocs
-            .select(d => d.body) // decodes straight to Profile
-            .where(d => d.body.getText("name") === "jb-alice")
-            .compile.run(s)
+          // Filter via .getText — jsonb ->> 'name' = 'alice'. The IO returns `List[Jsonb[Profile]]`; opaque-type
+          // direction (`Jsonb[A] <: A`) means we need to widen explicitly to match the expected `List[Profile]`.
+          _ <- assertIO(
+            pdocs
+              .select(d => d.body)
+              .where(d => d.body.getText("name") === "jb-alice")
+              .compile.run(s)
+              .map(xs => xs: List[Profile]),
+            List(alice)
+          )
 
           // Filter via .contains — jsonb @> '{"name":"jb-alice"}'::jsonb.
-          containsAlice <- pdocs
-            .select(d => d.id)
-            .where(d => d.body.contains(lit(Jsonb[Cj](Cj.obj("name" -> Cj.fromString("jb-alice"))))))
-            .compile.run(s)
+          _ <- assertIO(
+            pdocs
+              .select(d => d.id)
+              .where(d => d.body.contains(lit(Jsonb[Cj](Cj.obj("name" -> Cj.fromString("jb-alice"))))))
+              .compile.run(s),
+            List(idA)
+          )
 
           // Project .getText as a String alongside .hasKey.
-          projected <- pdocs
-            .select(d => (d.id, d.body.getText("name"), d.body.hasKey("tags")))
-            .where(d => d.id === idA)
-            .compile.unique(s)
-
-          _ = assertEquals(aliceOnly, List(alice))
-          _ = assertEquals(containsAlice, List(idA))
-          _ = assertEquals(projected, (idA, "jb-alice", true))
+          _ <- assertIO(
+            pdocs
+              .select(d => (d.id, d.body.getText("name"), d.body.hasKey("tags")))
+              .where(d => d.id === idA)
+              .compile.unique(s),
+            (idA, "jb-alice", true)
+          )
         } yield ()
       }
     }
