@@ -12,11 +12,13 @@ class TableBuilderSuite extends munit.FunSuite {
     val users =
       Table
         .builder("users")
-        .column("id", uuid, primary = true)
-        .column("email", varchar(256), unique = true)
+        .column("id", uuid)
+        .column("email", varchar(256))
         .columnDefaulted("created_at", timestamptz)
         .columnOpt("deleted_at", timestamptz)
         .build
+        .withPrimary("id")
+        .withUnique("email")
 
     assertEquals(users.name, "users")
     assertEquals(users.schema, Option.empty[String])

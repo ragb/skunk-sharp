@@ -50,8 +50,5 @@ class TableOfSuite extends munit.FunSuite {
   }
 }
 
-/** Local helper: a tiny match type that extracts the `Default` phantom for a given column name. */
-type ColumnHasDefault[Cols <: Tuple, N <: String & Singleton] <: Boolean = Cols match {
-  case Column[t, N, nu, d] *: tail => d
-  case h *: tail                   => ColumnHasDefault[tail, N]
-}
+/** Local helper: checks whether the column named `N` in `Cols` has the `ColumnAttr.Default` marker. */
+type ColumnHasDefault[Cols <: Tuple, N <: String & Singleton] = skunk.sharp.ColumnDefault[Cols, N]

@@ -75,7 +75,7 @@ final class DeleteReady[Cols <: Tuple] private[sharp] (
   def returningAll: MutationReturning[NamedRowOf[Cols]] = {
     val exprs =
       table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
-        TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Boolean]])
+        TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
       )
     val codec = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
     new MutationReturning[NamedRowOf[Cols]](compileFragment, exprs, codec)

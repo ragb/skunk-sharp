@@ -61,8 +61,8 @@ enum JoinKind(val sql: String) {
  * Used for sources attached via LEFT JOIN, where all their columns may be `NULL` when no match is found.
  */
 type NullableCols[Cols <: Tuple] <: Tuple = Cols match {
-  case Column[t, n, nu, d] *: tail => Column[Option[t], n, true, d] *: NullableCols[tail]
-  case EmptyTuple                  => EmptyTuple
+  case Column[t, n, nu, attrs] *: tail => Column[Option[t], n, true, attrs] *: NullableCols[tail]
+  case EmptyTuple                      => EmptyTuple
 }
 
 /**
@@ -72,7 +72,7 @@ type NullableCols[Cols <: Tuple] <: Tuple = Cols match {
 private[sharp] def nullabilifyCols(cols: Tuple): Tuple = {
   val wrapped = cols.toList.map {
     case c: Column[?, ?, ?, ?] =>
-      Column[Any, "x", Boolean, Boolean](
+      Column[Any, "x", Boolean, Tuple](
         name = c.name.asInstanceOf["x"],
         tpe = c.tpe,
         codec = c.codec.asInstanceOf[Codec[Any]].opt.asInstanceOf[Codec[Any]],

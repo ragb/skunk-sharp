@@ -157,7 +157,7 @@ final class InsertCommand[Cols <: Tuple] private[sharp] (
   def returningAll: InsertReturning[Cols, NamedRowOf[Cols]] = {
     val exprs =
       table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
-        TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Boolean]])
+        TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
       )
     val codec = rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
     new InsertReturning[Cols, NamedRowOf[Cols]](this, exprs, codec)
@@ -169,15 +169,30 @@ final class InsertCommand[Cols <: Tuple] private[sharp] (
   def onConflictDoNothing: InsertCommand[Cols] = withConflict(OnConflict.DoNothing)
 
   /**
-   * Start a targeted `ON CONFLICT (col …) …` clause. Pick columns via the usual lambda. Pass a single column or a tuple
-   * of columns.
+   * Start a targeted `ON CONFLICT (col) …` clause on a single column. Requires `HasUniqueness[Cols, N]` evidence — the
+   * chosen column must be marked `.withPrimary(...)` or `.withUnique(...)`. Picking a column without either of those
+   * flags is a compile error; Postgres would otherwise raise at execution time ("no unique or exclusion constraint
+   * matching the ON CONFLICT specification").
    */
-  def onConflict(f: ColumnsView[Cols] => TypedColumn[?, ?] | Tuple): OnConflictBuilder[Cols] = {
+  def onConflict[T, Null <: Boolean, N <: String & Singleton](
+    f: ColumnsView[Cols] => TypedColumn[T, Null, N]
+  )(using
+    ev: HasUniqueness[Cols, N] =:= true
+  ): OnConflictBuilder[Cols] = {
+    val view = ColumnsView(table.columns)
+    val col  = f(view)
+    new OnConflictBuilder[Cols](this, List(col.name))
+  }
+
+  /**
+   * Start a targeted `ON CONFLICT (c1, c2, …) …` clause on a *composite* target. No `HasUniqueness` check happens here:
+   * composite unique constraints aren't declarable on the Scala side yet — see the `.withUniqueIndex(name, cols*)`
+   * roadmap item. Postgres still raises at execution time if the declared set doesn't match a composite unique /
+   * exclusion constraint.
+   */
+  def onConflictComposite(f: ColumnsView[Cols] => Tuple): OnConflictBuilder[Cols] = {
     val view  = ColumnsView(table.columns)
-    val names = f(view) match {
-      case c: TypedColumn[?, ?] => List(c.name)
-      case t: Tuple             => t.toList.asInstanceOf[List[TypedColumn[?, ?]]].map(_.name)
-    }
+    val names = f(view).toList.asInstanceOf[List[TypedColumn[?, ?, ?]]].map(_.name)
     new OnConflictBuilder[Cols](this, names)
   }
 

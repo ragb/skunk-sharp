@@ -32,8 +32,11 @@ package object dsl {
   /** Dedicated empty relation — `empty.select(_ => Pg.now)` renders as `SELECT now()`. */
   val empty: skunk.sharp.empty.type = skunk.sharp.empty
 
-  type Column[T, N <: String & Singleton, Null <: Boolean, Default <: Boolean] =
-    skunk.sharp.Column[T, N, Null, Default]
+  type Column[T, N <: String & Singleton, Null <: Boolean, Attrs <: Tuple] =
+    skunk.sharp.Column[T, N, Null, Attrs]
+
+  val ColumnAttr: skunk.sharp.ColumnAttr.type = skunk.sharp.ColumnAttr
+  type ColumnAttr = skunk.sharp.ColumnAttr
 
   type TypedExpr[T] = skunk.sharp.TypedExpr[T]
   val TypedExpr: skunk.sharp.TypedExpr.type = skunk.sharp.TypedExpr
@@ -44,7 +47,7 @@ package object dsl {
   // see them.
   export skunk.sharp.{as, cast}
 
-  type TypedColumn[T, Null <: Boolean] = skunk.sharp.TypedColumn[T, Null]
+  type TypedColumn[T, Null <: Boolean, N <: String & Singleton] = skunk.sharp.TypedColumn[T, Null, N]
 
   type ColumnsView[Cols <: Tuple] = skunk.sharp.ColumnsView[Cols]
   val ColumnsView: skunk.sharp.ColumnsView.type = skunk.sharp.ColumnsView

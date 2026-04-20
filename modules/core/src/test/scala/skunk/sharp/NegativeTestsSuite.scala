@@ -117,4 +117,94 @@ class NegativeTestsSuite extends munit.FunSuite {
     """)
     assert(errs.nonEmpty)
   }
+
+  // ---- .onConflict compile-time evidence (HasUniqueness) -------------------------------------
+
+  test(".onConflict accepts a column declared .withPrimary") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.*
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      import java.time.OffsetDateTime
+      val users = Table.of[User]("users").withPrimary("id")
+      users
+        .insert((
+          id = java.util.UUID.randomUUID,
+          email = "x",
+          age = 1,
+          created_at = OffsetDateTime.now(),
+          deleted_at = Option.empty[OffsetDateTime]
+        ))
+        .onConflict(u => u.id)
+        .doNothing
+        .compile
+    """)
+    assert(errs.isEmpty, s"expected no errors for PK column target; got: ${errs.map(_.message).mkString("\n")}")
+  }
+
+  test(".onConflict accepts a column declared .withUnique") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.*
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      import java.time.OffsetDateTime
+      val users = Table.of[User]("users").withUnique("email")
+      users
+        .insert((
+          id = java.util.UUID.randomUUID,
+          email = "x",
+          age = 1,
+          created_at = OffsetDateTime.now(),
+          deleted_at = Option.empty[OffsetDateTime]
+        ))
+        .onConflict(u => u.email)
+        .doNothing
+        .compile
+    """)
+    assert(errs.isEmpty, s"expected no errors for UNIQUE column target; got: ${errs.map(_.message).mkString("\n")}")
+  }
+
+  test(".onConflict rejects a column that is neither primary nor unique") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.*
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      import java.time.OffsetDateTime
+      val users = Table.of[User]("users").withPrimary("id").withUnique("email")
+      users
+        .insert((
+          id = java.util.UUID.randomUUID,
+          email = "x",
+          age = 1,
+          created_at = OffsetDateTime.now(),
+          deleted_at = Option.empty[OffsetDateTime]
+        ))
+        .onConflict(u => u.age)
+        .doNothing
+        .compile
+    """)
+    assert(errs.nonEmpty, "expected a compile error for non-unique column target")
+  }
+
+  test(".onConflict rejects when no constraints have been declared at all") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.*
+      import skunk.sharp.dsl.*
+      import NegativeTestsSuite.User
+      import java.time.OffsetDateTime
+      val users = Table.of[User]("users") // no .withPrimary / .withUnique
+      users
+        .insert((
+          id = java.util.UUID.randomUUID,
+          email = "x",
+          age = 1,
+          created_at = OffsetDateTime.now(),
+          deleted_at = Option.empty[OffsetDateTime]
+        ))
+        .onConflict(u => u.id)
+        .doNothing
+        .compile
+    """)
+    assert(errs.nonEmpty, "expected a compile error when the table has no declared constraints")
+  }
 }

@@ -32,7 +32,7 @@ class IronSuite extends munit.FunSuite {
     val people = Table.of[Person]("people")
     val cv     = ColumnsView(people.columns)
 
-    val emailCol: TypedColumn[Email, false] = cv.email
+    val emailCol: TypedColumn[Email, false, "email"] = cv.email
     assertEquals(emailCol.name, "email")
   }
 

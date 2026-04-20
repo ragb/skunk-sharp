@@ -549,7 +549,7 @@ final case class OrderBy(sql: String) {
   def nullsLast: OrderBy  = OrderBy(sql + " NULLS LAST")
 }
 
-extension [T, Null <: Boolean](col: TypedColumn[T, Null]) {
+extension [T, Null <: Boolean, N <: String & Singleton](col: TypedColumn[T, Null, N]) {
   def asc: OrderBy  = OrderBy(s"${col.sqlRef} ASC")
   def desc: OrderBy = OrderBy(s"${col.sqlRef} DESC")
 }

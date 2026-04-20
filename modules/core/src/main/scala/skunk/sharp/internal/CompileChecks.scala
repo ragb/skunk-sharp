@@ -31,9 +31,9 @@ object CompileChecks {
     inline erasedValue[Cols] match {
       case _: EmptyTuple =>
         ""
-      case _: (Column[t, n, nu, d] *: EmptyTuple) =>
+      case _: (Column[t, n, nu, attrs] *: EmptyTuple) =>
         constValue[n & String]
-      case _: (Column[t, n, nu, d] *: tail) =>
+      case _: (Column[t, n, nu, attrs] *: tail) =>
         constValue[n & String] + ", " + columnNamesString[tail]
     }
 
@@ -75,16 +75,17 @@ object CompileChecks {
    */
   inline def requireCoversRequired[Cols <: Tuple, Ns <: Tuple]: Unit =
     inline erasedValue[Cols] match {
-      case _: EmptyTuple                        => ()
-      case _: (Column[t, n, nu, false] *: tail) =>
-        inline if constValue[skunk.sharp.Contains[n, Ns]] then requireCoversRequired[tail, Ns]
+      case _: EmptyTuple                           => ()
+      case _: (Column[t, n, nu, attrs] *: tail)    =>
+        inline if constValue[skunk.sharp.Contains[skunk.sharp.ColumnAttr.Default, attrs]] then
+          requireCoversRequired[tail, Ns]
         else
-          error(
-            "skunk-sharp: insert is missing required column \"" + constValue[n & String] +
-              "\". Columns without a database default must be present in the row."
-          )
-      case _: (Column[t, n, nu, true] *: tail) =>
-        requireCoversRequired[tail, Ns]
+          inline if constValue[skunk.sharp.Contains[n, Ns]] then requireCoversRequired[tail, Ns]
+          else
+            error(
+              "skunk-sharp: insert is missing required column \"" + constValue[n & String] +
+                "\". Columns without a database default must be present in the row."
+            )
     }
 
   /**

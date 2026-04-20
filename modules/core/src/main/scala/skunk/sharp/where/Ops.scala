@@ -127,7 +127,7 @@ extension [T](lhs: TypedExpr[T])(using @unused ev: Stripped[T] <:< String) {
   def ilike(pattern: String): Where = binOp("ILIKE", lhs, TypedExpr.lit(pattern))
 }
 
-extension [T, Null <: Boolean](lhs: skunk.sharp.TypedColumn[T, Null]) {
+extension [T, Null <: Boolean, N <: String & Singleton](lhs: skunk.sharp.TypedColumn[T, Null, N]) {
 
   /** `lhs IS NULL`. Compiles only for nullable columns — non-nullable columns get a friendly compile error. */
   inline def isNull: Where = {
@@ -145,7 +145,7 @@ extension [T, Null <: Boolean](lhs: skunk.sharp.TypedColumn[T, Null]) {
 
 }
 
-private def nullCheck(col: skunk.sharp.TypedColumn[?, ?], suffix: String): Where = {
+private def nullCheck(col: skunk.sharp.TypedColumn[?, ?, ?], suffix: String): Where = {
   val af = col.render |+| TypedExpr.raw(suffix)
   Where(new TypedExpr[Boolean] {
     val render = af
