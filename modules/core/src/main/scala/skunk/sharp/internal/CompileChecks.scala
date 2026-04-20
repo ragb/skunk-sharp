@@ -31,9 +31,9 @@ object CompileChecks {
     inline erasedValue[Cols] match {
       case _: EmptyTuple =>
         ""
-      case _: (Column[t, n, nu, d] *: EmptyTuple) =>
+      case _: (Column[t, n, nu, d, p, u] *: EmptyTuple) =>
         constValue[n & String]
-      case _: (Column[t, n, nu, d] *: tail) =>
+      case _: (Column[t, n, nu, d, p, u] *: tail) =>
         constValue[n & String] + ", " + columnNamesString[tail]
     }
 
@@ -41,7 +41,7 @@ object CompileChecks {
    * Resolve a tuple of column names against `Cols` at compile time, returning the list of matching columns in order.
    * Unknown names trip the same friendly compile error as [[requireColumn]].
    */
-  inline def lookupColumns[Cols <: Tuple, Names <: Tuple](cols: Cols): List[Column[?, ?, ?, ?]] =
+  inline def lookupColumns[Cols <: Tuple, Names <: Tuple](cols: Cols): List[Column[?, ?, ?, ?, ?, ?]] =
     inline erasedValue[Names] match {
       case _: EmptyTuple =>
         Nil
@@ -51,7 +51,7 @@ object CompileChecks {
         val found =
           cols
             .toList
-            .asInstanceOf[List[Column[?, ?, ?, ?]]]
+            .asInstanceOf[List[Column[?, ?, ?, ?, ?, ?]]]
             .find(_.name == name)
             .getOrElse(sys.error(s"skunk-sharp: column $name passed compile check but not found at runtime"))
         found :: lookupColumns[Cols, rest](cols)
@@ -75,15 +75,15 @@ object CompileChecks {
    */
   inline def requireCoversRequired[Cols <: Tuple, Ns <: Tuple]: Unit =
     inline erasedValue[Cols] match {
-      case _: EmptyTuple                        => ()
-      case _: (Column[t, n, nu, false] *: tail) =>
+      case _: EmptyTuple                              => ()
+      case _: (Column[t, n, nu, false, p, u] *: tail) =>
         inline if constValue[skunk.sharp.Contains[n, Ns]] then requireCoversRequired[tail, Ns]
         else
           error(
             "skunk-sharp: insert is missing required column \"" + constValue[n & String] +
               "\". Columns without a database default must be present in the row."
           )
-      case _: (Column[t, n, nu, true] *: tail) =>
+      case _: (Column[t, n, nu, true, p, u] *: tail) =>
         requireCoversRequired[tail, Ns]
     }
 

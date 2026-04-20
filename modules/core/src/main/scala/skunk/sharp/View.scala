@@ -29,7 +29,7 @@ final case class View[Cols <: Tuple, Name <: String & Singleton](
 
   /** Primitive column-metadata rewrite (parallel to [[Table.withColumn]]). */
   inline def withColumn[N <: String & Singleton](inline n: N)(
-    f: Column[Any, N, Boolean, Boolean] => Column[Any, N, Boolean, Boolean]
+    f: Column[Any, N, Boolean, Boolean, Boolean, Boolean] => Column[Any, N, Boolean, Boolean, Boolean, Boolean]
   ): View[Cols, Name] = {
     skunk.sharp.internal.CompileChecks.requireColumn[Cols, N]
     copy(columns = Table.updateCol[Cols, N](columns, n, f).asInstanceOf[Cols])
@@ -84,33 +84,41 @@ final class ViewBuilder[Cols <: Tuple, Name <: String & Singleton](
   inline def column[T, N <: String & Singleton](
     n: N,
     codec: Codec[T]
-  ): ViewBuilder[Tuple.Append[Cols, Column[T, N, false, false]], Name] = {
-    val col = Column[T, N, false, false](
+  ): ViewBuilder[Tuple.Append[Cols, Column[T, N, false, false, false, false]], Name] = {
+    val col = Column[T, N, false, false, false, false](
       name = n,
       tpe = PgTypes.typeOf(codec),
       codec = codec,
       isNullable = false,
-      hasDefault = false
+      hasDefault = false,
+      isPrimary = false,
+      isUnique = false
     )
-    new ViewBuilder(name, schema, (columns :* col).asInstanceOf[Tuple.Append[Cols, Column[T, N, false, false]]])
+    new ViewBuilder(
+      name,
+      schema,
+      (columns :* col).asInstanceOf[Tuple.Append[Cols, Column[T, N, false, false, false, false]]]
+    )
   }
 
   /** Nullable column (codec wrapped with `.opt` internally). */
   inline def columnOpt[T, N <: String & Singleton](
     n: N,
     codec: Codec[T]
-  ): ViewBuilder[Tuple.Append[Cols, Column[Option[T], N, true, false]], Name] = {
-    val col = Column[Option[T], N, true, false](
+  ): ViewBuilder[Tuple.Append[Cols, Column[Option[T], N, true, false, false, false]], Name] = {
+    val col = Column[Option[T], N, true, false, false, false](
       name = n,
       tpe = PgTypes.typeOf(codec),
       codec = codec.opt,
       isNullable = true,
-      hasDefault = false
+      hasDefault = false,
+      isPrimary = false,
+      isUnique = false
     )
     new ViewBuilder(
       name,
       schema,
-      (columns :* col).asInstanceOf[Tuple.Append[Cols, Column[Option[T], N, true, false]]]
+      (columns :* col).asInstanceOf[Tuple.Append[Cols, Column[Option[T], N, true, false, false, false]]]
     )
   }
 

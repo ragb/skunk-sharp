@@ -11,18 +11,32 @@ import skunk.data.Type
  *     types (`HasColumn`, `ColumnAt`) look up columns by name at compile time.
  *   - `Null` — `true` iff the column is nullable.
  *   - `Default` — `true` iff the column has a database-side default (and therefore may be omitted in INSERT).
+ *   - `IsPrimary` — `true` iff the column was marked via `.withPrimary(...)`. Enables compile-time evidence for
+ *     `.onConflict(...)` targeting — Postgres requires the conflict target to be backed by a unique or exclusion
+ *     constraint.
+ *   - `IsUnique` — `true` iff the column was marked via `.withUnique(...)`. Same evidence role as `IsPrimary`.
+ *
+ * `isPrimary` / `isUnique` are singleton-typed term fields so they carry the phantom on construction — Scala infers
+ * `IsPrimary` / `IsUnique` from the `false` / `true` argument literals.
  *
  * `tpe` is the skunk [[skunk.data.Type]] of the column — we store it rather than a custom enum so we inherit skunk's
  * full built-in type registry.
  */
-final case class Column[T, N <: String & Singleton, Null <: Boolean, Default <: Boolean](
+final case class Column[
+  T,
+  N <: String & Singleton,
+  Null <: Boolean,
+  Default <: Boolean,
+  IsPrimary <: Boolean,
+  IsUnique <: Boolean
+](
   name: N,
   tpe: Type,
   codec: Codec[T],
   isNullable: Null,
   hasDefault: Default,
-  isPrimary: Boolean = false,
-  isUnique: Boolean = false
+  isPrimary: IsPrimary,
+  isUnique: IsUnique
 ) {
 
   def qualifiedIdent: String = s""""$name""""

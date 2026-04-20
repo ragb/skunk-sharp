@@ -13,7 +13,7 @@ object InsertSuite {
 class InsertSuite extends munit.FunSuite {
   import InsertSuite.Task
 
-  private val tasks = Table.of[Task]("tasks")
+  private val tasks = Table.of[Task]("tasks").withPrimary("id")
 
   test("insert renders column list and placeholders") {
     val af = tasks

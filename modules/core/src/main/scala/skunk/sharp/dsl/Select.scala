@@ -196,7 +196,7 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
   def compile(using ev: IsSingleSource[Ss]): CompiledQuery[NamedRowOf[ev.Cols]] = {
     val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
     val head    = entries.head
-    val cols    = head.effectiveCols.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
+    val cols    = head.effectiveCols.toList.asInstanceOf[List[Column[?, ?, ?, ?, ?, ?]]]
     val projStr = cols.map(c => s""""${c.name}"""").mkString(", ")
     val keyword = if (distinct) "SELECT DISTINCT " else "SELECT "
     val header  =
@@ -549,7 +549,7 @@ final case class OrderBy(sql: String) {
   def nullsLast: OrderBy  = OrderBy(sql + " NULLS LAST")
 }
 
-extension [T, Null <: Boolean](col: TypedColumn[T, Null]) {
+extension [T, Null <: Boolean, N <: String & Singleton](col: TypedColumn[T, Null, N]) {
   def asc: OrderBy  = OrderBy(s"${col.sqlRef} ASC")
   def desc: OrderBy = OrderBy(s"${col.sqlRef} DESC")
 }

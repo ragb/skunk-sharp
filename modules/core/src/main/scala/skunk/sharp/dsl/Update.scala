@@ -109,8 +109,8 @@ final class UpdateReady[Cols <: Tuple] private[sharp] (
   /** Append `RETURNING <all columns>` — whole-row projection (same shape as the table's default SELECT). */
   def returningAll: MutationReturning[NamedRowOf[Cols]] = {
     val exprs =
-      table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
-        TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Boolean]])
+      table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?, ?, ?]]].map(c =>
+        TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Boolean, Boolean, Boolean]])
       )
     val codec = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
     new MutationReturning[NamedRowOf[Cols]](compileFragment, exprs, codec)
@@ -137,14 +137,14 @@ final class MutationReturning[R] private[sharp] (
 }
 
 /** One `column = expression` assignment in an UPDATE SET list. */
-final case class SetAssignment[T](col: TypedColumn[T, ?], expr: TypedExpr[T]) {
+final case class SetAssignment[T](col: TypedColumn[T, ?, ?], expr: TypedExpr[T]) {
 
   def render: AppliedFragment =
     TypedExpr.raw(s""""${col.name}" = """) |+| expr.render
 
 }
 
-extension [T, Null <: Boolean](col: TypedColumn[T, Null]) {
+extension [T, Null <: Boolean, N <: String & Singleton](col: TypedColumn[T, Null, N]) {
 
   /** `col = value` assignment. */
   def :=(value: T)(using pf: PgTypeFor[T]): SetAssignment[T] =

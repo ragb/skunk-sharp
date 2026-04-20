@@ -141,7 +141,7 @@ object SchemaValidator {
     relation: Relation[?],
     rows: List[ConstraintRow]
   ): ValidationReport = {
-    val cols                          = relation.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
+    val cols                          = relation.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?, ?, ?]]]
     val declaredPkCols: Set[String]   = cols.filter(_.isPrimary).map(_.name: String).toSet
     val declaredUniqCols: Set[String] = cols.filter(c => c.isUnique && !c.isPrimary).map(_.name: String).toSet
 
@@ -173,7 +173,7 @@ object SchemaValidator {
   }
 
   private def diffColumns(label: String, relation: Relation[?], actual: List[ColumnInfo]): ValidationReport = {
-    val declared = relation.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
+    val declared = relation.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?, ?, ?]]]
     val byName   = actual.map(c => c.name -> c).toMap
 
     // Postgres reports every view column as nullable in information_schema regardless of the underlying base-table
