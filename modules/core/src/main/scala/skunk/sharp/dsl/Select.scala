@@ -24,7 +24,8 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
   private[sharp] val orderBys: List[OrderBy] = Nil,
   private[sharp] val limitOpt: Option[Int] = None,
   private[sharp] val offsetOpt: Option[Int] = None,
-  private[sharp] val lockingOpt: Option[Locking] = None
+  private[sharp] val lockingOpt: Option[Locking] = None,
+  private[sharp] val distinctOnOpt: Option[List[TypedExpr[?]]] = None
 ) {
 
   private def copy(
@@ -35,9 +36,21 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
     orderBys: List[OrderBy] = orderBys,
     limitOpt: Option[Int] = limitOpt,
     offsetOpt: Option[Int] = offsetOpt,
-    lockingOpt: Option[Locking] = lockingOpt
+    lockingOpt: Option[Locking] = lockingOpt,
+    distinctOnOpt: Option[List[TypedExpr[?]]] = distinctOnOpt
   ): SelectBuilder[Ss] =
-    new SelectBuilder[Ss](sources, distinct, whereOpt, groupBys, havingOpt, orderBys, limitOpt, offsetOpt, lockingOpt)
+    new SelectBuilder[Ss](
+      sources,
+      distinct,
+      whereOpt,
+      groupBys,
+      havingOpt,
+      orderBys,
+      limitOpt,
+      offsetOpt,
+      lockingOpt,
+      distinctOnOpt
+    )
 
   private def view: SelectView[Ss] = buildSelectView[Ss](sources)
 
@@ -78,6 +91,23 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
 
   /** `SELECT DISTINCT …`. */
   def distinctRows: SelectBuilder[Ss] = copy(distinct = true)
+
+  /**
+   * `SELECT DISTINCT ON (e1, e2, …) …` — Postgres-specific distinct-by-subset. Keeps exactly one row per `(e1, e2, …)`
+   * tuple, chosen by the leftmost matching ORDER BY prefix. Passing nothing for ORDER BY leaves the choice
+   * *implementation-defined* — per the Postgres docs, the "first" row's identity depends on physical row order, so
+   * always combine with ORDER BY in practice.
+   *
+   * Mutually exclusive with `.distinctRows` at Postgres's level; we don't gate that at compile time — if both are set,
+   * the DISTINCT ON form wins in rendering (keyword order in SQL doesn't allow both together).
+   */
+  def distinctOn(f: SelectView[Ss] => TypedExpr[?] | Tuple): SelectBuilder[Ss] = {
+    val exprs = f(view) match {
+      case e: TypedExpr[?] => List(e)
+      case t: Tuple        => t.toList.asInstanceOf[List[TypedExpr[?]]]
+    }
+    copy(distinctOnOpt = Some(exprs))
+  }
 
   // ---- Row-level locking (single-source Table only) ---------------------------------------------
 
@@ -283,7 +313,8 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
           orderBys,
           limitOpt,
           offsetOpt,
-          lockingOpt
+          lockingOpt,
+          distinctOnOpt
         )
       case tup: NonEmptyTuple =>
         val exprs = tup.toList.asInstanceOf[List[TypedExpr[?]]]
@@ -299,7 +330,8 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
           orderBys,
           limitOpt,
           offsetOpt,
-          lockingOpt
+          lockingOpt,
+          distinctOnOpt
         )
     }
   }
@@ -312,16 +344,17 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
    * `.select(f)`.
    */
   def compile(using ev: IsSingleSource[Ss]): CompiledQuery[NamedRowOf[ev.Cols]] = {
-    val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
-    val head    = entries.head
-    val cols    = head.effectiveCols.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
-    val projStr = cols.map(c => s""""${c.name}"""").mkString(", ")
-    val keyword = if (distinct) "SELECT DISTINCT " else "SELECT "
-    val header  =
+    val entries        = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
+    val head           = entries.head
+    val cols           = head.effectiveCols.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
+    val projStr        = cols.map(c => s""""${c.name}"""").mkString(", ")
+    val selectPrefix   = renderSelectPrefix(distinct, distinctOnOpt)
+    val headerNoSelect =
       if (head.relation.hasFromClause)
-        TypedExpr.raw(s"$keyword$projStr FROM ") |+| aliasedFromEntry(head)
+        TypedExpr.raw(s"$projStr FROM ") |+| aliasedFromEntry(head)
       else
-        TypedExpr.raw(s"$keyword$projStr")
+        TypedExpr.raw(projStr)
+    val header      = selectPrefix |+| headerNoSelect
     val withClauses = renderClauses(header, whereOpt, groupBys, havingOpt, orderBys, limitOpt, offsetOpt, lockingOpt)
     CompiledQuery(withClauses, rowCodec(head.effectiveCols).asInstanceOf[Codec[NamedRowOf[ev.Cols]]])
   }
@@ -347,7 +380,8 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
   private[sharp] val orderBys: List[OrderBy],
   private[sharp] val limitOpt: Option[Int],
   private[sharp] val offsetOpt: Option[Int],
-  private[sharp] val lockingOpt: Option[Locking] = None
+  private[sharp] val lockingOpt: Option[Locking] = None,
+  private[sharp] val distinctOnOpt: Option[List[TypedExpr[?]]] = None
 ) {
 
   private def copy(
@@ -360,7 +394,8 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
     orderBys: List[OrderBy] = orderBys,
     limitOpt: Option[Int] = limitOpt,
     offsetOpt: Option[Int] = offsetOpt,
-    lockingOpt: Option[Locking] = lockingOpt
+    lockingOpt: Option[Locking] = lockingOpt,
+    distinctOnOpt: Option[List[TypedExpr[?]]] = distinctOnOpt
   ): ProjectedSelect[Ss, Proj, Groups, Row] =
     new ProjectedSelect[Ss, Proj, Groups, Row](
       sources,
@@ -373,7 +408,8 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
       orderBys,
       limitOpt,
       offsetOpt,
-      lockingOpt
+      lockingOpt,
+      distinctOnOpt
     )
 
   private def view: SelectView[Ss] = buildSelectView[Ss](sources)
@@ -413,7 +449,8 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
       orderBys,
       limitOpt,
       offsetOpt,
-      lockingOpt
+      lockingOpt,
+      distinctOnOpt
     )
   }
 
@@ -426,6 +463,18 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
   def offset(n: Int): ProjectedSelect[Ss, Proj, Groups, Row] = copy(offsetOpt = Some(n))
 
   def distinctRows: ProjectedSelect[Ss, Proj, Groups, Row] = copy(distinct = true)
+
+  /**
+   * `SELECT DISTINCT ON (e1, e2, …) …`. Same semantics as [[SelectBuilder.distinctOn]]. Combine with a compatible ORDER
+   * BY to make the "first row" choice deterministic.
+   */
+  def distinctOn(f: SelectView[Ss] => TypedExpr[?] | Tuple): ProjectedSelect[Ss, Proj, Groups, Row] = {
+    val exprs = f(view) match {
+      case e: TypedExpr[?] => List(e)
+      case t: Tuple        => t.toList.asInstanceOf[List[TypedExpr[?]]]
+    }
+    copy(distinctOnOpt = Some(exprs))
+  }
 
   def forUpdate(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, Row] =
     copy(lockingOpt = Some(Locking(LockMode.ForUpdate)))
@@ -466,7 +515,8 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
       orderBys,
       limitOpt,
       offsetOpt,
-      lockingOpt
+      lockingOpt,
+      distinctOnOpt
     )
   }
 
@@ -476,15 +526,15 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
    * is declared, the check is vacuous.
    */
   def compile(using @scala.annotation.unused ev: GroupCoverage[Proj, Groups]): CompiledQuery[Row] = {
-    val entries  = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
-    val projList = TypedExpr.joined(projections.map(_.render), ", ")
-    val keyword  = if (distinct) "SELECT DISTINCT " else "SELECT "
-    val header   =
+    val entries      = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
+    val projList     = TypedExpr.joined(projections.map(_.render), ", ")
+    val selectPrefix = renderSelectPrefix(distinct, distinctOnOpt)
+    val header       =
       if (entries.isEmpty || !entries.head.relation.hasFromClause)
-        TypedExpr.raw(keyword) |+| projList
+        selectPrefix |+| projList
       else {
         val head     = entries.head
-        val headFrag = TypedExpr.raw(keyword) |+| projList |+| TypedExpr.raw(" FROM ") |+| aliasedFromEntry(head)
+        val headFrag = selectPrefix |+| projList |+| TypedExpr.raw(" FROM ") |+| aliasedFromEntry(head)
         entries.tail.foldLeft(headFrag) { (acc, s) =>
           val lateralKw = if (s.isLateral) " LATERAL" else ""
           val fromFrag  = TypedExpr.raw(s" ${s.kind.sql}$lateralKw ") |+| aliasedFromEntry(s)
@@ -496,6 +546,27 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
   }
 
 }
+
+/**
+ * Render the `SELECT`-keyword prefix with trailing space. Three shapes, in Postgres-order precedence:
+ *   - `SELECT DISTINCT ON (e1, e2) ` — wins over plain DISTINCT when `distinctOnOpt` is set (the two forms can't
+ *     coexist in SQL).
+ *   - `SELECT DISTINCT ` — when `distinct` is true.
+ *   - `SELECT ` — otherwise.
+ */
+private[dsl] def renderSelectPrefix(
+  distinct: Boolean,
+  distinctOnOpt: Option[List[TypedExpr[?]]]
+): skunk.AppliedFragment =
+  distinctOnOpt match {
+    case Some(exprs) =>
+      TypedExpr.raw("SELECT DISTINCT ON (") |+|
+        TypedExpr.joined(exprs.map(_.render), ", ") |+|
+        TypedExpr.raw(") ")
+    case None =>
+      if (distinct) TypedExpr.raw("SELECT DISTINCT ")
+      else TypedExpr.raw("SELECT ")
+  }
 
 // ---- Shared render helper ---------------------------------------------------------------------
 

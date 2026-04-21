@@ -111,6 +111,68 @@ private def betweenRender[T](
     val codec = skunk.codec.all.bool
   }
 
+/**
+ * ANY / ALL quantifier over a subquery RHS. Renders as `<lhs> <op> ANY (<subquery>)` or `<lhs> <op> ALL (<subquery>)`.
+ *
+ *   - `ANY` is true iff the comparison holds for *at least one* row.
+ *   - `ALL` is true iff the comparison holds for *every* row (and vacuously true for an empty subquery).
+ *
+ * `<op>` is any of `<`, `<=`, `>`, `>=` — the ordering forms are the interesting ones. `= ANY` is synonymous with
+ * `col IN (subquery)`, already reachable via [[in]]. `<> ALL` is synonymous with `NOT IN`.
+ */
+private def quantifiedRender[T, Q, ET](
+  lhs: TypedExpr[T],
+  op: String,
+  quant: String,
+  q: Q
+)(using ev: skunk.sharp.dsl.AsSubquery[Q, ET]): Where = {
+  val rendered = ev.render(q)
+  new TypedExpr[Boolean] {
+    val render =
+      lhs.render |+|
+        TypedExpr.raw(s" $op $quant (") |+|
+        rendered() |+|
+        TypedExpr.raw(")")
+    val codec = skunk.codec.all.bool
+  }
+}
+
+extension [T](lhs: TypedExpr[T])(using @unused ord: cats.Order[Stripped[T]]) {
+
+  /** `lhs < ANY (subquery)` — true if `lhs` is strictly less than at least one subquery element. */
+  def ltAny[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where =
+    quantifiedRender[T, Q, Stripped[T]](lhs, "<", "ANY", q)
+
+  /** `lhs <= ANY (subquery)`. */
+  def lteAny[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where =
+    quantifiedRender[T, Q, Stripped[T]](lhs, "<=", "ANY", q)
+
+  /** `lhs > ANY (subquery)`. */
+  def gtAny[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where =
+    quantifiedRender[T, Q, Stripped[T]](lhs, ">", "ANY", q)
+
+  /** `lhs >= ANY (subquery)`. */
+  def gteAny[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where =
+    quantifiedRender[T, Q, Stripped[T]](lhs, ">=", "ANY", q)
+
+  /** `lhs < ALL (subquery)` — true if `lhs` is strictly less than every subquery element (vacuously for empty). */
+  def ltAll[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where =
+    quantifiedRender[T, Q, Stripped[T]](lhs, "<", "ALL", q)
+
+  /** `lhs <= ALL (subquery)`. */
+  def lteAll[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where =
+    quantifiedRender[T, Q, Stripped[T]](lhs, "<=", "ALL", q)
+
+  /** `lhs > ALL (subquery)`. */
+  def gtAll[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where =
+    quantifiedRender[T, Q, Stripped[T]](lhs, ">", "ALL", q)
+
+  /** `lhs >= ALL (subquery)`. */
+  def gteAll[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where =
+    quantifiedRender[T, Q, Stripped[T]](lhs, ">=", "ALL", q)
+
+}
+
 extension [T](lhs: TypedExpr[T]) {
 
   /**
