@@ -230,6 +230,86 @@ class JoinSuite extends PgFixture {
     }
   }
 
+  test("CROSS JOIN LATERAL returns top-N posts per user — classic per-group top-K pattern") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val tag  = "lateral-topn"
+        val uid1 = UUID.randomUUID
+        val uid2 = UUID.randomUUID
+        val no   = Option.empty[OffsetDateTime]
+        for {
+          _ <- users.insert.values(
+            (id = uid1, email = s"u1-$tag@x", age = 30, deleted_at = no),
+            (id = uid2, email = s"u2-$tag@x", age = 40, deleted_at = no)
+          ).compile.run(s)
+          // Seed 3 posts per user; LATERAL should surface only the 2 most-recent per user (top-K = 2).
+          _ <- posts.insert.values(
+            (id = UUID.randomUUID, user_id = uid1, title = s"u1-p1-$tag"),
+            (id = UUID.randomUUID, user_id = uid1, title = s"u1-p2-$tag"),
+            (id = UUID.randomUUID, user_id = uid1, title = s"u1-p3-$tag"),
+            (id = UUID.randomUUID, user_id = uid2, title = s"u2-p1-$tag"),
+            (id = UUID.randomUUID, user_id = uid2, title = s"u2-p2-$tag"),
+            (id = UUID.randomUUID, user_id = uid2, title = s"u2-p3-$tag")
+          ).compile.run(s)
+          // Per-user top 2 posts by created_at DESC, via LATERAL with a correlated inner WHERE + LIMIT.
+          pairs <- users
+            .alias("u")
+            .crossJoinLateral(o =>
+              posts.select
+                .where(p => p.user_id ==== o.id)
+                .orderBy(p => p.created_at.desc)
+                .limit(2)
+                .alias("recent")
+            )
+            .select(r => (r.u.email, r.recent.title))
+            .where(r => r.u.email.like(s"%-$tag@x"))
+            .compile.run(s).map(_.toSet)
+          _ = assertEquals(pairs.size, 4) // 2 users × top 2 posts each
+          _ = assert(pairs.forall((email, _) => email.endsWith(s"-$tag@x")), s"unexpected emails: $pairs")
+        } yield ()
+      }
+    }
+  }
+
+  test("LEFT JOIN LATERAL — users without posts still surface, with Option(None) on the lateral side") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val tag      = "lateral-left"
+        val withPost = UUID.randomUUID
+        val solo     = UUID.randomUUID
+        val no       = Option.empty[OffsetDateTime]
+        for {
+          _ <- users.insert.values(
+            (id = withPost, email = s"wp-$tag@x", age = 25, deleted_at = no),
+            (id = solo, email = s"solo-$tag@x", age = 25, deleted_at = no)
+          ).compile.run(s)
+          _ <- posts
+            .insert((id = UUID.randomUUID, user_id = withPost, title = s"only-post-$tag"))
+            .compile.run(s)
+          rows <- users
+            .alias("u")
+            .leftJoinLateral(o =>
+              posts.select
+                .where(p => p.user_id ==== o.id)
+                .limit(1)
+                .alias("latest")
+            )
+            .on(_ => Pg.True)
+            .select(r => (r.u.email, r.latest.title))
+            .where(r => r.u.email.like(s"%-$tag@x"))
+            .compile.run(s).map(_.toSet)
+          _ = assertEquals(
+            rows,
+            Set[(String, Option[String])](
+              (s"wp-$tag@x", Some(s"only-post-$tag")),
+              (s"solo-$tag@x", None) // no post → LEFT LATERAL null-pads the lateral side
+            )
+          )
+        } yield ()
+      }
+    }
+  }
+
   test("FULL OUTER JOIN returns NULL on either side for rows present only on one") {
     withContainers { containers =>
       session(containers).use { s =>

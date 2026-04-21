@@ -239,6 +239,63 @@ class JoinSuite extends munit.FunSuite {
     )
   }
 
+  // ---- LATERAL joins --------------------------------------------------------------------------
+  //
+  // LATERAL unlocks correlation in FROM — the inner subquery can reference the outer source's columns directly in
+  // its own `.where` / `.limit`. Today's `.alias` only works on whole-row SelectBuilder (projected `.select(f)`
+  // doesn't yet support `.alias`), so the inner shape is always `base.select.where(…).limit(N).alias("x")` — the
+  // outer query can still project just what it wants from the resulting relation.
+
+  test("INNER JOIN LATERAL renders LATERAL keyword; inner WHERE correlates against outer cols") {
+    val af = users
+      .innerJoinLateral(u => posts.select.where(p => p.user_id ==== u.id).limit(3).alias("recent"))
+      .on(_ => Pg.True)
+      .select(r => (r.users.email, r.recent.title))
+      .compile
+      .af
+
+    assertEquals(
+      af.fragment.sql,
+      """SELECT "users"."email", "recent"."title" FROM "users" INNER JOIN LATERAL (SELECT "id", "user_id", "title", "created_at" FROM "posts" WHERE "user_id" = "users"."id" LIMIT 3) AS "recent" ON TRUE"""
+    )
+  }
+
+  test("CROSS JOIN LATERAL — no .on required, transitions straight to SelectBuilder") {
+    val af = users
+      .crossJoinLateral(u => posts.select.where(p => p.user_id ==== u.id).limit(1).alias("top"))
+      .select(r => (r.users.email, r.top.title))
+      .compile
+      .af
+
+    assertEquals(
+      af.fragment.sql,
+      """SELECT "users"."email", "top"."title" FROM "users" CROSS JOIN LATERAL (SELECT "id", "user_id", "title", "created_at" FROM "posts" WHERE "user_id" = "users"."id" LIMIT 1) AS "top""""
+    )
+  }
+
+  test("LEFT JOIN LATERAL — lateral cols decode as Option when the inner produces zero rows") {
+    val q: CompiledQuery[(String, Option[String])] = users
+      .leftJoinLateral(u => posts.select.where(p => p.user_id ==== u.id).limit(1).alias("top"))
+      .on(_ => Pg.True)
+      .select(r => (r.users.email, r.top.title))
+      .compile
+
+    assert(q.af.fragment.sql.contains("LEFT JOIN LATERAL"), q.af.fragment.sql)
+  }
+
+  test("chained LATERAL after an INNER JOIN — multi-source outer view reaches inner WHERE") {
+    val af = users
+      .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
+      .innerJoinLateral(r => tags.select.where(t => t.post_id ==== r.posts.id).limit(2).alias("top_tags"))
+      .on(_ => Pg.True)
+      .select(r => (r.users.email, r.posts.title, r.top_tags.name))
+      .compile
+      .af
+
+    assert(af.fragment.sql.contains("INNER JOIN LATERAL"), af.fragment.sql)
+    assert(af.fragment.sql.contains("""WHERE "post_id" = "posts"."id""""), af.fragment.sql)
+  }
+
   test("LEFT then FULL — LEFT-nullabilified cols stay Option (no double-wrapping) under FULL") {
     // posts was already Option[_] from LEFT. FULL also nullabilifies users. The Scala type must NOT go to
     // Option[Option[_]] for posts — NullableCol is idempotent on already-nullable columns. In the inner ON of the
@@ -246,7 +303,7 @@ class JoinSuite extends munit.FunSuite {
     // raw comparisons there by round-tripping through literals that match both sides at the bare types.
     val q: CompiledQuery[(Option[String], Option[String], Option[String])] = users
       .leftJoin(posts).on(r => r.users.id ==== r.posts.user_id)
-      .fullJoin(tags).on(_ => lit(true))
+      .fullJoin(tags).on(_ => Pg.True)
       .select(r => (r.users.email, r.posts.title, r.tags.name))
       .compile
 
