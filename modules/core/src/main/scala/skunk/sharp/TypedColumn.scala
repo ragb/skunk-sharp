@@ -16,7 +16,8 @@ final class TypedColumn[T, Null <: Boolean, N <: String & Singleton](
   val name: N,
   val codec: Codec[T],
   val qualifier: Option[String] = None,
-  val quoteQualifier: Boolean = true
+  val quoteQualifier: Boolean = true,
+  val nullable: Boolean = false
 ) extends TypedExpr[T] {
 
   /** SQL identifier form — `"name"` or `"alias"."name"` / `alias."name"` depending on qualifier state. */
@@ -40,7 +41,7 @@ object TypedColumn {
   def of[T, N <: String & Singleton, Null <: Boolean, Attrs <: Tuple](
     c: Column[T, N, Null, Attrs]
   ): TypedColumn[T, Null, N] =
-    new TypedColumn[T, Null, N](c.name, c.codec)
+    new TypedColumn[T, Null, N](c.name, c.codec, nullable = c.isNullable)
 
   /**
    * Build a `TypedColumn` whose rendering is prefixed with a table/alias qualifier (`"u"."col"`). By default the
@@ -50,7 +51,7 @@ object TypedColumn {
     c: Column[T, N, Null, Attrs],
     qualifier: String
   ): TypedColumn[T, Null, N] =
-    new TypedColumn[T, Null, N](c.name, c.codec, Some(qualifier), quoteQualifier = true)
+    new TypedColumn[T, Null, N](c.name, c.codec, Some(qualifier), quoteQualifier = true, nullable = c.isNullable)
 
   /**
    * Same as [[qualified]] but leaves the qualifier unquoted in the SQL (`excluded."col"` instead of
@@ -61,6 +62,6 @@ object TypedColumn {
     c: Column[T, N, Null, Attrs],
     qualifier: String
   ): TypedColumn[T, Null, N] =
-    new TypedColumn[T, Null, N](c.name, c.codec, Some(qualifier), quoteQualifier = false)
+    new TypedColumn[T, Null, N](c.name, c.codec, Some(qualifier), quoteQualifier = false, nullable = c.isNullable)
 
 }

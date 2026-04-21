@@ -271,6 +271,47 @@ class JoinSuite extends PgFixture {
     }
   }
 
+  test("INNER JOIN LATERAL against a projected SELECT — per-user top-N with trimmed inner projection") {
+    // Same per-group top-K shape as the CROSS LATERAL test, but the inner query projects only the title column
+    // instead of the whole row. Exercises `.alias` on a `ProjectedSelect` (derived relation with a narrow column
+    // tuple) as the lateral source.
+    withContainers { containers =>
+      session(containers).use { s =>
+        val tag  = "lateral-proj"
+        val uid1 = UUID.randomUUID
+        val uid2 = UUID.randomUUID
+        val no   = Option.empty[OffsetDateTime]
+        for {
+          _ <- users.insert.values(
+            (id = uid1, email = s"u1-$tag@x", age = 30, deleted_at = no),
+            (id = uid2, email = s"u2-$tag@x", age = 40, deleted_at = no)
+          ).compile.run(s)
+          _ <- posts.insert.values(
+            (id = UUID.randomUUID, user_id = uid1, title = s"u1-p1-$tag"),
+            (id = UUID.randomUUID, user_id = uid1, title = s"u1-p2-$tag"),
+            (id = UUID.randomUUID, user_id = uid2, title = s"u2-p1-$tag"),
+            (id = UUID.randomUUID, user_id = uid2, title = s"u2-p2-$tag")
+          ).compile.run(s)
+          pairs <- users
+            .alias("u")
+            .innerJoinLateral(o =>
+              posts.select(p => p.title)
+                .where(p => p.user_id ==== o.id)
+                .orderBy(p => p.created_at.desc)
+                .limit(1)
+                .alias("recent")
+            )
+            .on(_ => lit(true))
+            .select(r => (r.u.email, r.recent.title))
+            .where(r => r.u.email.like(s"%-$tag@x"))
+            .compile.run(s).map(_.toSet)
+          _ = assertEquals(pairs.size, 2) // one top post per user
+          _ = assert(pairs.forall((email, _) => email.endsWith(s"-$tag@x")), s"unexpected: $pairs")
+        } yield ()
+      }
+    }
+  }
+
   test("LEFT JOIN LATERAL — users without posts still surface, with Option(None) on the lateral side") {
     withContainers { containers =>
       session(containers).use { s =>

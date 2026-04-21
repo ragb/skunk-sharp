@@ -150,6 +150,52 @@ class ArraysSuite extends PgFixture {
     }
   }
 
+  test("Pg.unnestAsRelation — LATERAL-expand an Arr[String] column into rows") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        for {
+          _ <- posts.insert.values(
+            (id = 801, tags = Arr("a", "b", "c"), score = 1),
+            (id = 802, tags = Arr("d"), score = 2)
+          ).compile.run(s)
+          rows <- posts
+            .alias("p")
+            .innerJoinLateral(p => Pg.unnestAsRelation(p.tags).alias("t"))
+            .on(_ => lit(true))
+            .select(r => (r.p.id, r.t.v))
+            .where(r => r.p.id.in(NonEmptyList.of(801, 802)))
+            .compile.run(s).map(_.toSet)
+          _ = assertEquals(
+            rows,
+            Set[(Int, String)](
+              (801, "a"),
+              (801, "b"),
+              (801, "c"),
+              (802, "d")
+            )
+          )
+        } yield ()
+      }
+    }
+  }
+
+  test("Pg.generateSeries — CROSS JOIN an int range with a base table") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        for {
+          _    <- posts.insert((id = 901, tags = Arr("x"), score = 1)).compile.run(s)
+          rows <- posts
+            .alias("p")
+            .crossJoin(Pg.generateSeries(1, 3).alias("g"))
+            .select(r => (r.p.id, r.g.n))
+            .where(r => r.p.id === 901)
+            .compile.run(s).map(_.toSet)
+          _ = assertEquals(rows, Set[(Int, Int)]((901, 1), (901, 2), (901, 3)))
+        } yield ()
+      }
+    }
+  }
+
   test("generic collPgTypeFor — Vector[String] column round-trips") {
     withContainers { containers =>
       session(containers).use { s =>
