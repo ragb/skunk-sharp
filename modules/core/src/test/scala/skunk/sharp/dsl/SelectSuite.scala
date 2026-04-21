@@ -193,8 +193,22 @@ class SelectSuite extends munit.FunSuite {
     )
   }
 
-  // Note: ORDER BY on a boolean expression would be `.orderBy(u => (u.age >= 18).asc)`. Today `.asc` / `.desc`
-  // only extend `TypedColumn`, not general `TypedExpr`, so that shape doesn't compile yet — a separate gap from
-  // the cross-position-operators story.
+  test("ORDER BY a boolean comparison expression — parameters in the ORDER BY clause flow through") {
+    // Postgres orders by a boolean treating FALSE < TRUE; useful for "give me matched rows last" style sorts.
+    // The `18` on the RHS of `>=` becomes `$1`, and the OrderBy carries that bound parameter via AppliedFragment.
+    val af = users.select(u => u.email).orderBy(u => (u.age >= 18).asc).compile.af
+    assertEquals(
+      af.fragment.sql,
+      """SELECT "email" FROM "users" ORDER BY "age" >= $1 ASC"""
+    )
+  }
+
+  test("ORDER BY a function call expression — `.asc` on any TypedExpr, not just columns") {
+    val af = users.select(u => u.email).orderBy(u => Pg.lower(u.email).asc).compile.af
+    assertEquals(
+      af.fragment.sql,
+      """SELECT "email" FROM "users" ORDER BY lower("email") ASC"""
+    )
+  }
 
 }

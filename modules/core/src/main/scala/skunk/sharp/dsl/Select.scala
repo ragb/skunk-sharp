@@ -516,7 +516,7 @@ private[dsl] def renderClauses(
   val withHaving = havingOpt.fold(withGroup)(h => withGroup |+| TypedExpr.raw(" HAVING ") |+| h.render)
   val withOrder  =
     if (orderBys.isEmpty) withHaving
-    else withHaving |+| TypedExpr.raw(" ORDER BY " + orderBys.map(_.sql).mkString(", "))
+    else withHaving |+| TypedExpr.raw(" ORDER BY ") |+| TypedExpr.joined(orderBys.map(_.af), ", ")
   val withLimit  = limitOpt.fold(withOrder)(n => withOrder |+| TypedExpr.raw(s" LIMIT $n"))
   val withOffset = offsetOpt.fold(withLimit)(n => withLimit |+| TypedExpr.raw(s" OFFSET $n"))
   lockingOpt.fold(withOffset)(l => withOffset |+| TypedExpr.raw(" " + l.sql))
@@ -696,15 +696,21 @@ type LookupTypes[Cols <: Tuple, Names <: Tuple] <: Tuple = Names match {
 }
 
 /**
- * ORDER BY clause — produced by `.asc` / `.desc` on a [[TypedColumn]]. Chain `.nullsFirst` / `.nullsLast` to control
- * where NULLs land.
+ * ORDER BY clause element — produced by `.asc` / `.desc` on any [[TypedExpr]]. Chain `.nullsFirst` / `.nullsLast` to
+ * control where NULLs land. Holds an [[skunk.AppliedFragment]] so parameterised inner expressions (`(u.age >= 18).asc`,
+ * `Pg.lower(u.email).asc`) keep their bound values through to the outer compilation.
  */
-final case class OrderBy(sql: String) {
-  def nullsFirst: OrderBy = OrderBy(sql + " NULLS FIRST")
-  def nullsLast: OrderBy  = OrderBy(sql + " NULLS LAST")
+final case class OrderBy(af: skunk.AppliedFragment) {
+  def nullsFirst: OrderBy = OrderBy(af |+| TypedExpr.raw(" NULLS FIRST"))
+  def nullsLast: OrderBy  = OrderBy(af |+| TypedExpr.raw(" NULLS LAST"))
 }
 
-extension [T, Null <: Boolean, N <: String & Singleton](col: TypedColumn[T, Null, N]) {
-  def asc: OrderBy  = OrderBy(s"${col.sqlRef} ASC")
-  def desc: OrderBy = OrderBy(s"${col.sqlRef} DESC")
+/**
+ * `.asc` / `.desc` on any [[TypedExpr]] — produces an [[OrderBy]] suitable for `.orderBy(...)`. Works on columns,
+ * function calls, boolean comparisons, arithmetic, every expression shape the DSL supports. The returned `OrderBy` only
+ * makes sense passed to `.orderBy`; it isn't an expression itself.
+ */
+extension [T](expr: TypedExpr[T]) {
+  def asc: OrderBy  = OrderBy(expr.render |+| TypedExpr.raw(" ASC"))
+  def desc: OrderBy = OrderBy(expr.render |+| TypedExpr.raw(" DESC"))
 }
