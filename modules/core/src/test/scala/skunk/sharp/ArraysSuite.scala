@@ -102,7 +102,7 @@ class ArraysSuite extends munit.FunSuite {
   }
 
   test("Pg.stringToArray renders as an input-split") {
-    val af = empty.select(_ => Pg.stringToArray(param("a,b,c"), ",")).compile.af
+    val af = empty.select(Pg.stringToArray(param("a,b,c"), ",")).compile.af
     assertEquals(af.fragment.sql, """SELECT string_to_array($1, $2)""")
   }
 

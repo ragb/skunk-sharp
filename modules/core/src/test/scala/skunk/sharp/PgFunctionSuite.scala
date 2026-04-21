@@ -61,7 +61,7 @@ class PgFunctionSuite extends munit.FunSuite {
   }
 
   test("pi / random") {
-    val af = empty.select(_ => (Pg.pi, Pg.random)).compile.af
+    val af = empty.select((Pg.pi, Pg.random)).compile.af
     assertEquals(af.fragment.sql, "SELECT pi(), random()")
   }
 

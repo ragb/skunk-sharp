@@ -103,10 +103,10 @@ trait Relation[Cols <: Tuple] {
 
 /**
  * The empty relation — no columns, no FROM clause. Use this to express queries that return only constants or
- * function-call results (`empty.select(_ => Pg.now)` → `SELECT now()`).
+ * function-call results (`empty.select(Pg.now)` → `SELECT now()`).
  *
  * Because its column tuple is `EmptyTuple`, `empty.select` with no explicit projection is useless (no columns to
- * project). The useful form is `empty.select(_ => <expr>)` or `empty.select(_ => (<e1>, <e2>))`.
+ * project). The useful form is `empty.select(<expr>)` or `empty.select((<e1>, <e2>))`.
  */
 case object empty extends Relation[EmptyTuple] {
   type Alias = ""

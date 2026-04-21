@@ -29,7 +29,7 @@ package object dsl {
 
   type Relation[Cols <: Tuple] = skunk.sharp.Relation[Cols]
 
-  /** Dedicated empty relation — `empty.select(_ => Pg.now)` renders as `SELECT now()`. */
+  /** Dedicated empty relation — `empty.select(Pg.now)` renders as `SELECT now()`. */
   val empty: skunk.sharp.empty.type = skunk.sharp.empty
 
   type Column[T, N <: String & Singleton, Null <: Boolean, Attrs <: Tuple] =

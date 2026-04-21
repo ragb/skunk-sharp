@@ -97,10 +97,10 @@ class SelectSuite extends munit.FunSuite {
   }
 
   test("empty.select(…) renders a FROM-less query") {
-    val af1 = empty.select(_ => Pg.now).compile.af
+    val af1 = empty.select(Pg.now).compile.af
     assertEquals(af1.fragment.sql, "SELECT now()")
 
-    val af2 = empty.select(_ => (Pg.now, Pg.currentDate)).compile.af
+    val af2 = empty.select((Pg.now, Pg.currentDate)).compile.af
     assertEquals(af2.fragment.sql, "SELECT now(), current_date")
   }
 

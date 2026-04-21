@@ -612,10 +612,31 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
 }
 
 /**
- * `empty.select(f)` — FROM-less SELECT, e.g. `empty.select(_ => Pg.now)` → `SELECT now()`. Lives separately from the
- * main `.select` extension because `empty` has no alias / Name, so it can't flow through the `AsRelation` machinery.
+ * `empty.select(…)` — FROM-less SELECT. Three forms:
+ *
+ *   - `empty.select(Pg.now)` — single expression, no lambda required. Result type `T`.
+ *   - `empty.select((Pg.now, Pg.transactionTimestamp))` — tuple of expressions. Result type `(T1, T2)`.
+ *   - `empty.select(_ => Pg.now)` — lambda form, kept for completeness (the `_` is `ColumnsView[EmptyTuple]`).
+ *
+ * Lives separately from the main `.select` extension because `empty` has no alias / Name, so it can't flow through the
+ * `AsRelation` machinery.
  */
 extension (rel: skunk.sharp.empty.type) {
+
+  /** FROM-less SELECT of a single expression — no lambda noise. `empty.select(Pg.now)` → `SELECT now()`. */
+  def select[T](e: TypedExpr[T]): ProjectedSelect[EmptyTuple, TypedExpr[T] *: EmptyTuple, EmptyTuple, T] =
+    new ProjectedSelect[EmptyTuple, TypedExpr[T] *: EmptyTuple, EmptyTuple, T](
+      EmptyTuple, false, List(e), e.codec, None, Nil, None, Nil, None, None, None
+    )
+
+  /** FROM-less SELECT of a tuple of expressions — no lambda noise. `empty.select((expr1, expr2))`. */
+  def select[X <: NonEmptyTuple](t: X): ProjectedSelect[EmptyTuple, X, EmptyTuple, ExprOutputs[X]] = {
+    val exprs = t.toList.asInstanceOf[List[TypedExpr[?]]]
+    val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[X]]]
+    new ProjectedSelect[EmptyTuple, X, EmptyTuple, ExprOutputs[X]](
+      EmptyTuple, false, exprs, codec, None, Nil, None, Nil, None, None, None
+    )
+  }
 
   transparent inline def select[X](inline f: ColumnsView[EmptyTuple] => X)
     : ProjectedSelect[EmptyTuple, NormProj[X], EmptyTuple, ProjResult[X]] = {
