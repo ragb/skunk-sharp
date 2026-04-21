@@ -1,12 +1,20 @@
-package skunk.sharp.where
+package skunk.sharp.ops
 
 import skunk.sharp.{PgOperator, TypedExpr}
 import skunk.sharp.pg.PgTypeFor
+import skunk.sharp.where.Where
 
 import scala.annotation.unused
 
 /**
- * The v0 WHERE operator set: `=, <>, <, <=, >, >=, IN, LIKE, IS NULL` plus logical combinators (on `Where`).
+ * The v0 expression-level operator set: `=, <>, <, <=, >, >=, IN, LIKE, IS NULL`. Every operator produces a
+ * `TypedExpr[Boolean]` (aliased as [[skunk.sharp.where.Where]]), which is just a regular expression — it slots anywhere
+ * a `TypedExpr[_]` is valid in Postgres: WHERE clauses, SELECT projections (`users.select(u => u.age >= 18)` renders a
+ * boolean column), HAVING, ORDER BY, function arguments, CASE WHEN predicates.
+ *
+ * Lives in `skunk.sharp.ops` (not `.where`) because "WHERE" was misleading — the operators aren't WHERE-specific. The
+ * `skunk.sharp.where` package keeps the [[Where]] type alias + logical combinators (`&&`, `||`, unary `!`), which
+ * compose booleans regardless of where they end up.
  *
  * Operators are *extension methods* on `TypedExpr[T]` so third-party modules add new ones without touching core (jsonb
  * `->>`, ltree `~`, arrays `@>`, …).

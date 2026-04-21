@@ -36,7 +36,7 @@ class NegativeTestsSuite extends munit.FunSuite {
   test("WHERE equality with a value of the wrong type does not compile") {
     val errs = typeCheckErrors("""
       import skunk.sharp.*
-      import skunk.sharp.where.*
+      import skunk.sharp.ops.*, skunk.sharp.where.*
       import NegativeTestsSuite.User
       val c = ColumnsView(Table.of[User]("users").columns)
       c.age === "not an int"
@@ -47,7 +47,7 @@ class NegativeTestsSuite extends munit.FunSuite {
   test("isNull on a non-nullable column does not compile with a helpful message") {
     val errs = typeCheckErrors("""
       import skunk.sharp.*
-      import skunk.sharp.where.*
+      import skunk.sharp.ops.*, skunk.sharp.where.*
       import NegativeTestsSuite.User
       val c = ColumnsView(Table.of[User]("users").columns)
       c.age.isNull
@@ -60,7 +60,7 @@ class NegativeTestsSuite extends munit.FunSuite {
   test("=== None on a nullable column does not compile (use isNull)") {
     val errs = typeCheckErrors("""
       import skunk.sharp.*
-      import skunk.sharp.where.*
+      import skunk.sharp.ops.*, skunk.sharp.where.*
       import NegativeTestsSuite.User
       val c = ColumnsView(Table.of[User]("users").columns)
       c.deleted_at === None
@@ -71,7 +71,7 @@ class NegativeTestsSuite extends munit.FunSuite {
   test("LIKE on a non-string column does not compile") {
     val errs = typeCheckErrors("""
       import skunk.sharp.*
-      import skunk.sharp.where.*
+      import skunk.sharp.ops.*, skunk.sharp.where.*
       import NegativeTestsSuite.User
       val c = ColumnsView(Table.of[User]("users").columns)
       c.age.like("%")
@@ -101,7 +101,7 @@ class NegativeTestsSuite extends munit.FunSuite {
     val errs = typeCheckErrors("""
       import skunk.sharp.*
       import skunk.sharp.dsl.*
-      import skunk.sharp.where.*
+      import skunk.sharp.ops.*, skunk.sharp.where.*
       import NegativeTestsSuite.User
       View.of[User]("active_users").update.set(u => u.age := 1)
     """)

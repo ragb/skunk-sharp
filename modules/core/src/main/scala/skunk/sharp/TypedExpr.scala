@@ -66,12 +66,12 @@ object TypedExpr {
   }
 
   /**
-   * Render a `Float` literal as its SQL form. Always emits a `::float4` cast — Postgres's default numeric-literal
-   * parse type is `numeric`, and functions like `sqrt(9.0)` then return `numeric` instead of the expected `double
-   * precision`, which blows up the skunk decoder. The explicit cast pins the type.
+   * Render a `Float` literal as its SQL form. Always emits a `::float4` cast — Postgres's default numeric-literal parse
+   * type is `numeric`, and functions like `sqrt(9.0)` then return `numeric` instead of the expected `double precision`,
+   * which blows up the skunk decoder. The explicit cast pins the type.
    *
-   * IEEE specials (`NaN`, `±Infinity`) can't be written as bare numeric tokens in SQL — Postgres accepts them only
-   * as quoted strings cast to the target float type. Public so the `lit` macro can call it from spliced code.
+   * IEEE specials (`NaN`, `±Infinity`) can't be written as bare numeric tokens in SQL — Postgres accepts them only as
+   * quoted strings cast to the target float type. Public so the `lit` macro can call it from spliced code.
    */
   def renderFloat(v: Float): String = v match {
     case x if java.lang.Float.isNaN(x) => "'NaN'::float4"

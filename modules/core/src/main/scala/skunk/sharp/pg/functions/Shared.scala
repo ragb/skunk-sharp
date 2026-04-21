@@ -2,7 +2,7 @@ package skunk.sharp.pg.functions
 
 import skunk.sharp.TypedExpr
 import skunk.sharp.pg.PgTypeFor
-import skunk.sharp.where.Stripped
+import skunk.sharp.ops.Stripped
 
 // ---- Shared type-level helpers ------------------------------------------------------------------
 
