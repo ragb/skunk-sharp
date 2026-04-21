@@ -55,7 +55,7 @@ trait PgAggregate {
   def stringAgg[T](expr: TypedExpr[T], sep: String)(using StrLike[T]): TypedExpr[String] =
     TypedExpr(
       TypedExpr.raw("string_agg(") |+| expr.render |+| TypedExpr.raw(", ") |+|
-        TypedExpr.lit(sep).render |+| TypedExpr.raw(")"),
+        TypedExpr.parameterised(sep).render |+| TypedExpr.raw(")"),
       skunk.codec.all.text
     )
 

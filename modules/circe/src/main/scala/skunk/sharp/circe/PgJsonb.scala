@@ -58,7 +58,7 @@ trait PgJsonb {
     createIfMissing: Boolean = true
   ): TypedExpr[Jsonb[CirceJson]] = {
     val pathLit = path.map(p => p.replace("\\", "\\\\").replace("\"", "\\\"")).mkString("{", ",", "}")
-    val pathArg = TypedExpr.lit(pathLit).render |+| TypedExpr.raw("::text[]")
+    val pathArg = TypedExpr.parameterised(pathLit).render |+| TypedExpr.raw("::text[]")
     TypedExpr(
       TypedExpr.raw("jsonb_set(") |+| target.render |+| TypedExpr.raw(", ") |+|
         pathArg |+| TypedExpr.raw(", ") |+|
@@ -75,7 +75,7 @@ trait PgJsonb {
     insertAfter: Boolean = false
   ): TypedExpr[Jsonb[CirceJson]] = {
     val pathLit = path.map(p => p.replace("\\", "\\\\").replace("\"", "\\\"")).mkString("{", ",", "}")
-    val pathArg = TypedExpr.lit(pathLit).render |+| TypedExpr.raw("::text[]")
+    val pathArg = TypedExpr.parameterised(pathLit).render |+| TypedExpr.raw("::text[]")
     TypedExpr(
       TypedExpr.raw("jsonb_insert(") |+| target.render |+| TypedExpr.raw(", ") |+|
         pathArg |+| TypedExpr.raw(", ") |+|
@@ -91,7 +91,7 @@ trait PgJsonb {
   /** `jsonb - 'key'` — delete a key from a jsonb object. */
   def jsonbDeleteKey[A](e: TypedExpr[Jsonb[A]], key: String): TypedExpr[Jsonb[CirceJson]] =
     TypedExpr(
-      e.render |+| TypedExpr.raw(" - ") |+| TypedExpr.lit(key).render,
+      e.render |+| TypedExpr.raw(" - ") |+| TypedExpr.parameterised(key).render,
       rawJsonbCodec
     )
 

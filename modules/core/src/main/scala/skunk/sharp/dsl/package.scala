@@ -101,15 +101,25 @@ package object dsl {
   export skunk.sharp.pg.arrays.given
   export skunk.sharp.pg.arrays.{to, toArr}
 
-  // ---- Literal shorthands ----
+  // ---- Value → expression lifting ----
   //
-  // `lit(1)` / `lit("x")` is the short form of [[skunk.sharp.TypedExpr.lit]]. Anywhere a `TypedExpr[T]` is required
-  // (SELECT projection, UPDATE SET RHS, function arguments, …), `lit(v)` lifts a Scala value into a bound-parameter
-  // expression. Deliberately not an implicit conversion — Scala 3 discourages those and the extra two characters
-  // keep the lifting point explicit for readers.
+  // Two distinct verbs, each with a specific role:
   //
-  // WHERE operators (`===`, `!==`, `<`, `<=`, `>`, `>=`, `in`, `like`, `ilike`) already accept raw values directly
-  // on the RHS, so `.where(u => u.age >= 18)` works without `lit`.
-  inline def lit[T](v: T)(using pf: PgTypeFor[T]): skunk.sharp.TypedExpr[T] = skunk.sharp.TypedExpr.lit(v)
+  //   - `lit(v)` — **compile-time primitive literal only**. `lit(42)` / `lit(true)` renders inline (`42` / `TRUE`)
+  //     in the SQL text, no bound parameter. Runtime values and non-primitive types are a compile error — the
+  //     message points at the operator paths (which parameterise for you) or at `param` for explicit lifting.
+  //
+  //   - `param(v)` — **explicit "bind this runtime value as `$N`"**. Use when you need a `TypedExpr[T]` from a
+  //     runtime value in a position where no operator extension applies. Rare; most cases go through operators.
+  //
+  // WHERE operators (`===`, `!==`, `<`, `<=`, `>`, `>=`, `.in(...)`, `.like(...)`, `.ilike(...)`, array
+  // `.contains(...)` / `.containedBy(...)` / `.overlaps(...)`, …) take their RHS value directly and parameterise
+  // internally. That's the normal path — `lit` / `param` aren't needed there.
+  //
+  // `inline v: T` on `lit` forwards the compile-time constant through to the macro in
+  // [[skunk.sharp.TypedExpr.lit]].
+  inline def lit[T](inline v: T)(using pf: PgTypeFor[T]): skunk.sharp.TypedExpr[T] = skunk.sharp.TypedExpr.lit(v)
+
+  def param[T](v: T)(using pf: PgTypeFor[T]): skunk.sharp.TypedExpr[T] = skunk.sharp.TypedExpr.parameterised(v)
 
 }

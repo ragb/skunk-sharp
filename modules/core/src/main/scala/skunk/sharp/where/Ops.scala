@@ -1,7 +1,6 @@
 package skunk.sharp.where
 
-import skunk.AppliedFragment
-import skunk.sharp.TypedExpr
+import skunk.sharp.{PgOperator, TypedExpr}
 import skunk.sharp.pg.PgTypeFor
 
 import scala.annotation.unused
@@ -15,6 +14,10 @@ import scala.annotation.unused
  * **Nullable columns.** If a column is declared nullable, comparisons like `col === value` take the underlying value
  * type, not `Option[value]`. Trying to compare against `None` is a compile error — use `.isNull` / `.isNotNull`
  * instead, since in SQL `col = NULL` is never true (three-valued logic). See [[Stripped]].
+ *
+ * Rendering: every infix op here delegates to [[PgOperator.infix]] so the string-assembly lives in one place. The only
+ * per-op work is picking the SQL symbol and deciding whether the RHS is parameterised (runtime value) or already a
+ * [[TypedExpr]] (expression-to-expression compare).
  */
 
 /**
@@ -26,14 +29,15 @@ type Stripped[T] = T match {
   case _         => T
 }
 
-/** Common binary operator rendering: `<lhs> <op> <rhs>`. */
-private def binOp(op: String, l: TypedExpr[?], r: TypedExpr[?]): Where = {
-  val af: AppliedFragment = l.render |+| TypedExpr.raw(s" $op ") |+| r.render
-  Where(new TypedExpr[Boolean] {
-    val render = af
-    val codec  = skunk.codec.all.bool
-  })
-}
+/** Infix comparison with a runtime-parameterised RHS. All the value-on-the-right operators share this shape. */
+private def valOp[T](op: String, lhs: TypedExpr[T], rhs: Stripped[T])(using
+  pf: PgTypeFor[Stripped[T]]
+): Where =
+  PgOperator.infix[T, Stripped[T], Boolean](op)(lhs, TypedExpr.parameterised(rhs))
+
+/** Infix comparison between two pre-built expressions. Used by the `====` / `!==` column-vs-column overloads. */
+private def exprOp[T](op: String, lhs: TypedExpr[T], rhs: TypedExpr[T]): Where =
+  PgOperator.infix[T, T, Boolean](op)(lhs, rhs)
 
 extension [T](lhs: TypedExpr[T]) {
 
@@ -41,26 +45,26 @@ extension [T](lhs: TypedExpr[T]) {
    * Equality: `lhs = rhs`. For nullable `TypedExpr[Option[X]]`, `rhs` must be an `X` — comparisons with `None` are a
    * compile error (use `.isNull` instead).
    */
-  def ===(rhs: Stripped[T])(using pf: PgTypeFor[Stripped[T]]): Where = binOp("=", lhs, TypedExpr.lit(rhs))
+  def ===(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where = valOp("=", lhs, rhs)
 
   /** Inequality: `lhs <> rhs`. */
-  def !==(rhs: Stripped[T])(using pf: PgTypeFor[Stripped[T]]): Where = binOp("<>", lhs, TypedExpr.lit(rhs))
+  def !==(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where = valOp("<>", lhs, rhs)
 
   /**
    * Column-to-expression equality for when the RHS is another typed expression (another column, a function call, …).
    * Kept as a separate method name because mixing literal- and expression-RHS overloads of `===` in Scala 3 confuses
    * extension-method resolution.
    */
-  def ====(rhs: TypedExpr[T]): Where  = binOp("=", lhs, rhs)
-  def `!==`(rhs: TypedExpr[T]): Where = binOp("<>", lhs, rhs)
+  def ====(rhs: TypedExpr[T]): Where  = exprOp("=", lhs, rhs)
+  def `!==`(rhs: TypedExpr[T]): Where = exprOp("<>", lhs, rhs)
 }
 
 extension [T](lhs: TypedExpr[T])(using @unused ord: cats.Order[Stripped[T]]) {
 
-  def <(rhs: Stripped[T])(using pf: PgTypeFor[Stripped[T]]): Where  = binOp("<", lhs, TypedExpr.lit(rhs))
-  def <=(rhs: Stripped[T])(using pf: PgTypeFor[Stripped[T]]): Where = binOp("<=", lhs, TypedExpr.lit(rhs))
-  def >(rhs: Stripped[T])(using pf: PgTypeFor[Stripped[T]]): Where  = binOp(">", lhs, TypedExpr.lit(rhs))
-  def >=(rhs: Stripped[T])(using pf: PgTypeFor[Stripped[T]]): Where = binOp(">=", lhs, TypedExpr.lit(rhs))
+  def <(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where  = valOp("<", lhs, rhs)
+  def <=(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where = valOp("<=", lhs, rhs)
+  def >(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where  = valOp(">", lhs, rhs)
+  def >=(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where = valOp(">=", lhs, rhs)
 }
 
 /**
@@ -84,7 +88,7 @@ object InRhs {
   given reducibleIn[T, F[_]](using R: cats.Reducible[F], pf: PgTypeFor[T]): InRhs[T, F[T]] =
     new InRhs[T, F[T]] {
       def renderParens(values: F[T]): skunk.AppliedFragment = {
-        val literals = R.toNonEmptyList(values).toList.map(v => TypedExpr.lit(v).render)
+        val literals = R.toNonEmptyList(values).toList.map(v => TypedExpr.parameterised(v).render)
         TypedExpr.raw("(") |+| TypedExpr.joined(literals, ", ") |+| TypedExpr.raw(")")
       }
     }
@@ -105,13 +109,11 @@ extension [T](lhs: TypedExpr[T]) {
    * `lhs IN (...)`. The right-hand side is anything with an [[InRhs]] instance — a `Reducible` container of values or a
    * [[skunk.sharp.dsl.CompiledQuery]] for subquery IN.
    */
-  def in[Rhs](rhs: Rhs)(using ev: InRhs[Stripped[T], Rhs]): Where = {
-    val rendered = lhs.render |+| TypedExpr.raw(" IN ") |+| ev.renderParens(rhs)
-    Where(new TypedExpr[Boolean] {
-      val render = rendered
+  def in[Rhs](rhs: Rhs)(using ev: InRhs[Stripped[T], Rhs]): Where =
+    new TypedExpr[Boolean] {
+      val render = lhs.render |+| TypedExpr.raw(" IN ") |+| ev.renderParens(rhs)
       val codec  = skunk.codec.all.bool
-    })
-  }
+    }
 
 }
 
@@ -121,10 +123,13 @@ extension [T](lhs: TypedExpr[T])(using @unused ev: Stripped[T] <:< String) {
    * `lhs LIKE pattern`. Works on any string-like column — `TypedExpr[String]`, tag types (`TypedExpr[Varchar[N]]`,
    * `TypedExpr[Bpchar[N]]`, `TypedExpr[Text]`), and their `Option` variants.
    */
-  def like(pattern: String): Where = binOp("LIKE", lhs, TypedExpr.lit(pattern))
+  def like(pattern: String): Where =
+    PgOperator.infix[T, String, Boolean]("LIKE")(lhs, TypedExpr.parameterised(pattern))
 
   /** `lhs ILIKE pattern` (case-insensitive). */
-  def ilike(pattern: String): Where = binOp("ILIKE", lhs, TypedExpr.lit(pattern))
+  def ilike(pattern: String): Where =
+    PgOperator.infix[T, String, Boolean]("ILIKE")(lhs, TypedExpr.parameterised(pattern))
+
 }
 
 extension [T, Null <: Boolean, N <: String & Singleton](lhs: skunk.sharp.TypedColumn[T, Null, N]) {
@@ -145,10 +150,13 @@ extension [T, Null <: Boolean, N <: String & Singleton](lhs: skunk.sharp.TypedCo
 
 }
 
-private def nullCheck(col: skunk.sharp.TypedColumn[?, ?, ?], suffix: String): Where = {
-  val af = col.render |+| TypedExpr.raw(suffix)
-  Where(new TypedExpr[Boolean] {
-    val render = af
+/**
+ * `IS NULL` / `IS NOT NULL` have no RHS — not a true infix — so they bypass [[PgOperator.infix]] and emit the postfix
+ * SQL directly. Kept private; extension sites above prefix their error message with a compile-time guard that rejects
+ * non-nullable columns.
+ */
+private def nullCheck(col: skunk.sharp.TypedColumn[?, ?, ?], suffix: String): Where =
+  new TypedExpr[Boolean] {
+    val render = col.render |+| TypedExpr.raw(suffix)
     val codec  = skunk.codec.all.bool
-  })
-}
+  }

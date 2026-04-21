@@ -19,7 +19,8 @@ trait PgNull {
     pf: PgTypeFor[Stripped[T]]
   ): TypedExpr[Option[Stripped[T]]] =
     TypedExpr(
-      TypedExpr.raw("nullif(") |+| a.render |+| TypedExpr.raw(", ") |+| TypedExpr.lit(b).render |+| TypedExpr.raw(")"),
+      TypedExpr.raw("nullif(") |+| a.render |+| TypedExpr.raw(", ") |+| TypedExpr.parameterised(b).render |+|
+        TypedExpr.raw(")"),
       pf.codec.opt
     )
 

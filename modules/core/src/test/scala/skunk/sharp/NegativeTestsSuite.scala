@@ -530,4 +530,45 @@ class NegativeTestsSuite extends munit.FunSuite {
       s"error should name the missing column; got: $msg"
     )
   }
+
+  // ---- lit(v) macro: literal-only, runtime values get a pointed error ----------------------------
+
+  test("lit(true) compiles and renders inline `TRUE`") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      val e = lit(true)
+    """)
+    assert(errs.isEmpty, s"lit(true) should compile; got: ${errs.map(_.message).mkString("\n")}")
+  }
+
+  test("lit(42) compiles and renders inline `42`") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      val e = lit(42)
+    """)
+    assert(errs.isEmpty, s"lit(42) should compile; got: ${errs.map(_.message).mkString("\n")}")
+  }
+
+  test("lit(runtimeInt) is rejected with a pointed error — runtime variables aren't literals") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      val n: Int = 42
+      lit(n)
+    """)
+    assert(errs.nonEmpty, "lit of a runtime variable should be rejected")
+    val msg = errs.map(_.message).mkString("\n")
+    assert(
+      msg.contains("compile-time primitive literal"),
+      s"error should mention the literal-only rule; got: $msg"
+    )
+    assert(msg.contains("param"), s"error should suggest `param` as the runtime escape hatch; got: $msg")
+  }
+
+  test("lit(\"string literal\") is rejected — strings always parameterise for SQL-injection safety") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      lit("hello")
+    """)
+    assert(errs.nonEmpty, "lit of a string is rejected (compile-time literal or not)")
+  }
 }

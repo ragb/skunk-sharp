@@ -56,7 +56,7 @@ class JsonbSuite extends PgFixture {
           _ <- assertIO(
             docs
               .select(d => d.id)
-              .where(d => d.body.contains(lit(Jsonb(probe))))
+              .where(d => d.body.contains(param(Jsonb(probe))))
               .compile.run(s).map(_.toSet),
             Set(matches)
           )
@@ -153,7 +153,7 @@ class JsonbSuite extends PgFixture {
           _ <- assertIO(
             pdocs
               .select(d => d.id)
-              .where(d => d.body.contains(lit(Jsonb[Cj](Cj.obj("name" -> Cj.fromString("jb-alice"))))))
+              .where(d => d.body.contains(param(Jsonb[Cj](Cj.obj("name" -> Cj.fromString("jb-alice"))))))
               .compile.run(s),
             List(idA)
           )
@@ -181,7 +181,7 @@ class JsonbSuite extends PgFixture {
           // jsonb_set: bump "version" to 2
           (patched, kind) <- docs
             .select(d =>
-              (Jsonb.jsonbSet(d.body, Seq("version"), lit(Jsonb(CirceJson.fromInt(2)))), Jsonb.jsonbTypeof(d.body))
+              (Jsonb.jsonbSet(d.body, Seq("version"), param(Jsonb(CirceJson.fromInt(2)))), Jsonb.jsonbTypeof(d.body))
             )
             .where(d => d.id === id)
             .compile.unique(s)

@@ -43,7 +43,7 @@ class ArraysSuite extends PgFixture {
           ).compile.run(s)
           ids <- posts
             .select(p => p.id)
-            .where(p => p.tags.contains(lit(Arr("scala"))))
+            .where(p => p.tags.contains(param(Arr("scala"))))
             .where(p => p.id.in(NonEmptyList.of(201, 202)))
             .compile.run(s)
           _ = assertEquals(ids.toSet, Set(201))
@@ -63,7 +63,7 @@ class ArraysSuite extends PgFixture {
           ).compile.run(s)
           ids <- posts
             .select(p => p.id)
-            .where(p => p.tags.containedBy(lit(Arr("a", "b"))))
+            .where(p => p.tags.containedBy(param(Arr("a", "b"))))
             .where(p => p.id.in(NonEmptyList.of(301, 302, 303)))
             .compile.run(s)
           _ = assertEquals(ids.toSet, Set(301, 302))
@@ -83,7 +83,7 @@ class ArraysSuite extends PgFixture {
           ).compile.run(s)
           ids <- posts
             .select(p => p.id)
-            .where(p => p.tags.overlaps(lit(Arr("y"))))
+            .where(p => p.tags.overlaps(param(Arr("y"))))
             .where(p => p.id.in(NonEmptyList.of(401, 402, 403)))
             .compile.run(s)
           _ = assertEquals(ids.toSet, Set(401, 403))
@@ -103,7 +103,7 @@ class ArraysSuite extends PgFixture {
           ).compile.run(s)
           ids <- posts
             .select(p => p.id)
-            .where(p => lit("alpha").elemOf(p.tags))
+            .where(p => param("alpha").elemOf(p.tags))
             .where(p => p.id.in(NonEmptyList.of(501, 502, 503)))
             .compile.run(s)
           _ = assertEquals(ids.toSet, Set(501))

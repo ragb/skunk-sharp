@@ -30,7 +30,7 @@ class ArraysSuite extends munit.FunSuite {
   test("contains (@>) renders as array containment") {
     val af = posts
       .select
-      .where(p => p.tags.contains(lit(Arr("scala", "pg"))))
+      .where(p => p.tags.contains(param(Arr("scala", "pg"))))
       .compile.af
 
     assert(af.fragment.sql.contains("\"tags\" @> $1"), af.fragment.sql)
@@ -39,7 +39,7 @@ class ArraysSuite extends munit.FunSuite {
   test("containedBy (<@) renders the inverse") {
     val af = posts
       .select
-      .where(p => p.tags.containedBy(lit(Arr("scala", "pg", "sql"))))
+      .where(p => p.tags.containedBy(param(Arr("scala", "pg", "sql"))))
       .compile.af
 
     assert(af.fragment.sql.contains("\"tags\" <@ $1"), af.fragment.sql)
@@ -48,19 +48,19 @@ class ArraysSuite extends munit.FunSuite {
   test("overlaps (&&) renders the shared-element operator") {
     val af = posts
       .select
-      .where(p => p.tags.overlaps(lit(Arr("scala"))))
+      .where(p => p.tags.overlaps(param(Arr("scala"))))
       .compile.af
 
     assert(af.fragment.sql.contains("\"tags\" && $1"), af.fragment.sql)
   }
 
   test("concat (||) renders as array concatenation inside projection") {
-    val af = posts.select(p => p.tags.concat(lit(Arr("extra")))).compile.af
+    val af = posts.select(p => p.tags.concat(param(Arr("extra")))).compile.af
     assertEquals(af.fragment.sql, """SELECT "tags" || $1 FROM "posts"""")
   }
 
   test("elemOf: scalar = ANY(array)") {
-    val af = posts.select.where(p => lit("scala").elemOf(p.tags)).compile.af
+    val af = posts.select.where(p => param("scala").elemOf(p.tags)).compile.af
     assert(af.fragment.sql.contains("$1 = ANY(\"tags\")"), af.fragment.sql)
   }
 
@@ -75,22 +75,22 @@ class ArraysSuite extends munit.FunSuite {
   }
 
   test("Pg.arrayAppend renders array_append(a, elem)") {
-    val af = posts.select(p => Pg.arrayAppend(p.tags, lit("done"))).compile.af
+    val af = posts.select(p => Pg.arrayAppend(p.tags, param("done"))).compile.af
     assertEquals(af.fragment.sql, """SELECT array_append("tags", $1) FROM "posts"""")
   }
 
   test("Pg.arrayPrepend renders array_prepend(elem, a)") {
-    val af = posts.select(p => Pg.arrayPrepend(lit("top"), p.tags)).compile.af
+    val af = posts.select(p => Pg.arrayPrepend(param("top"), p.tags)).compile.af
     assertEquals(af.fragment.sql, """SELECT array_prepend($1, "tags") FROM "posts"""")
   }
 
   test("Pg.arrayCat renders array_cat(a, b)") {
-    val af = posts.select(p => Pg.arrayCat(p.tags, lit(Arr("a", "b")))).compile.af
+    val af = posts.select(p => Pg.arrayCat(p.tags, param(Arr("a", "b")))).compile.af
     assertEquals(af.fragment.sql, """SELECT array_cat("tags", $1) FROM "posts"""")
   }
 
   test("Pg.arrayPosition renders array_position(a, elem) with int4.opt result") {
-    val af = posts.select(p => Pg.arrayPosition(p.tags, lit("scala"))).compile.af
+    val af = posts.select(p => Pg.arrayPosition(p.tags, param("scala"))).compile.af
     assertEquals(af.fragment.sql, """SELECT array_position("tags", $1) FROM "posts"""")
   }
 
@@ -102,7 +102,7 @@ class ArraysSuite extends munit.FunSuite {
   }
 
   test("Pg.stringToArray renders as an input-split") {
-    val af = empty.select(_ => Pg.stringToArray(lit("a,b,c"), ",")).compile.af
+    val af = empty.select(_ => Pg.stringToArray(param("a,b,c"), ",")).compile.af
     assertEquals(af.fragment.sql, """SELECT string_to_array($1, $2)""")
   }
 

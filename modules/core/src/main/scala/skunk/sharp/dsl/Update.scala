@@ -148,7 +148,7 @@ extension [T, Null <: Boolean, N <: String & Singleton](col: TypedColumn[T, Null
 
   /** `col = value` assignment. */
   def :=(value: T)(using pf: PgTypeFor[T]): SetAssignment[T] =
-    SetAssignment(col, TypedExpr.lit(value))
+    SetAssignment(col, TypedExpr.parameterised(value))
 
   /** `col = <expression>` assignment — right-hand side can be any typed expression (function call, arithmetic, …). */
   def :=(expr: TypedExpr[T]): SetAssignment[T] =
