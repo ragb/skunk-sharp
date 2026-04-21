@@ -68,6 +68,42 @@ class WhereSuite extends munit.FunSuite {
     assertEquals(w.render.fragment.sql.trim, """"deleted_at" = $1""")
   }
 
+  test("BETWEEN renders with two bound parameters joined by AND") {
+    val w = cols.age.between(18, 65)
+    assertEquals(w.render.fragment.sql, """"age" BETWEEN $1 AND $2""")
+  }
+
+  test("NOT BETWEEN renders the keyword form, not the expanded AND") {
+    val w = cols.age.notBetween(18, 65)
+    assertEquals(w.render.fragment.sql, """"age" NOT BETWEEN $1 AND $2""")
+  }
+
+  test("BETWEEN SYMMETRIC — Postgres auto-swap form") {
+    val w = cols.age.betweenSymmetric(100, 0)
+    assertEquals(w.render.fragment.sql, """"age" BETWEEN SYMMETRIC $1 AND $2""")
+  }
+
+  test("IS DISTINCT FROM — NULL-safe inequality on a nullable column") {
+    val ts = OffsetDateTime.parse("2020-01-01T00:00:00Z")
+    val w  = cols.deleted_at.isDistinctFrom(ts)
+    assertEquals(w.render.fragment.sql, """"deleted_at" IS DISTINCT FROM $1""")
+  }
+
+  test("IS NOT DISTINCT FROM — NULL-safe equality") {
+    val w = cols.age.isNotDistinctFrom(42)
+    assertEquals(w.render.fragment.sql, """"age" IS NOT DISTINCT FROM $1""")
+  }
+
+  test("SIMILAR TO renders the Postgres regex-ish form") {
+    val w = cols.email.similarTo("[a-z]+@[a-z]+")
+    assertEquals(w.render.fragment.sql, """"email" SIMILAR TO $1""")
+  }
+
+  test("NOT SIMILAR TO") {
+    val w = cols.email.notSimilarTo("%.test")
+    assertEquals(w.render.fragment.sql, """"email" NOT SIMILAR TO $1""")
+  }
+
   test("comparing a nullable column to None/Option does NOT compile") {
     // Documents the compile-time rejection with a compiletime.testing assertion.
     import scala.compiletime.testing.*

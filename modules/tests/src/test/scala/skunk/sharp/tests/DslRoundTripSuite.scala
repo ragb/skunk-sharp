@@ -76,6 +76,70 @@ class DslRoundTripSuite extends PgFixture {
     }
   }
 
+  test("BETWEEN / NOT BETWEEN round-trip") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val no  = Option.empty[OffsetDateTime]
+        val now = OffsetDateTime.now()
+        for {
+          _ <- users.insert.values(
+            (id = UUID.randomUUID, email = "bt-u1@x", age = 10, created_at = now, deleted_at = no),
+            (id = UUID.randomUUID, email = "bt-u2@x", age = 30, created_at = now, deleted_at = no),
+            (id = UUID.randomUUID, email = "bt-u3@x", age = 80, created_at = now, deleted_at = no)
+          ).compile.run(s)
+          inBand <- users.select(u => u.email).where(u => u.age.between(18, 65))
+            .where(u => u.email.like("bt-%@x")).compile.run(s).map(_.toSet)
+          outOf <- users.select(u => u.email).where(u => u.age.notBetween(18, 65))
+            .where(u => u.email.like("bt-%@x")).compile.run(s).map(_.toSet)
+          _ = assertEquals(inBand, Set("bt-u2@x"))
+          _ = assertEquals(outOf, Set("bt-u1@x", "bt-u3@x"))
+        } yield ()
+      }
+    }
+  }
+
+  test("IS DISTINCT FROM on a nullable column — treats NULL vs value as distinct") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val now = OffsetDateTime.now()
+        val ts  = OffsetDateTime.parse("2020-01-01T00:00:00Z")
+        for {
+          _ <- users.insert.values(
+            (id = UUID.randomUUID, email = "dist-a@x", age = 10, created_at = now, deleted_at = Some(ts)),
+            (id = UUID.randomUUID, email = "dist-b@x", age = 20, created_at = now, deleted_at = None)
+          ).compile.run(s)
+          // Compare deleted_at against ts: row with None-deleted_at must still surface as DISTINCT from ts,
+          // whereas row with Some(ts) must NOT (same value = not distinct).
+          distinct <- users.select(u => u.email).where(u => u.deleted_at.isDistinctFrom(ts))
+            .where(u => u.email.like("dist-%@x")).compile.run(s).map(_.toSet)
+          _ = assertEquals(distinct, Set("dist-b@x"))
+          eqSafe <- users.select(u => u.email).where(u => u.deleted_at.isNotDistinctFrom(ts))
+            .where(u => u.email.like("dist-%@x")).compile.run(s).map(_.toSet)
+          _ = assertEquals(eqSafe, Set("dist-a@x"))
+        } yield ()
+      }
+    }
+  }
+
+  test("SIMILAR TO matches the regex-lite pattern") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val no  = Option.empty[OffsetDateTime]
+        val now = OffsetDateTime.now()
+        for {
+          _ <- users.insert.values(
+            (id = UUID.randomUUID, email = "sim-alpha@x", age = 1, created_at = now, deleted_at = no),
+            (id = UUID.randomUUID, email = "sim-beta9@x", age = 2, created_at = now, deleted_at = no)
+          ).compile.run(s)
+          // Matches "sim-" + lowercase letters + "@x" — alpha passes, beta9 (has digit) fails.
+          alphas <- users.select(u => u.email).where(u => u.email.similarTo("sim-[a-z]+@x"))
+            .where(u => u.email.like("sim-%@x")).compile.run(s).map(_.toSet)
+          _ = assertEquals(alphas, Set("sim-alpha@x"))
+        } yield ()
+      }
+    }
+  }
+
   test("select against a view works; mutations would not compile") {
     withContainers { containers =>
       session(containers).use { s =>
