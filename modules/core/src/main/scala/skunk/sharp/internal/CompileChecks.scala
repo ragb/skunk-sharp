@@ -105,6 +105,23 @@ object CompileChecks {
     }
 
   /**
+   * Patch-specific value-type check. Each `Vs`-element must be `Option[ColumnType[Cols, n]]` — the outer `Option` lets
+   * the caller mark the field as "leave alone" (`None`) or "set to this value" (`Some(...)`). For a nullable column
+   * whose Scala type is already `Option[X]`, the patch field is therefore `Option[Option[X]]`: `Some(None)` explicitly
+   * sets to NULL; `Some(Some(x))` sets to `x`.
+   */
+  inline def requirePatchValueTypes[Cols <: Tuple, Ns <: Tuple, Vs <: Tuple]: Unit =
+    inline erasedValue[Ns] match {
+      case _: EmptyTuple => ()
+      case _: (n *: ns)  =>
+        inline erasedValue[Vs] match {
+          case _: (v *: vs) =>
+            summonInline[v <:< Option[skunk.sharp.ColumnType[Cols, n & String & Singleton]]]
+            requirePatchValueTypes[Cols, ns, vs]
+        }
+    }
+
+  /**
    * Assert that the column name `N` is NOT already declared in `Cols`. Used by `Table.builder`'s `.column` /
    * `.columnOpt` / `.columnDefaulted` / `.columnOptDefaulted` to catch accidental typos that would otherwise silently
    * add a second column of the same name (e.g. `.column[UUID]("id") … .column[String]("id")`).

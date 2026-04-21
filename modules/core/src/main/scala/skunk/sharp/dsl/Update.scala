@@ -1,10 +1,14 @@
 package skunk.sharp.dsl
 
-import skunk.{AppliedFragment, Codec}
+import skunk.{AppliedFragment, Codec, Fragment}
 import skunk.sharp.*
-import skunk.sharp.internal.tupleCodec
+import skunk.sharp.internal.{tupleCodec, CompileChecks}
 import skunk.sharp.pg.PgTypeFor
 import skunk.sharp.where.{&&, Where}
+import skunk.util.Origin
+
+import scala.NamedTuple
+import scala.compiletime.constValueTuple
 
 /**
  * UPDATE builder — compile-time staged so you can't accidentally run a rowset-nuking `UPDATE` with no WHERE.
@@ -30,7 +34,7 @@ import skunk.sharp.where.{&&, Where}
  *
  * Future (v0.1+): `FROM`/`USING`, `.set` that accepts a subset named tuple, richer RHS expressions.
  */
-final class UpdateBuilder[Cols <: Tuple] private[sharp] (table: Table[Cols, ?]) {
+final class UpdateBuilder[Cols <: Tuple] private[sharp] (private[sharp] val table: Table[Cols, ?]) {
 
   /**
    * Declare the SET list. Accepts one [[SetAssignment]] or a tuple of them. Must be followed by `.where` or
@@ -45,6 +49,57 @@ final class UpdateBuilder[Cols <: Tuple] private[sharp] (table: Table[Cols, ?]) 
     new UpdateWithSet[Cols](table, assignments)
   }
 
+  /**
+   * Subset-named-tuple UPDATE — each field is `Option[ColumnType]`, and only the `Some` fields hit the SET list. The
+   * shape mirrors `insert`'s subset-named-tuple form: field names are a compile-time-checked subset of the table's
+   * columns, each value's Scala type must match `Option[<column's declared type>]`. Unlike INSERT, there's no "required
+   * columns must be covered" check — that's exactly why `patch` exists.
+   *
+   *   - `(email = Some("new@x"), age = None)` — set `email`, leave `age` alone.
+   *   - For a nullable column (`deleted_at: Option[OffsetDateTime]`), the patch field has type
+   *     `Option[Option[OffsetDateTime]]`: `None` = leave alone, `Some(None)` = set to NULL, `Some(Some(ts))` = set to
+   *     `ts`.
+   *
+   * Runtime check: if every field is `None`, throws — an empty SET list is always a mistake, and Postgres would reject
+   * the SQL.
+   */
+  inline def patch[R <: NamedTuple.AnyNamedTuple](p: R): UpdateWithSet[Cols] = {
+    CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[R]]
+    CompileChecks.requirePatchValueTypes[Cols, NamedTuple.Names[R], NamedTuple.DropNames[R]]
+    val names  = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
+    val values = p.asInstanceOf[Tuple].toList
+    buildPatch(table, names, values)
+  }
+
+}
+
+/**
+ * Runtime half of [[UpdateBuilder.patch]]. Lives outside the class so it isn't re-generated per inlining. Walks
+ * `(name, value)` pairs, drops the `None`s, and turns each `Some(v)` into a [[SetAssignment]] via the column's own
+ * codec — no `PgTypeFor` lookup needed (column already carries its codec).
+ */
+private[sharp] def buildPatch[Cols <: Tuple](
+  table: Table[Cols, ?],
+  names: List[String],
+  values: List[Any]
+): UpdateWithSet[Cols] = {
+  val allCols                             = table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
+  val byName                              = allCols.iterator.map(c => c.name.toString -> c).toMap
+  val assignments: List[SetAssignment[?]] =
+    names.zip(values).collect { case (n, Some(v)) =>
+      val col      = byName(n)
+      val codec    = col.codec.asInstanceOf[Codec[Any]]
+      val rowFrag  = Fragment(List(Right(codec.sql)), codec, Origin.unknown)
+      val rendered = rowFrag(v)
+      val expr     = TypedExpr(rendered, codec)
+      val tc       = TypedColumn.of(col.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
+      SetAssignment[Any](tc, expr)
+    }
+  if (assignments.isEmpty)
+    throw new IllegalArgumentException(
+      "skunk-sharp: .patch(...) produced an empty SET list — every field was None. Postgres rejects UPDATE without SET; provide at least one Some(...)."
+    )
+  new UpdateWithSet[Cols](table, assignments)
 }
 
 /**
