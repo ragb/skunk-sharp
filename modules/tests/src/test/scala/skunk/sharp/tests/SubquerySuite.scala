@@ -121,4 +121,110 @@ class SubquerySuite extends PgFixture {
       }
     }
   }
+
+  test("ANY over a subquery — age < ANY(ages of premium users)") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val tag = "any-sub"
+        for {
+          _ <- users.insert.values(
+            (id = UUID.randomUUID, email = s"a-$tag@x", age = 20, deleted_at = Option.empty[OffsetDateTime]),
+            (id = UUID.randomUUID, email = s"b-$tag@x", age = 30, deleted_at = Option.empty[OffsetDateTime]),
+            (id = UUID.randomUUID, email = s"c-$tag@x", age = 50, deleted_at = Option.empty[OffsetDateTime]),
+            (id = UUID.randomUUID, email = s"prem-1-$tag@x", age = 25, deleted_at = Option.empty[OffsetDateTime]),
+            (id = UUID.randomUUID, email = s"prem-2-$tag@x", age = 40, deleted_at = Option.empty[OffsetDateTime])
+          ).compile.run(s)
+          younger <- users
+            .select(u => u.email)
+            .where(u => u.age.ltAny(users.select(x => x.age).where(x => x.email.like(s"prem-%-$tag@x"))))
+            .where(u => u.email.like(s"%-$tag@x"))
+            .where(u => u.email.notSimilarTo(s"prem-%-$tag@x"))
+            .compile.run(s).map(_.toSet)
+          // anyone younger than at least one premium (premium ages = 25, 40) = 20, 30
+          _ = assertEquals(younger, Set(s"a-$tag@x", s"b-$tag@x"))
+        } yield ()
+      }
+    }
+  }
+
+  test("ALL over a subquery — age >= ALL(ages of a cohort) picks the oldest") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val tag = "all-sub"
+        for {
+          _ <- users.insert.values(
+            (id = UUID.randomUUID, email = s"u1-$tag@x", age = 10, deleted_at = Option.empty[OffsetDateTime]),
+            (id = UUID.randomUUID, email = s"u2-$tag@x", age = 20, deleted_at = Option.empty[OffsetDateTime]),
+            (id = UUID.randomUUID, email = s"u3-$tag@x", age = 30, deleted_at = Option.empty[OffsetDateTime])
+          ).compile.run(s)
+          oldest <- users
+            .select(u => u.email)
+            .where(u => u.age.gteAll(users.select(x => x.age).where(x => x.email.like(s"u%-$tag@x"))))
+            .where(u => u.email.like(s"u%-$tag@x"))
+            .compile.run(s).map(_.toSet)
+          _ = assertEquals(oldest, Set(s"u3-$tag@x"))
+        } yield ()
+      }
+    }
+  }
+
+  test("DISTINCT ON returns one row per group — latest post per user") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val tag = "don"
+        val uA  = UUID.randomUUID
+        val uB  = UUID.randomUUID
+        // Explicit timestamps so uA-latest is unambiguously newer than uA-first; `now()`-defaulted inserts can
+        // collide within microsecond precision and make the DISTINCT ON pick non-deterministic.
+        val t1 = OffsetDateTime.parse("2024-01-01T00:00:00Z")
+        val t2 = OffsetDateTime.parse("2024-06-01T00:00:00Z")
+        val t3 = OffsetDateTime.parse("2024-03-01T00:00:00Z")
+        for {
+          _ <- users.insert.values(
+            (id = uA, email = s"uA-$tag@x", age = 20, deleted_at = Option.empty[OffsetDateTime]),
+            (id = uB, email = s"uB-$tag@x", age = 21, deleted_at = Option.empty[OffsetDateTime])
+          ).compile.run(s)
+          _ <- posts.insert.values(
+            (id = UUID.randomUUID, user_id = uA, title = s"uA-first-$tag", created_at = t1),
+            (id = UUID.randomUUID, user_id = uA, title = s"uA-latest-$tag", created_at = t2),
+            (id = UUID.randomUUID, user_id = uB, title = s"uB-only-$tag", created_at = t3)
+          ).compile.run(s)
+          rows <- posts
+            .select
+            .distinctOn(p => p.user_id)
+            .where(p => p.title.like(s"u%-$tag"))
+            .orderBy(p => (p.user_id.asc, p.created_at.desc))
+            .apply(p => (p.user_id, p.title))
+            .compile.run(s).map(_.toSet)
+          _ = assertEquals(rows, Set((uA, s"uA-latest-$tag"), (uB, s"uB-only-$tag")))
+        } yield ()
+      }
+    }
+  }
+
+  test("Pg.overlaps — finds posts whose (created_at, created_at) overlaps a probe range") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val tag     = "overlaps"
+        val ancient = OffsetDateTime.parse("2000-01-01T00:00:00Z")
+        val fresh   = OffsetDateTime.parse("2024-06-01T00:00:00Z")
+        val probeLo = OffsetDateTime.parse("2024-01-01T00:00:00Z")
+        val probeHi = OffsetDateTime.parse("2024-12-31T00:00:00Z")
+        val uid     = UUID.randomUUID
+        for {
+          _ <- users.insert((id = uid, email = s"ov-$tag@x", age = 20, deleted_at = Option.empty[OffsetDateTime]))
+            .compile.run(s)
+          _ <- posts.insert.values(
+            (id = UUID.randomUUID, user_id = uid, title = s"ancient-$tag", created_at = ancient),
+            (id = UUID.randomUUID, user_id = uid, title = s"fresh-$tag", created_at = fresh)
+          ).compile.run(s)
+          hits <- posts.select(p => p.title)
+            .where(p => Pg.overlaps(p.created_at, p.created_at, param(probeLo), param(probeHi)))
+            .where(p => p.title.like(s"%-$tag"))
+            .compile.run(s).map(_.toSet)
+          _ = assertEquals(hits, Set(s"fresh-$tag"))
+        } yield ()
+      }
+    }
+  }
 }
