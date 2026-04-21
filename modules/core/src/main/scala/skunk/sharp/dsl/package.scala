@@ -158,4 +158,18 @@ package object dsl {
 
   def param[T](v: T)(using pf: PgTypeFor[T]): skunk.sharp.TypedExpr[T] = skunk.sharp.TypedExpr.parameterised(v)
 
+  // ---- CASE expression ----
+  //
+  // `CASE WHEN … THEN … [ELSE …] END` is a SQL *keyword-expression*, not a function, so the entry point lives here at
+  // the top of the DSL alongside `lit` / `param` rather than under `Pg.…`. Only the searched form (one boolean per
+  // branch) is exposed — SQL's simple switch-style `CASE target WHEN v THEN …` is strict sugar for
+  // `CASE WHEN target = v THEN …` and adds no expressiveness.
+
+  /**
+   * Start a `CASE`. Each branch has its own boolean predicate. The first branch's `branch: TypedExpr[T]` pins the
+   * output type; later `.when`s must agree.
+   */
+  def caseWhen[T](cond: skunk.sharp.where.Where, branch: skunk.sharp.TypedExpr[T]): CaseWhen[T] =
+    new CaseWhen[T](List((cond, branch)), branch.codec)
+
 }

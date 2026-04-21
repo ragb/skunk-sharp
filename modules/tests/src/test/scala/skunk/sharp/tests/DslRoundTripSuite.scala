@@ -140,6 +140,71 @@ class DslRoundTripSuite extends PgFixture {
     }
   }
 
+  test("searched CASE WHEN in a projection — buckets users by age") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val tag = "case-w"
+        val no  = Option.empty[OffsetDateTime]
+        val now = OffsetDateTime.now()
+        for {
+          _ <- users.insert.values(
+            (id = UUID.randomUUID, email = s"u1-$tag@x", age = 10, created_at = now, deleted_at = no),
+            (id = UUID.randomUUID, email = s"u2-$tag@x", age = 30, created_at = now, deleted_at = no),
+            (id = UUID.randomUUID, email = s"u3-$tag@x", age = 80, created_at = now, deleted_at = no)
+          ).compile.run(s)
+          rows <- users
+            .select(u =>
+              (
+                u.email,
+                caseWhen(u.age < 18, lit("minor"))
+                  .when(u.age < 65, lit("adult"))
+                  .otherwise(lit("senior"))
+              )
+            )
+            .where(u => u.email.like(s"u%-$tag@x"))
+            .compile.run(s).map(_.toSet)
+          _ = assertEquals(
+            rows,
+            Set[(String, String)](
+              (s"u1-$tag@x", "minor"),
+              (s"u2-$tag@x", "adult"),
+              (s"u3-$tag@x", "senior")
+            )
+          )
+        } yield ()
+      }
+    }
+  }
+
+  test("CASE WHEN in ORDER BY — custom sort priority by email prefix") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val tag = "case-o"
+        val no  = Option.empty[OffsetDateTime]
+        val now = OffsetDateTime.now()
+        for {
+          _ <- users.insert.values(
+            (id = UUID.randomUUID, email = s"b-$tag@x", age = 1, created_at = now, deleted_at = no),
+            (id = UUID.randomUUID, email = s"a-$tag@x", age = 2, created_at = now, deleted_at = no),
+            (id = UUID.randomUUID, email = s"c-$tag@x", age = 3, created_at = now, deleted_at = no)
+          ).compile.run(s)
+          // Sort so that 'a-…' comes first, then 'b-…', then everything else.
+          out <- users
+            .select(u => u.email)
+            .where(u => u.email.like(s"%-$tag@x"))
+            .orderBy(u =>
+              caseWhen(u.email === s"a-$tag@x", lit(0))
+                .when(u.email === s"b-$tag@x", lit(1))
+                .otherwise(lit(2))
+                .asc
+            )
+            .compile.run(s)
+          _ = assertEquals(out, List(s"a-$tag@x", s"b-$tag@x", s"c-$tag@x"))
+        } yield ()
+      }
+    }
+  }
+
   test("select against a view works; mutations would not compile") {
     withContainers { containers =>
       session(containers).use { s =>

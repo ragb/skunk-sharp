@@ -558,17 +558,32 @@ class NegativeTestsSuite extends munit.FunSuite {
     assert(errs.nonEmpty, "lit of a runtime variable should be rejected")
     val msg = errs.map(_.message).mkString("\n")
     assert(
-      msg.contains("compile-time primitive literal"),
+      msg.contains("compile-time literal"),
       s"error should mention the literal-only rule; got: $msg"
     )
     assert(msg.contains("param"), s"error should suggest `param` as the runtime escape hatch; got: $msg")
   }
 
-  test("lit(\"string literal\") is rejected — strings always parameterise for SQL-injection safety") {
+  test("lit(\"string literal\") compiles — compile-time strings are safe to inline") {
     val errs = typeCheckErrors("""
       import skunk.sharp.dsl.*
-      lit("hello")
+      val e = lit("hello")
     """)
-    assert(errs.nonEmpty, "lit of a string is rejected (compile-time literal or not)")
+    assert(errs.isEmpty, s"lit of a String literal should compile; got: ${errs.map(_.message).mkString("\n")}")
+  }
+
+  test("lit(runtimeString) is still rejected — only compile-time String constants inline safely") {
+    val errs = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      val s: String = "hello"
+      lit(s)
+    """)
+    assert(errs.nonEmpty, "lit of a runtime String should be rejected")
+  }
+
+  test("lit(String) renders the SQL single-quoted literal with `'` doubled") {
+    import skunk.sharp.dsl.*
+    val af = lit("it's").render
+    assertEquals(af.fragment.sql, "'it''s'")
   }
 }
