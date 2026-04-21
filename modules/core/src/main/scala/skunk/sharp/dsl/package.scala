@@ -68,7 +68,29 @@ package object dsl {
 
   // The expression-level operators ("WHERE operators" historically, but they produce a plain
   // `TypedExpr[Boolean]` and work anywhere an expression goes — projections, ORDER BY, HAVING, function args).
-  export skunk.sharp.ops.{!==, <, <=, ===, ====, >, >=, ilike, in, isNotNull, isNull, like}
+  export skunk.sharp.ops.{
+    !==,
+    <,
+    <=,
+    ===,
+    ====,
+    >,
+    >=,
+    between,
+    betweenSymmetric,
+    ilike,
+    in,
+    isDistinctFrom,
+    isDistinctFromExpr,
+    isNotDistinctFrom,
+    isNotDistinctFromExpr,
+    isNotNull,
+    isNull,
+    like,
+    notBetween,
+    notSimilarTo,
+    similarTo
+  }
   export skunk.sharp.ops.Stripped
 
   // Boolean combinators (`&&`, `||`, `!`, `and`, `or`, `not`) stay in `skunk.sharp.where` — they're about

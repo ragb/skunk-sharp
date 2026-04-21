@@ -73,6 +73,69 @@ extension [T](lhs: TypedExpr[T])(using @unused ord: cats.Order[Stripped[T]]) {
   def <=(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where = valOp("<=", lhs, rhs)
   def >(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where  = valOp(">", lhs, rhs)
   def >=(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where = valOp(">=", lhs, rhs)
+
+  /**
+   * `lhs BETWEEN lo AND hi` — inclusive on both ends. Values on the RHS are runtime-parameterised (two `$N`s), so this
+   * is distinct from the `col >= lo AND col <= hi` form in SQL surface only — Postgres's planner treats them
+   * identically, but users expect the keyword form.
+   */
+  def between(lo: Stripped[T], hi: Stripped[T])(using PgTypeFor[Stripped[T]]): Where =
+    betweenRender(lhs, "BETWEEN", lo, hi)
+
+  /** `lhs NOT BETWEEN lo AND hi`. Exclusive complement. */
+  def notBetween(lo: Stripped[T], hi: Stripped[T])(using PgTypeFor[Stripped[T]]): Where =
+    betweenRender(lhs, "NOT BETWEEN", lo, hi)
+
+  /**
+   * `lhs BETWEEN SYMMETRIC lo AND hi` — Postgres form that auto-swaps `lo` and `hi` if `lo > hi`. Useful when the
+   * bounds come from user input and their order is not guaranteed.
+   */
+  def betweenSymmetric(lo: Stripped[T], hi: Stripped[T])(using PgTypeFor[Stripped[T]]): Where =
+    betweenRender(lhs, "BETWEEN SYMMETRIC", lo, hi)
+
+}
+
+private def betweenRender[T](
+  lhs: TypedExpr[T],
+  kw: String,
+  lo: Stripped[T],
+  hi: Stripped[T]
+)(using pf: PgTypeFor[Stripped[T]]): Where =
+  new TypedExpr[Boolean] {
+    val render =
+      lhs.render |+|
+        TypedExpr.raw(s" $kw ") |+|
+        TypedExpr.parameterised(lo).render |+|
+        TypedExpr.raw(" AND ") |+|
+        TypedExpr.parameterised(hi).render
+    val codec = skunk.codec.all.bool
+  }
+
+extension [T](lhs: TypedExpr[T]) {
+
+  /**
+   * `lhs IS DISTINCT FROM rhs` — NULL-safe inequality. Unlike `<>`, treats NULL as an ordinary value: `NULL IS DISTINCT
+   * FROM 1` is TRUE, `NULL IS DISTINCT FROM NULL` is FALSE. Use on nullable columns when you want "values differ
+   * (including NULL vs. not-NULL)" rather than three-valued-logic inequality.
+   */
+  def isDistinctFrom(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where =
+    PgOperator.infix[T, Stripped[T], Boolean]("IS DISTINCT FROM")(lhs, TypedExpr.parameterised(rhs))
+
+  /**
+   * `lhs IS NOT DISTINCT FROM rhs` — NULL-safe equality. `NULL IS NOT DISTINCT FROM NULL` is TRUE; `NULL IS NOT
+   * DISTINCT FROM 1` is FALSE. Dual of [[isDistinctFrom]].
+   */
+  def isNotDistinctFrom(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where =
+    PgOperator.infix[T, Stripped[T], Boolean]("IS NOT DISTINCT FROM")(lhs, TypedExpr.parameterised(rhs))
+
+  /** Expression-to-expression `IS DISTINCT FROM` — for column-vs-column / column-vs-function-call comparisons. */
+  def isDistinctFromExpr(rhs: TypedExpr[T]): Where =
+    PgOperator.infix[T, T, Boolean]("IS DISTINCT FROM")(lhs, rhs)
+
+  /** Expression-to-expression `IS NOT DISTINCT FROM`. */
+  def isNotDistinctFromExpr(rhs: TypedExpr[T]): Where =
+    PgOperator.infix[T, T, Boolean]("IS NOT DISTINCT FROM")(lhs, rhs)
+
 }
 
 /**
@@ -137,6 +200,18 @@ extension [T](lhs: TypedExpr[T])(using @unused ev: Stripped[T] <:< String) {
   /** `lhs ILIKE pattern` (case-insensitive). */
   def ilike(pattern: String): Where =
     PgOperator.infix[T, String, Boolean]("ILIKE")(lhs, TypedExpr.parameterised(pattern))
+
+  /**
+   * `lhs SIMILAR TO pattern` — Postgres's SQL-standard regex variant. Syntax lies between `LIKE` and POSIX regex:
+   * supports `_` / `%` wildcards plus regex-style `|`, `*`, `+`, `?`, `()`, `[]`. Less common than `~` / `~*` but part
+   * of the standard.
+   */
+  def similarTo(pattern: String): Where =
+    PgOperator.infix[T, String, Boolean]("SIMILAR TO")(lhs, TypedExpr.parameterised(pattern))
+
+  /** `lhs NOT SIMILAR TO pattern`. */
+  def notSimilarTo(pattern: String): Where =
+    PgOperator.infix[T, String, Boolean]("NOT SIMILAR TO")(lhs, TypedExpr.parameterised(pattern))
 
 }
 
