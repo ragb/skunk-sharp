@@ -128,6 +128,17 @@ object AsSubquery {
     def render(q: SetOpQuery[T]): () => AppliedFragment = q.renderFn
   }
 
+  /**
+   * A literal [[Values]] fragment is also a subquery: embed it wherever a sub-select would go (INSERT…FROM, set-op
+   * operand, scalar `.asExpr`). Declared here because `AsSubquery` is sealed — subclasses / instances that widen
+   * through `new` must live with the declaration.
+   */
+  given fromValues[Cols <: Tuple, Row <: scala.NamedTuple.AnyNamedTuple]: AsSubquery[Values[Cols, Row], Row] =
+    new AsSubquery[Values[Cols, Row], Row] {
+      def codec(v: Values[Cols, Row]): Codec[Row]             = v.codec
+      def render(v: Values[Cols, Row]): () => AppliedFragment = () => v.render
+    }
+
 }
 
 /**

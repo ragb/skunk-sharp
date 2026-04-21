@@ -110,6 +110,40 @@ extension [Ss <: Tuple](sb: SelectBuilder[Ss])(using ev: IsSingleSource[Ss]) {
 
 }
 
+/**
+ * `.alias("v")` on a [[Values]] — promote the literal row source to a joinable [[Relation]]. Every relation extension
+ * (`.innerJoin` / `.leftJoin` / `.select` / …) works on the result. The rendered FROM fragment is
+ * `(VALUES (…), (…)) AS "alias" ("col1", "col2", …)` — Postgres requires a derived `VALUES` to declare both its alias
+ * and its column list.
+ *
+ * Lives here (not in `Values.scala`) because Scala 3 requires overloaded extensions to share a single top-level
+ * definition group; this `alias` sits alongside the `Relation` and `SelectBuilder` overloads.
+ */
+extension [Cols <: Tuple, Row <: scala.NamedTuple.AnyNamedTuple](v: Values[Cols, Row]) {
+
+  def alias[A <: String & Singleton](a: A): Relation[Cols] {
+    type Alias = A
+    type Mode  = AliasMode.Explicit
+  } = {
+    val newAlias                           = a
+    val colsVal                            = v.columns
+    val colsList                           = v.columnListSql
+    val renderInner: () => AppliedFragment = () => v.render
+    new Relation[Cols] {
+      type Alias = A
+      type Mode  = AliasMode.Explicit
+      val currentAlias: A                                       = newAlias
+      val name: String                                          = newAlias
+      val schema: Option[String]                                = None
+      val columns: Cols                                         = colsVal
+      val expectedTableType: String                             = ""
+      override def fromFragmentWith(x: String): AppliedFragment =
+        TypedExpr.raw("(") |+| renderInner() |+| TypedExpr.raw(s""") AS "$x" ($colsList)""")
+    }
+  }
+
+}
+
 // ---- JoinKind + NullableCols -------------------------------------------------------------------
 
 /** Kind of join — drives the rendered keyword and whether the right-side cols are nullabilified. */
