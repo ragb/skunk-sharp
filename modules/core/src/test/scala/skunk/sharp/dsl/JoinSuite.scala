@@ -296,6 +296,84 @@ class JoinSuite extends munit.FunSuite {
     assert(af.fragment.sql.contains("""WHERE "post_id" = "posts"."id""""), af.fragment.sql)
   }
 
+  // ---- projected-SELECT `.alias` as subquery / lateral source ---------------------------------
+
+  test("projected SELECT `.alias` renders as a derived table in FROM") {
+    val af = users
+      .select(u => (u.id, u.email))
+      .where(u => u.age >= 18)
+      .alias("adults")
+      .select
+      .compile
+      .af
+
+    assertEquals(
+      af.fragment.sql,
+      """SELECT "id", "email" FROM (SELECT "id", "email" FROM "users" WHERE "age" >= $1) AS "adults""""
+    )
+  }
+
+  test("projected SELECT `.alias` with `.as(\"lbl\")` expression — alias name surfaces as column name") {
+    val af = users
+      .select(u => (u.id, Pg.lower(u.email).as("lower_email")))
+      .alias("u2")
+      .select
+      .compile
+      .af
+
+    assertEquals(
+      af.fragment.sql,
+      """SELECT "id", "lower_email" FROM (SELECT "id", lower("email") AS "lower_email" FROM "users") AS "u2""""
+    )
+  }
+
+  test("projected SELECT joined with a base table — outer references derived cols by alias") {
+    val af = users
+      .select(u => (u.id, u.email))
+      .where(u => u.age >= 18)
+      .alias("adults")
+      .innerJoin(posts).on(r => r.adults.id ==== r.posts.user_id)
+      .select(r => (r.adults.email, r.posts.title))
+      .compile
+      .af
+
+    assertEquals(
+      af.fragment.sql,
+      """SELECT "adults"."email", "posts"."title" FROM (SELECT "id", "email" FROM "users" WHERE "age" >= $1) AS "adults" INNER JOIN "posts" ON "adults"."id" = "posts"."user_id""""
+    )
+  }
+
+  test("INNER JOIN LATERAL against a projected SELECT — per-outer-row top-N") {
+    val af = users
+      .innerJoinLateral(u =>
+        posts.select(p => (p.id, p.title)).where(p => p.user_id ==== u.id).limit(3).alias("recent")
+      )
+      .on(_ => lit(true))
+      .select(r => (r.users.email, r.recent.title))
+      .compile
+      .af
+
+    assertEquals(
+      af.fragment.sql,
+      """SELECT "users"."email", "recent"."title" FROM "users" INNER JOIN LATERAL (SELECT "id", "title" FROM "posts" WHERE "user_id" = "users"."id" LIMIT 3) AS "recent" ON TRUE"""
+    )
+  }
+
+  test("projected SELECT with an un-named expression fails to compile via AllNamedProj") {
+    val errs = compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import java.util.UUID
+      case class U(id: UUID, email: String, age: Int)
+      val t = Table.of[U]("users")
+      t.select(u => (u.id, Pg.lower(u.email))).alias("x")
+    """)
+    assert(errs.nonEmpty, "expected compile error from AllNamedProj")
+    assert(
+      errs.exists(_.message.contains("requires every projected element")),
+      errs.map(_.message).mkString("\n")
+    )
+  }
+
   test("LEFT then FULL — LEFT-nullabilified cols stay Option (no double-wrapping) under FULL") {
     // posts was already Option[_] from LEFT. FULL also nullabilifies users. The Scala type must NOT go to
     // Option[Option[_]] for posts — NullableCol is idempotent on already-nullable columns. In the inner ON of the

@@ -32,3 +32,4 @@ object Pg
     with PgNull
     with PgSubquery
     with PgArray
+    with PgSrf

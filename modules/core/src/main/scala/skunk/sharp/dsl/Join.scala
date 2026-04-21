@@ -111,6 +111,79 @@ extension [Ss <: Tuple](sb: SelectBuilder[Ss])(using ev: IsSingleSource[Ss]) {
 }
 
 /**
+ * `.alias("sub")` on a [[ProjectedSelect]] — promote a column-list SELECT to a joinable [[Relation]]. Every element of
+ * the projection must have a stable name (a bare column reference or `expr.as("name")`); arbitrary unaliased
+ * expressions (`Pg.lower(u.email)`, `u.email ++ u.suffix`) have no name Postgres is obliged to use, so they're rejected
+ * at compile time by [[AllNamedProj]] with a pointed error that names the fix.
+ *
+ * Enables projected subquery-as-relation and projected `LATERAL` sources — both ubiquitous for per-row-parameterised
+ * queries. The outer relation's `Cols` tuple is computed by [[ProjCols]] from the projection shape, so
+ * `r.<alias>.<col>` resolves at the outer site.
+ *
+ * A terminal `.compile` on the `ProjectedSelect` runs lazily when the outer query's own `.compile` walks this source —
+ * there's still only one user-visible `.compile` on the whole tree. `GroupCoverage` is summoned here so the inner
+ * rendering is as valid as a standalone `.compile` would be.
+ */
+extension [Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
+  ps: ProjectedSelect[Ss, Proj, Groups, Row]
+)(using gc: GroupCoverage[Proj, Groups], @scala.annotation.unused np: AllNamedProj[Proj]) {
+
+  def alias[A <: String & Singleton](a: A): Relation[ProjCols[Proj]] {
+    type Alias = A
+    type Mode  = AliasMode.Explicit
+  } = {
+    val newAlias                           = a
+    val cols                               = buildProjectedCols(ps.projections).asInstanceOf[ProjCols[Proj]]
+    val renderInner: () => AppliedFragment = () => ps.compile(using gc).af
+    new Relation[ProjCols[Proj]] {
+      type Alias = A
+      type Mode  = AliasMode.Explicit
+      val currentAlias: A                                       = newAlias
+      val name: String                                          = newAlias
+      val schema: Option[String]                                = None
+      val columns: ProjCols[Proj]                               = cols
+      val expectedTableType: String                             = ""
+      override def fromFragmentWith(x: String): AppliedFragment =
+        TypedExpr.raw("(") |+| renderInner() |+| TypedExpr.raw(s""") AS "$x"""")
+    }
+  }
+
+}
+
+/**
+ * Reconstruct a runtime column tuple from a projection list. Each element is either a [[TypedColumn]] (column name +
+ * codec + compile-time nullability, now threaded through `.nullable`) or an [[AliasedExpr]] (alias name + codec, always
+ * treated as non-nullable — any expression that could produce NULL is the caller's responsibility to wrap in an
+ * explicit `Option[_]` codec). Third shapes are rejected at compile time by [[AllNamedProj]]; the default arm here
+ * throws only because pattern exhaustiveness on `TypedExpr[?]` is open.
+ */
+private[sharp] def buildProjectedCols(projections: List[TypedExpr[?]]): Tuple = {
+  val cols = projections.map {
+    case tc: TypedColumn[?, ?, ?] =>
+      Column[Any, "x", Boolean, Tuple](
+        name = tc.name.asInstanceOf["x"],
+        tpe = skunk.sharp.pg.PgTypes.typeOf(tc.codec.asInstanceOf[Codec[Any]]),
+        codec = tc.codec.asInstanceOf[Codec[Any]],
+        isNullable = tc.nullable.asInstanceOf[Boolean],
+        attrs = Nil
+      )
+    case ae: AliasedExpr[?, ?] =>
+      Column[Any, "x", Boolean, Tuple](
+        name = ae.aliasName.asInstanceOf["x"],
+        tpe = skunk.sharp.pg.PgTypes.typeOf(ae.codec.asInstanceOf[Codec[Any]]),
+        codec = ae.codec.asInstanceOf[Codec[Any]],
+        isNullable = false,
+        attrs = Nil
+      )
+    case other =>
+      throw new IllegalStateException(
+        s"skunk-sharp: projection element is neither a TypedColumn nor an AliasedExpr — should have been rejected at compile time: $other"
+      )
+  }
+  Tuple.fromArray(cols.toArray[Any])
+}
+
+/**
  * `.alias("v")` on a [[Values]] — promote the literal row source to a joinable [[Relation]]. Every relation extension
  * (`.innerJoin` / `.leftJoin` / `.select` / …) works on the result. The rendered FROM fragment is
  * `(VALUES (…), (…)) AS "alias" ("col1", "col2", …)` — Postgres requires a derived `VALUES` to declare both its alias
