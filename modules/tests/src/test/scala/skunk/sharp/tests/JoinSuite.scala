@@ -294,7 +294,7 @@ class JoinSuite extends PgFixture {
                 .limit(1)
                 .alias("latest")
             )
-            .on(_ => Pg.True)
+            .on(_ => lit(true))
             .select(r => (r.u.email, r.latest.title))
             .where(r => r.u.email.like(s"%-$tag@x"))
             .compile.run(s).map(_.toSet)

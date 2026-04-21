@@ -249,7 +249,7 @@ class JoinSuite extends munit.FunSuite {
   test("INNER JOIN LATERAL renders LATERAL keyword; inner WHERE correlates against outer cols") {
     val af = users
       .innerJoinLateral(u => posts.select.where(p => p.user_id ==== u.id).limit(3).alias("recent"))
-      .on(_ => Pg.True)
+      .on(_ => lit(true))
       .select(r => (r.users.email, r.recent.title))
       .compile
       .af
@@ -276,7 +276,7 @@ class JoinSuite extends munit.FunSuite {
   test("LEFT JOIN LATERAL — lateral cols decode as Option when the inner produces zero rows") {
     val q: CompiledQuery[(String, Option[String])] = users
       .leftJoinLateral(u => posts.select.where(p => p.user_id ==== u.id).limit(1).alias("top"))
-      .on(_ => Pg.True)
+      .on(_ => lit(true))
       .select(r => (r.users.email, r.top.title))
       .compile
 
@@ -287,7 +287,7 @@ class JoinSuite extends munit.FunSuite {
     val af = users
       .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
       .innerJoinLateral(r => tags.select.where(t => t.post_id ==== r.posts.id).limit(2).alias("top_tags"))
-      .on(_ => Pg.True)
+      .on(_ => lit(true))
       .select(r => (r.users.email, r.posts.title, r.top_tags.name))
       .compile
       .af
@@ -303,7 +303,7 @@ class JoinSuite extends munit.FunSuite {
     // raw comparisons there by round-tripping through literals that match both sides at the bare types.
     val q: CompiledQuery[(Option[String], Option[String], Option[String])] = users
       .leftJoin(posts).on(r => r.users.id ==== r.posts.user_id)
-      .fullJoin(tags).on(_ => Pg.True)
+      .fullJoin(tags).on(_ => lit(true))
       .select(r => (r.users.email, r.posts.title, r.tags.name))
       .compile
 

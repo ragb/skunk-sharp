@@ -147,10 +147,15 @@ object AsSubquery {
  */
 extension [Q](q: Q) {
 
-  def asExpr[T](using ev: AsSubquery[Q, T]): skunk.sharp.TypedExpr[T] =
+  def asExpr[T](using ev: AsSubquery[Q, T]): skunk.sharp.TypedExpr[T] = {
+    val thunk = ev.render(q)
+    // Rendering is deferred — `thunk()` sits inside `TypedExpr`'s by-name argument and only fires when the
+    // outermost `.compile` walks this expression's `.render`. Inner subquery compilation (for builder-shaped
+    // `Q`s) happens at that moment, keeping the "single terminal compile" rule intact.
     skunk.sharp.TypedExpr(
-      skunk.sharp.TypedExpr.raw("(") |+| ev.render(q)() |+| skunk.sharp.TypedExpr.raw(")"),
+      skunk.sharp.TypedExpr.raw("(") |+| thunk() |+| skunk.sharp.TypedExpr.raw(")"),
       ev.codec(q)
     )
+  }
 
 }

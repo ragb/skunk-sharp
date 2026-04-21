@@ -24,8 +24,7 @@ import skunk.sharp.pg.functions.*
  * }}}
  */
 object Pg
-    extends PgConstants
-    with PgNumeric
+    extends PgNumeric
     with PgString
     with PgTime
     with PgSession
