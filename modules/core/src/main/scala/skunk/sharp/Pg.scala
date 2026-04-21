@@ -33,3 +33,4 @@ object Pg
     with PgSubquery
     with PgArray
     with PgSrf
+    with PgWindow
