@@ -146,29 +146,47 @@ extension [Cols <: Tuple, Row <: scala.NamedTuple.AnyNamedTuple](v: Values[Cols,
 
 // ---- JoinKind + NullableCols -------------------------------------------------------------------
 
-/** Kind of join — drives the rendered keyword and whether the right-side cols are nullabilified. */
+/**
+ * Kind of join — drives the rendered keyword and whether either side's columns get nullabilified:
+ *   - `Inner` / `Cross`: neither side nullabilified (no null-padding).
+ *   - `Left`: right-side cols become `Option[_]` (right rows may be absent).
+ *   - `Right`: left-side cols become `Option[_]` (left rows may be absent) — mirror of `Left`.
+ *   - `Full`: both sides become `Option[_]` (either side may be absent).
+ */
 enum JoinKind(val sql: String) {
   case Inner extends JoinKind("INNER JOIN")
   case Left  extends JoinKind("LEFT JOIN")
+  case Right extends JoinKind("RIGHT JOIN")
+  case Full  extends JoinKind("FULL OUTER JOIN")
   case Cross extends JoinKind("CROSS JOIN")
 }
 
 /**
- * Type-level "make every column nullable" — wraps each value type in `Option` and flips the Null phantom to `true`.
- * Used for sources attached via LEFT JOIN, where all their columns may be `NULL` when no match is found.
+ * Type-level "make one column nullable" — idempotent per element. Gated on the `Null` phantom: already-nullable columns
+ * (phantom `true`) pass through unchanged, so chaining outer joins that would re-nullabilify the same source doesn't
+ * produce `Option[Option[T]]` at the Scala level. Non-nullable columns (phantom `false`) have their value type wrapped
+ * in `Option` and the phantom flipped to `true`.
  */
+type NullableCol[C] = C match {
+  case Column[t, n, true, attrs]  => Column[t, n, true, attrs]
+  case Column[t, n, false, attrs] => Column[Option[t], n, true, attrs]
+}
+
+/** Type-level "make every column nullable". Walks the tuple and applies [[NullableCol]] per element. */
 type NullableCols[Cols <: Tuple] <: Tuple = Cols match {
-  case Column[t, n, nu, attrs] *: tail => Column[Option[t], n, true, attrs] *: NullableCols[tail]
-  case EmptyTuple                      => EmptyTuple
+  case EmptyTuple   => EmptyTuple
+  case head *: tail => NullableCol[head] *: NullableCols[tail]
 }
 
 /**
  * Runtime counterpart to [[NullableCols]]: walk the columns tuple and wrap each codec in `.opt` so the decoder emits
- * `Option[T]`. Name / tpe / flags are preserved.
+ * `Option[T]`. Name / tpe / attrs are preserved. Idempotent — columns whose `isNullable` is already `true` are returned
+ * unchanged so re-wrapping (chained outer joins) doesn't produce `Option[Option[T]]`.
  */
 private[sharp] def nullabilifyCols(cols: Tuple): Tuple = {
   val wrapped = cols.toList.map {
-    case c: Column[?, ?, ?, ?] =>
+    case c: Column[?, ?, ?, ?] if c.isNullable => c
+    case c: Column[?, ?, ?, ?]                 =>
       Column[Any, "x", Boolean, Tuple](
         name = c.name.asInstanceOf["x"],
         tpe = c.tpe,
@@ -178,6 +196,34 @@ private[sharp] def nullabilifyCols(cols: Tuple): Tuple = {
       )
     case other =>
       other
+  }
+  Tuple.fromArray(wrapped.toArray[Any])
+}
+
+/**
+ * Walk a tuple of [[SourceEntry]] and rebuild each one with its effective cols nullabilified. Used by RIGHT / FULL JOIN
+ * to mark every already-committed source's columns as possibly-absent: a RIGHT JOIN against the chain so far means
+ * *any* of the earlier sources may be NULL-padded when the right side dominates.
+ *
+ * Paired with the type-level [[NullabilifySources]] match type so the SelectBuilder the user transitions into sees the
+ * flipped column types in its `.where` / `.select` views.
+ */
+type NullabilifySources[Ss <: Tuple] <: Tuple = Ss match {
+  case EmptyTuple                       => EmptyTuple
+  case SourceEntry[r, c0, c, a] *: tail =>
+    SourceEntry[r, c0, NullableCols[c], a] *: NullabilifySources[tail]
+}
+
+private[sharp] def nullabilifySources(sources: Tuple): Tuple = {
+  val wrapped = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].map { s =>
+    new SourceEntry[Relation[Tuple], Tuple, Tuple, "x"](
+      s.relation.asInstanceOf[Relation[Tuple]],
+      s.alias.asInstanceOf["x"],
+      s.originalCols,
+      nullabilifyCols(s.effectiveCols),
+      s.kind,
+      s.onPredOpt
+    )
   }
   Tuple.fromArray(wrapped.toArray[Any])
 }
@@ -358,15 +404,24 @@ private[sharp] def buildOnView[Ss <: Tuple, CR0 <: Tuple, AR <: String & Singlet
 // ---- IncompleteJoin ----------------------------------------------------------------------------
 
 /**
- * Transitional state after `.innerJoin(x)` or `.leftJoin(x)`, before `.on(predicate)`. Only `.on` is exposed — calling
- * `.compile` / `.select` here is a compile error because the method simply isn't there.
+ * Transitional state after `.innerJoin(x)` / `.leftJoin(x)` / `.rightJoin(x)` / `.fullJoin(x)`, before
+ * `.on(predicate)`. Only `.on` is exposed — calling `.compile` / `.select` here is a compile error because the method
+ * simply isn't there.
+ *
+ *   - `Ss` is the shape of *already-committed* sources as seen by the `ON` predicate: pre-null-padding for this
+ *     particular join. Postgres evaluates `ON` before NULL-padding kicks in, so even for RIGHT / FULL the ON-view keeps
+ *     the earlier sources' effective cols as they are today.
+ *   - `SsFinal` is the shape that flows into the `SelectBuilder` the `.on` transitions to. For INNER / LEFT that equals
+ *     `Ss`; for RIGHT / FULL it is `NullabilifySources[Ss]` — the WHERE / SELECT views on the final builder see the
+ *     earlier sources' cols as `Option[_]` because a right-side-dominated join can NULL-pad them.
  */
 final class IncompleteJoin[
   Ss <: Tuple,
   RR <: Relation[CR0],
   CR0 <: Tuple,
-  CR <: Tuple, // = CR0 for INNER, NullableCols[CR0] for LEFT
-  AR <: String & Singleton
+  CR <: Tuple, // = CR0 for INNER / RIGHT / CROSS, NullableCols[CR0] for LEFT / FULL
+  AR <: String & Singleton,
+  SsFinal <: Tuple // = Ss for INNER / LEFT / CROSS, NullabilifySources[Ss] for RIGHT / FULL
 ] private[sharp] (
   sources: Ss,
   pendingRelation: RR,
@@ -379,11 +434,11 @@ final class IncompleteJoin[
   /**
    * Finalise the join predicate. The view sees every committed source's effective cols plus the pending source's
    * *original* cols — `ON` is evaluated before `NULL`-padding happens. Transitions to [[SelectBuilder]] with the
-   * pending source appended to `Ss`.
+   * (possibly nullabilified) committed sources plus the pending source appended.
    */
   def on(
     f: OnView[Ss, CR0, AR] => Where
-  ): SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR0, CR, AR]]] = {
+  ): SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR]]] = {
     val pred  = f(buildOnView[Ss, CR0, AR](sources, pendingOriginalCols, pendingAlias))
     val entry = new SourceEntry[RR, CR0, CR, AR](
       pendingRelation,
@@ -393,8 +448,13 @@ final class IncompleteJoin[
       kind,
       Some(pred)
     )
-    val nextSources = (sources :* entry).asInstanceOf[Tuple.Append[Ss, SourceEntry[RR, CR0, CR, AR]]]
-    new SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR0, CR, AR]]](nextSources)
+    // Nullabilify committed sources' effective cols for RIGHT / FULL. INNER / LEFT pass through unchanged.
+    val finalCommitted: Tuple = kind match {
+      case JoinKind.Right | JoinKind.Full => nullabilifySources(sources)
+      case _                              => sources
+    }
+    val nextSources = (finalCommitted :* entry).asInstanceOf[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR]]]
+    new SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR]]](nextSources)
   }
 
 }
@@ -421,44 +481,85 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
 ) {
 
   /**
-   * `INNER JOIN` — right-side columns keep their declared types. Requires the right side's alias to be distinct from
-   * the left's; a self-join with two implicit aliases like `users.innerJoin(users)` is rejected at compile time — use
+   * `INNER JOIN` — neither side's columns nullabilified. Requires the right side's alias to be distinct from the
+   * left's; a self-join with two implicit aliases like `users.innerJoin(users)` is rejected at compile time — use
    * `.alias("u1")` / `.alias("u2")` on either side to disambiguate.
    */
   def innerJoin[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](right: R)(using
     aR: AsRelation.Aux[R, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
-  ): IncompleteJoin[SourceEntry[RL, CL, CL, AL] *: EmptyTuple, RR, CR, CR, AR] = {
+  ): IncompleteJoin[
+    SourceEntry[RL, CL, CL, AL] *: EmptyTuple,
+    RR,
+    CR,
+    CR,
+    AR,
+    SourceEntry[RL, CL, CL, AL] *: EmptyTuple
+  ] = {
     val baseEntry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val rel       = aR(right)
     val rCols     = rel.columns.asInstanceOf[CR]
-    new IncompleteJoin[SourceEntry[RL, CL, CL, AL] *: EmptyTuple, RR, CR, CR, AR](
-      baseEntry *: EmptyTuple,
-      rel,
-      aR.aliasValue(right),
-      rCols,
-      rCols,
-      JoinKind.Inner
-    )
+    new IncompleteJoin(baseEntry *: EmptyTuple, rel, aR.aliasValue(right), rCols, rCols, JoinKind.Inner)
   }
 
-  /** `LEFT JOIN` — right-side column value types are wrapped in `Option`; `.opt` on the codecs at runtime. */
+  /** `LEFT JOIN` — right-side column value types wrap in `Option`; `.opt` on the codecs at runtime. */
   def leftJoin[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](right: R)(using
     aR: AsRelation.Aux[R, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
-  ): IncompleteJoin[SourceEntry[RL, CL, CL, AL] *: EmptyTuple, RR, CR, NullableCols[CR], AR] = {
+  ): IncompleteJoin[
+    SourceEntry[RL, CL, CL, AL] *: EmptyTuple,
+    RR,
+    CR,
+    NullableCols[CR],
+    AR,
+    SourceEntry[RL, CL, CL, AL] *: EmptyTuple
+  ] = {
     val baseEntry    = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val rel          = aR(right)
     val origCols     = rel.columns.asInstanceOf[CR]
     val effectiveCls = nullabilifyCols(origCols).asInstanceOf[NullableCols[CR]]
-    new IncompleteJoin[SourceEntry[RL, CL, CL, AL] *: EmptyTuple, RR, CR, NullableCols[CR], AR](
-      baseEntry *: EmptyTuple,
-      rel,
-      aR.aliasValue(right),
-      origCols,
-      effectiveCls,
-      JoinKind.Left
-    )
+    new IncompleteJoin(baseEntry *: EmptyTuple, rel, aR.aliasValue(right), origCols, effectiveCls, JoinKind.Left)
+  }
+
+  /**
+   * `RIGHT JOIN` — left-side column value types wrap in `Option`. Mirror of LEFT: the already-committed source may be
+   * NULL-padded when the right side dominates; the right side's columns keep their declared types. Chains further: a
+   * subsequent JOIN sees every earlier source's cols as `Option[_]`.
+   */
+  def rightJoin[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](right: R)(using
+    aR: AsRelation.Aux[R, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
+  ): IncompleteJoin[
+    SourceEntry[RL, CL, CL, AL] *: EmptyTuple,
+    RR,
+    CR,
+    CR,
+    AR,
+    NullabilifySources[SourceEntry[RL, CL, CL, AL] *: EmptyTuple]
+  ] = {
+    val baseEntry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
+    val rel       = aR(right)
+    val rCols     = rel.columns.asInstanceOf[CR]
+    new IncompleteJoin(baseEntry *: EmptyTuple, rel, aR.aliasValue(right), rCols, rCols, JoinKind.Right)
+  }
+
+  /** `FULL OUTER JOIN` — both sides wrap in `Option`. Union of LEFT and RIGHT in type-level effect. */
+  def fullJoin[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](right: R)(using
+    aR: AsRelation.Aux[R, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
+  ): IncompleteJoin[
+    SourceEntry[RL, CL, CL, AL] *: EmptyTuple,
+    RR,
+    CR,
+    NullableCols[CR],
+    AR,
+    NullabilifySources[SourceEntry[RL, CL, CL, AL] *: EmptyTuple]
+  ] = {
+    val baseEntry    = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
+    val rel          = aR(right)
+    val origCols     = rel.columns.asInstanceOf[CR]
+    val effectiveCls = nullabilifyCols(origCols).asInstanceOf[NullableCols[CR]]
+    new IncompleteJoin(baseEntry *: EmptyTuple, rel, aR.aliasValue(right), origCols, effectiveCls, JoinKind.Full)
   }
 
   /** `CROSS JOIN` — no predicate required; transitions straight to a two-source [[SelectBuilder]]. */
