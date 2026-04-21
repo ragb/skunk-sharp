@@ -337,8 +337,9 @@ final class SourceEntry[
   val alias: Alias,
   val originalCols: Cols0,
   val effectiveCols: Cols,
-  val kind: JoinKind,          // for the base source this is `Inner` (cosmetic — not rendered for index 0)
-  val onPredOpt: Option[Where] // `None` for the base source and CROSS joins; `Some` for INNER/LEFT
+  val kind: JoinKind,           // for the base source this is `Inner` (cosmetic — not rendered for index 0)
+  val onPredOpt: Option[Where], // `None` for the base source and CROSS joins; `Some` for INNER/LEFT/RIGHT/FULL
+  val isLateral: Boolean = false
 )
 
 /**
@@ -428,7 +429,8 @@ final class IncompleteJoin[
   pendingAlias: AR,
   pendingOriginalCols: CR0,
   pendingEffectiveCols: CR,
-  kind: JoinKind
+  kind: JoinKind,
+  isLateral: Boolean = false
 ) {
 
   /**
@@ -446,7 +448,8 @@ final class IncompleteJoin[
       pendingOriginalCols,
       pendingEffectiveCols,
       kind,
-      Some(pred)
+      Some(pred),
+      isLateral
     )
     // Nullabilify committed sources' effective cols for RIGHT / FULL. INNER / LEFT pass through unchanged.
     val finalCommitted: Tuple = kind match {
@@ -572,6 +575,102 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
     val rCols     = rel.columns.asInstanceOf[CR]
     val rEntry    =
       new SourceEntry[RR, CR, CR, AR](rel, aR.aliasValue(right), rCols, rCols, JoinKind.Cross, None)
+    new SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR])]((baseEntry, rEntry))
+  }
+
+  // ---- LATERAL joins ---------------------------------------------------------------------------
+  //
+  // `LATERAL` unlocks left-to-right correlation in FROM: the subquery on the right of a LATERAL join can reference
+  // the outer source's columns. The user's lambda receives the outer's qualified `ColumnsView`, which means
+  // correlated predicates in the inner `.where` — `p.user_id ==== outer.id` — type-check and render as
+  // alias-qualified SQL that Postgres resolves against the outer FROM-clause entry.
+
+  /**
+   * `INNER JOIN LATERAL (subquery) AS "x" ON <predicate>` — correlated inner join. The lambda receives the outer
+   * source's columns so the inner query's `.where` / `.limit` can reference them.
+   */
+  def innerJoinLateral[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](
+    fn: ColumnsView[CL] => T
+  )(using
+    aR: AsRelation.Aux[T, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
+  ): IncompleteJoin[
+    SourceEntry[RL, CL, CL, AL] *: EmptyTuple,
+    RR,
+    CR,
+    CR,
+    AR,
+    SourceEntry[RL, CL, CL, AL] *: EmptyTuple
+  ] = {
+    val baseEntry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
+    val outer     = ColumnsView.qualified(baseEntry.effectiveCols, baseEntry.alias)
+    val t         = fn(outer)
+    val rel       = aR(t)
+    val rCols     = rel.columns.asInstanceOf[CR]
+    new IncompleteJoin(baseEntry *: EmptyTuple, rel, aR.aliasValue(t), rCols, rCols, JoinKind.Inner, isLateral = true)
+  }
+
+  /**
+   * `LEFT JOIN LATERAL (subquery) AS "x" ON <predicate>` — correlated left join. When the inner subquery produces no
+   * rows for an outer row, the outer row still surfaces with the lateral side NULL-padded (so inner cols decode as
+   * `Option[_]`).
+   */
+  def leftJoinLateral[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](
+    fn: ColumnsView[CL] => T
+  )(using
+    aR: AsRelation.Aux[T, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
+  ): IncompleteJoin[
+    SourceEntry[RL, CL, CL, AL] *: EmptyTuple,
+    RR,
+    CR,
+    NullableCols[CR],
+    AR,
+    SourceEntry[RL, CL, CL, AL] *: EmptyTuple
+  ] = {
+    val baseEntry    = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
+    val outer        = ColumnsView.qualified(baseEntry.effectiveCols, baseEntry.alias)
+    val t            = fn(outer)
+    val rel          = aR(t)
+    val origCols     = rel.columns.asInstanceOf[CR]
+    val effectiveCls = nullabilifyCols(origCols).asInstanceOf[NullableCols[CR]]
+    new IncompleteJoin(
+      baseEntry *: EmptyTuple,
+      rel,
+      aR.aliasValue(t),
+      origCols,
+      effectiveCls,
+      JoinKind.Left,
+      isLateral = true
+    )
+  }
+
+  /**
+   * `CROSS JOIN LATERAL (subquery) AS "x"` — correlated cross join, no ON required. Typical shape for "expand each
+   * outer row by the rows of a per-row-parameterised subquery". Outer rows whose inner produces zero rows are dropped
+   * (same semantics as a regular CROSS JOIN).
+   */
+  def crossJoinLateral[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](
+    fn: ColumnsView[CL] => T
+  )(using
+    aR: AsRelation.Aux[T, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
+  ): SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR])] = {
+    val baseEntry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
+    val outer     = ColumnsView.qualified(baseEntry.effectiveCols, baseEntry.alias)
+    val t         = fn(outer)
+    val rel       = aR(t)
+    val rCols     = rel.columns.asInstanceOf[CR]
+    val rEntry    =
+      new SourceEntry[RR, CR, CR, AR](
+        rel,
+        aR.aliasValue(t),
+        rCols,
+        rCols,
+        JoinKind.Cross,
+        None,
+        isLateral = true
+      )
     new SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR])]((baseEntry, rEntry))
   }
 

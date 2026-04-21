@@ -182,6 +182,83 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
     )
   }
 
+  // ---- LATERAL joins ---------------------------------------------------------------------------
+  //
+  // Same shape as the non-lateral methods but the source builder receives the outer view so its `.where` / `.limit`
+  // can reference already-committed sources' columns — Postgres resolves those as correlated references against the
+  // outer FROM-clause entry.
+
+  /**
+   * `INNER JOIN LATERAL (subquery) AS alias ON <predicate>`. The `fn` lambda receives the full outer view (committed
+   * sources keyed by alias) and returns the lateral source — typically
+   * `someTable.select(...).where(p => p.x ==== r.outer.y).limit(N).alias("x")`.
+   */
+  def innerJoinLateral[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](
+    fn: SelectView[Ss] => T
+  )(using
+    a: AsRelation.Aux[T, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
+  ): IncompleteJoin[Ss, RR, CR, CR, AR, Ss] = {
+    val t    = fn(view)
+    val rel  = a(t)
+    val cols = rel.columns.asInstanceOf[CR]
+    new IncompleteJoin(sources, rel, a.aliasValue(t), cols, cols, JoinKind.Inner, isLateral = true)
+  }
+
+  /**
+   * `LEFT JOIN LATERAL (subquery) AS alias ON <predicate>`. Every outer row surfaces; when the lateral produces no
+   * rows, the outer row is NULL-padded on the lateral side (lateral cols decode as `Option[_]`).
+   */
+  def leftJoinLateral[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](
+    fn: SelectView[Ss] => T
+  )(using
+    a: AsRelation.Aux[T, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
+  ): IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR, Ss] = {
+    val t            = fn(view)
+    val rel          = a(t)
+    val origCols     = rel.columns.asInstanceOf[CR]
+    val effectiveCls = nullabilifyCols(origCols).asInstanceOf[NullableCols[CR]]
+    new IncompleteJoin(sources, rel, a.aliasValue(t), origCols, effectiveCls, JoinKind.Left, isLateral = true)
+  }
+
+  /**
+   * `CROSS JOIN LATERAL (subquery) AS alias` — no `.on(...)` required. Typical shape for "per-row expansion via a
+   * subquery parameterised by the outer row" (top-N per group, row-wise unnest, etc.). Outer rows whose lateral
+   * produces zero rows are dropped.
+   */
+  def crossJoinLateral[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](
+    fn: SelectView[Ss] => T
+  )(using
+    a: AsRelation.Aux[T, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
+  ): SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]] = {
+    val t     = fn(view)
+    val rel   = a(t)
+    val cols  = rel.columns.asInstanceOf[CR]
+    val entry = new SourceEntry[RR, CR, CR, AR](
+      rel,
+      a.aliasValue(t),
+      cols,
+      cols,
+      JoinKind.Cross,
+      None,
+      isLateral = true
+    )
+    val next2 = (sources :* entry).asInstanceOf[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]]
+    new SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]](
+      next2,
+      distinct,
+      whereOpt,
+      groupBys,
+      havingOpt,
+      orderBys,
+      limitOpt,
+      offsetOpt,
+      lockingOpt
+    )
+  }
+
   // ---- Projection -------------------------------------------------------------------------------
 
   /**
@@ -409,7 +486,8 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
         val head     = entries.head
         val headFrag = TypedExpr.raw(keyword) |+| projList |+| TypedExpr.raw(" FROM ") |+| aliasedFromEntry(head)
         entries.tail.foldLeft(headFrag) { (acc, s) =>
-          val fromFrag = TypedExpr.raw(s" ${s.kind.sql} ") |+| aliasedFromEntry(s)
+          val lateralKw = if (s.isLateral) " LATERAL" else ""
+          val fromFrag  = TypedExpr.raw(s" ${s.kind.sql}$lateralKw ") |+| aliasedFromEntry(s)
           s.onPredOpt.fold(acc |+| fromFrag)(p => acc |+| fromFrag |+| TypedExpr.raw(" ON ") |+| p.render)
         }
       }
