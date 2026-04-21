@@ -15,10 +15,10 @@ class PgFunctionSuite extends PgFixture {
       session(containers).use { s =>
         for {
           _ <- assertIO(empty.select(_ => Pg.abs(lit(-42))).compile.unique(s), 42)
-          _ <- assertIO(empty.select(_ => Pg.ceil(lit(BigDecimal("1.2")))).compile.unique(s), BigDecimal(2))
-          _ <- assertIO(empty.select(_ => Pg.floor(lit(BigDecimal("1.8")))).compile.unique(s), BigDecimal(1))
-          _ <- assertIO(empty.select(_ => Pg.trunc(lit(BigDecimal("-1.9")))).compile.unique(s), BigDecimal(-1))
-          _ <- assertIO(empty.select(_ => Pg.round(lit(BigDecimal("1.5")))).compile.unique(s), BigDecimal(2))
+          _ <- assertIO(empty.select(_ => Pg.ceil(param(BigDecimal("1.2")))).compile.unique(s), BigDecimal(2))
+          _ <- assertIO(empty.select(_ => Pg.floor(param(BigDecimal("1.8")))).compile.unique(s), BigDecimal(1))
+          _ <- assertIO(empty.select(_ => Pg.trunc(param(BigDecimal("-1.9")))).compile.unique(s), BigDecimal(-1))
+          _ <- assertIO(empty.select(_ => Pg.round(param(BigDecimal("1.5")))).compile.unique(s), BigDecimal(2))
         } yield ()
       }
     }
@@ -28,7 +28,7 @@ class PgFunctionSuite extends PgFixture {
     withContainers { containers =>
       session(containers).use { s =>
         assertIO(
-          empty.select(_ => Pg.round(lit(BigDecimal("1.2345")), 2)).compile.unique(s),
+          empty.select(_ => Pg.round(param(BigDecimal("1.2345")), 2)).compile.unique(s),
           BigDecimal("1.23")
         )
       }
@@ -102,8 +102,8 @@ class PgFunctionSuite extends PgFixture {
     withContainers { containers =>
       session(containers).use { s =>
         for {
-          _ <- assertIO(empty.select(_ => Pg.lower(lit("HELLO"))).compile.unique(s), "hello")
-          _ <- assertIO(empty.select(_ => Pg.upper(lit("hello"))).compile.unique(s), "HELLO")
+          _ <- assertIO(empty.select(_ => Pg.lower(param("HELLO"))).compile.unique(s), "hello")
+          _ <- assertIO(empty.select(_ => Pg.upper(param("hello"))).compile.unique(s), "HELLO")
         } yield ()
       }
     }
@@ -113,10 +113,10 @@ class PgFunctionSuite extends PgFixture {
     withContainers { containers =>
       session(containers).use { s =>
         for {
-          _ <- assertIO(empty.select(_ => Pg.trim(lit("  hi  "))).compile.unique(s), "hi")
-          _ <- assertIO(empty.select(_ => Pg.ltrim(lit("  hi  "))).compile.unique(s), "hi  ")
-          _ <- assertIO(empty.select(_ => Pg.rtrim(lit("  hi  "))).compile.unique(s), "  hi")
-          _ <- assertIO(empty.select(_ => Pg.trim(lit("xxhiyy"), "xy")).compile.unique(s), "hi")
+          _ <- assertIO(empty.select(_ => Pg.trim(param("  hi  "))).compile.unique(s), "hi")
+          _ <- assertIO(empty.select(_ => Pg.ltrim(param("  hi  "))).compile.unique(s), "hi  ")
+          _ <- assertIO(empty.select(_ => Pg.rtrim(param("  hi  "))).compile.unique(s), "  hi")
+          _ <- assertIO(empty.select(_ => Pg.trim(param("xxhiyy"), "xy")).compile.unique(s), "hi")
         } yield ()
       }
     }
@@ -126,13 +126,13 @@ class PgFunctionSuite extends PgFixture {
     withContainers { containers =>
       session(containers).use { s =>
         for {
-          _ <- assertIO(empty.select(_ => Pg.replace(lit("a-b-c"), "-", "/")).compile.unique(s), "a/b/c")
-          _ <- assertIO(empty.select(_ => Pg.substring(lit("hello world"), 7)).compile.unique(s), "world")
-          _ <- assertIO(empty.select(_ => Pg.substring(lit("hello world"), 1, 5)).compile.unique(s), "hello")
-          _ <- assertIO(empty.select(_ => Pg.left(lit("hello"), 3)).compile.unique(s), "hel")
-          _ <- assertIO(empty.select(_ => Pg.right(lit("hello"), 3)).compile.unique(s), "llo")
-          _ <- assertIO(empty.select(_ => Pg.repeat(lit("ab"), 3)).compile.unique(s), "ababab")
-          _ <- assertIO(empty.select(_ => Pg.reverse(lit("abc"))).compile.unique(s), "cba")
+          _ <- assertIO(empty.select(_ => Pg.replace(param("a-b-c"), "-", "/")).compile.unique(s), "a/b/c")
+          _ <- assertIO(empty.select(_ => Pg.substring(param("hello world"), 7)).compile.unique(s), "world")
+          _ <- assertIO(empty.select(_ => Pg.substring(param("hello world"), 1, 5)).compile.unique(s), "hello")
+          _ <- assertIO(empty.select(_ => Pg.left(param("hello"), 3)).compile.unique(s), "hel")
+          _ <- assertIO(empty.select(_ => Pg.right(param("hello"), 3)).compile.unique(s), "llo")
+          _ <- assertIO(empty.select(_ => Pg.repeat(param("ab"), 3)).compile.unique(s), "ababab")
+          _ <- assertIO(empty.select(_ => Pg.reverse(param("abc"))).compile.unique(s), "cba")
         } yield ()
       }
     }
@@ -143,8 +143,11 @@ class PgFunctionSuite extends PgFixture {
       session(containers).use { s =>
         for {
           _ <-
-            assertIO(empty.select(_ => Pg.regexpReplace(lit("foo123bar"), "[0-9]+", "-")).compile.unique(s), "foo-bar")
-          _ <- assertIO(empty.select(_ => Pg.splitPart(lit("a-b-c"), "-", 2)).compile.unique(s), "b")
+            assertIO(
+              empty.select(_ => Pg.regexpReplace(param("foo123bar"), "[0-9]+", "-")).compile.unique(s),
+              "foo-bar"
+            )
+          _ <- assertIO(empty.select(_ => Pg.splitPart(param("a-b-c"), "-", 2)).compile.unique(s), "b")
         } yield ()
       }
     }
@@ -156,10 +159,10 @@ class PgFunctionSuite extends PgFixture {
     withContainers { containers =>
       session(containers).use { s =>
         for {
-          _ <- assertIO(empty.select(_ => Pg.length(lit("abc"))).compile.unique(s), 3)
-          _ <- assertIO(empty.select(_ => Pg.charLength(lit("abc"))).compile.unique(s), 3)
-          _ <- assertIO(empty.select(_ => Pg.octetLength(lit("abc"))).compile.unique(s), 3)
-          _ <- assertIO(empty.select(_ => Pg.position("b", lit("abc"))).compile.unique(s), 2)
+          _ <- assertIO(empty.select(_ => Pg.length(param("abc"))).compile.unique(s), 3)
+          _ <- assertIO(empty.select(_ => Pg.charLength(param("abc"))).compile.unique(s), 3)
+          _ <- assertIO(empty.select(_ => Pg.octetLength(param("abc"))).compile.unique(s), 3)
+          _ <- assertIO(empty.select(_ => Pg.position("b", param("abc"))).compile.unique(s), 2)
         } yield ()
       }
     }
@@ -189,10 +192,10 @@ class PgFunctionSuite extends PgFixture {
     withContainers { containers =>
       session(containers).use { s =>
         for {
-          _ <- assertIO(empty.select(_ => Pg.concat(lit("a"), lit("b"), lit("c"))).compile.unique(s), "abc")
+          _ <- assertIO(empty.select(_ => Pg.concat(param("a"), param("b"), param("c"))).compile.unique(s), "abc")
           _ <- assertIO(
             empty.select(_ =>
-              Pg.coalesce(lit[Option[String]](None), lit[Option[String]](Some("fallback")))
+              Pg.coalesce(param[Option[String]](None), param[Option[String]](Some("fallback")))
             ).compile.unique(s),
             Option("fallback")
           )

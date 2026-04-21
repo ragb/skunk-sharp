@@ -18,19 +18,74 @@ trait TypedExpr[T] {
 
 object TypedExpr {
 
-  def apply[T](rendered: AppliedFragment, codec0: Codec[T]): TypedExpr[T] = {
-    val r = rendered
+  /**
+   * Construct a `TypedExpr` whose rendered SQL fragment is computed **lazily** — by-name argument plus `lazy val`
+   * inside. Operators, functions, and subquery lifters (`.asExpr`, `Pg.exists`, `Pg.notExists`, …) that compose other
+   * `TypedExpr`s by touching their `render` field chain their work off this one. That means nothing is materialised
+   * until the outermost `SelectBuilder.compile` / `ProjectedSelect.compile` walks its tree of expressions and pulls on
+   * `.render` — the single terminal "render SQL now" point.
+   *
+   * The laziness matters most for correlated subquery uses (`Pg.exists(inner)`) where `inner` is a `SelectBuilder`
+   * whose own `.compile` only works once the outer view has been fixed. Eager rendering at `Pg.exists(...)`-call time
+   * would force the inner compile inside the outer's `.where` lambda — too early. The `lazy val` defers it.
+   */
+  def apply[T](rendered: => AppliedFragment, codec0: Codec[T]): TypedExpr[T] = {
     val c = codec0
     new TypedExpr[T] {
-      val render = r
-      val codec  = c
+      lazy val render: AppliedFragment = rendered
+      val codec: Codec[T]              = c
     }
   }
 
-  /** Lift a value to a bound-parameter literal `$N` expression. */
-  def lit[T](value: T)(using pf: PgTypeFor[T]): TypedExpr[T] = {
+  /**
+   * Lift a **compile-time primitive literal** into a `TypedExpr[T]`. Supported literal types: `Boolean`, `Int`, `Long`,
+   * `Short`, `Byte`, `Float`, `Double`. The literal is rendered inline in the SQL text (`TRUE` / `42` /
+   * `'Infinity'::float8` / …), never as a bound `$N` parameter.
+   *
+   * Anything else — runtime variables, strings, UUIDs, timestamps, arrays, refined / tag types, user-defined — is a
+   * **compile error**. The error message points at:
+   *
+   *   - WHERE operators (`===`, `!==`, `<`, `<=`, `>`, `>=`, `.in(xs)`, `.like(p)`, `.contains(...)`, …) which
+   *     parameterise their RHS value directly. `col === x` for a runtime `x` renders as `col = $N`.
+   *   - [[skunk.sharp.dsl.param]]`(v)`, the explicit runtime-value escape hatch. Use it only when you need a
+   *     `TypedExpr[T]` from a runtime value in a position no operator handles (e.g. `Pg.ceil(param(bigDec))`).
+   *
+   * `lit` is named for the SQL output shape: an inline literal. If you reach for it with a runtime value you're asking
+   * for plan-cache misses and (for strings) injection risk — the macro rejects that up front.
+   */
+  inline def lit[T](inline value: T)(using pf: PgTypeFor[T]): TypedExpr[T] =
+    ${ litMacro.impl[T]('value, 'pf) }
+
+  /**
+   * Runtime-parameterised literal — the fallback path. Exposed so the `lit` macro can splice a call when the value is
+   * not a compile-time constant. Not for general use; prefer [[lit]] which decides inline vs parameterised for you.
+   */
+  def parameterised[T](value: T)(using pf: PgTypeFor[T]): TypedExpr[T] = {
     val frag = Fragment(List(Right(pf.codec.sql)), pf.codec, Origin.unknown)
     apply(frag(value), pf.codec)
+  }
+
+  /**
+   * Render a `Float` literal as its SQL form. Always emits a `::float4` cast — Postgres's default numeric-literal
+   * parse type is `numeric`, and functions like `sqrt(9.0)` then return `numeric` instead of the expected `double
+   * precision`, which blows up the skunk decoder. The explicit cast pins the type.
+   *
+   * IEEE specials (`NaN`, `±Infinity`) can't be written as bare numeric tokens in SQL — Postgres accepts them only
+   * as quoted strings cast to the target float type. Public so the `lit` macro can call it from spliced code.
+   */
+  def renderFloat(v: Float): String = v match {
+    case x if java.lang.Float.isNaN(x) => "'NaN'::float4"
+    case Float.PositiveInfinity        => "'Infinity'::float4"
+    case Float.NegativeInfinity        => "'-Infinity'::float4"
+    case x                             => s"${x.toString}::float4"
+  }
+
+  /** Same as [[renderFloat]] but for `Double` — emits a `::float8` cast for identical reasons. */
+  def renderDouble(v: Double): String = v match {
+    case x if java.lang.Double.isNaN(x) => "'NaN'::float8"
+    case Double.PositiveInfinity        => "'Infinity'::float8"
+    case Double.NegativeInfinity        => "'-Infinity'::float8"
+    case x                              => s"${x.toString}::float8"
   }
 
   /** Construct a raw, parameterless SQL fragment — used internally to emit identifiers, keywords, operator symbols. */

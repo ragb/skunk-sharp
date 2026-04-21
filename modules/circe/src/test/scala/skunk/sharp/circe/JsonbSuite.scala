@@ -48,7 +48,7 @@ class JsonbSuite extends munit.FunSuite {
   }
 
   test("contains / containedBy — @> / <@") {
-    val pattern = lit(Jsonb(CirceJson.obj("status" -> CirceJson.fromString("active"))))
+    val pattern = param(Jsonb(CirceJson.obj("status" -> CirceJson.fromString("active"))))
     val af      = docs
       .select
       .where(d => d.body.contains(pattern))
@@ -69,7 +69,7 @@ class JsonbSuite extends munit.FunSuite {
   }
 
   test("Jsonb.toJsonb — cast any TypedExpr to jsonb") {
-    val af = docs.select(_ => Jsonb.toJsonb(lit("hello"))).compile.af
+    val af = docs.select(_ => Jsonb.toJsonb(param("hello"))).compile.af
     assertEquals(af.fragment.sql, """SELECT to_jsonb($1) FROM "documents"""")
   }
 
@@ -84,7 +84,7 @@ class JsonbSuite extends munit.FunSuite {
   }
 
   test("Jsonb.jsonbSet — builds a jsonb_set call with a PG text path literal") {
-    val newVal = lit(Jsonb(CirceJson.fromString("x")))
+    val newVal = param(Jsonb(CirceJson.fromString("x")))
     val af     = docs
       .select(d => Jsonb.jsonbSet(d.body, Seq("a", "b"), newVal))
       .compile.af
@@ -92,7 +92,7 @@ class JsonbSuite extends munit.FunSuite {
   }
 
   test("Jsonb.jsonbConcat / jsonbDeleteKey") {
-    val patch = lit(Jsonb(CirceJson.obj("k" -> CirceJson.fromString("v"))))
+    val patch = param(Jsonb(CirceJson.obj("k" -> CirceJson.fromString("v"))))
     val af    = docs
       .select(d => (Jsonb.jsonbConcat(d.body, patch), Jsonb.jsonbDeleteKey(d.body, "obsolete")))
       .compile.af

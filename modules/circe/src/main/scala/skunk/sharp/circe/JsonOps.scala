@@ -16,7 +16,7 @@ extension [A](e: TypedExpr[Jsonb[A]]) {
   /** `jsonb -> 'key'` — get a field as jsonb (raw JSON; shape unknown after navigation). */
   def get(key: String): TypedExpr[Jsonb[CirceJson]] =
     TypedExpr(
-      e.render |+| TypedExpr.raw(" -> ") |+| TypedExpr.lit(key).render,
+      e.render |+| TypedExpr.raw(" -> ") |+| TypedExpr.parameterised(key).render,
       summon[skunk.sharp.pg.PgTypeFor[Jsonb[CirceJson]]].codec
     )
 
@@ -29,7 +29,7 @@ extension [A](e: TypedExpr[Jsonb[A]]) {
 
   /** `jsonb ->> 'key'` — get a field as text. */
   def getText(key: String): TypedExpr[String] =
-    TypedExpr(e.render |+| TypedExpr.raw(" ->> ") |+| TypedExpr.lit(key).render, skunk.codec.all.text)
+    TypedExpr(e.render |+| TypedExpr.raw(" ->> ") |+| TypedExpr.parameterised(key).render, skunk.codec.all.text)
 
   /** `jsonb ->> n` — get an array element as text. */
   def atText(idx: Int): TypedExpr[String] =
@@ -39,7 +39,7 @@ extension [A](e: TypedExpr[Jsonb[A]]) {
   def path(keys: String*): TypedExpr[Jsonb[CirceJson]] = {
     val arr = keys.map(escapePathElem).mkString("{", ",", "}")
     TypedExpr(
-      e.render |+| TypedExpr.raw(" #> ") |+| TypedExpr.lit(arr).render |+| TypedExpr.raw("::text[]"),
+      e.render |+| TypedExpr.raw(" #> ") |+| TypedExpr.parameterised(arr).render |+| TypedExpr.raw("::text[]"),
       summon[skunk.sharp.pg.PgTypeFor[Jsonb[CirceJson]]].codec
     )
   }
@@ -48,7 +48,7 @@ extension [A](e: TypedExpr[Jsonb[A]]) {
   def pathText(keys: String*): TypedExpr[String] = {
     val arr = keys.map(escapePathElem).mkString("{", ",", "}")
     TypedExpr(
-      e.render |+| TypedExpr.raw(" #>> ") |+| TypedExpr.lit(arr).render |+| TypedExpr.raw("::text[]"),
+      e.render |+| TypedExpr.raw(" #>> ") |+| TypedExpr.parameterised(arr).render |+| TypedExpr.raw("::text[]"),
       skunk.codec.all.text
     )
   }
@@ -63,7 +63,7 @@ extension [A](e: TypedExpr[Jsonb[A]]) {
 
   /** `jsonb ? 'key'` — does the top-level have the key? */
   def hasKey(key: String): TypedExpr[Boolean] =
-    TypedExpr(e.render |+| TypedExpr.raw(" ? ") |+| TypedExpr.lit(key).render, skunk.codec.all.bool)
+    TypedExpr(e.render |+| TypedExpr.raw(" ? ") |+| TypedExpr.parameterised(key).render, skunk.codec.all.bool)
 
   /** `jsonb ?| ARRAY[...]` — does the top-level have any of the keys? */
   def hasAnyKey(keys: String*): TypedExpr[Boolean] =

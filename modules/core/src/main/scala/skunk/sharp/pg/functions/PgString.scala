@@ -31,7 +31,7 @@ trait PgString {
   /** `trim(chars FROM s)` — strip any of `chars` from both ends. */
   def trim[T](e: TypedExpr[T], chars: String)(using StrLike[T]): TypedExpr[T] =
     TypedExpr(
-      TypedExpr.raw("trim(") |+| TypedExpr.lit(chars).render |+| TypedExpr.raw(" FROM ") |+| e.render |+|
+      TypedExpr.raw("trim(") |+| TypedExpr.parameterised(chars).render |+| TypedExpr.raw(" FROM ") |+| e.render |+|
         TypedExpr.raw(")"),
       e.codec
     )
@@ -45,8 +45,8 @@ trait PgString {
   /** `replace(s, from, to)`. */
   def replace[T](e: TypedExpr[T], from: String, to: String)(using StrLike[T]): TypedExpr[T] =
     TypedExpr(
-      TypedExpr.raw("replace(") |+| e.render |+| TypedExpr.raw(", ") |+| TypedExpr.lit(from).render |+|
-        TypedExpr.raw(", ") |+| TypedExpr.lit(to).render |+| TypedExpr.raw(")"),
+      TypedExpr.raw("replace(") |+| e.render |+| TypedExpr.raw(", ") |+| TypedExpr.parameterised(from).render |+|
+        TypedExpr.raw(", ") |+| TypedExpr.parameterised(to).render |+| TypedExpr.raw(")"),
       e.codec
     )
 
@@ -77,7 +77,8 @@ trait PgString {
   def regexpReplace[T](e: TypedExpr[T], pattern: String, replacement: String)(using StrLike[T]): TypedExpr[T] =
     TypedExpr(
       TypedExpr.raw("regexp_replace(") |+| e.render |+| TypedExpr.raw(", ") |+|
-        TypedExpr.lit(pattern).render |+| TypedExpr.raw(", ") |+| TypedExpr.lit(replacement).render |+|
+        TypedExpr.parameterised(pattern).render |+| TypedExpr.raw(", ") |+|
+        TypedExpr.parameterised(replacement).render |+|
         TypedExpr.raw(")"),
       e.codec
     )
@@ -86,7 +87,7 @@ trait PgString {
   def splitPart[T](e: TypedExpr[T], delim: String, field: Int)(using StrLike[T]): TypedExpr[T] =
     TypedExpr(
       TypedExpr.raw("split_part(") |+| e.render |+| TypedExpr.raw(", ") |+|
-        TypedExpr.lit(delim).render |+| TypedExpr.raw(s", $field)"),
+        TypedExpr.parameterised(delim).render |+| TypedExpr.raw(s", $field)"),
       e.codec
     )
 
@@ -114,7 +115,7 @@ trait PgString {
     pf: PgTypeFor[Lift[T, Int]]
   ): TypedExpr[Lift[T, Int]] =
     TypedExpr(
-      TypedExpr.raw("position(") |+| TypedExpr.lit(substr).render |+| TypedExpr.raw(" IN ") |+|
+      TypedExpr.raw("position(") |+| TypedExpr.parameterised(substr).render |+| TypedExpr.raw(" IN ") |+|
         in.render |+| TypedExpr.raw(")"),
       pf.codec
     )

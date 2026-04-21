@@ -95,7 +95,7 @@ trait PgArray {
    */
   def arrayToString[A](a: TypedExpr[A], sep: String)(using @annotation.unused ev: IsArray[A]): TypedExpr[String] =
     TypedExpr(
-      TypedExpr.raw("array_to_string(") |+| a.render |+| TypedExpr.raw(", ") |+| TypedExpr.lit(sep).render |+|
+      TypedExpr.raw("array_to_string(") |+| a.render |+| TypedExpr.raw(", ") |+| TypedExpr.parameterised(sep).render |+|
         TypedExpr.raw(")"),
       pg.text
     )
@@ -105,15 +105,15 @@ trait PgArray {
     @annotation.unused ev: IsArray[A]
   ): TypedExpr[String] =
     TypedExpr(
-      TypedExpr.raw("array_to_string(") |+| a.render |+| TypedExpr.raw(", ") |+| TypedExpr.lit(sep).render |+|
-        TypedExpr.raw(", ") |+| TypedExpr.lit(nullStr).render |+| TypedExpr.raw(")"),
+      TypedExpr.raw("array_to_string(") |+| a.render |+| TypedExpr.raw(", ") |+| TypedExpr.parameterised(sep).render |+|
+        TypedExpr.raw(", ") |+| TypedExpr.parameterised(nullStr).render |+| TypedExpr.raw(")"),
       pg.text
     )
 
   /** `string_to_array(s, sep)` → `Arr[String]`. Empty string separator splits by character. */
   def stringToArray(s: TypedExpr[String], sep: String): TypedExpr[Arr[String]] =
     TypedExpr(
-      TypedExpr.raw("string_to_array(") |+| s.render |+| TypedExpr.raw(", ") |+| TypedExpr.lit(sep).render |+|
+      TypedExpr.raw("string_to_array(") |+| s.render |+| TypedExpr.raw(", ") |+| TypedExpr.parameterised(sep).render |+|
         TypedExpr.raw(")"),
       pg._text
     )

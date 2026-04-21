@@ -7,6 +7,17 @@ import skunk.sharp.where.Stripped
 /** NULL-handling helpers. Mixed into [[skunk.sharp.Pg]]. */
 trait PgNull {
 
+  /**
+   * Typed `NULL` literal — renders inline as `NULL`, codec is `.opt`'d so the decoder expects an `Option`. The type
+   * parameter pins the SQL result-type shape (needed in projections, `coalesce(nullOf[String], …)`, etc.). Not named
+   * `Null` to avoid colliding with Scala's `Null` type.
+   *
+   * `lit(null)` isn't an option because `null: Null` has no `PgTypeFor` instance — the caller has to specify the target
+   * type explicitly.
+   */
+  def nullOf[T](using pf: PgTypeFor[T]): TypedExpr[Option[T]] =
+    TypedExpr(TypedExpr.raw("NULL"), pf.codec.opt)
+
   /** `coalesce(a, b, c, …)` — first non-null argument. */
   def coalesce[T](args: TypedExpr[T]*)(using pfr: PgTypeFor[T]): TypedExpr[T] =
     PgFunction.nary[T]("coalesce", args*)
@@ -19,7 +30,8 @@ trait PgNull {
     pf: PgTypeFor[Stripped[T]]
   ): TypedExpr[Option[Stripped[T]]] =
     TypedExpr(
-      TypedExpr.raw("nullif(") |+| a.render |+| TypedExpr.raw(", ") |+| TypedExpr.lit(b).render |+| TypedExpr.raw(")"),
+      TypedExpr.raw("nullif(") |+| a.render |+| TypedExpr.raw(", ") |+| TypedExpr.parameterised(b).render |+|
+        TypedExpr.raw(")"),
       pf.codec.opt
     )
 
