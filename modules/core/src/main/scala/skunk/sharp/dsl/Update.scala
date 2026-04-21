@@ -15,26 +15,36 @@ import scala.compiletime.constValueTuple
  *
  * State machine:
  *
- *   1. `users.update` → [[UpdateBuilder]] (entry). Must call `.set(…)` before anything else.
+ *   1. `users.update` → [[UpdateBuilder]] (entry). Must call `.set(…)` or `.from(…)` before anything else.
  *   2. `.set(…)` → [[UpdateWithSet]]. No `.run` / `.returning` here — the only paths forward are `.where(…)` or the
  *      explicit `.updateAll` opt-in for "yes, I really mean every row".
  *   3. `.where(…)` or `.updateAll` → [[UpdateReady]]. This is where `.run`, `.returning`, `.returningTuple`,
  *      `.returningAll` live. `.where` here chains (AND-combines).
  *
- * Calling `.run` without `.where` (or `.updateAll`) is a compile error: the method simply does not exist at that state.
+ * For multi-table form (`UPDATE … FROM …`):
+ *
+ *   1. `.from(otherRel)` on [[UpdateBuilder]] → [[UpdateFromBuilder]]. Chain further `.from(…)` for more sources.
+ *   2. `.set(r => r.<target>.<col> := …)` — lambda receives `JoinedView` keyed by alias.
+ *   3. `.where` / `.updateAll` → [[UpdateFromReady]] with `.compile` / `.returning*`.
  *
  * {{{
+ *   // Single-table
  *   users.update
  *     .set(u => (u.email := "new@example.com", u.age := 30))
- *     .where(u => u.id === someId)          // transitions to UpdateReady
- *     .run(session)
+ *     .where(u => u.id === someId)
+ *     .compile.run(session)
  *
- *   users.update.set(u => u.active := false).updateAll.run(session)  // explicit opt-in
+ *   // Multi-table (UPDATE … FROM …)
+ *   users.update
+ *     .from(posts)
+ *     .set(r => r.users.age := 1)
+ *     .where(r => r.users.id ==== r.posts.user_id)
+ *     .compile.run(session)
  * }}}
- *
- * Future (v0.1+): `FROM`/`USING`, `.set` that accepts a subset named tuple, richer RHS expressions.
  */
-final class UpdateBuilder[Cols <: Tuple] private[sharp] (private[sharp] val table: Table[Cols, ?]) {
+final class UpdateBuilder[Cols <: Tuple, Name <: String & Singleton] private[sharp] (
+  private[sharp] val table: Table[Cols, Name]
+) {
 
   /**
    * Declare the SET list. Accepts one [[SetAssignment]] or a tuple of them. Must be followed by `.where` or
@@ -69,6 +79,36 @@ final class UpdateBuilder[Cols <: Tuple] private[sharp] (private[sharp] val tabl
     val names  = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
     val values = p.asInstanceOf[Tuple].toList
     buildPatch(table, names, values)
+  }
+
+  /**
+   * Add an extra FROM source — transitions to [[UpdateFromBuilder]], which exposes `.set` with a multi-source
+   * `JoinedView` lambda. The resulting SQL is `UPDATE <target> SET … FROM <other>, … WHERE …`.
+   *
+   * Chain `.from(a).from(b)` for multiple extra sources. The alias of each added source must be distinct from the
+   * target's name and from all previously-added source aliases — duplicate aliases are a compile error.
+   */
+  def from[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](other: R)(using
+    aR: AsRelation.Aux[R, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, Name *: EmptyTuple]
+  ): UpdateFromBuilder[
+    Cols,
+    Name,
+    SourceEntry[Table[Cols, Name], Cols, Cols, Name] *: SourceEntry[RR, CR, CR, AR] *: EmptyTuple
+  ] = {
+    val targetEntry =
+      new SourceEntry[Table[Cols, Name], Cols, Cols, Name](
+        table, table.currentAlias, table.columns, table.columns, JoinKind.Inner, None
+      )
+    val rel         = aR(other)
+    val oCols       = rel.columns.asInstanceOf[CR]
+    val otherEntry  =
+      new SourceEntry[RR, CR, CR, AR](rel, aR.aliasValue(other), oCols, oCols, JoinKind.Inner, None)
+    new UpdateFromBuilder[
+      Cols,
+      Name,
+      SourceEntry[Table[Cols, Name], Cols, Cols, Name] *: SourceEntry[RR, CR, CR, AR] *: EmptyTuple
+    ](table, targetEntry *: otherEntry *: EmptyTuple)
   }
 
 }
@@ -173,6 +213,134 @@ final class UpdateReady[Cols <: Tuple] private[sharp] (
 
 }
 
+// ---- UPDATE … FROM ---------------------------------------------------------------------------------
+
+/**
+ * Multi-source UPDATE builder — the result of calling `.from(other)` on [[UpdateBuilder]]. Transitions to
+ * [[UpdateFromWithSet]] after `.set(…)`.
+ *
+ * `Ss` is the full sources tuple: the target table entry sits at the head (index 0), extra FROM sources follow at
+ * indices 1+. The `.set` / `.where` lambdas receive `JoinedView[Ss]` — a Scala 3 named tuple keyed by each source's
+ * alias, so columns are reached as `r.<alias>.<col>`.
+ *
+ * Rendered form: `UPDATE "target" SET … FROM "src1", "src2", … WHERE …`.
+ */
+final class UpdateFromBuilder[Cols <: Tuple, Name <: String & Singleton, Ss <: Tuple] private[sharp] (
+  private[sharp] val table: Table[Cols, Name],
+  private[sharp] val sources: Ss
+) {
+
+  /** Chain another FROM source. Its alias must be distinct from all aliases already in `Ss`. */
+  def from[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](other: R)(using
+    aR: AsRelation.Aux[R, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
+  ): UpdateFromBuilder[Cols, Name, Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]] = {
+    val rel        = aR(other)
+    val oCols      = rel.columns.asInstanceOf[CR]
+    val entry      = new SourceEntry[RR, CR, CR, AR](rel, aR.aliasValue(other), oCols, oCols, JoinKind.Inner, None)
+    new UpdateFromBuilder[Cols, Name, Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]](
+      table, sources :* entry
+    )
+  }
+
+  /**
+   * Declare the SET list. The lambda receives a `JoinedView[Ss]` — columns from all sources are accessible as
+   * `r.<alias>.<col>`. The LHS of each `:=` must be a column from the target table; the RHS can reference any source.
+   */
+  def set(f: JoinedView[Ss] => SetAssignment[?] | Tuple): UpdateFromWithSet[Cols, Name, Ss] = {
+    val view        = buildJoinedView(sources)
+    val assignments = f(view) match {
+      case sa: SetAssignment[?] => List(sa)
+      case t: Tuple             => t.toList.asInstanceOf[List[SetAssignment[?]]]
+    }
+    new UpdateFromWithSet[Cols, Name, Ss](table, sources, assignments)
+  }
+
+}
+
+/**
+ * State after `.from(…).set(…)` — SET list committed, waiting for WHERE or explicit `.updateAll`.
+ */
+final class UpdateFromWithSet[Cols <: Tuple, Name <: String & Singleton, Ss <: Tuple] private[sharp] (
+  private[sharp] val table: Table[Cols, Name],
+  private[sharp] val sources: Ss,
+  private[sharp] val assignments: List[SetAssignment[?]]
+) {
+
+  /** Narrow with a WHERE clause. Transitions to [[UpdateFromReady]]. */
+  def where(f: JoinedView[Ss] => Where): UpdateFromReady[Cols, Name, Ss] = {
+    val view = buildJoinedView(sources)
+    new UpdateFromReady[Cols, Name, Ss](table, sources, assignments, Some(f(view)))
+  }
+
+  /** "Yes, update every row." Explicit opt-in — skips the WHERE requirement. */
+  def updateAll: UpdateFromReady[Cols, Name, Ss] =
+    new UpdateFromReady[Cols, Name, Ss](table, sources, assignments, None)
+
+}
+
+/**
+ * Multi-source UPDATE in a runnable state. Renders `UPDATE "target" SET … FROM "src1", … WHERE …`.
+ *
+ * `.returning` / `.returningTuple` lambdas receive the full `JoinedView[Ss]` — columns from all sources (target and
+ * FROM) are accessible. `.returningAll` returns only the target table's full row.
+ */
+final class UpdateFromReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tuple] private[sharp] (
+  table: Table[Cols, Name],
+  sources: Ss,
+  assignments: List[SetAssignment[?]],
+  whereOpt: Option[Where]
+) {
+
+  /** Chain another WHERE — AND-combined with the existing one. */
+  def where(f: JoinedView[Ss] => Where): UpdateFromReady[Cols, Name, Ss] = {
+    val view = buildJoinedView(sources)
+    val next = whereOpt.fold(f(view))(_ && f(view))
+    new UpdateFromReady[Cols, Name, Ss](table, sources, assignments, Some(next))
+  }
+
+  def compile: CompiledCommand = CompiledCommand(compileFragment)
+
+  private[sharp] def compileFragment: AppliedFragment = {
+    val header      = TypedExpr.raw(s"UPDATE ${table.qualifiedName} SET ")
+    val sets        = TypedExpr.joined(assignments.map(_.render), ", ")
+    val base        = header |+| sets
+    val fromEntries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].tail
+    val withFrom    =
+      if fromEntries.isEmpty then base
+      else base |+| TypedExpr.raw(" FROM ") |+| TypedExpr.joined(fromEntries.map(aliasedFromEntry), ", ")
+    whereOpt.fold(withFrom)(w => withFrom |+| TypedExpr.raw(" WHERE ") |+| w.render)
+  }
+
+  /** Append `RETURNING <expr>` — lambda receives the full `JoinedView[Ss]`. */
+  def returning[T](f: JoinedView[Ss] => TypedExpr[T]): MutationReturning[T] = {
+    val view = buildJoinedView(sources)
+    val expr = f(view)
+    new MutationReturning[T](compileFragment, List(expr), expr.codec)
+  }
+
+  /** Append `RETURNING <e1>, <e2>, …` — tuple form, full `JoinedView[Ss]`. */
+  def returningTuple[T <: NonEmptyTuple](f: JoinedView[Ss] => T): MutationReturning[ExprOutputs[T]] = {
+    val view  = buildJoinedView(sources)
+    val exprs = f(view).toList.asInstanceOf[List[TypedExpr[?]]]
+    val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
+    new MutationReturning[ExprOutputs[T]](compileFragment, exprs, codec)
+  }
+
+  /** Append `RETURNING <all columns>` — whole-row projection of the target table only. */
+  def returningAll: MutationReturning[NamedRowOf[Cols]] = {
+    val exprs =
+      table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
+        TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
+      )
+    val codec = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
+    new MutationReturning[NamedRowOf[Cols]](compileFragment, exprs, codec)
+  }
+
+}
+
+// ---- Shared RETURNING shape -----------------------------------------------------------------------
+
 /**
  * Shared `RETURNING` shape used by UPDATE and DELETE. INSERT has its own [[InsertReturning]] because its underlying
  * statement is built per-row (`VALUES (…), (…)`), whereas UPDATE/DELETE are single-statement — the base
@@ -190,6 +358,8 @@ final class MutationReturning[R] private[sharp] (
   }
 
 }
+
+// ---- SetAssignment + := extension -----------------------------------------------------------------
 
 /** One `column = expression` assignment in an UPDATE SET list. */
 final case class SetAssignment[T](col: TypedColumn[T, ?, ?], expr: TypedExpr[T]) {
@@ -211,7 +381,9 @@ extension [T, Null <: Boolean, N <: String & Singleton](col: TypedColumn[T, Null
 
 }
 
+// ---- Entry point ----------------------------------------------------------------------------------
+
 /** UPDATE entry point lives on [[Table]] (views reject at compile time). `users.update.set(…).where(…)`. */
 extension [Cols <: Tuple, Name <: String & Singleton](table: Table[Cols, Name]) {
-  def update: UpdateBuilder[Cols] = new UpdateBuilder[Cols](table)
+  def update: UpdateBuilder[Cols, Name] = new UpdateBuilder[Cols, Name](table)
 }
