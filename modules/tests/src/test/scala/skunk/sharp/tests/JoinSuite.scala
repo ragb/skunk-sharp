@@ -177,4 +177,108 @@ class JoinSuite extends PgFixture {
       }
     }
   }
+
+  // ---- RIGHT / FULL OUTER JOIN -----------------------------------------------------------------
+  //
+  // `users_inbox` and `users` have the same shape and no foreign-key relationship between them — perfect for
+  // exercising outer joins where either side can have orphan rows.
+
+  private val inbox = Table.of[User]("users_inbox")
+    .withPrimary("id")
+    .withUnique("email")
+    .withDefault("created_at")
+
+  test("RIGHT JOIN returns NULL on the left side for rows present only on the right") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val tag = "right-join"
+        for {
+          _ <- users
+            .insert(
+              (id = UUID.randomUUID, email = s"both-$tag@x", age = 30, deleted_at = Option.empty[OffsetDateTime])
+            )
+            .compile.run(s)
+          _ <- inbox.insert.values(
+            (
+              id = UUID.randomUUID,
+              email = s"both-$tag@x",
+              age = 30,
+              deleted_at = Option.empty[OffsetDateTime]
+            ),
+            (
+              id = UUID.randomUUID,
+              email = s"only-inbox-$tag@x",
+              age = 25,
+              deleted_at = Option.empty[OffsetDateTime]
+            )
+          ).compile.run(s)
+          pairs <- users
+            .rightJoin(inbox)
+            .on(r => r.users.email ==== r.users_inbox.email)
+            .select(r => (r.users.email, r.users_inbox.email))
+            .where(r => r.users_inbox.email.like(s"%-$tag@x"))
+            .compile.run(s).map(_.toSet)
+          _ = assertEquals(
+            pairs,
+            Set[(Option[String], String)](
+              (Some(s"both-$tag@x"), s"both-$tag@x"),
+              (None, s"only-inbox-$tag@x") // left side null-padded
+            )
+          )
+        } yield ()
+      }
+    }
+  }
+
+  test("FULL OUTER JOIN returns NULL on either side for rows present only on one") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val tag = "full-join"
+        for {
+          _ <- users.insert.values(
+            (
+              id = UUID.randomUUID,
+              email = s"only-users-$tag@x",
+              age = 40,
+              deleted_at = Option.empty[OffsetDateTime]
+            ),
+            (
+              id = UUID.randomUUID,
+              email = s"both-$tag@x",
+              age = 30,
+              deleted_at = Option.empty[OffsetDateTime]
+            )
+          ).compile.run(s)
+          _ <- inbox.insert.values(
+            (
+              id = UUID.randomUUID,
+              email = s"both-$tag@x",
+              age = 30,
+              deleted_at = Option.empty[OffsetDateTime]
+            ),
+            (
+              id = UUID.randomUUID,
+              email = s"only-inbox-$tag@x",
+              age = 25,
+              deleted_at = Option.empty[OffsetDateTime]
+            )
+          ).compile.run(s)
+          pairs <- users
+            .fullJoin(inbox)
+            .on(r => r.users.email ==== r.users_inbox.email)
+            .select(r => (r.users.email, r.users_inbox.email))
+            .where(r => r.users.email.like(s"%-$tag@x") || r.users_inbox.email.like(s"%-$tag@x"))
+            .compile.run(s).map(_.toSet)
+          _ = assertEquals(
+            pairs,
+            Set[(Option[String], Option[String])](
+              (Some(s"only-users-$tag@x"), None),           // right null-padded
+              (Some(s"both-$tag@x"), Some(s"both-$tag@x")), // matched
+              (None, Some(s"only-inbox-$tag@x"))            // left null-padded
+            )
+          )
+        } yield ()
+      }
+    }
+  }
 }

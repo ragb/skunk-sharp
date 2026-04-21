@@ -111,10 +111,10 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
   )(using
     a: AsRelation.Aux[T, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
-  ): IncompleteJoin[Ss, RR, CR, CR, AR] = {
+  ): IncompleteJoin[Ss, RR, CR, CR, AR, Ss] = {
     val rel  = a(next)
     val cols = rel.columns.asInstanceOf[CR]
-    new IncompleteJoin[Ss, RR, CR, CR, AR](sources, rel, a.aliasValue(next), cols, cols, JoinKind.Inner)
+    new IncompleteJoin(sources, rel, a.aliasValue(next), cols, cols, JoinKind.Inner)
   }
 
   /** Attach another source via LEFT JOIN. Right-side cols become nullable for subsequent `.where` / `.select`. */
@@ -123,18 +123,39 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
   )(using
     a: AsRelation.Aux[T, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
-  ): IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR] = {
+  ): IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR, Ss] = {
     val rel          = a(next)
     val origCols     = rel.columns.asInstanceOf[CR]
     val effectiveCls = nullabilifyCols(origCols).asInstanceOf[NullableCols[CR]]
-    new IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR](
-      sources,
-      rel,
-      a.aliasValue(next),
-      origCols,
-      effectiveCls,
-      JoinKind.Left
-    )
+    new IncompleteJoin(sources, rel, a.aliasValue(next), origCols, effectiveCls, JoinKind.Left)
+  }
+
+  /**
+   * Attach another source via RIGHT JOIN. Every already-committed source's cols become nullable in subsequent `.where`
+   * / `.select` — the right side dominates, so earlier rows may be NULL-padded.
+   */
+  def rightJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](
+    next: T
+  )(using
+    a: AsRelation.Aux[T, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
+  ): IncompleteJoin[Ss, RR, CR, CR, AR, NullabilifySources[Ss]] = {
+    val rel  = a(next)
+    val cols = rel.columns.asInstanceOf[CR]
+    new IncompleteJoin(sources, rel, a.aliasValue(next), cols, cols, JoinKind.Right)
+  }
+
+  /** Attach another source via FULL OUTER JOIN. Both sides' cols become nullable in subsequent `.where` / `.select`. */
+  def fullJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](
+    next: T
+  )(using
+    a: AsRelation.Aux[T, RR, CR, AR, MR],
+    aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
+  ): IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR, NullabilifySources[Ss]] = {
+    val rel          = a(next)
+    val origCols     = rel.columns.asInstanceOf[CR]
+    val effectiveCls = nullabilifyCols(origCols).asInstanceOf[NullableCols[CR]]
+    new IncompleteJoin(sources, rel, a.aliasValue(next), origCols, effectiveCls, JoinKind.Full)
   }
 
   /** Attach another source via CROSS JOIN. No `.on(...)` required. */

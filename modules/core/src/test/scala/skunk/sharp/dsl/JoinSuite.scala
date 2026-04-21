@@ -180,4 +180,77 @@ class JoinSuite extends munit.FunSuite {
       """SELECT "users"."email", "posts"."title", "tags"."name" FROM "users" CROSS JOIN "posts" CROSS JOIN "tags""""
     )
   }
+
+  // ---- RIGHT JOIN -----------------------------------------------------------------------------
+
+  test("RIGHT JOIN renders RIGHT JOIN; left-side cols decode as Option in .select") {
+    // r.users.email is TypedColumn[Option[String], true] because `users` was null-padded by the RIGHT join.
+    val q: CompiledQuery[(Option[String], String)] = users
+      .rightJoin(posts)
+      .on(r => r.users.id ==== r.posts.user_id)
+      .select(r => (r.users.email, r.posts.title))
+      .compile
+
+    assertEquals(
+      q.af.fragment.sql,
+      """SELECT "users"."email", "posts"."title" FROM "users" RIGHT JOIN "posts" ON "users"."id" = "posts"."user_id""""
+    )
+  }
+
+  test("RIGHT JOIN: ON sees the LEFT side's declared types (pre-null-padding)") {
+    // In .on, left side cols are still non-null — Postgres evaluates ON before null-padding. Project explicitly to
+    // force the multi-source compile path and exercise that the ON predicate did type-check against non-null cols.
+    val af = users
+      .rightJoin(posts)
+      .on(r => r.users.id ==== r.posts.user_id)
+      .select(r => (r.users.email, r.posts.title))
+      .compile.af
+
+    assert(af.fragment.sql.contains("""ON "users"."id" = "posts"."user_id""""), af.fragment.sql)
+  }
+
+  // ---- FULL OUTER JOIN ------------------------------------------------------------------------
+
+  test("FULL JOIN renders FULL OUTER JOIN; both sides decode as Option") {
+    val q: CompiledQuery[(Option[String], Option[String])] = users
+      .fullJoin(posts)
+      .on(r => r.users.id ==== r.posts.user_id)
+      .select(r => (r.users.email, r.posts.title))
+      .compile
+
+    assertEquals(
+      q.af.fragment.sql,
+      """SELECT "users"."email", "posts"."title" FROM "users" FULL OUTER JOIN "posts" ON "users"."id" = "posts"."user_id""""
+    )
+  }
+
+  // ---- Mixed chains: earlier-source nullability flips on later outer joins --------------------
+
+  test("INNER then RIGHT — the original INNER's cols flip to Option when RIGHT is applied") {
+    val q: CompiledQuery[(Option[String], Option[String], String)] = users
+      .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
+      .rightJoin(tags).on(r => r.posts.id ==== r.tags.post_id)
+      .select(r => (r.users.email, r.posts.title, r.tags.name))
+      .compile
+
+    assert(
+      q.af.fragment.sql.contains("""RIGHT JOIN "tags" ON "posts"."id" = "tags"."post_id""""),
+      q.af.fragment.sql
+    )
+  }
+
+  test("LEFT then FULL — LEFT-nullabilified cols stay Option (no double-wrapping) under FULL") {
+    // posts was already Option[_] from LEFT. FULL also nullabilifies users. The Scala type must NOT go to
+    // Option[Option[_]] for posts — NullableCol is idempotent on already-nullable columns. In the inner ON of the
+    // FULL JOIN, posts's cols are already Option (from LEFT) and tags's are still declared (non-null), so we use
+    // raw comparisons there by round-tripping through literals that match both sides at the bare types.
+    val q: CompiledQuery[(Option[String], Option[String], Option[String])] = users
+      .leftJoin(posts).on(r => r.users.id ==== r.posts.user_id)
+      .fullJoin(tags).on(_ => lit(true))
+      .select(r => (r.users.email, r.posts.title, r.tags.name))
+      .compile
+
+    assert(q.af.fragment.sql.contains("FULL OUTER JOIN"), q.af.fragment.sql)
+    assert(q.af.fragment.sql.contains("LEFT JOIN"), q.af.fragment.sql)
+  }
 }
