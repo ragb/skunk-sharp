@@ -66,8 +66,14 @@ package object dsl {
   type Where = skunk.sharp.where.Where
   val Where: skunk.sharp.where.Where.type = skunk.sharp.where.Where
 
-  export skunk.sharp.where.{!==, &&, <, <=, ===, ====, >, >=, ||, and, ilike, in, isNotNull, isNull, like, not, or}
-  export skunk.sharp.where.Stripped
+  // The expression-level operators ("WHERE operators" historically, but they produce a plain
+  // `TypedExpr[Boolean]` and work anywhere an expression goes — projections, ORDER BY, HAVING, function args).
+  export skunk.sharp.ops.{!==, <, <=, ===, ====, >, >=, ilike, in, isNotNull, isNull, like}
+  export skunk.sharp.ops.Stripped
+
+  // Boolean combinators (`&&`, `||`, `!`, `and`, `or`, `not`) stay in `skunk.sharp.where` — they're about
+  // composing predicates, not building them.
+  export skunk.sharp.where.{&&, ||, and, not, or}
 
   // ---- Schema validation ----
   val SchemaValidator: skunk.sharp.validation.SchemaValidator.type = skunk.sharp.validation.SchemaValidator

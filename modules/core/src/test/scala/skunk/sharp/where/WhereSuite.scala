@@ -73,7 +73,7 @@ class WhereSuite extends munit.FunSuite {
     import scala.compiletime.testing.*
     val result: List[Error] = typeCheckErrors("""
       import skunk.sharp.*
-      import skunk.sharp.where.*
+      import skunk.sharp.ops.*, skunk.sharp.where.*
       import WhereSuite.User
       import java.time.OffsetDateTime
       val t = Table.of[User]("users")

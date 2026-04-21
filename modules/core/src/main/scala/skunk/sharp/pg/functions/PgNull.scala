@@ -2,7 +2,7 @@ package skunk.sharp.pg.functions
 
 import skunk.sharp.{PgFunction, TypedExpr}
 import skunk.sharp.pg.PgTypeFor
-import skunk.sharp.where.Stripped
+import skunk.sharp.ops.Stripped
 
 /** NULL-handling helpers. Mixed into [[skunk.sharp.Pg]]. */
 trait PgNull {

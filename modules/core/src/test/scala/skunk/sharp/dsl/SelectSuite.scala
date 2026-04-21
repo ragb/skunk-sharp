@@ -160,4 +160,41 @@ class SelectSuite extends munit.FunSuite {
     assert(errs.nonEmpty)
   }
 
+  // ---- Comparison operators work as expressions, not just in WHERE ------------------------------
+  //
+  // `===`, `!==`, `<`, `<=`, `>`, `>=`, `in`, `like`, `ilike`, `isNull`, `isNotNull` all produce `TypedExpr[Boolean]`
+  // (= `Where`), which is a regular expression — Postgres accepts boolean expressions anywhere, so the operators
+  // slot into projections, HAVING, ORDER BY, function arguments, etc. These tests lock the cross-position property in.
+
+  test("comparison operator in a SELECT projection — renders as a boolean column") {
+    val af = users.select(u => u.age >= 18).compile.af
+    assertEquals(
+      af.fragment.sql,
+      """SELECT "age" >= $1 FROM "users""""
+    )
+  }
+
+  test("comparison operator as one projection among many — decoded row type includes Boolean") {
+    val q: CompiledQuery[(String, Boolean)] = users
+      .select(u => (u.email, u.age >= 18))
+      .compile
+
+    assertEquals(
+      q.af.fragment.sql,
+      """SELECT "email", "age" >= $1 FROM "users""""
+    )
+  }
+
+  test("isNull as a projection element — same nullable-gating applies as in WHERE") {
+    val af = users.select(u => u.deleted_at.isNull).compile.af
+    assertEquals(
+      af.fragment.sql,
+      """SELECT "deleted_at" IS NULL FROM "users""""
+    )
+  }
+
+  // Note: ORDER BY on a boolean expression would be `.orderBy(u => (u.age >= 18).asc)`. Today `.asc` / `.desc`
+  // only extend `TypedColumn`, not general `TypedExpr`, so that shape doesn't compile yet — a separate gap from
+  // the cross-position-operators story.
+
 }
