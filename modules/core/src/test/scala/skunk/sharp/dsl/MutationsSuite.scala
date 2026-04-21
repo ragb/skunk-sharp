@@ -120,4 +120,94 @@ class MutationsSuite extends munit.FunSuite {
       """DELETE FROM "users" WHERE "id" = $1 RETURNING "id", "email", "age", "created_at", "deleted_at""""
     )
   }
+
+  // ---- .patch ---------------------------------------------------------------------------------
+
+  test(".patch — only the Some fields reach the SET list, Nones are dropped") {
+    val id = UUID.fromString("00000000-0000-0000-0000-000000000001")
+    val af = users.update
+      .patch((email = Some("new@x"), age = None, deleted_at = None))
+      .where(u => u.id === id)
+      .compile.af
+
+    assertEquals(af.fragment.sql, """UPDATE "users" SET "email" = $1 WHERE "id" = $2""")
+  }
+
+  test(".patch — multiple Somes render in the order the named tuple lists them") {
+    val id = UUID.fromString("00000000-0000-0000-0000-000000000001")
+    val af = users.update
+      .patch((email = Some("x"), age = Some(42)))
+      .where(u => u.id === id)
+      .compile.af
+
+    assertEquals(af.fragment.sql, """UPDATE "users" SET "email" = $1, "age" = $2 WHERE "id" = $3""")
+  }
+
+  test(".patch — nullable column: Some(None) sets to NULL, Some(Some(v)) sets to v") {
+    val ts      = OffsetDateTime.parse("2024-01-01T00:00:00Z")
+    val id      = UUID.fromString("00000000-0000-0000-0000-000000000001")
+    val afClear = users.update
+      .patch((deleted_at = Some(Option.empty[OffsetDateTime])))
+      .where(u => u.id === id)
+      .compile.af
+    assertEquals(afClear.fragment.sql, """UPDATE "users" SET "deleted_at" = $1 WHERE "id" = $2""")
+
+    val afSet = users.update
+      .patch((deleted_at = Some(Some(ts))))
+      .where(u => u.id === id)
+      .compile.af
+    assertEquals(afSet.fragment.sql, """UPDATE "users" SET "deleted_at" = $1 WHERE "id" = $2""")
+  }
+
+  test(".patch with all-None throws at runtime — empty SET list is a user error") {
+    val id = UUID.fromString("00000000-0000-0000-0000-000000000001")
+    intercept[IllegalArgumentException] {
+      users.update
+        .patch((email = Option.empty[String], age = Option.empty[Int]))
+        .where(u => u.id === id)
+        .compile
+    }
+  }
+
+  test(".patch rejects unknown field names at compile time") {
+    val errs = compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      val users = Table.of[MutationsSuite.User]("users")
+      users.update.patch((unknown_field = Some(1))).updateAll
+    """)
+    assert(errs.nonEmpty, "expected compile error for unknown field")
+  }
+
+  test(".patch rejects wrong value type at compile time") {
+    // age: Int → patch value must be Option[Int]. Passing Option[String] is a compile error.
+    val errs = compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      val users = Table.of[MutationsSuite.User]("users")
+      users.update.patch((age = Some("not-an-int"))).updateAll
+    """)
+    assert(errs.nonEmpty, "expected compile error for wrong value type")
+  }
+
+  test(".patch on a nullable column rejects a single-wrapped Some — you need Some(Some(v))") {
+    // deleted_at: Option[OffsetDateTime] → patch value must be Option[Option[OffsetDateTime]]. A bare
+    // Some(ts: OffsetDateTime) would be Some[OffsetDateTime] which isn't a subtype of Option[Option[OffsetDateTime]].
+    val errs = compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import java.time.OffsetDateTime
+      val users = Table.of[MutationsSuite.User]("users")
+      val ts    = OffsetDateTime.parse("2024-01-01T00:00:00Z")
+      users.update.patch((deleted_at = Some(ts))).updateAll
+    """)
+    assert(errs.nonEmpty, "expected compile error for single-wrapped Some on a nullable column")
+  }
+
+  test(".patch chains into .returning*") {
+    val id = UUID.fromString("00000000-0000-0000-0000-000000000001")
+    val af = users.update
+      .patch((email = Some("new@x")))
+      .where(u => u.id === id)
+      .returning(u => u.email)
+      .compile.af
+    assert(af.fragment.sql.endsWith(""" RETURNING "email""""), af.fragment.sql)
+  }
 }
