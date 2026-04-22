@@ -26,8 +26,12 @@ val refinedV         = "0.11.3"
 val testcontainersV  = "0.44.1"
 val dumboV           = "0.9.0-SNAPSHOT"
 val otel4sV          = "0.16.0"
+val tapirV           = "1.11.9"
+val http4sV          = "0.23.30"
+val cirisV           = "3.6.0"
+val chimneyV         = "1.5.0"
 
-lazy val root = tlCrossRootProject.aggregate(core, iron, refined, circe, tests)
+lazy val root = tlCrossRootProject.aggregate(core, iron, refined, circe, tests, example)
 
 lazy val core = project
   .in(file("modules/core"))
@@ -76,6 +80,25 @@ lazy val circe = project
       "org.scalameta" %% "munit"             % munitV           % Test,
       "org.typelevel" %% "munit-cats-effect" % munitCatsEffectV % Test
     )
+  )
+
+lazy val example = project
+  .in(file("modules/example"))
+  .dependsOn(core, circe)
+  .enablePlugins(NoPublishPlugin)
+  .settings(
+    name := "skunk-sharp-example",
+    libraryDependencies ++= Seq(
+      "com.softwaremill.sttp.tapir" %% "tapir-http4s-server"     % tapirV,
+      "com.softwaremill.sttp.tapir" %% "tapir-swagger-ui-bundle" % tapirV,
+      "com.softwaremill.sttp.tapir" %% "tapir-json-circe"        % tapirV,
+      "org.http4s"                  %% "http4s-ember-server"     % http4sV,
+      "is.cir"                      %% "ciris"                   % cirisV,
+      "io.scalaland"                %% "chimney"                 % chimneyV,
+      "dev.rolang"                  %% "dumbo"                   % dumboV,
+      "org.typelevel"               %% "otel4s-core"             % otel4sV,
+    ),
+    Compile / unmanagedClasspath += (Compile / resourceDirectory).value,
   )
 
 lazy val tests = project
