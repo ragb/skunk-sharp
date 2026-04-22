@@ -1,7 +1,3 @@
-// Copyright 2026 Rui Batista
-//
-// SPDX-License-Identifier: Apache-2.0
-
 package skunk.sharp.data
 
 /**

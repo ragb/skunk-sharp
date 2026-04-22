@@ -110,9 +110,69 @@ class GroupBySuite extends munit.FunSuite {
   }
 
   test("TypedExpr.as return type captures the alias name as a singleton") {
-    // The alias name `"cnt"` is carried in the result type as AliasedExpr[Long, "cnt"]. Downstream code (future GROUP
-    // BY coverage check, alias-in-clause resolution) can match on this type to extract the label.
     val aliased: skunk.sharp.AliasedExpr[Long, "cnt"] = Pg.countAll.as("cnt")
     assertEquals(aliased.aliasName, "cnt")
+  }
+
+  // -------- ROLLUP / CUBE / GROUPING SETS -------------------------------------------------------
+
+  test("Pg.rollup renders ROLLUP (...)") {
+    val af = users.select.groupBy(u => Pg.rollup(u.age, u.email)).compile.af
+    assert(af.fragment.sql.contains("""GROUP BY ROLLUP ("age", "email")"""), af.fragment.sql)
+  }
+
+  test("Pg.cube renders CUBE (...)") {
+    val af = users.select.groupBy(u => Pg.cube(u.age, u.email)).compile.af
+    assert(af.fragment.sql.contains("""GROUP BY CUBE ("age", "email")"""), af.fragment.sql)
+  }
+
+  test("Pg.groupingSets renders GROUPING SETS (...)") {
+    val af = users.select
+      .groupBy(u => Pg.groupingSets(Seq(u.age, u.email), Seq(u.age), Pg.emptyGroup))
+      .compile
+      .af
+    assert(
+      af.fragment.sql.contains("""GROUP BY GROUPING SETS (("age", "email"), ("age"), ())"""),
+      af.fragment.sql
+    )
+  }
+
+  test("Pg.groupingSets with a single non-empty set") {
+    val af = users.select.groupBy(u => Pg.groupingSets(Seq(u.age))).compile.af
+    assert(af.fragment.sql.contains("""GROUP BY GROUPING SETS (("age"))"""), af.fragment.sql)
+  }
+
+  test("Pg.grouping renders GROUPING(col1, col2)") {
+    val af = users.select(u => Pg.grouping(u.age, u.email)).compile.af
+    assert(af.fragment.sql.contains("""GROUPING("age", "email")"""), af.fragment.sql)
+  }
+
+  test("Pg.grouping with single column renders GROUPING(col)") {
+    val af = users.select(u => Pg.grouping(u.age)).compile.af
+    assert(af.fragment.sql.contains("""GROUPING("age")"""), af.fragment.sql)
+  }
+
+  test("ROLLUP on pre-projection SelectBuilder passes groupBys to ProjectedSelect") {
+    val af = users.select
+      .groupBy(u => Pg.rollup(u.age))
+      .select(u => (u.age, Pg.countAll))
+      .compile
+      .af
+    assertEquals(
+      af.fragment.sql,
+      """SELECT "age", count(*) FROM "users" GROUP BY ROLLUP ("age")"""
+    )
+  }
+
+  test("CUBE on pre-projection SelectBuilder") {
+    val af = users.select
+      .groupBy(u => Pg.cube(u.age))
+      .select(u => (u.age, Pg.countAll))
+      .compile
+      .af
+    assertEquals(
+      af.fragment.sql,
+      """SELECT "age", count(*) FROM "users" GROUP BY CUBE ("age")"""
+    )
   }
 }

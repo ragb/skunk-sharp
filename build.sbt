@@ -1,8 +1,9 @@
 ThisBuild / tlBaseVersion    := "0.1"
 ThisBuild / organization     := "com.ruiandrebatista"
 ThisBuild / organizationName := "Rui Batista"
-ThisBuild / startYear        := Some(2026)
 ThisBuild / licenses         := Seq(License.Apache2)
+ThisBuild / headerCreate / skip := true
+ThisBuild / headerCheck / skip  := true
 ThisBuild / developers       := List(
   tlGitHubDev("ragb", "Rui Batista")
 )

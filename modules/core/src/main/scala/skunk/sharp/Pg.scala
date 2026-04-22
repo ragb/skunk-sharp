@@ -35,3 +35,4 @@ object Pg
     with PgSrf
     with PgWindow
     with PgRangeFns
+    with PgGrouping
