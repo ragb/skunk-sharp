@@ -1,6 +1,6 @@
 package skunk.sharp.dsl
 
-import skunk.Codec
+import skunk.{AppliedFragment, Codec}
 import skunk.sharp.*
 import skunk.sharp.internal.{rowCodec, tupleCodec}
 import skunk.sharp.where.{&&, Where}
@@ -340,10 +340,10 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
     : ProjectedSelect[Ss, NormProj[X], EmptyTuple, ProjResult[X]] = select[X](f)
 
   /**
-   * Whole-row `.compile` — only available on single-source builders. Multi-source builders must project first via
-   * `.select(f)`.
+   * Render the SELECT body without any CTE preamble. Called by [[cte]] to capture the inner SQL lazily, and by
+   * [[compile]] which prepends the WITH clause on top.
    */
-  def compile(using ev: IsSingleSource[Ss]): CompiledQuery[NamedRowOf[ev.Cols]] = {
+  private[dsl] def compileFragment(using ev: IsSingleSource[Ss]): AppliedFragment = {
     val entries        = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
     val head           = entries.head
     val cols           = head.effectiveCols.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
@@ -354,9 +354,20 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
         TypedExpr.raw(s"$projStr FROM ") |+| aliasedFromEntry(head)
       else
         TypedExpr.raw(projStr)
-    val header      = selectPrefix |+| headerNoSelect
-    val withClauses = renderClauses(header, whereOpt, groupBys, havingOpt, orderBys, limitOpt, offsetOpt, lockingOpt)
-    CompiledQuery(withClauses, rowCodec(head.effectiveCols).asInstanceOf[Codec[NamedRowOf[ev.Cols]]])
+    renderClauses(selectPrefix |+| headerNoSelect, whereOpt, groupBys, havingOpt, orderBys, limitOpt, offsetOpt, lockingOpt)
+  }
+
+  /**
+   * Whole-row `.compile` — only available on single-source builders. Multi-source builders must project first via
+   * `.select(f)`.
+   */
+  def compile(using ev: IsSingleSource[Ss]): CompiledQuery[NamedRowOf[ev.Cols]] = {
+    val entries  = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
+    val head     = entries.head
+    val frag     = compileFragment
+    val ctes     = collectCtesInOrder(entries)
+    val fullFrag = renderWithPreamble(ctes).fold(frag)(_ |+| frag)
+    CompiledQuery(fullFrag, rowCodec(head.effectiveCols).asInstanceOf[Codec[NamedRowOf[ev.Cols]]])
   }
 
 }
@@ -520,12 +531,8 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
     )
   }
 
-  /**
-   * Compile into an [[CompiledQuery]]. Enforces [[GroupCoverage]] — if GROUP BY is declared, every bare-column element
-   * in the projection must appear in the GROUP BY; aggregates, literals, aliased expressions are free. When no GROUP BY
-   * is declared, the check is vacuous.
-   */
-  def compile(using @scala.annotation.unused ev: GroupCoverage[Proj, Groups]): CompiledQuery[Row] = {
+  /** Render the SELECT body without any CTE preamble — called by [[cte]] and by [[compile]]. */
+  private[dsl] def compileFragment(using @scala.annotation.unused ev: GroupCoverage[Proj, Groups]): AppliedFragment = {
     val entries      = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
     val projList     = TypedExpr.joined(projections.map(_.render), ", ")
     val selectPrefix = renderSelectPrefix(distinct, distinctOnOpt)
@@ -541,8 +548,20 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
           s.onPredOpt.fold(acc |+| fromFrag)(p => acc |+| fromFrag |+| TypedExpr.raw(" ON ") |+| p.render)
         }
       }
-    val withClauses = renderClauses(header, whereOpt, groupBys, havingOpt, orderBys, limitOpt, offsetOpt, lockingOpt)
-    CompiledQuery(withClauses, codec)
+    renderClauses(header, whereOpt, groupBys, havingOpt, orderBys, limitOpt, offsetOpt, lockingOpt)
+  }
+
+  /**
+   * Compile into an [[CompiledQuery]]. Enforces [[GroupCoverage]] — if GROUP BY is declared, every bare-column element
+   * in the projection must appear in the GROUP BY; aggregates, literals, aliased expressions are free. When no GROUP BY
+   * is declared, the check is vacuous.
+   */
+  def compile(using ev: GroupCoverage[Proj, Groups]): CompiledQuery[Row] = {
+    val entries  = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
+    val frag     = compileFragment
+    val ctes     = collectCtesInOrder(entries)
+    val fullFrag = renderWithPreamble(ctes).fold(frag)(_ |+| frag)
+    CompiledQuery(fullFrag, codec)
   }
 
 }

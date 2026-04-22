@@ -217,6 +217,35 @@ extension [Cols <: Tuple, Row <: scala.NamedTuple.AnyNamedTuple](v: Values[Cols,
 
 }
 
+/**
+ * `.alias("x")` on a [[CteRelation]] — re-alias it while preserving the CTE identity so [[collectCtesInOrder]] can
+ * detect it and emit the WITH preamble regardless of how many alias layers are applied. Useful for CTE self-joins:
+ * `c.alias("a").innerJoin(c.alias("b")).on(...)`.
+ *
+ * Lives here because Scala 3 requires overloaded extensions to share a single top-level definition group.
+ */
+extension [Cols <: Tuple, Name <: String & Singleton](c: CteRelation[Cols, Name]) {
+
+  def alias[A <: String & Singleton](a: A): Relation[Cols] {
+    type Alias = A
+    type Mode  = AliasMode.Explicit
+  } = {
+    val cteRef = c
+    new Relation[Cols] with IsCte {
+      type Alias = A
+      type Mode  = AliasMode.Explicit
+      val currentAlias: A           = a
+      def name: String              = cteRef.cteName
+      def columns: Cols             = cteRef.cols0
+      def schema: Option[String]    = None
+      def expectedTableType: String = ""
+      def underlyingCte             = cteRef
+      override def fromFragmentWith(x: String): AppliedFragment = cteRef.fromFragmentWith(x)
+    }
+  }
+
+}
+
 // ---- JoinKind + NullableCols -------------------------------------------------------------------
 
 /**
