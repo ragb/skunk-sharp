@@ -120,4 +120,91 @@ trait PgString {
       pf.codec
     )
 
+  // -------- More string → string (preserve tag) -------------------------------------------------
+
+  /** `initcap(s)` — first letter of each word to uppercase, the rest to lowercase. */
+  def initcap[T](e: TypedExpr[T])(using StrLike[T]): TypedExpr[T] = stringPreserveFn("initcap", e)
+
+  /** `translate(s, from, to)` — replace each character in `from` with the corresponding character in `to`. */
+  def translate[T](e: TypedExpr[T], from: String, to: String)(using StrLike[T]): TypedExpr[T] =
+    TypedExpr(
+      TypedExpr.raw("translate(") |+| e.render |+| TypedExpr.raw(", ") |+|
+        TypedExpr.parameterised(from).render |+| TypedExpr.raw(", ") |+|
+        TypedExpr.parameterised(to).render |+| TypedExpr.raw(")"),
+      e.codec
+    )
+
+  /** `lpad(s, n)` — pad `s` on the left with spaces to length `n`. */
+  def lpad[T](e: TypedExpr[T], n: Int)(using StrLike[T]): TypedExpr[T] =
+    TypedExpr(TypedExpr.raw("lpad(") |+| e.render |+| TypedExpr.raw(s", $n)"), e.codec)
+
+  /** `lpad(s, n, fill)` — pad `s` on the left with `fill` to length `n`. */
+  def lpad[T](e: TypedExpr[T], n: Int, fill: String)(using StrLike[T]): TypedExpr[T] =
+    TypedExpr(
+      TypedExpr.raw("lpad(") |+| e.render |+| TypedExpr.raw(s", $n, ") |+|
+        TypedExpr.parameterised(fill).render |+| TypedExpr.raw(")"),
+      e.codec
+    )
+
+  /** `rpad(s, n)` — pad `s` on the right with spaces to length `n`. */
+  def rpad[T](e: TypedExpr[T], n: Int)(using StrLike[T]): TypedExpr[T] =
+    TypedExpr(TypedExpr.raw("rpad(") |+| e.render |+| TypedExpr.raw(s", $n)"), e.codec)
+
+  /** `rpad(s, n, fill)` — pad `s` on the right with `fill` to length `n`. */
+  def rpad[T](e: TypedExpr[T], n: Int, fill: String)(using StrLike[T]): TypedExpr[T] =
+    TypedExpr(
+      TypedExpr.raw("rpad(") |+| e.render |+| TypedExpr.raw(s", $n, ") |+|
+        TypedExpr.parameterised(fill).render |+| TypedExpr.raw(")"),
+      e.codec
+    )
+
+  // -------- String → String with fixed output type (text) --------------------------------------
+
+  /**
+   * `md5(s)` — 32-character lowercase hex MD5 hash. Return type tracks input nullability via [[Lift]]:
+   * `md5(TypedExpr[Option[String]]) → TypedExpr[Option[String]]`.
+   */
+  def md5[T](e: TypedExpr[T])(using ev: StrLike[T], pf: PgTypeFor[Lift[T, String]]): TypedExpr[Lift[T, String]] =
+    TypedExpr(TypedExpr.raw("md5(") |+| e.render |+| TypedExpr.raw(")"), pf.codec)
+
+  /** `chr(n)` — character with the given Unicode code point; tracks nullability via [[Lift]]. */
+  def chr[T](e: TypedExpr[T])(using pf: PgTypeFor[Lift[T, String]]): TypedExpr[Lift[T, String]] =
+    TypedExpr(TypedExpr.raw("chr(") |+| e.render |+| TypedExpr.raw(")"), pf.codec)
+
+  /** `to_char(e, fmt)` — format any value as text using the Postgres `fmt` picture; tracks input nullability. */
+  def toChar[T](e: TypedExpr[T], fmt: String)(using pf: PgTypeFor[Lift[T, String]]): TypedExpr[Lift[T, String]] =
+    TypedExpr(
+      TypedExpr.raw("to_char(") |+| e.render |+| TypedExpr.raw(", ") |+|
+        TypedExpr.parameterised(fmt).render |+| TypedExpr.raw(")"),
+      pf.codec
+    )
+
+  /** `format(fmt, args*)` — `printf`-style text formatting; always returns `text`. */
+  def format(fmt: String, args: TypedExpr[?]*): TypedExpr[String] = {
+    val fmtFrag = TypedExpr.parameterised(fmt).render
+    val body =
+      if (args.isEmpty) fmtFrag |+| TypedExpr.raw(")")
+      else fmtFrag |+| TypedExpr.raw(", ") |+| TypedExpr.joined(args.map(_.render).toList, ", ") |+| TypedExpr.raw(")")
+    TypedExpr(TypedExpr.raw("format(") |+| body, skunk.codec.all.text)
+  }
+
+  // -------- String → Int -----------------------------------------------------------------------
+
+  /** `ascii(s)` — integer code of the first character; tracks nullability via [[Lift]]. */
+  def ascii[T](e: TypedExpr[T])(using ev: StrLike[T], pf: PgTypeFor[Lift[T, Int]]): TypedExpr[Lift[T, Int]] =
+    stringToIntFn("ascii", e)
+
+  // -------- String → Numeric -------------------------------------------------------------------
+
+  /** `to_number(s, fmt)` — parse a formatted numeric string into `BigDecimal`; tracks nullability via [[Lift]]. */
+  def toNumber[T](e: TypedExpr[T], fmt: String)(using
+    ev: StrLike[T],
+    pf: PgTypeFor[Lift[T, BigDecimal]]
+  ): TypedExpr[Lift[T, BigDecimal]] =
+    TypedExpr(
+      TypedExpr.raw("to_number(") |+| e.render |+| TypedExpr.raw(", ") |+|
+        TypedExpr.parameterised(fmt).render |+| TypedExpr.raw(")"),
+      pf.codec
+    )
+
 }

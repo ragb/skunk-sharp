@@ -67,4 +67,73 @@ trait PgAggregate {
   def boolOr(expr: TypedExpr[Boolean]): TypedExpr[Boolean] =
     TypedExpr(TypedExpr.raw("bool_or(") |+| expr.render |+| TypedExpr.raw(")"), skunk.codec.all.bool)
 
+  // -------- Variance / standard deviation (return type mirrors avg) ----------------------------
+
+  /** `stddev(expr)` — sample standard deviation; return type follows Postgres's actual rules via [[AvgOf]]. */
+  def stddev[I](expr: TypedExpr[I])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I]] =
+    TypedExpr(TypedExpr.raw("stddev(") |+| expr.render |+| TypedExpr.raw(")"), pf.codec)
+
+  /** `stddev_pop(expr)` — population standard deviation. */
+  def stddevPop[I](expr: TypedExpr[I])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I]] =
+    TypedExpr(TypedExpr.raw("stddev_pop(") |+| expr.render |+| TypedExpr.raw(")"), pf.codec)
+
+  /** `stddev_samp(expr)` — sample standard deviation (synonym for [[stddev]]). */
+  def stddevSamp[I](expr: TypedExpr[I])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I]] =
+    TypedExpr(TypedExpr.raw("stddev_samp(") |+| expr.render |+| TypedExpr.raw(")"), pf.codec)
+
+  /** `variance(expr)` — sample variance; return type follows [[AvgOf]]. */
+  def variance[I](expr: TypedExpr[I])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I]] =
+    TypedExpr(TypedExpr.raw("variance(") |+| expr.render |+| TypedExpr.raw(")"), pf.codec)
+
+  /** `var_pop(expr)` — population variance. */
+  def varPop[I](expr: TypedExpr[I])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I]] =
+    TypedExpr(TypedExpr.raw("var_pop(") |+| expr.render |+| TypedExpr.raw(")"), pf.codec)
+
+  /** `var_samp(expr)` — sample variance (synonym for [[variance]]). */
+  def varSamp[I](expr: TypedExpr[I])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I]] =
+    TypedExpr(TypedExpr.raw("var_samp(") |+| expr.render |+| TypedExpr.raw(")"), pf.codec)
+
+  // -------- Two-arg statistical correlations ---------------------------------------------------
+
+  /** `corr(y, x)` — Pearson correlation coefficient. */
+  def corr[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("corr", y, x)
+
+  /** `covar_pop(y, x)` — population covariance. */
+  def covarPop[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("covar_pop", y, x)
+
+  /** `covar_samp(y, x)` — sample covariance. */
+  def covarSamp[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("covar_samp", y, x)
+
+  // -------- Regression analysis ----------------------------------------------------------------
+
+  /** `regr_slope(y, x)` — slope of the least-squares fit line. */
+  def regrSlope[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("regr_slope", y, x)
+
+  /** `regr_intercept(y, x)` — y-intercept of the least-squares fit line. */
+  def regrIntercept[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] =
+    twoArgDoubleFn("regr_intercept", y, x)
+
+  /** `regr_count(y, x)` — number of non-null `(y, x)` pairs; never returns NULL. */
+  def regrCount[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Long] =
+    TypedExpr(TypedExpr.raw("regr_count(") |+| y.render |+| TypedExpr.raw(", ") |+| x.render |+| TypedExpr.raw(")"),
+      skunk.codec.all.int8)
+
+  /** `regr_r2(y, x)` — square of the correlation coefficient. */
+  def regrR2[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("regr_r2", y, x)
+
+  /** `regr_avgx(y, x)` — average of independent variable for non-null pairs. */
+  def regrAvgX[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("regr_avgx", y, x)
+
+  /** `regr_avgy(y, x)` — average of dependent variable for non-null pairs. */
+  def regrAvgY[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("regr_avgy", y, x)
+
+  /** `regr_sxx(y, x)` — sum of squares of the independent variable. */
+  def regrSxx[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("regr_sxx", y, x)
+
+  /** `regr_syy(y, x)` — sum of squares of the dependent variable. */
+  def regrSyy[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("regr_syy", y, x)
+
+  /** `regr_sxy(y, x)` — sum of cross products. */
+  def regrSxy[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("regr_sxy", y, x)
+
 }

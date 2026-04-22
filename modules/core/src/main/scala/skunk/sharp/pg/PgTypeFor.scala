@@ -3,7 +3,7 @@ package skunk.sharp.pg
 import skunk.Codec
 import skunk.codec.all as pg
 
-import java.time.{LocalDate, LocalDateTime, LocalTime, OffsetDateTime, OffsetTime}
+import java.time.{Duration, LocalDate, LocalDateTime, LocalTime, OffsetDateTime, OffsetTime}
 import java.util.UUID
 
 /**
@@ -44,6 +44,7 @@ object PgTypeFor {
   given PgTypeFor[OffsetTime]     = instance(pg.timetz)
   given PgTypeFor[LocalDateTime]  = instance(pg.timestamp)
   given PgTypeFor[OffsetDateTime] = instance(pg.timestamptz)
+  given PgTypeFor[Duration]       = instance(pg.interval)
 
   given [T](using p: PgTypeFor[T]): PgTypeFor[Option[T]] = instance(p.codec.opt)
 }

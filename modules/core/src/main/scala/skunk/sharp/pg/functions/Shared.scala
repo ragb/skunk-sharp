@@ -63,3 +63,7 @@ private[functions] def stringToIntFn[T](name: String, e: TypedExpr[T])(using
   pf: PgTypeFor[Lift[T, Int]]
 ): TypedExpr[Lift[T, Int]] =
   TypedExpr(TypedExpr.raw(s"$name(") |+| e.render |+| TypedExpr.raw(")"), pf.codec)
+
+private[functions] def twoArgDoubleFn[Y, X](name: String, y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] =
+  TypedExpr(TypedExpr.raw(s"$name(") |+| y.render |+| TypedExpr.raw(", ") |+| x.render |+| TypedExpr.raw(")"),
+    skunk.codec.all.float8)

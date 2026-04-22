@@ -93,4 +93,52 @@ trait PgNumeric {
   /** `random()` — uniformly distributed in `[0, 1)`. */
   val random: TypedExpr[Double] = TypedExpr(TypedExpr.raw("random()"), skunk.codec.all.float8)
 
+  // -------- Sign ---------------------------------------------------------------------------------
+
+  /** `sign(x)` — `-1`, `0`, or `1`; same type as input. */
+  def sign[T](e: TypedExpr[T]): TypedExpr[T] = sameTypeFn("sign", e)
+
+  // -------- Degree / radian conversion ----------------------------------------------------------
+
+  /** `degrees(x)` — convert radians to degrees. */
+  def degrees[T](e: TypedExpr[T])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double]] = doubleFn("degrees", e)
+
+  /** `radians(x)` — convert degrees to radians. */
+  def radians[T](e: TypedExpr[T])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double]] = doubleFn("radians", e)
+
+  // -------- Trigonometric (return Double, NULL-propagating) -------------------------------------
+
+  /** `sin(x)`. */
+  def sin[T](e: TypedExpr[T])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double]] = doubleFn("sin", e)
+
+  /** `cos(x)`. */
+  def cos[T](e: TypedExpr[T])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double]] = doubleFn("cos", e)
+
+  /** `tan(x)`. */
+  def tan[T](e: TypedExpr[T])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double]] = doubleFn("tan", e)
+
+  /** `asin(x)`. */
+  def asin[T](e: TypedExpr[T])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double]] = doubleFn("asin", e)
+
+  /** `acos(x)`. */
+  def acos[T](e: TypedExpr[T])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double]] = doubleFn("acos", e)
+
+  /** `atan(x)`. */
+  def atan[T](e: TypedExpr[T])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double]] = doubleFn("atan", e)
+
+  /** `atan2(y, x)` — angle in radians between the positive x-axis and the point `(x, y)`. */
+  def atan2[A, B](y: TypedExpr[A], x: TypedExpr[B])(using pf: PgTypeFor[Lift[A, Double]]): TypedExpr[Lift[A, Double]] =
+    TypedExpr(TypedExpr.raw("atan2(") |+| y.render |+| TypedExpr.raw(", ") |+| x.render |+| TypedExpr.raw(")"), pf.codec)
+
+  // -------- Hyperbolic --------------------------------------------------------------------------
+
+  /** `sinh(x)`. */
+  def sinh[T](e: TypedExpr[T])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double]] = doubleFn("sinh", e)
+
+  /** `cosh(x)`. */
+  def cosh[T](e: TypedExpr[T])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double]] = doubleFn("cosh", e)
+
+  /** `tanh(x)`. */
+  def tanh[T](e: TypedExpr[T])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double]] = doubleFn("tanh", e)
+
 }
