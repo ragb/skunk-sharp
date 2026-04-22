@@ -34,3 +34,4 @@ object Pg
     with PgArray
     with PgSrf
     with PgWindow
+    with PgRangeFns

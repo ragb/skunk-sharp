@@ -1,7 +1,9 @@
 package skunk.sharp.pg
 
 import skunk.codec.all as pg
+import skunk.sharp.data.Range
 
+import java.time.{LocalDate, LocalDateTime, OffsetDateTime}
 import scala.compiletime.constValue
 
 /**
@@ -100,6 +102,84 @@ object tags {
     inline given [P <: Int, S <: Int]: PgTypeFor[Numeric[P, S]] =
       PgTypeFor.instance(
         pg.numeric(constValue[P], constValue[S]).asInstanceOf[skunk.Codec[Numeric[P, S]]]
+      )
+
+  }
+
+  // -------- Range family --------
+
+  /**
+   * Postgres range type parameterised by its element type. Use the concrete type aliases below (`Int4Range`,
+   * `DateRange`, …) in case class fields; the opaque tag drives codec selection so `Table.of[T]` picks the right
+   * `int4range` / `daterange` / … wire type.
+   *
+   * Construct values with `PgRange(lower = Some(1), upper = Some(10))` or `PgRange.empty`.
+   */
+  opaque type PgRange[A] <: Range[A] = Range[A]
+
+  object PgRange {
+
+    // ---- Concrete type aliases ----
+
+    /** `int4range` — range of 32-bit integers. */
+    type Int4Range = PgRange[Int]
+    /** `int8range` — range of 64-bit integers. */
+    type Int8Range = PgRange[Long]
+    /** `numrange` — range of arbitrary-precision decimals. */
+    type NumRange = PgRange[BigDecimal]
+    /** `daterange` — range of calendar dates. */
+    type DateRange = PgRange[LocalDate]
+    /** `tsrange` — range of timestamps without time zone. */
+    type TsRange = PgRange[LocalDateTime]
+    /** `tstzrange` — range of timestamps with time zone. */
+    type TstzRange = PgRange[OffsetDateTime]
+
+    // ---- Constructors ----
+
+    /** Wrap a `Range[A]` as a tagged `PgRange[A]`. */
+    def apply[A](r: Range[A]): PgRange[A] = r
+
+    /** Convenience constructor for a `Bounds` range. Defaults: `[lower, upper)`. */
+    def apply[A](
+      lower: Option[A] = None,
+      upper: Option[A] = None,
+      lowerInclusive: Boolean = true,
+      upperInclusive: Boolean = false
+    ): PgRange[A] = Range.Bounds(lower, upper, lowerInclusive, upperInclusive)
+
+    /** The canonical empty range. */
+    def empty[A]: PgRange[A] = Range.Empty
+
+    // ---- PgTypeFor instances (explicit names avoid the auto-name clash that all `PgTypeFor[PgRange[?]]` would share) ----
+
+    given int4RangePgTypeFor: PgTypeFor[PgRange[Int]] =
+      PgTypeFor.instance(
+        RangeCodecs.rangeCodec(pg.int4, skunk.data.Type("int4range")).asInstanceOf[skunk.Codec[PgRange[Int]]]
+      )
+
+    given int8RangePgTypeFor: PgTypeFor[PgRange[Long]] =
+      PgTypeFor.instance(
+        RangeCodecs.rangeCodec(pg.int8, skunk.data.Type("int8range")).asInstanceOf[skunk.Codec[PgRange[Long]]]
+      )
+
+    given numRangePgTypeFor: PgTypeFor[PgRange[BigDecimal]] =
+      PgTypeFor.instance(
+        RangeCodecs.rangeCodec(pg.numeric, skunk.data.Type("numrange")).asInstanceOf[skunk.Codec[PgRange[BigDecimal]]]
+      )
+
+    given dateRangePgTypeFor: PgTypeFor[PgRange[LocalDate]] =
+      PgTypeFor.instance(
+        RangeCodecs.rangeCodec(pg.date, skunk.data.Type("daterange")).asInstanceOf[skunk.Codec[PgRange[LocalDate]]]
+      )
+
+    given tsRangePgTypeFor: PgTypeFor[PgRange[LocalDateTime]] =
+      PgTypeFor.instance(
+        RangeCodecs.rangeCodec(pg.timestamp, skunk.data.Type("tsrange")).asInstanceOf[skunk.Codec[PgRange[LocalDateTime]]]
+      )
+
+    given tstzRangePgTypeFor: PgTypeFor[PgRange[OffsetDateTime]] =
+      PgTypeFor.instance(
+        RangeCodecs.rangeCodec(pg.timestamptz, skunk.data.Type("tstzrange")).asInstanceOf[skunk.Codec[PgRange[OffsetDateTime]]]
       )
 
   }
