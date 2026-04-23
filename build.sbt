@@ -29,7 +29,7 @@ val http4sV          = "0.23.30"
 val cirisV           = "3.6.0"
 val ducktapeV        = "0.2.12"
 
-lazy val root = tlCrossRootProject.aggregate(core, iron, refined, circe, tests, example)
+lazy val root = tlCrossRootProject.aggregate(core, iron, refined, circe, tests, example, docs)
 
 lazy val core = project
   .in(file("modules/core"))
@@ -97,6 +97,17 @@ lazy val example = project
       "org.typelevel"               %% "otel4s-core"             % otel4sV,
     ),
     Compile / unmanagedClasspath += (Compile / resourceDirectory).value,
+  )
+
+lazy val docs = project
+  .in(file("docs"))
+  .dependsOn(core, iron, circe)
+  .enablePlugins(TypelevelSitePlugin)
+  .enablePlugins(NoPublishPlugin)
+  .settings(
+    name := "skunk-sharp-docs",
+    mdocIn := baseDirectory.value / "docs",
+    mdocVariables := Map("VERSION" -> version.value),
   )
 
 lazy val tests = project
