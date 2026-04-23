@@ -4,6 +4,7 @@ ThisBuild / organizationName := "Rui Batista"
 ThisBuild / licenses         := Seq(License.Apache2)
 ThisBuild / headerCreate / skip := true
 ThisBuild / headerCheck / skip  := true
+ThisBuild / tlCiHeaderCheck     := false
 ThisBuild / developers       := List(
   tlGitHubDev("ragb", "Rui Batista")
 )
@@ -108,7 +109,6 @@ lazy val docs = project
     name := "skunk-sharp-docs",
     mdocIn := baseDirectory.value / "docs",
     mdocVariables := Map("VERSION" -> version.value),
-    headerLicense := Some(HeaderLicense.ALv2("2025", organizationName.value)),
   )
 
 lazy val tests = project
