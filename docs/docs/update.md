@@ -2,7 +2,7 @@
 
 UPDATE uses a **staged builder** to prevent accidental bulk updates. The stages are:
 
-```
+```text
 users.update  →  .set(…)  →  .where(…) or .updateAll  →  .compile
 ```
 
@@ -77,7 +77,8 @@ val updateReturningUser = users.update
   .compile
 ```
 
-```scala
+```scala mdoc:compile-only
+val session: skunk.Session[cats.effect.IO] = null
 updateReturning.option(session)      // IO[Option[(id: UUID, email: String, ...)]]
 updateReturningUser.option(session)  // IO[Option[User]]
 ```

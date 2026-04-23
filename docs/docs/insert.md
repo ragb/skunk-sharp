@@ -87,7 +87,8 @@ val insertReturningAll = users
 
 With RETURNING you use query execution methods:
 
-```scala
+```scala mdoc:compile-only
+val session: skunk.Session[cats.effect.IO] = null
 insertReturningId.unique(session)  // IO[UUID]
 insertReturningAll.unique(session) // IO[(id: UUID, email: String, ...)]
 ```

@@ -68,8 +68,8 @@ All four calls above are **pure** — they build an `AppliedFragment` at compile
 the user-supplied values, and return a `CompiledQuery[R]` or `CompiledCommand`. Nothing
 touches the network until you call an execution method with a session:
 
-```scala
-// session: skunk.Session[IO]
+```scala mdoc:compile-only
+val session: skunk.Session[cats.effect.IO] = null
 allAdults.stream(session)    // fs2.Stream[IO, (id: UUID, email: String, ...)]
 insertUser.run(session)      // IO[skunk.data.Completion]
 updateEmail.run(session)     // IO[skunk.data.Completion]

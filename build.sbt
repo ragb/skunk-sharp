@@ -96,8 +96,7 @@ lazy val example = project
       "io.github.arainko"           %% "ducktape"                % ducktapeV,
       "dev.rolang"                  %% "dumbo"                   % dumboV,
       "org.typelevel"               %% "otel4s-core"             % otel4sV
-    ),
-    Compile / unmanagedClasspath += (Compile / resourceDirectory).value
+    )
   )
 
 lazy val docs = project

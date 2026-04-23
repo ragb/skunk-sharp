@@ -41,8 +41,8 @@ val q3 = users.select
 
 Execution methods on `CompiledQuery[R]`:
 
-```scala
-// session: skunk.Session[IO]
+```scala mdoc:compile-only
+val session: skunk.Session[cats.effect.IO] = null
 q1.run(session)        // IO[List[R]]
 q2.unique(session)     // IO[R]           — raises if 0 or >1 rows
 q3.option(session)     // IO[Option[R]]   — raises if >1 row
@@ -61,14 +61,14 @@ val emails = users.select(u => u.email).compile
 val snap = users.select(u => (u.email, u.age)).compile
 ```
 
-Map a multi-column projection to a case class with `.as[T]`:
+Map a multi-column projection to a case class with `.to[T]`:
 
-```scala
+```scala mdoc:silent
 case class UserSnap(email: String, age: Int)
-users.select(u => (u.email, u.age)).as[UserSnap].compile
+val snaps = users.select(u => (u.email, u.age)).to[UserSnap].compile
 ```
 
-The `.as[T]` alignment is checked at compile time — field types must match the
+The `.to[T]` alignment is checked at compile time — field types must match the
 projection tuple in order.
 
 ## DISTINCT

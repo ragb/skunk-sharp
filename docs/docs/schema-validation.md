@@ -6,11 +6,25 @@ type changes, and nullability drift early.
 
 ## Usage
 
-```scala
+```scala mdoc:silent
+import skunk.sharp.dsl.*
+import java.util.UUID
+import java.time.OffsetDateTime
+
+case class User(id: UUID, email: String, age: Int, deleted_at: Option[OffsetDateTime])
+case class Post(id: UUID, author_id: UUID, title: String)
+case class ActiveUser(id: UUID, email: String)
+
+val users        = Table.of[User]("users").withPrimary("id").withDefault("id").withUnique("email")
+val posts        = Table.of[Post]("posts").withPrimary("id").withDefault("id")
+val active_users = View.of[ActiveUser]("active_users")
+```
+
+```scala mdoc:compile-only
 import skunk.sharp.validation.*
 import cats.effect.IO
 
-// session: skunk.Session[IO]
+val session: skunk.Session[IO] = null
 
 // Report-only — decide what to do with mismatches
 SchemaValidator.validate[IO](session, users, posts, active_users).flatMap { report =>
@@ -49,11 +63,10 @@ migrations, not by the DSL.
 
 ## Example: catching drift at boot
 
-```scala
+```scala mdoc:compile-only
 import cats.effect.{IO, Resource}
 import skunk.Session
 import skunk.sharp.validation.*
-import natchez.Trace.Implicits.noop
 
 def sessionPool: Resource[IO, Session[IO]] = ???
 

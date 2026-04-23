@@ -2,7 +2,7 @@
 
 DELETE uses the same **staged builder** pattern as UPDATE:
 
-```
+```text
 users.delete  →  .where(…) or .deleteAll  →  .compile
 ```
 
@@ -62,7 +62,8 @@ val deleteReturning = posts.delete
   .compile
 ```
 
-```scala
+```scala mdoc:compile-only
+val session: skunk.Session[cats.effect.IO] = null
 deleteReturning.stream(session)     // fs2.Stream[IO, (id: UUID, author_id: UUID, ...)]
 deleteReturning.run(session)        // IO[List[(id: UUID, ...)]]
 ```
