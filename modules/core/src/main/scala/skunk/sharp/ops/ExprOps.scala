@@ -198,22 +198,24 @@ extension [T](lhs: TypedExpr[T])(using @unused ord: cats.Order[Stripped[T]]) {
 
 }
 
-extension [T](lhs: TypedExpr[T]) {
-
+extension [T](inline lhs: TypedExpr[T])
   /**
    * `lhs IS DISTINCT FROM rhs` — NULL-safe inequality. Unlike `<>`, treats NULL as an ordinary value: `NULL IS DISTINCT
    * FROM 1` is TRUE, `NULL IS DISTINCT FROM NULL` is FALSE. Use on nullable columns when you want "values differ
    * (including NULL vs. not-NULL)" rather than three-valued-logic inequality.
    */
-  def isDistinctFrom(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where =
-    PgOperator.infix[T, Stripped[T], Boolean]("IS DISTINCT FROM")(lhs, TypedExpr.parameterised(rhs))
+  inline def isDistinctFrom(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where =
+    valOp("IS DISTINCT FROM", lhs, rhs)
 
+extension [T](inline lhs: TypedExpr[T])
   /**
    * `lhs IS NOT DISTINCT FROM rhs` — NULL-safe equality. `NULL IS NOT DISTINCT FROM NULL` is TRUE; `NULL IS NOT
-   * DISTINCT FROM 1` is FALSE. Dual of [[isDistinctFrom]].
+   * DISTINCT FROM 1` is FALSE. Dual of `isDistinctFrom`.
    */
-  def isNotDistinctFrom(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where =
-    PgOperator.infix[T, Stripped[T], Boolean]("IS NOT DISTINCT FROM")(lhs, TypedExpr.parameterised(rhs))
+  inline def isNotDistinctFrom(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where =
+    valOp("IS NOT DISTINCT FROM", lhs, rhs)
+
+extension [T](lhs: TypedExpr[T]) {
 
   /** Expression-to-expression `IS DISTINCT FROM` — for column-vs-column / column-vs-function-call comparisons. */
   def isDistinctFromExpr(rhs: TypedExpr[T]): Where =
@@ -275,58 +277,47 @@ extension [T](lhs: TypedExpr[T]) {
 
 }
 
-extension [T](lhs: TypedExpr[T])(using @unused ev: Stripped[T] <:< String) {
-
+extension [T](inline lhs: TypedExpr[T])
   /**
    * `lhs LIKE pattern`. Works on any string-like column — `TypedExpr[String]`, tag types (`TypedExpr[Varchar[N]]`,
    * `TypedExpr[Bpchar[N]]`, `TypedExpr[Text]`), and their `Option` variants.
    */
-  def like(pattern: String): Where =
-    PgOperator.infix[T, String, Boolean]("LIKE")(lhs, TypedExpr.parameterised(pattern))
+  inline def like(pattern: String)(using @unused ev: Stripped[T] <:< String, pf: PgTypeFor[String]): Where =
+    SqlMacros.infix[T, String]("LIKE", lhs, pattern)
 
+extension [T](inline lhs: TypedExpr[T])
   /** `lhs ILIKE pattern` (case-insensitive). */
-  def ilike(pattern: String): Where =
-    PgOperator.infix[T, String, Boolean]("ILIKE")(lhs, TypedExpr.parameterised(pattern))
+  inline def ilike(pattern: String)(using @unused ev: Stripped[T] <:< String, pf: PgTypeFor[String]): Where =
+    SqlMacros.infix[T, String]("ILIKE", lhs, pattern)
 
+extension [T](inline lhs: TypedExpr[T])
   /**
    * `lhs SIMILAR TO pattern` — Postgres's SQL-standard regex variant. Syntax lies between `LIKE` and POSIX regex:
    * supports `_` / `%` wildcards plus regex-style `|`, `*`, `+`, `?`, `()`, `[]`. Less common than `~` / `~*` but part
    * of the standard.
    */
-  def similarTo(pattern: String): Where =
-    PgOperator.infix[T, String, Boolean]("SIMILAR TO")(lhs, TypedExpr.parameterised(pattern))
+  inline def similarTo(pattern: String)(using @unused ev: Stripped[T] <:< String, pf: PgTypeFor[String]): Where =
+    SqlMacros.infix[T, String]("SIMILAR TO", lhs, pattern)
 
+extension [T](inline lhs: TypedExpr[T])
   /** `lhs NOT SIMILAR TO pattern`. */
-  def notSimilarTo(pattern: String): Where =
-    PgOperator.infix[T, String, Boolean]("NOT SIMILAR TO")(lhs, TypedExpr.parameterised(pattern))
+  inline def notSimilarTo(pattern: String)(using @unused ev: Stripped[T] <:< String, pf: PgTypeFor[String]): Where =
+    SqlMacros.infix[T, String]("NOT SIMILAR TO", lhs, pattern)
 
-}
-
-extension [T, Null <: Boolean, N <: String & Singleton](lhs: skunk.sharp.TypedColumn[T, Null, N]) {
+extension [T, Null <: Boolean, N <: String & Singleton](inline lhs: skunk.sharp.TypedColumn[T, Null, N]) {
 
   /** `lhs IS NULL`. Compiles only for nullable columns — non-nullable columns get a friendly compile error. */
   inline def isNull: Where = {
     inline if scala.compiletime.constValue[Null] then ()
     else scala.compiletime.error("`isNull` is only available on nullable columns (columns declared as `Option[_]`).")
-    nullCheck(lhs, " IS NULL")
+    SqlMacros.postfix[T](lhs, " IS NULL")
   }
 
   /** `lhs IS NOT NULL`. Compiles only for nullable columns. */
   inline def isNotNull: Where = {
     inline if scala.compiletime.constValue[Null] then ()
     else scala.compiletime.error("`isNotNull` is only available on nullable columns (columns declared as `Option[_]`).")
-    nullCheck(lhs, " IS NOT NULL")
+    SqlMacros.postfix[T](lhs, " IS NOT NULL")
   }
 
 }
-
-/**
- * `IS NULL` / `IS NOT NULL` have no RHS — not a true infix — so they bypass [[PgOperator.infix]] and emit the postfix
- * SQL directly. Kept private; extension sites above prefix their error message with a compile-time guard that rejects
- * non-nullable columns.
- */
-private def nullCheck(col: skunk.sharp.TypedColumn[?, ?, ?], suffix: String): Where =
-  new TypedExpr[Boolean] {
-    val render = col.render |+| TypedExpr.raw(suffix)
-    val codec  = skunk.codec.all.bool
-  }

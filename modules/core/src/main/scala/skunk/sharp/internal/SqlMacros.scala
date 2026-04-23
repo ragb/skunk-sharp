@@ -80,4 +80,46 @@ private[sharp] object SqlMacros {
   )(using pf: PgTypeFor[T]): Where =
     infix[T, T](op, col, rhs)
 
+  /**
+   * Inline a postfix no-argument predicate `<lhs> <suffix>` — `IS NULL`, `IS NOT NULL`, `IS TRUE`, …. When the LHS is a
+   * `TypedColumn`, the macro emits a single `Fragment[Void]` whose `parts` is `List(Left(col.sqlRef + suffix))` —
+   * no encoder, no `$N`, one allocation. Runtime fallback for other LHS shapes.
+   */
+  inline def postfix[T](inline lhs: TypedExpr[T], inline suffix: String): Where =
+    ${ postfixImpl[T]('lhs, 'suffix) }
+
+  private def postfixImpl[T: Type](
+    lhs:    Expr[TypedExpr[T]],
+    suffix: Expr[String]
+  )(using q: Quotes): Expr[Where] = {
+    import q.reflect.*
+
+    def runtime: Expr[Where] =
+      '{
+        TypedExpr(
+          $lhs.render |+| TypedExpr.raw($suffix),
+          skunk.codec.all.bool
+        )
+      }
+
+    lhs.asTerm.tpe.widen.asType match {
+      case '[TypedColumn[t, nb, nm]] =>
+        '{
+          val col = $lhs.asInstanceOf[TypedColumn[t, nb, nm]]
+          TypedExpr(
+            skunk.AppliedFragment(
+              skunk.Fragment(
+                List(Left(col.sqlRef + $suffix)),
+                skunk.Void.codec,
+                skunk.util.Origin.unknown
+              ),
+              skunk.Void
+            ),
+            skunk.codec.all.bool
+          )
+        }
+      case _ => runtime
+    }
+  }
+
 }
