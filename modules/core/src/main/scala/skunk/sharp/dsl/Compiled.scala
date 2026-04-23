@@ -1,5 +1,6 @@
 package skunk.sharp.dsl
 
+import cats.data.Kleisli
 import cats.effect.Resource
 import fs2.Stream
 import skunk.*
@@ -50,6 +51,26 @@ extension [R](q: CompiledQuery[R]) {
   inline def cursor[F[_]](session: Session[F]): Resource[F, Cursor[F, R]] =
     session.cursor(q.af.fragment.query(q.codec))(q.af.argument)
 
+  /** Kleisli variant of [[run]] — session injected at the call edge. */
+  def runK[F[_]]: Kleisli[F, Session[F], List[R]] = Kleisli(s => run(s))
+
+  /** Kleisli variant of [[unique]]. */
+  def uniqueK[F[_]]: Kleisli[F, Session[F], R] = Kleisli(s => unique(s))
+
+  /** Kleisli variant of [[option]]. */
+  def optionK[F[_]]: Kleisli[F, Session[F], Option[R]] = Kleisli(s => option(s))
+
+  /**
+   * A `Kleisli` whose container is `Stream[F, *]` — i.e., `Session[F] => Stream[F, R]`. Calling `.run(session)`
+   * gives a plain `Stream[F, R]`, so multiple streams share a session without any natural-transformation
+   * boilerplate:
+   * {{{
+   *   Stream.resource(pool).flatMap(rooms.findAll.run)    // Stream[IO, RoomRow]
+   * }}}
+   */
+  def streamKF[F[_]](chunkSize: Int = 64): Kleisli[Stream[F, *], Session[F], R] =
+    Kleisli(s => stream[F](s, chunkSize))
+
 }
 
 /** Session-facing operations for commands (INSERT/UPDATE/DELETE without RETURNING). */
@@ -58,6 +79,9 @@ extension (c: CompiledCommand) {
   /** Execute and return the completion message. */
   inline def run[F[_]](session: Session[F]): F[Completion] =
     session.execute(c.af.fragment.command)(c.af.argument)
+
+  /** Kleisli variant of [[run]] — session injected at the call edge. */
+  def runK[F[_]]: Kleisli[F, Session[F], Completion] = Kleisli(s => run(s))
 
 }
 

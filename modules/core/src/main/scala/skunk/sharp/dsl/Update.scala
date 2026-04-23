@@ -8,6 +8,7 @@ import skunk.sharp.where.{&&, Where}
 import skunk.util.Origin
 
 import scala.NamedTuple
+import scala.deriving.Mirror
 import scala.compiletime.constValueTuple
 
 /**
@@ -78,6 +79,15 @@ final class UpdateBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
     CompileChecks.requirePatchValueTypes[Cols, NamedTuple.Names[R], NamedTuple.DropNames[R]]
     val names  = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
     val values = p.asInstanceOf[Tuple].toList
+    buildPatch(table, names, values)
+  }
+
+  /** Case-class variant of [[patch]]. Fields must all be `Option[T]`; `None` means "leave unchanged". */
+  inline def patch[T <: Product](p: T)(using m: Mirror.ProductOf[T]): UpdateWithSet[Cols] = {
+    CompileChecks.requireAllNamesInCols[Cols, m.MirroredElemLabels]
+    CompileChecks.requirePatchValueTypes[Cols, m.MirroredElemLabels, m.MirroredElemTypes]
+    val names  = constValueTuple[m.MirroredElemLabels].toList.asInstanceOf[List[String]]
+    val values = p.productIterator.toList
     buildPatch(table, names, values)
   }
 
@@ -357,6 +367,28 @@ final class MutationReturning[R] private[sharp] (
     CompiledQuery(base |+| TypedExpr.raw(" RETURNING ") |+| list, returnCodec)
   }
 
+  /**
+   * Map the returned row to a case class. Works for both plain-tuple projections (from
+   * `.returningTuple`) and named-tuple projections (from `.returningAll`): the [[MutationReturning.Unwrap]]
+   * match type strips names before the `MirroredElemTypes` comparison so the compiler can resolve the
+   * constraint in both cases.
+   */
+  def to[T <: Product](using
+    m: scala.deriving.Mirror.ProductOf[T] { type MirroredElemTypes = MutationReturning.Unwrap[R] & Tuple }
+  ): MutationReturning[T] = {
+    val newCodec = returnCodec.imap[T](r => m.fromProduct(r.asInstanceOf[Product]))(t =>
+      Tuple.fromProductTyped[T](t)(using m).asInstanceOf[R]
+    )
+    new MutationReturning[T](base, returning, newCodec)
+  }
+
+}
+
+object MutationReturning {
+  /** Strip named-tuple labels so `to[T]` accepts both `.returningTuple` (plain tuple) and `.returningAll` (named tuple). */
+  type Unwrap[R] = R match
+    case scala.NamedTuple.NamedTuple[?, v] => v
+    case _                                  => R
 }
 
 // ---- SetAssignment + := extension -----------------------------------------------------------------
