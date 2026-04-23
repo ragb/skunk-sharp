@@ -9,21 +9,73 @@ import skunk.data.Completion
 /**
  * The compiled form of a query builder — everything needed to execute but nothing session-bound yet. Every DSL verb
  * (`select`, `insert`, `update`, `delete`, plus their `RETURNING` variants) reduces to one of these two types at
- * `.compile` time. All session-facing operations (`run`, `unique`, `option`, `stream`, `cursor`) live as extensions on
- * these types — defined once, available everywhere, mirroring [[skunk.Session]]'s own row-fetching surface.
+ * `.compile` time. All session-facing operations (`run`, `unique`, `option`, `stream`, `cursor`, `prepared`) live as
+ * extensions on these types — defined once, available everywhere, mirroring [[skunk.Session]]'s own row-fetching
+ * surface.
  *
- * Splitting builders from execution keeps two concerns separate: builders know about the query's structure and
- * refinements, compiled values know about skunk's runtime plumbing. It also lets `RETURNING` variants on
- * INSERT/UPDATE/DELETE share every query operation with SELECT for free.
- *
- * Note on `prepare` / `prepareR`: skunk exposes those so callers can re-bind different argument values on each call.
- * Our `AppliedFragment` bakes arguments in, which defeats the point — so we don't ship `.prepare` extensions here.
- * Users that genuinely need re-bindable prepared queries should build a `skunk.Query[A, B]` directly.
+ * Internal representation is a **typed** `skunk.Fragment[Args]` paired with its captured `args: Args`, not an opaque
+ * `AppliedFragment`. `Args` is a path-dependent `Tuple` type on the instance: users who want the skunk
+ * [[skunk.Query]] / [[skunk.Command]] can reach it via `q.typedQuery` / `c.typedCommand` and call
+ * `session.prepare(…)` on it to re-bind different argument values later. `.af: AppliedFragment` stays as a derived
+ * `lazy val` for subquery composition and for any call-site that still works at the AppliedFragment level.
  */
-final case class CompiledQuery[R](af: AppliedFragment, codec: Codec[R])
+sealed trait CompiledQuery[R] {
+  type Args
+  val fragment: Fragment[Args]
+  val args:     Args
+  val codec:    Codec[R]
+
+  /** Pre-applied form: `Fragment[Args].apply(Args)` — the opaque AppliedFragment. Cached. Use for subquery embedding. */
+  lazy val af: AppliedFragment = fragment(args)
+
+  /** Typed skunk `Query[Args, R]` — suitable for `session.prepare(q.typedQuery)` to reuse with different arg values. */
+  def typedQuery: Query[Args, R] = fragment.query(codec)
+}
+
+object CompiledQuery {
+
+  /** Construct a `CompiledQuery[R]` from an already-assembled `AppliedFragment` + row codec. */
+  def apply[R](af0: AppliedFragment, codec0: Codec[R]): CompiledQuery[R] = {
+    // Capture the path-dependent Args via a local to keep refinement stable.
+    val frag = af0.fragment
+    val arg  = af0.argument
+    val cod  = codec0
+    new CompiledQuery[R] {
+      type Args = af0.A
+      val fragment: Fragment[af0.A] = frag
+      val args:     af0.A           = arg
+      val codec:    Codec[R]        = cod
+    }
+  }
+
+}
 
 /** The compiled form of a statement that does not return rows (INSERT/UPDATE/DELETE without RETURNING). */
-final case class CompiledCommand(af: AppliedFragment)
+sealed trait CompiledCommand {
+  type Args
+  val fragment: Fragment[Args]
+  val args:     Args
+
+  /** Cached pre-applied form. */
+  lazy val af: AppliedFragment = fragment(args)
+
+  /** Typed skunk `Command[Args]` — suitable for `session.prepare(c.typedCommand)` to reuse. */
+  def typedCommand: Command[Args] = fragment.command
+}
+
+object CompiledCommand {
+
+  def apply(af0: AppliedFragment): CompiledCommand = {
+    val frag = af0.fragment
+    val arg  = af0.argument
+    new CompiledCommand {
+      type Args = af0.A
+      val fragment: Fragment[af0.A] = frag
+      val args:     af0.A           = arg
+    }
+  }
+
+}
 
 /**
  * Session-facing operations for queries. Deliberately mirror [[skunk.Session]]'s own row-fetching API so there's one
@@ -33,23 +85,34 @@ extension [R](q: CompiledQuery[R]) {
 
   /** Run and collect all rows. */
   inline def run[F[_]](session: Session[F]): F[List[R]] =
-    session.execute(q.af.fragment.query(q.codec))(q.af.argument)
+    session.execute(q.fragment.query(q.codec))(q.args)
 
   /** Run and return exactly one row. Fails if the row count is not 1. */
   inline def unique[F[_]](session: Session[F]): F[R] =
-    session.unique(q.af.fragment.query(q.codec))(q.af.argument)
+    session.unique(q.fragment.query(q.codec))(q.args)
 
   /** Run and return at most one row. Fails if the row count is greater than 1. */
   inline def option[F[_]](session: Session[F]): F[Option[R]] =
-    session.option(q.af.fragment.query(q.codec))(q.af.argument)
+    session.option(q.fragment.query(q.codec))(q.args)
 
   /** Stream rows with back-pressure. `chunkSize` is the number of rows fetched per network round-trip. */
   inline def stream[F[_]](session: Session[F], chunkSize: Int = 64): Stream[F, R] =
-    session.stream(q.af.fragment.query(q.codec))(q.af.argument, chunkSize)
+    session.stream(q.fragment.query(q.codec))(q.args, chunkSize)
 
   /** Open a cursor for manual row-by-row fetching. Resource-safe. */
   inline def cursor[F[_]](session: Session[F]): Resource[F, Cursor[F, R]] =
-    session.cursor(q.af.fragment.query(q.codec))(q.af.argument)
+    session.cursor(q.fragment.query(q.codec))(q.args)
+
+  /**
+   * Prepare the query as a skunk [[skunk.PreparedQuery]] for re-execution with **different** argument values.
+   *
+   * The `Args` parameter comes from the path-dependent `q.Args`: users get a `PreparedQuery[F, Args, R]` whose
+   * input tuple matches what the DSL captured. For a query that captured a single `Int` via `u.age >= 18`, that
+   * `Args` is `Int *: EmptyTuple` — a tuple type a real call site can ascribe. Today this is the cleanest path
+   * out of AppliedFragment's opaque arg bag.
+   */
+  def prepared[F[_]](session: Session[F]): F[PreparedQuery[F, q.Args, R]] =
+    session.prepare(q.typedQuery)
 
   /** Kleisli variant of [[run]] — session injected at the call edge. */
   def runK[F[_]]: Kleisli[F, Session[F], List[R]] = Kleisli(s => run(s))
@@ -77,7 +140,11 @@ extension (c: CompiledCommand) {
 
   /** Execute and return the completion message. */
   inline def run[F[_]](session: Session[F]): F[Completion] =
-    session.execute(c.af.fragment.command)(c.af.argument)
+    session.execute(c.fragment.command)(c.args)
+
+  /** Prepare the command as a skunk [[skunk.PreparedCommand]] for re-execution with different argument values. */
+  def prepared[F[_]](session: Session[F]): F[PreparedCommand[F, c.Args]] =
+    session.prepare(c.typedCommand)
 
   /** Kleisli variant of [[run]] — session injected at the call edge. */
   def runK[F[_]]: Kleisli[F, Session[F], Completion] = Kleisli(s => run(s))
