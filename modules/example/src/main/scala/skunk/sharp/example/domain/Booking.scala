@@ -17,4 +17,6 @@ case class BookingRow(
 
 object BookingRow {
   val table = Table.of[BookingRow]("bookings").withPrimary("id").withDefault("id").withDefault("created_at")
+
+  case class Create(room_id: UUID, booker_name: String, title: String, period: PgRange[LocalDate])
 }

@@ -2,6 +2,7 @@ package skunk.sharp.example.api
 
 import cats.effect.IO
 import cats.syntax.all.*
+import fs2.Stream
 import skunk.Session
 import sttp.model.StatusCode
 import sttp.tapir.server.http4s.Http4sServerInterpreter
@@ -9,6 +10,8 @@ import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.swagger.bundle.SwaggerInterpreter
 import org.http4s.HttpRoutes
 import skunk.sharp.example.repository.{BookingRepository, RoomRepository}
+import skunk.sharp.pg.tags.PgRange
+import skunk.sharp.example.domain.{BookingRow, RoomRow}
 import Transformers.*
 
 object Routes {
@@ -27,37 +30,37 @@ object Routes {
     val roomEndpoints: List[ServerEndpoint[Any, IO]] = List(
 
       Endpoints.rooms.list.serverLogic[IO] { _ =>
-        pool.use(s => rooms.findAll(s))
+        Stream.resource(pool).flatMap(rooms.findAll.run).compile.toList
           .map(_.map(_.toResponse).asRight[Err])
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
 
       Endpoints.rooms.getById.serverLogic[IO] { id =>
-        pool.use(s => rooms.findById(id, s))
+        pool.use(rooms.findById(id).run)
           .map(_.map(_.toResponse).toRight(notFound(s"Room $id not found")))
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
 
       Endpoints.rooms.create.serverLogic[IO] { req =>
         pool.use { s =>
-          rooms.create(req.name, req.capacity, s)
-            .flatMap(id => rooms.findById(id, s).map(_.get.toResponse))
+          rooms.create(RoomRow.Create(req.name, req.capacity)).run(s)
+            .flatMap(id => rooms.findById(id).run(s).map(_.get.toResponse))
         }
           .map(_.asRight[Err])
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
 
       Endpoints.rooms.patch.serverLogic[IO] { (id, req) =>
-        pool.use(s => rooms.patch(id, req.name, req.capacity, s))
+        pool.use(rooms.patch(id, RoomRow.Patch(req.name, req.capacity)).run)
           .map(_.map(_.toResponse).toRight(notFound(s"Room $id not found")))
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
 
       Endpoints.rooms.delete.serverLogic[IO] { id =>
         pool.use { s =>
-          rooms.findById(id, s).flatMap {
-            case None    => notFound(s"Room $id not found").asLeft[Unit].pure
-            case Some(_) => rooms.delete(id, s).as(().asRight[Err])
+          rooms.findById(id).run(s).flatMap {
+            case None    => IO.pure(notFound(s"Room $id not found").asLeft[Unit])
+            case Some(_) => rooms.delete(id).run(s).as(().asRight[Err])
           }
         }
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
@@ -67,31 +70,32 @@ object Routes {
     val bookingEndpoints: List[ServerEndpoint[Any, IO]] = List(
 
       Endpoints.bookings.list.serverLogic[IO] { _ =>
-        pool.use(s => bookings.findAll(s))
+        Stream.resource(pool).flatMap(bookings.findAll.run).compile.toList
           .map(_.map(_.toResponse).asRight[Err])
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
 
       Endpoints.bookings.getById.serverLogic[IO] { id =>
-        pool.use(s => bookings.findById(id, s))
+        pool.use(bookings.findById(id).run)
           .map(_.map(_.toResponse).toRight(notFound(s"Booking $id not found")))
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
 
       Endpoints.bookings.byRoom.serverLogic[IO] { roomId =>
-        pool.use(s => bookings.findByRoom(roomId, s))
+        Stream.resource(pool).flatMap(bookings.findByRoom(roomId).run).compile.toList
           .map(_.map(_.toResponse).asRight[Err])
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
 
       Endpoints.bookings.create.serverLogic[IO] { req =>
         pool.use { s =>
-          bookings.findOverlapping(req.roomId, req.startDate, req.endDate, s).flatMap {
+          bookings.findOverlapping(req.roomId, req.startDate, req.endDate).run(s).flatMap {
             case _ :: _ =>
-              conflict("Room already booked during this period").asLeft[BookingResponse].pure
+              IO.pure(conflict("Room already booked during this period").asLeft[BookingResponse])
             case Nil =>
-              bookings.create(req.roomId, req.bookerName, req.title, req.startDate, req.endDate, s)
-                .flatMap(id => bookings.findById(id, s).map(_.get.toResponse))
+              val period = PgRange[java.time.LocalDate](lower = Some(req.startDate), upper = Some(req.endDate))
+              bookings.create(BookingRow.Create(req.roomId, req.bookerName, req.title, period)).run(s)
+                .flatMap(id => bookings.findById(id).run(s).map(_.get.toResponse))
                 .map(_.asRight[Err])
           }
         }
@@ -100,9 +104,9 @@ object Routes {
 
       Endpoints.bookings.delete.serverLogic[IO] { id =>
         pool.use { s =>
-          bookings.findById(id, s).flatMap {
-            case None    => notFound(s"Booking $id not found").asLeft[Unit].pure
-            case Some(_) => bookings.delete(id, s).as(().asRight[Err])
+          bookings.findById(id).run(s).flatMap {
+            case None    => IO.pure(notFound(s"Booking $id not found").asLeft[Unit])
+            case Some(_) => bookings.delete(id).run(s).as(().asRight[Err])
           }
         }
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)

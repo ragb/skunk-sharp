@@ -1,6 +1,9 @@
 package skunk.sharp.example.repository
 
+import cats.data.Kleisli
 import cats.effect.IO
+import cats.syntax.all.*
+import fs2.Stream
 import skunk.Session
 import skunk.sharp.dsl.*
 import skunk.sharp.pg.RangeOps.*
@@ -11,12 +14,12 @@ import java.time.LocalDate
 import java.util.UUID
 
 trait BookingRepository {
-  def findAll(s: Session[IO]): IO[List[BookingRow]]
-  def findById(id: UUID, s: Session[IO]): IO[Option[BookingRow]]
-  def findByRoom(roomId: UUID, s: Session[IO]): IO[List[BookingRow]]
-  def findOverlapping(roomId: UUID, start: LocalDate, end: LocalDate, s: Session[IO]): IO[List[BookingRow]]
-  def create(roomId: UUID, bookerName: String, title: String, start: LocalDate, end: LocalDate, s: Session[IO]): IO[UUID]
-  def delete(id: UUID, s: Session[IO]): IO[Boolean]
+  def findAll: Kleisli[Stream[IO, *], Session[IO], BookingRow]
+  def findById(id: UUID): Kleisli[IO, Session[IO], Option[BookingRow]]
+  def findByRoom(roomId: UUID): Kleisli[Stream[IO, *], Session[IO], BookingRow]
+  def findOverlapping(roomId: UUID, start: LocalDate, end: LocalDate): Kleisli[IO, Session[IO], List[BookingRow]]
+  def create(data: BookingRow.Create): Kleisli[IO, Session[IO], UUID]
+  def delete(id: UUID): Kleisli[IO, Session[IO], Unit]
 }
 
 object BookingRepository {
@@ -24,42 +27,31 @@ object BookingRepository {
   val live: BookingRepository = new BookingRepository {
     private val t = BookingRow.table
 
-    private def selectAll(s: Session[IO]): IO[List[BookingRow]] =
+    private def selectRow =
       t.select(b => (b.id, b.room_id, b.booker_name, b.title, b.period, b.created_at))
         .to[BookingRow]
-        .compile.run(s)
 
-    def findAll(s: Session[IO]): IO[List[BookingRow]] = selectAll(s)
+    def findAll: Kleisli[Stream[IO, *], Session[IO], BookingRow] =
+      selectRow.compile.streamKF[IO]()
 
-    def findById(id: UUID, s: Session[IO]): IO[Option[BookingRow]] =
-      t.select(b => (b.id, b.room_id, b.booker_name, b.title, b.period, b.created_at))
-        .to[BookingRow]
-        .where(b => b.id === id)
-        .compile.option(s)
+    def findById(id: UUID): Kleisli[IO, Session[IO], Option[BookingRow]] =
+      selectRow.where(b => b.id === id).compile.optionK[IO]
 
-    def findByRoom(roomId: UUID, s: Session[IO]): IO[List[BookingRow]] =
-      t.select(b => (b.id, b.room_id, b.booker_name, b.title, b.period, b.created_at))
-        .to[BookingRow]
-        .where(b => b.room_id === roomId)
-        .compile.run(s)
+    def findByRoom(roomId: UUID): Kleisli[Stream[IO, *], Session[IO], BookingRow] =
+      selectRow.where(b => b.room_id === roomId).compile.streamKF[IO]()
 
-    def findOverlapping(roomId: UUID, start: LocalDate, end: LocalDate, s: Session[IO]): IO[List[BookingRow]] = {
+    def findOverlapping(roomId: UUID, start: LocalDate, end: LocalDate): Kleisli[IO, Session[IO], List[BookingRow]] = {
       val probe = PgRange[LocalDate](lower = Some(start), upper = Some(end))
-      t.select(b => (b.id, b.room_id, b.booker_name, b.title, b.period, b.created_at))
-        .to[BookingRow]
+      selectRow
         .where(b => b.room_id === roomId && b.period.overlaps(param(probe)))
-        .compile.run(s)
+        .compile.runK[IO]
     }
 
-    def create(roomId: UUID, bookerName: String, title: String, start: LocalDate, end: LocalDate, s: Session[IO]): IO[UUID] = {
-      val period = PgRange[LocalDate](lower = Some(start), upper = Some(end))
-      t.insert((room_id = roomId, booker_name = bookerName, title = title, period = period))
-        .returning(b => b.id)
-        .compile.unique(s)
-    }
+    def create(data: BookingRow.Create): Kleisli[IO, Session[IO], UUID] =
+      t.insert(data).returning(b => b.id).compile.uniqueK[IO]
 
-    def delete(id: UUID, s: Session[IO]): IO[Boolean] =
-      t.delete.where(b => b.id === id).compile.run(s).as(true)
+    def delete(id: UUID): Kleisli[IO, Session[IO], Unit] =
+      t.delete.where(b => b.id === id).compile.runK[IO].void
   }
 
 }

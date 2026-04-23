@@ -8,4 +8,7 @@ case class RoomRow(id: UUID, name: String, capacity: Int)
 
 object RoomRow {
   val table = Table.of[RoomRow]("rooms").withPrimary("id").withDefault("id")
+
+  case class Create(name: String, capacity: Int)
+  case class Patch(name: Option[String], capacity: Option[Int])
 }

@@ -1,6 +1,9 @@
 package skunk.sharp.example.repository
 
+import cats.data.Kleisli
 import cats.effect.IO
+import cats.syntax.all.*
+import fs2.Stream
 import skunk.Session
 import skunk.sharp.dsl.*
 import skunk.sharp.example.domain.RoomRow
@@ -8,11 +11,11 @@ import skunk.sharp.example.domain.RoomRow
 import java.util.UUID
 
 trait RoomRepository {
-  def findAll(s: Session[IO]): IO[List[RoomRow]]
-  def findById(id: UUID, s: Session[IO]): IO[Option[RoomRow]]
-  def create(name: String, capacity: Int, s: Session[IO]): IO[UUID]
-  def patch(id: UUID, name: Option[String], capacity: Option[Int], s: Session[IO]): IO[Option[RoomRow]]
-  def delete(id: UUID, s: Session[IO]): IO[Boolean]
+  def findAll: Kleisli[Stream[IO, *], Session[IO], RoomRow]
+  def findById(id: UUID): Kleisli[IO, Session[IO], Option[RoomRow]]
+  def create(data: RoomRow.Create): Kleisli[IO, Session[IO], UUID]
+  def patch(id: UUID, data: RoomRow.Patch): Kleisli[IO, Session[IO], Option[RoomRow]]
+  def delete(id: UUID): Kleisli[IO, Session[IO], Unit]
 }
 
 object RoomRepository {
@@ -20,32 +23,28 @@ object RoomRepository {
   val live: RoomRepository = new RoomRepository {
     private val t = RoomRow.table
 
-    private def allCols(s: Session[IO]): IO[List[RoomRow]] =
-      t.select(r => (r.id, r.name, r.capacity)).to[RoomRow].compile.run(s)
+    private def selectRow = t.select(r => (r.id, r.name, r.capacity)).to[RoomRow]
 
-    def findAll(s: Session[IO]): IO[List[RoomRow]] = allCols(s)
+    def findAll: Kleisli[Stream[IO, *], Session[IO], RoomRow] =
+      selectRow.compile.streamKF[IO]()
 
-    def findById(id: UUID, s: Session[IO]): IO[Option[RoomRow]] =
-      t.select(r => (r.id, r.name, r.capacity)).to[RoomRow]
-        .where(r => r.id === id)
-        .compile.option(s)
+    def findById(id: UUID): Kleisli[IO, Session[IO], Option[RoomRow]] =
+      selectRow.where(r => r.id === id).compile.optionK[IO]
 
-    def create(name: String, capacity: Int, s: Session[IO]): IO[UUID] =
-      t.insert((name = name, capacity = capacity))
-        .returning(r => r.id)
-        .compile.unique(s)
+    def create(data: RoomRow.Create): Kleisli[IO, Session[IO], UUID] =
+      t.insert(data).returning(r => r.id).compile.uniqueK[IO]
 
-    def patch(id: UUID, name: Option[String], capacity: Option[Int], s: Session[IO]): IO[Option[RoomRow]] =
-      if (name.isEmpty && capacity.isEmpty) findById(id, s)
+    def patch(id: UUID, data: RoomRow.Patch): Kleisli[IO, Session[IO], Option[RoomRow]] =
+      if (data.name.isEmpty && data.capacity.isEmpty) findById(id)
       else
         t.update
-          .patch((name = name, capacity = capacity))
+          .patch(data)
           .where(r => r.id === id)
-          .compile.run(s)
-          .flatMap(_ => findById(id, s))
+          .returningAll.to[RoomRow]
+          .compile.optionK[IO]
 
-    def delete(id: UUID, s: Session[IO]): IO[Boolean] =
-      t.delete.where(r => r.id === id).compile.run(s).as(true)
+    def delete(id: UUID): Kleisli[IO, Session[IO], Unit] =
+      t.delete.where(r => r.id === id).compile.runK[IO].void
   }
 
 }

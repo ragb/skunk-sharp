@@ -29,7 +29,7 @@ val otel4sV          = "0.16.0"
 val tapirV           = "1.11.9"
 val http4sV          = "0.23.30"
 val cirisV           = "3.6.0"
-val chimneyV         = "1.5.0"
+val ducktapeV        = "0.2.12"
 
 lazy val root = tlCrossRootProject.aggregate(core, iron, refined, circe, tests, example)
 
@@ -94,7 +94,7 @@ lazy val example = project
       "com.softwaremill.sttp.tapir" %% "tapir-json-circe"        % tapirV,
       "org.http4s"                  %% "http4s-ember-server"     % http4sV,
       "is.cir"                      %% "ciris"                   % cirisV,
-      "io.scalaland"                %% "chimney"                 % chimneyV,
+      "io.github.arainko"           %% "ducktape"                % ducktapeV,
       "dev.rolang"                  %% "dumbo"                   % dumboV,
       "org.typelevel"               %% "otel4s-core"             % otel4sV,
     ),
