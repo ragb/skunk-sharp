@@ -17,14 +17,18 @@ import skunk.sharp.where.Where
  * plug into it. Other operators (`&&`, `||`, `between`, `in(...)`, subquery forms) still produce the existential
  * `Where` and must be incrementally lifted.
  */
-private[sharp] final case class TypedWhere[Args](
-  fragment: Fragment[Args],
-  args:     Args
-) {
-  def codec: Codec[Boolean] = skunk.codec.all.bool
+final class TypedWhere[Args](
+  val fragment: Fragment[Args],
+  val args:     Args
+) extends TypedExpr[Boolean] {
 
-  /** Escape hatch back to the existential Where — useful during migration so mixed call sites keep compiling. */
-  def toWhere: Where = TypedExpr(fragment(args), codec)
+  val codec: Codec[Boolean] = skunk.codec.all.bool
+
+  /** Render to an `AppliedFragment`, losing the `Args` type. Satisfies the `TypedExpr` contract. */
+  lazy val render: skunk.AppliedFragment = fragment(args)
+
+  /** Back-compat alias — now redundant (this instance IS a Where) but kept for call sites that used it. */
+  def toWhere: Where = this
 
   /**
    * AND two typed predicates, combining their argument tuples. The resulting `Args` is the pair `(Args, That)` —
@@ -52,7 +56,10 @@ private[sharp] final case class TypedWhere[Args](
   }
 }
 
-private[sharp] object TypedWhere {
+object TypedWhere {
+
+  def apply[Args](fragment: Fragment[Args], args: Args): TypedWhere[Args] =
+    new TypedWhere[Args](fragment, args)
 
   /** Infix AND — `p1 && p2` — delegating to [[TypedWhere.and]]. */
   extension [A](lhs: TypedWhere[A]) def &&[B](rhs: TypedWhere[B]): TypedWhere[(A, B)] = lhs.and(rhs)
