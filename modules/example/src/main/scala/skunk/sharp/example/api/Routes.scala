@@ -1,6 +1,6 @@
 package skunk.sharp.example.api
 
-import cats.data.Kleisli
+import cats.data.{EitherT, OptionT}
 import cats.effect.IO
 import cats.syntax.all.*
 import fs2.Stream
@@ -35,30 +35,41 @@ object Routes {
       },
 
       Endpoints.rooms.getById.serverLogic[IO] { id =>
-        pool.useKleisli(rooms.findById(id))
-          .map(_.toRight(notFound(s"Room $id not found")).map(_.toResponse))
+        pool.useKleisli(
+          EitherT.fromOptionF(rooms.findById(id), notFound(s"Room $id not found"))
+            .map(_.toResponse)
+            .value
+        )
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
 
       Endpoints.rooms.create.serverLogic[IO] { req =>
-        pool.useKleisli(for {
-          id   <- rooms.create(req.toRow)
-          room <- rooms.findById(id)
-        } yield room.get.toResponse.asRight[Err])
+        pool.useKleisli(
+          (for {
+            id   <- EitherT.liftF(rooms.create(req.toRow))
+            room <- EitherT.fromOptionF(rooms.findById(id), internal("room disappeared after create"))
+          } yield room.toResponse).value
+        )
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
 
       Endpoints.rooms.patch.serverLogic[IO] { (id, req) =>
-        pool.useKleisli(rooms.patch(id, req.toRow))
-          .map(_.toRight(notFound(s"Room $id not found")).map(_.toResponse))
+        pool.useKleisli(
+          EitherT.fromOptionF(rooms.patch(id, req.toRow), notFound(s"Room $id not found"))
+            .map(_.toResponse)
+            .value
+        )
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
 
       Endpoints.rooms.delete.serverLogic[IO] { id =>
-        pool.useKleisli(for {
-          opt    <- rooms.findById(id)
-          result <- opt.traverse(_ => rooms.delete(id))
-        } yield result.toRight(notFound(s"Room $id not found")).void)
+        pool.useKleisli(
+          OptionT(rooms.findById(id))
+            .semiflatMap(_ => rooms.delete(id))
+            .toRight(notFound(s"Room $id not found"))
+            .void
+            .value
+        )
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       }
     )
@@ -72,8 +83,11 @@ object Routes {
       },
 
       Endpoints.bookings.getById.serverLogic[IO] { id =>
-        pool.useKleisli(bookings.findById(id))
-          .map(_.toRight(notFound(s"Booking $id not found")).map(_.toResponse))
+        pool.useKleisli(
+          EitherT.fromOptionF(bookings.findById(id), notFound(s"Booking $id not found"))
+            .map(_.toResponse)
+            .value
+        )
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
 
@@ -84,28 +98,27 @@ object Routes {
       },
 
       Endpoints.bookings.create.serverLogic[IO] { req =>
-        pool.useKleisli(for {
-          overlapping <- bookings.findOverlapping(req.roomId, req.startDate, req.endDate)
-          result <- overlapping match {
-            case _ :: _ =>
-              Kleisli.liftF[IO, Session[IO], Either[Err, BookingResponse]](
-                IO.pure(conflict("Room already booked during this period").asLeft)
-              )
-            case Nil =>
-              for {
-                id      <- bookings.create(req.toRow)
-                booking <- bookings.findById(id)
-              } yield booking.get.toResponse.asRight[Err]
-          }
-        } yield result)
+        pool.useKleisli(
+          (for {
+            _ <- EitherT(
+                   bookings.findOverlapping(req.roomId, req.startDate, req.endDate)
+                     .map(xs => Either.cond(xs.isEmpty, (), conflict("Room already booked during this period")))
+                 )
+            id      <- EitherT.liftF(bookings.create(req.toRow))
+            booking <- EitherT.fromOptionF(bookings.findById(id), internal("booking disappeared after create"))
+          } yield booking.toResponse).value
+        )
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
 
       Endpoints.bookings.delete.serverLogic[IO] { id =>
-        pool.useKleisli(for {
-          opt    <- bookings.findById(id)
-          result <- opt.traverse(_ => bookings.delete(id))
-        } yield result.toRight(notFound(s"Booking $id not found")).void)
+        pool.useKleisli(
+          OptionT(bookings.findById(id))
+            .semiflatMap(_ => bookings.delete(id))
+            .toRight(notFound(s"Booking $id not found"))
+            .void
+            .value
+        )
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       }
     )
