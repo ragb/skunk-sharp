@@ -10,8 +10,6 @@ import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.swagger.bundle.SwaggerInterpreter
 import org.http4s.HttpRoutes
 import skunk.sharp.example.repository.{BookingRepository, RoomRepository}
-import skunk.sharp.pg.tags.PgRange
-import skunk.sharp.example.domain.{BookingRow, RoomRow}
 import Transformers.*
 
 object Routes {
@@ -30,8 +28,8 @@ object Routes {
     val roomEndpoints: List[ServerEndpoint[Any, IO]] = List(
 
       Endpoints.rooms.list.serverLogic[IO] { _ =>
-        Stream.resource(pool).flatMap(rooms.findAll.run).compile.toList
-          .map(_.map(_.toResponse).asRight[Err])
+        Stream.resource(pool).flatMap(rooms.findAll.run).map(_.toResponse).compile.toList
+          .map(_.asRight[Err])
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
 
@@ -43,7 +41,7 @@ object Routes {
 
       Endpoints.rooms.create.serverLogic[IO] { req =>
         pool.use { s =>
-          rooms.create(RoomRow.Create(req.name, req.capacity)).run(s)
+          rooms.create(req.toRow).run(s)
             .flatMap(id => rooms.findById(id).run(s).map(_.get.toResponse))
         }
           .map(_.asRight[Err])
@@ -51,7 +49,7 @@ object Routes {
       },
 
       Endpoints.rooms.patch.serverLogic[IO] { (id, req) =>
-        pool.use(rooms.patch(id, RoomRow.Patch(req.name, req.capacity)).run)
+        pool.use(rooms.patch(id, req.toRow).run)
           .map(_.map(_.toResponse).toRight(notFound(s"Room $id not found")))
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
@@ -70,8 +68,8 @@ object Routes {
     val bookingEndpoints: List[ServerEndpoint[Any, IO]] = List(
 
       Endpoints.bookings.list.serverLogic[IO] { _ =>
-        Stream.resource(pool).flatMap(bookings.findAll.run).compile.toList
-          .map(_.map(_.toResponse).asRight[Err])
+        Stream.resource(pool).flatMap(bookings.findAll.run).map(_.toResponse).compile.toList
+          .map(_.asRight[Err])
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
 
@@ -82,8 +80,8 @@ object Routes {
       },
 
       Endpoints.bookings.byRoom.serverLogic[IO] { roomId =>
-        Stream.resource(pool).flatMap(bookings.findByRoom(roomId).run).compile.toList
-          .map(_.map(_.toResponse).asRight[Err])
+        Stream.resource(pool).flatMap(bookings.findByRoom(roomId).run).map(_.toResponse).compile.toList
+          .map(_.asRight[Err])
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
 
@@ -93,8 +91,7 @@ object Routes {
             case _ :: _ =>
               IO.pure(conflict("Room already booked during this period").asLeft[BookingResponse])
             case Nil =>
-              val period = PgRange[java.time.LocalDate](lower = Some(req.startDate), upper = Some(req.endDate))
-              bookings.create(BookingRow.Create(req.roomId, req.bookerName, req.title, period)).run(s)
+              bookings.create(req.toRow).run(s)
                 .flatMap(id => bookings.findById(id).run(s).map(_.get.toResponse))
                 .map(_.asRight[Err])
           }

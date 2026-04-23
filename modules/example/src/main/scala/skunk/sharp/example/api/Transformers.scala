@@ -23,6 +23,21 @@ object Transformers {
           Field.computed(_.endDate, b => rangeEnd(b.period))
         )
 
+  extension (req: CreateRoomRequest)
+    def toRow: RoomRow.Create = req.to[RoomRow.Create]
+
+  extension (req: PatchRoomRequest)
+    def toRow: RoomRow.Patch = req.to[RoomRow.Patch]
+
+  extension (req: CreateBookingRequest)
+    def toRow: BookingRow.Create =
+      req.into[BookingRow.Create]
+        .transform(
+          Field.renamed(_.room_id, _.roomId),
+          Field.renamed(_.booker_name, _.bookerName),
+          Field.computed(_.period, r => PgRange[LocalDate](lower = Some(r.startDate), upper = Some(r.endDate)))
+        )
+
   private def rangeStart(r: PgRange[LocalDate]): LocalDate = r match {
     case Range.Bounds(Some(lo), _, _, _) => lo
     case Range.Bounds(None, _, _, _)     => LocalDate.MIN
