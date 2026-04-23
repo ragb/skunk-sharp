@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+  
+  <head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="generator" content="Typelevel Laika + Helium Theme" />
+  <title>SELECT</title>
+  
+  <meta name="author" content="Rui Batista"/>
+  
+  
+  <meta name="description" content="skunk-sharp-docs"/>
+  
+  
+  
+  
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato:400,700">
+  
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Fira+Mono:500">
+  
+  <link rel="stylesheet" type="text/css" href="helium/site/icofont.min.css" />
+    <link rel="stylesheet" type="text/css" href="helium/site/laika-helium.css" />
+  <script src="helium/site/laika-helium.js"></script>
+  
+  
+  <script> /* for avoiding page load transitions */ </script>
+</head>
+
+  <body>
+
+    <header id="top-bar" class="light-default dark-default">
+
+  <div class="row">
+    <a id="nav-icon">
+      <i class="icofont-laika navigationMenu" title="Navigation">&#xefa2;</i>
+    </a>
+    
+    
+  </div>
+
+  <a class="icon-link glyph-link" href="index.html"><i class="icofont-laika home" title="Home">&#xef47;</i></a>
+
+  <div class="row links">
+    
+    <a class="icon-link svg-link" href="https://github.com/ragb/skunk-sharp"><span class="github" title="Source Code"><svg class="svg-icon" width="100%" height="100%" viewBox="0 0 100 100" version="1.1" xmlns="http://www.w3.org/2000/svg" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+  <g class="svg-shape">
+    <path d="M49.995,1c-27.609,-0 -49.995,22.386 -49.995,50.002c-0,22.09 14.325,40.83 34.194,47.444c2.501,0.458 3.413,-1.086 3.413,-2.412c0,-1.185 -0.043,-4.331 -0.067,-8.503c-13.908,3.021 -16.843,-6.704 -16.843,-6.704c-2.274,-5.773 -5.552,-7.311 -5.552,-7.311c-4.54,-3.103 0.344,-3.042 0.344,-3.042c5.018,0.356 7.658,5.154 7.658,5.154c4.46,7.64 11.704,5.433 14.552,4.156c0.454,-3.232 1.744,-5.436 3.174,-6.685c-11.102,-1.262 -22.775,-5.553 -22.775,-24.713c-0,-5.457 1.949,-9.92 5.147,-13.416c-0.516,-1.265 -2.231,-6.348 0.488,-13.233c0,0 4.199,-1.344 13.751,5.126c3.988,-1.108 8.266,-1.663 12.518,-1.682c4.245,0.019 8.523,0.574 12.517,1.682c9.546,-6.47 13.736,-5.126 13.736,-5.126c2.728,6.885 1.013,11.968 0.497,13.233c3.204,3.496 5.141,7.959 5.141,13.416c0,19.209 -11.691,23.436 -22.83,24.673c1.795,1.544 3.394,4.595 3.394,9.26c0,6.682 -0.061,12.076 -0.061,13.715c0,1.338 0.899,2.894 3.438,2.406c19.853,-6.627 34.166,-25.354 34.166,-47.438c-0,-27.616 -22.389,-50.002 -50.005,-50.002"/>
+  </g>
+</svg></span></a>
+    
+  </div>  
+
+</header>
+    
+    <nav id="sidebar">
+
+  <div class="row">
+    
+    <a class="icon-link svg-link" href="https://github.com/ragb/skunk-sharp"><span class="github" title="Source Code"><svg class="svg-icon" width="100%" height="100%" viewBox="0 0 100 100" version="1.1" xmlns="http://www.w3.org/2000/svg" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+  <g class="svg-shape">
+    <path d="M49.995,1c-27.609,-0 -49.995,22.386 -49.995,50.002c-0,22.09 14.325,40.83 34.194,47.444c2.501,0.458 3.413,-1.086 3.413,-2.412c0,-1.185 -0.043,-4.331 -0.067,-8.503c-13.908,3.021 -16.843,-6.704 -16.843,-6.704c-2.274,-5.773 -5.552,-7.311 -5.552,-7.311c-4.54,-3.103 0.344,-3.042 0.344,-3.042c5.018,0.356 7.658,5.154 7.658,5.154c4.46,7.64 11.704,5.433 14.552,4.156c0.454,-3.232 1.744,-5.436 3.174,-6.685c-11.102,-1.262 -22.775,-5.553 -22.775,-24.713c-0,-5.457 1.949,-9.92 5.147,-13.416c-0.516,-1.265 -2.231,-6.348 0.488,-13.233c0,0 4.199,-1.344 13.751,5.126c3.988,-1.108 8.266,-1.663 12.518,-1.682c4.245,0.019 8.523,0.574 12.517,1.682c9.546,-6.47 13.736,-5.126 13.736,-5.126c2.728,6.885 1.013,11.968 0.497,13.233c3.204,3.496 5.141,7.959 5.141,13.416c0,19.209 -11.691,23.436 -22.83,24.673c1.795,1.544 3.394,4.595 3.394,9.26c0,6.682 -0.061,12.076 -0.061,13.715c0,1.338 0.899,2.894 3.438,2.406c19.853,-6.627 34.166,-25.354 34.166,-47.438c-0,-27.616 -22.389,-50.002 -50.005,-50.002"/>
+  </g>
+</svg></span></a>
+    
+  </div>
+
+  <ul class="nav-list">
+    <li class="level1 nav-leaf"><a href="getting-started.html">Getting Started</a></li>
+    <li class="level1 nav-leaf"><a href="tables.html">Tables and Views</a></li>
+    <li class="level1 active nav-leaf"><a href="#">SELECT</a></li>
+    <li class="level1 nav-leaf"><a href="insert.html">INSERT</a></li>
+    <li class="level1 nav-leaf"><a href="update.html">UPDATE</a></li>
+    <li class="level1 nav-leaf"><a href="delete.html">DELETE</a></li>
+    <li class="level1 nav-leaf"><a href="schema-validation.html">Schema Validation</a></li>
+    <li class="level1 nav-leaf"><a href="extensibility.html">Extensibility</a></li>
+  </ul>
+
+</nav>
+
+    <div id="container">
+
+      
+<nav id="page-nav">
+  <p class="header"><a href="#">SELECT</a></p>
+
+  <ul class="nav-list">
+    <li class="level1 nav-leaf"><a href="#basic-usage">Basic usage</a></li>
+    <li class="level1 nav-leaf"><a href="#projections">Projections</a></li>
+    <li class="level1 nav-leaf"><a href="#distinct">DISTINCT</a></li>
+    <li class="level1 nav-leaf"><a href="#order-by">ORDER BY</a></li>
+    <li class="level1 nav-leaf"><a href="#group-by-and-aggregates">GROUP BY and aggregates</a></li>
+    <li class="level1 nav-leaf"><a href="#joins">JOINs</a></li>
+    <li class="level1 nav-leaf"><a href="#subqueries">Subqueries</a></li>
+    <li class="level1 nav-leaf"><a href="#row-locking-tables-only">Row locking (tables only)</a></li>
+    <li class="level1 nav-leaf"><a href="#from-less-queries">FROM-less queries</a></li>
+  </ul>
+
+  <p class="footer"></p>
+</nav>
+
+
+      <main class="content">
+
+        <h1 id="select" class="title">SELECT</h1>
+        
+        <h2 id="basic-usage" class="section"><a class="anchor-link left" href="#basic-usage"><i class="icofont-laika link">&#xef71;</i></a>Basic usage</h2>
+        <pre><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">dsl</span><span>.*
+</span><span class="keyword">import</span><span> </span><span class="identifier">java</span><span>.</span><span class="identifier">util</span><span>.</span><span class="type-name">UUID</span><span>
+</span><span class="keyword">import</span><span> </span><span class="identifier">java</span><span>.</span><span class="identifier">time</span><span>.</span><span class="type-name">OffsetDateTime</span><span>
+
+</span><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">User</span><span>(
+  </span><span class="identifier">id</span><span>:         </span><span class="type-name">UUID</span><span>,
+  </span><span class="identifier">email</span><span>:      </span><span class="type-name">String</span><span>,
+  </span><span class="identifier">age</span><span>:        </span><span class="type-name">Int</span><span>,
+  </span><span class="identifier">created_at</span><span>: </span><span class="type-name">OffsetDateTime</span><span>,
+  </span><span class="identifier">deleted_at</span><span>: </span><span class="type-name">Option</span><span>[</span><span class="type-name">OffsetDateTime</span><span>]
+)
+
+</span><span class="keyword">val</span><span> </span><span class="identifier">users</span><span> = </span><span class="type-name">Table</span><span>.</span><span class="identifier">of</span><span>[</span><span class="type-name">User</span><span>](</span><span class="string-literal">&quot;users&quot;</span><span>)
+  .</span><span class="identifier">withPrimary</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>)
+  .</span><span class="identifier">withDefault</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>)
+  .</span><span class="identifier">withUnique</span><span>(</span><span class="string-literal">&quot;email&quot;</span><span>)</span></code></pre>
+        <pre><code class="nohighlight"><span class="comment">// Whole row — result type is a named tuple matching the case class fields
+</span><span class="keyword">val</span><span> </span><span class="identifier">q1</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>.</span><span class="identifier">compile</span><span>
+
+</span><span class="comment">// With WHERE
+</span><span class="keyword">val</span><span> </span><span class="identifier">q2</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> &gt;= </span><span class="number-literal">18</span><span> &amp;&amp; </span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span>.</span><span class="identifier">like</span><span>(</span><span class="string-literal">&quot;%@example.com&quot;</span><span>))
+  .</span><span class="identifier">compile</span><span>
+
+</span><span class="comment">// ORDER BY, LIMIT, OFFSET
+</span><span class="keyword">val</span><span> </span><span class="identifier">q3</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">deleted_at</span><span>.</span><span class="identifier">isNull</span><span>)
+  .</span><span class="identifier">orderBy</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">created_at</span><span>.</span><span class="identifier">desc</span><span>)
+  .</span><span class="identifier">limit</span><span>(</span><span class="number-literal">50</span><span>)
+  .</span><span class="identifier">offset</span><span>(</span><span class="number-literal">100</span><span>)
+  .</span><span class="identifier">compile</span></code></pre>
+        <p>Execution methods on <code>CompiledQuery[R]</code>:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// session: skunk.Session[IO]
+</span><span class="identifier">q1</span><span>.</span><span class="identifier">run</span><span>(</span><span class="identifier">session</span><span>)        </span><span class="comment">// IO[List[R]]
+</span><span class="identifier">q2</span><span>.</span><span class="identifier">unique</span><span>(</span><span class="identifier">session</span><span>)     </span><span class="comment">// IO[R]           — raises if 0 or &gt;1 rows
+</span><span class="identifier">q3</span><span>.</span><span class="identifier">option</span><span>(</span><span class="identifier">session</span><span>)     </span><span class="comment">// IO[Option[R]]   — raises if &gt;1 row
+</span><span class="identifier">q3</span><span>.</span><span class="identifier">stream</span><span>(</span><span class="identifier">session</span><span>)     </span><span class="comment">// fs2.Stream[IO, R]</span></code></pre>
+        
+        <h2 id="projections" class="section"><a class="anchor-link left" href="#projections"><i class="icofont-laika link">&#xef71;</i></a>Projections</h2>
+        <p>Select a subset of columns by passing a function to <code>.select(…)</code>:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// Single column → CompiledQuery[String]
+</span><span class="keyword">val</span><span> </span><span class="identifier">emails</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span>).</span><span class="identifier">compile</span><span>
+
+</span><span class="comment">// Multiple columns → CompiledQuery[(email: String, age: Int)]
+</span><span class="keyword">val</span><span> </span><span class="identifier">snap</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>(</span><span class="identifier">u</span><span> =&gt; (</span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span>, </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span>)).</span><span class="identifier">compile</span></code></pre>
+        <p>Map a multi-column projection to a case class with <code>.as[T]</code>:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">UserSnap</span><span>(</span><span class="identifier">email</span><span>: </span><span class="type-name">String</span><span>, </span><span class="identifier">age</span><span>: </span><span class="type-name">Int</span><span>)
+</span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>(</span><span class="identifier">u</span><span> =&gt; (</span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span>, </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span>)).</span><span class="identifier">as</span><span>[</span><span class="type-name">UserSnap</span><span>].</span><span class="identifier">compile</span></code></pre>
+        <p>The <code>.as[T]</code> alignment is checked at compile time — field types must match the
+        projection tuple in order.</p>
+        
+        <h2 id="distinct" class="section"><a class="anchor-link left" href="#distinct"><i class="icofont-laika link">&#xef71;</i></a>DISTINCT</h2>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">val</span><span> </span><span class="identifier">distinctAges</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span>).</span><span class="identifier">distinctRows</span><span>.</span><span class="identifier">compile</span></code></pre>
+        
+        <h2 id="order-by" class="section"><a class="anchor-link left" href="#order-by"><i class="icofont-laika link">&#xef71;</i></a>ORDER BY</h2>
+        <p><code>.orderBy</code> accepts one or more expressions:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// Descending, with nulls sorted last
+</span><span class="keyword">val</span><span> </span><span class="identifier">ordered</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>
+  .</span><span class="identifier">orderBy</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">created_at</span><span>.</span><span class="identifier">desc</span><span>.</span><span class="identifier">nullsLast</span><span>)
+  .</span><span class="identifier">compile</span><span>
+
+</span><span class="comment">// Multiple columns
+</span><span class="keyword">val</span><span> </span><span class="identifier">multi</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>
+  .</span><span class="identifier">orderBy</span><span>(</span><span class="identifier">u</span><span> =&gt; (</span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span>.</span><span class="identifier">asc</span><span>, </span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span>.</span><span class="identifier">asc</span><span>))
+  .</span><span class="identifier">compile</span></code></pre>
+        
+        <h2 id="group-by-and-aggregates" class="section"><a class="anchor-link left" href="#group-by-and-aggregates"><i class="icofont-laika link">&#xef71;</i></a>GROUP BY and aggregates</h2>
+        <p>Aggregates live on <code>Pg</code>:</p>
+        <pre><code class="nohighlight"><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">Post</span><span>(</span><span class="identifier">id</span><span>: </span><span class="type-name">UUID</span><span>, </span><span class="identifier">author_id</span><span>: </span><span class="type-name">UUID</span><span>, </span><span class="identifier">title</span><span>: </span><span class="type-name">String</span><span>, </span><span class="identifier">views</span><span>: </span><span class="type-name">Int</span><span>)
+</span><span class="keyword">val</span><span> </span><span class="identifier">posts</span><span> = </span><span class="type-name">Table</span><span>.</span><span class="identifier">of</span><span>[</span><span class="type-name">Post</span><span>](</span><span class="string-literal">&quot;posts&quot;</span><span>).</span><span class="identifier">withPrimary</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>).</span><span class="identifier">withDefault</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>)
+
+</span><span class="comment">// Count posts per author
+</span><span class="keyword">val</span><span> </span><span class="identifier">perAuthor</span><span> = </span><span class="identifier">posts</span><span>
+  .</span><span class="identifier">select</span><span>(</span><span class="identifier">p</span><span> =&gt; (</span><span class="identifier">p</span><span>.</span><span class="identifier">author_id</span><span>, </span><span class="type-name">Pg</span><span>.</span><span class="identifier">count</span><span>(</span><span class="identifier">p</span><span>.</span><span class="identifier">id</span><span>).</span><span class="identifier">as</span><span>(</span><span class="string-literal">&quot;n&quot;</span><span>)))
+  .</span><span class="identifier">groupBy</span><span>(</span><span class="identifier">p</span><span> =&gt; </span><span class="identifier">p</span><span>.</span><span class="identifier">author_id</span><span>)
+  .</span><span class="identifier">compile</span><span>
+
+</span><span class="comment">// HAVING
+</span><span class="keyword">val</span><span> </span><span class="identifier">popular</span><span> = </span><span class="identifier">posts</span><span>
+  .</span><span class="identifier">select</span><span>(</span><span class="identifier">p</span><span> =&gt; (</span><span class="identifier">p</span><span>.</span><span class="identifier">author_id</span><span>, </span><span class="type-name">Pg</span><span>.</span><span class="identifier">sum</span><span>(</span><span class="identifier">p</span><span>.</span><span class="identifier">views</span><span>).</span><span class="identifier">as</span><span>(</span><span class="string-literal">&quot;total_views&quot;</span><span>)))
+  .</span><span class="identifier">groupBy</span><span>(</span><span class="identifier">p</span><span> =&gt; </span><span class="identifier">p</span><span>.</span><span class="identifier">author_id</span><span>)
+  .</span><span class="identifier">having</span><span>(</span><span class="identifier">p</span><span> =&gt; </span><span class="type-name">Pg</span><span>.</span><span class="identifier">sum</span><span>(</span><span class="identifier">p</span><span>.</span><span class="identifier">views</span><span>) &gt; </span><span class="number-literal">1000</span><span>)
+  .</span><span class="identifier">compile</span></code></pre>
+        <p>Available aggregates: <code>Pg.countAll</code>, <code>Pg.count</code>, <code>Pg.countDistinct</code>, <code>Pg.sum</code>,
+        <code>Pg.avg</code>, <code>Pg.min</code>, <code>Pg.max</code>, <code>Pg.stringAgg</code>, <code>Pg.boolAnd</code>, <code>Pg.boolOr</code>.</p>
+        
+        <h2 id="joins" class="section"><a class="anchor-link left" href="#joins"><i class="icofont-laika link">&#xef71;</i></a>JOINs</h2>
+        <p>JOINs produce a two-source (or N-source) builder. Column access uses the table name
+        as the prefix:</p>
+        <pre><code class="nohighlight"><span class="comment">// INNER JOIN
+</span><span class="keyword">val</span><span> </span><span class="identifier">joined</span><span> = </span><span class="identifier">users</span><span>
+  .</span><span class="identifier">innerJoin</span><span>(</span><span class="identifier">posts</span><span>).</span><span class="identifier">on</span><span>(</span><span class="identifier">r</span><span> =&gt; </span><span class="identifier">r</span><span>.</span><span class="identifier">users</span><span>.</span><span class="identifier">id</span><span> ==== </span><span class="identifier">r</span><span>.</span><span class="identifier">posts</span><span>.</span><span class="identifier">author_id</span><span>)
+  .</span><span class="identifier">select</span><span>(</span><span class="identifier">r</span><span> =&gt; (</span><span class="identifier">r</span><span>.</span><span class="identifier">users</span><span>.</span><span class="identifier">email</span><span>, </span><span class="identifier">r</span><span>.</span><span class="identifier">posts</span><span>.</span><span class="identifier">title</span><span>))
+  .</span><span class="identifier">compile</span><span>
+
+</span><span class="comment">// LEFT JOIN — right-side columns become nullable at the type level
+</span><span class="keyword">val</span><span> </span><span class="identifier">leftJoined</span><span> = </span><span class="identifier">users</span><span>
+  .</span><span class="identifier">leftJoin</span><span>(</span><span class="identifier">posts</span><span>).</span><span class="identifier">on</span><span>(</span><span class="identifier">r</span><span> =&gt; </span><span class="identifier">r</span><span>.</span><span class="identifier">users</span><span>.</span><span class="identifier">id</span><span> ==== </span><span class="identifier">r</span><span>.</span><span class="identifier">posts</span><span>.</span><span class="identifier">author_id</span><span>)
+  .</span><span class="identifier">select</span><span>(</span><span class="identifier">r</span><span> =&gt; (</span><span class="identifier">r</span><span>.</span><span class="identifier">users</span><span>.</span><span class="identifier">email</span><span>, </span><span class="type-name">Pg</span><span>.</span><span class="identifier">count</span><span>(</span><span class="identifier">r</span><span>.</span><span class="identifier">posts</span><span>.</span><span class="identifier">id</span><span>).</span><span class="identifier">as</span><span>(</span><span class="string-literal">&quot;n&quot;</span><span>)))
+  .</span><span class="identifier">groupBy</span><span>(</span><span class="identifier">r</span><span> =&gt; </span><span class="identifier">r</span><span>.</span><span class="identifier">users</span><span>.</span><span class="identifier">email</span><span>)
+  .</span><span class="identifier">compile</span><span>
+
+</span><span class="comment">// CROSS JOIN — no .on(…) required
+</span><span class="keyword">val</span><span> </span><span class="identifier">crossed</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">crossJoin</span><span>(</span><span class="identifier">posts</span><span>)
+  .</span><span class="identifier">select</span><span>(</span><span class="identifier">r</span><span> =&gt; (</span><span class="identifier">r</span><span>.</span><span class="identifier">users</span><span>.</span><span class="identifier">email</span><span>, </span><span class="identifier">r</span><span>.</span><span class="identifier">posts</span><span>.</span><span class="identifier">title</span><span>))
+  .</span><span class="identifier">compile</span></code></pre>
+        <p>Use <code>.alias(&quot;x&quot;)</code> when the same table appears more than once:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">val</span><span> </span><span class="identifier">selfJoin</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">alias</span><span>(</span><span class="string-literal">&quot;u1&quot;</span><span>)
+  .</span><span class="identifier">innerJoin</span><span>(</span><span class="identifier">users</span><span>.</span><span class="identifier">alias</span><span>(</span><span class="string-literal">&quot;u2&quot;</span><span>)).</span><span class="identifier">on</span><span>(</span><span class="identifier">r</span><span> =&gt; </span><span class="identifier">r</span><span>.</span><span class="identifier">u1</span><span>.</span><span class="identifier">age</span><span> ==== </span><span class="identifier">r</span><span>.</span><span class="identifier">u2</span><span>.</span><span class="identifier">age</span><span>)
+  .</span><span class="identifier">select</span><span>(</span><span class="identifier">r</span><span> =&gt; (</span><span class="identifier">r</span><span>.</span><span class="identifier">u1</span><span>.</span><span class="identifier">email</span><span>, </span><span class="identifier">r</span><span>.</span><span class="identifier">u2</span><span>.</span><span class="identifier">email</span><span>))
+  .</span><span class="identifier">compile</span></code></pre>
+        
+        <h2 id="subqueries" class="section"><a class="anchor-link left" href="#subqueries"><i class="icofont-laika link">&#xef71;</i></a>Subqueries</h2>
+        <p>Subqueries are written inline as builder expressions — no inner <code>.compile</code> needed.
+        Correlation (referencing an outer column) is automatic through lexical scope.</p>
+        <pre><code class="nohighlight"><span class="comment">// Scalar subquery in projection
+</span><span class="keyword">val</span><span> </span><span class="identifier">withCount</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">alias</span><span>(</span><span class="string-literal">&quot;u&quot;</span><span>).</span><span class="identifier">select</span><span>(</span><span class="identifier">u</span><span> =&gt;
+  (</span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span>, </span><span class="identifier">posts</span><span>.</span><span class="identifier">select</span><span>(</span><span class="identifier">_</span><span> =&gt; </span><span class="type-name">Pg</span><span>.</span><span class="identifier">countAll</span><span>).</span><span class="identifier">where</span><span>(</span><span class="identifier">p</span><span> =&gt; </span><span class="identifier">p</span><span>.</span><span class="identifier">author_id</span><span> ==== </span><span class="identifier">u</span><span>.</span><span class="identifier">id</span><span>).</span><span class="identifier">asExpr</span><span>)
+).</span><span class="identifier">compile</span><span>
+
+</span><span class="comment">// IN subquery
+</span><span class="keyword">val</span><span> </span><span class="identifier">withPosts</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">id</span><span>.</span><span class="identifier">in</span><span>(</span><span class="identifier">posts</span><span>.</span><span class="identifier">select</span><span>(</span><span class="identifier">p</span><span> =&gt; </span><span class="identifier">p</span><span>.</span><span class="identifier">author_id</span><span>)))
+  .</span><span class="identifier">compile</span><span>
+
+</span><span class="comment">// EXISTS
+</span><span class="keyword">val</span><span> </span><span class="identifier">active</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">alias</span><span>(</span><span class="string-literal">&quot;u&quot;</span><span>).</span><span class="identifier">select</span><span>
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="type-name">Pg</span><span>.</span><span class="identifier">exists</span><span>(</span><span class="identifier">posts</span><span>.</span><span class="identifier">select</span><span>(</span><span class="identifier">_</span><span> =&gt; </span><span class="type-name">Pg</span><span>.</span><span class="identifier">countAll</span><span>).</span><span class="identifier">where</span><span>(</span><span class="identifier">p</span><span> =&gt; </span><span class="identifier">p</span><span>.</span><span class="identifier">author_id</span><span> ==== </span><span class="identifier">u</span><span>.</span><span class="identifier">id</span><span>)))
+  .</span><span class="identifier">compile</span></code></pre>
+        
+        <h2 id="row-locking-tables-only" class="section"><a class="anchor-link left" href="#row-locking-tables-only"><i class="icofont-laika link">&#xef71;</i></a>Row locking (tables only)</h2>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">val</span><span> </span><span class="identifier">locked</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">id</span><span> === </span><span class="type-name">UUID</span><span>.</span><span class="identifier">randomUUID</span><span>())
+  .</span><span class="identifier">forUpdate</span><span>
+  .</span><span class="identifier">skipLocked</span><span>
+  .</span><span class="identifier">compile</span></code></pre>
+        <p><code>.forUpdate</code>, <code>.forShare</code>, <code>.forNoKeyUpdate</code>, <code>.forKeyShare</code> are available on <code>Table</code>
+        select builders only — calling them on a <code>View</code> is a compile error.</p>
+        
+        <h2 id="from-less-queries" class="section"><a class="anchor-link left" href="#from-less-queries"><i class="icofont-laika link">&#xef71;</i></a>FROM-less queries</h2>
+        <p>Use the built-in <code>empty</code> relation for queries with no FROM clause:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// SELECT now()
+</span><span class="keyword">val</span><span> </span><span class="identifier">now</span><span> = </span><span class="identifier">empty</span><span>.</span><span class="identifier">select</span><span>(</span><span class="identifier">_</span><span> =&gt; </span><span class="type-name">Pg</span><span>.</span><span class="identifier">now</span><span>).</span><span class="identifier">compile</span></code></pre>
+
+        
+<hr class="footer-rule"/>
+<footer>
+  Site generated by <a href="https://typelevel.org/Laika/">Laika</a> with the Helium theme.
+</footer>
+
+
+      </main>
+
+    </div>
+
+  </body>
+
+</html>

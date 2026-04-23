@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+  
+  <head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="generator" content="Typelevel Laika + Helium Theme" />
+  <title>skunk-sharp</title>
+  
+  <meta name="author" content="Rui Batista"/>
+  
+  
+  <meta name="description" content="skunk-sharp-docs"/>
+  
+  
+  
+  
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato:400,700">
+  
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Fira+Mono:500">
+  
+  <link rel="stylesheet" type="text/css" href="helium/site/icofont.min.css" />
+    <link rel="stylesheet" type="text/css" href="helium/site/laika-helium.css" />
+    <link rel="stylesheet" type="text/css" href="helium/site/landing-page.css" />
+  <script src="helium/site/laika-helium.js"></script>
+  
+  
+  <script> /* for avoiding page load transitions */ </script>
+</head>
+
+  <body>
+
+    <header id="top-bar" class="light-default dark-default">
+
+  <div class="row">
+    <a id="nav-icon">
+      <i class="icofont-laika navigationMenu" title="Navigation">&#xefa2;</i>
+    </a>
+    
+    
+  </div>
+
+  <a class="icon-link glyph-link" href="#"><i class="icofont-laika home" title="Home">&#xef47;</i></a>
+
+  <div class="row links">
+    
+    <a class="icon-link svg-link" href="https://github.com/ragb/skunk-sharp"><span class="github" title="Source Code"><svg class="svg-icon" width="100%" height="100%" viewBox="0 0 100 100" version="1.1" xmlns="http://www.w3.org/2000/svg" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+  <g class="svg-shape">
+    <path d="M49.995,1c-27.609,-0 -49.995,22.386 -49.995,50.002c-0,22.09 14.325,40.83 34.194,47.444c2.501,0.458 3.413,-1.086 3.413,-2.412c0,-1.185 -0.043,-4.331 -0.067,-8.503c-13.908,3.021 -16.843,-6.704 -16.843,-6.704c-2.274,-5.773 -5.552,-7.311 -5.552,-7.311c-4.54,-3.103 0.344,-3.042 0.344,-3.042c5.018,0.356 7.658,5.154 7.658,5.154c4.46,7.64 11.704,5.433 14.552,4.156c0.454,-3.232 1.744,-5.436 3.174,-6.685c-11.102,-1.262 -22.775,-5.553 -22.775,-24.713c-0,-5.457 1.949,-9.92 5.147,-13.416c-0.516,-1.265 -2.231,-6.348 0.488,-13.233c0,0 4.199,-1.344 13.751,5.126c3.988,-1.108 8.266,-1.663 12.518,-1.682c4.245,0.019 8.523,0.574 12.517,1.682c9.546,-6.47 13.736,-5.126 13.736,-5.126c2.728,6.885 1.013,11.968 0.497,13.233c3.204,3.496 5.141,7.959 5.141,13.416c0,19.209 -11.691,23.436 -22.83,24.673c1.795,1.544 3.394,4.595 3.394,9.26c0,6.682 -0.061,12.076 -0.061,13.715c0,1.338 0.899,2.894 3.438,2.406c19.853,-6.627 34.166,-25.354 34.166,-47.438c-0,-27.616 -22.389,-50.002 -50.005,-50.002"/>
+  </g>
+</svg></span></a>
+    
+  </div>  
+
+</header>
+    
+    <nav id="sidebar">
+
+  <div class="row">
+    
+    <a class="icon-link svg-link" href="https://github.com/ragb/skunk-sharp"><span class="github" title="Source Code"><svg class="svg-icon" width="100%" height="100%" viewBox="0 0 100 100" version="1.1" xmlns="http://www.w3.org/2000/svg" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+  <g class="svg-shape">
+    <path d="M49.995,1c-27.609,-0 -49.995,22.386 -49.995,50.002c-0,22.09 14.325,40.83 34.194,47.444c2.501,0.458 3.413,-1.086 3.413,-2.412c0,-1.185 -0.043,-4.331 -0.067,-8.503c-13.908,3.021 -16.843,-6.704 -16.843,-6.704c-2.274,-5.773 -5.552,-7.311 -5.552,-7.311c-4.54,-3.103 0.344,-3.042 0.344,-3.042c5.018,0.356 7.658,5.154 7.658,5.154c4.46,7.64 11.704,5.433 14.552,4.156c0.454,-3.232 1.744,-5.436 3.174,-6.685c-11.102,-1.262 -22.775,-5.553 -22.775,-24.713c-0,-5.457 1.949,-9.92 5.147,-13.416c-0.516,-1.265 -2.231,-6.348 0.488,-13.233c0,0 4.199,-1.344 13.751,5.126c3.988,-1.108 8.266,-1.663 12.518,-1.682c4.245,0.019 8.523,0.574 12.517,1.682c9.546,-6.47 13.736,-5.126 13.736,-5.126c2.728,6.885 1.013,11.968 0.497,13.233c3.204,3.496 5.141,7.959 5.141,13.416c0,19.209 -11.691,23.436 -22.83,24.673c1.795,1.544 3.394,4.595 3.394,9.26c0,6.682 -0.061,12.076 -0.061,13.715c0,1.338 0.899,2.894 3.438,2.406c19.853,-6.627 34.166,-25.354 34.166,-47.438c-0,-27.616 -22.389,-50.002 -50.005,-50.002"/>
+  </g>
+</svg></span></a>
+    
+  </div>
+
+  <ul class="nav-list">
+    <li class="level1 nav-leaf"><a href="getting-started.html">Getting Started</a></li>
+    <li class="level1 nav-leaf"><a href="tables.html">Tables and Views</a></li>
+    <li class="level1 nav-leaf"><a href="select.html">SELECT</a></li>
+    <li class="level1 nav-leaf"><a href="insert.html">INSERT</a></li>
+    <li class="level1 nav-leaf"><a href="update.html">UPDATE</a></li>
+    <li class="level1 nav-leaf"><a href="delete.html">DELETE</a></li>
+    <li class="level1 nav-leaf"><a href="schema-validation.html">Schema Validation</a></li>
+    <li class="level1 nav-leaf"><a href="extensibility.html">Extensibility</a></li>
+  </ul>
+
+</nav>
+
+    <div id="container">
+
+      
+<nav id="page-nav">
+  <p class="header"><a href="#">skunk-sharp</a></p>
+
+  <ul class="nav-list">
+    <li class="level1 nav-leaf"><a href="#what-it-is">What it is</a></li>
+    <li class="level1 nav-leaf"><a href="#what-it-is-not">What it is not</a></li>
+    <li class="level1 nav-leaf"><a href="#modules">Modules</a></li>
+    <li class="level1 nav-leaf"><a href="#status">Status</a></li>
+  </ul>
+
+  <p class="footer"></p>
+</nav>
+
+
+      <main class="content">
+
+        <h1 id="skunk-sharp" class="title">skunk-sharp</h1>
+        <p>A Scala 3 library for <strong>compile-time checked Postgres queries</strong> on top of <a href="https://typelevel.org/skunk">skunk</a>.</p>
+        <p>Describe a table once. Write SELECT / INSERT / UPDATE / DELETE where column names, types, nullability, INSERT completeness, and mutability (table vs view) are all verified by the compiler. Optionally validate the declared table shape against a live database at service startup.</p>
+        
+        <h2 id="what-it-is" class="section"><a class="anchor-link left" href="#what-it-is"><i class="icofont-laika link">&#xef71;</i></a>What it is</h2>
+        <pre class="keep-together pdf epub"><code class="text">+---------+    describes     +-------+    compiles to     +--------------------+
+|  Table  | --------------&gt; |  DSL  | -----------------&gt; | skunk.Fragment / Q |
+|  View   |                 | query |                     | executed by skunk  |
++---------+                 +-------+                     +--------------------+</code></pre>
+        <ul>
+          <li><strong>Column names are compile-time strings.</strong> Typos are compile errors, not 404s at runtime.</li>
+          <li><strong>Types match.</strong> <code>u.age === &quot;oops&quot;</code> doesn&#39;t compile; <code>u.deleted_at.isNull</code> requires a nullable column.</li>
+          <li><strong>INSERT completeness.</strong> Omitting a required column is a compile error; defaulted columns can be omitted.</li>
+          <li><strong>Mutability.</strong> <code>view.insert(row)</code> is a compile error. Row locking on a view is a compile error.</li>
+          <li><strong>Schema validation.</strong> <code>SchemaValidator.validateOrRaise</code> diffs declared columns against <code>information_schema</code> at boot — catches drift before the first query runs.</li>
+        </ul>
+        
+        <h2 id="what-it-is-not" class="section"><a class="anchor-link left" href="#what-it-is-not"><i class="icofont-laika link">&#xef71;</i></a>What it is not</h2>
+        <p>skunk-sharp does <strong>not</strong> replace SQL. The DSL mirrors the SQL you would otherwise write by hand. Use <code>sql&quot;…&quot;</code> directly whenever the DSL doesn&#39;t fit — complex CTEs, procedural code, niche operators. Mixed use is expected and fine; everything shares the same skunk session.</p>
+        
+        <h2 id="modules" class="section"><a class="anchor-link left" href="#modules"><i class="icofont-laika link">&#xef71;</i></a>Modules</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Artifact</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>skunk-sharp-core</code></td>
+              <td>The DSL — tables, views, SELECT/INSERT/UPDATE/DELETE, schema validation</td>
+            </tr>
+            <tr>
+              <td><code>skunk-sharp-iron</code></td>
+              <td>Optional <a href="https://iltotore.github.io/iron/">Iron</a> refinement support</td>
+            </tr>
+            <tr>
+              <td><code>skunk-sharp-circe</code></td>
+              <td>Postgres <code>json</code>/<code>jsonb</code> via <a href="https://typelevel.org/skunk">skunk-circe</a></td>
+            </tr>
+          </tbody>
+        </table>
+        
+        <h2 id="status" class="section"><a class="anchor-link left" href="#status"><i class="icofont-laika link">&#xef71;</i></a>Status</h2>
+        <p>Early development. APIs will change. Scala 3.8+ only.</p>
+        <ul class="nav-list">
+          <li class="level1 active nav-node"><a href="#">skunk-sharp</a></li>
+          <li class="level2 nav-node"><a href="getting-started.html">Getting Started</a></li>
+          <li class="level3 nav-leaf"><a href="getting-started.html#installation">Installation</a></li>
+          <li class="level3 nav-leaf"><a href="getting-started.html#a-complete-example">A complete example</a></li>
+          <li class="level3 nav-leaf"><a href="getting-started.html#type-safety-in-action">Type safety in action</a></li>
+          <li class="level2 nav-node"><a href="tables.html">Tables and Views</a></li>
+          <li class="level3 nav-node"><a href="tables.html#defining-a-table">Defining a table</a></li>
+          <li class="level4 nav-leaf"><a href="tables.html#from-a-case-class">From a case class</a></li>
+          <li class="level4 nav-leaf"><a href="tables.html#with-the-column-by-column-builder">With the column-by-column builder</a></li>
+          <li class="level3 nav-node"><a href="tables.html#type-tags-unambiguous-codec-selection">Type tags — unambiguous codec selection</a></li>
+          <li class="level4 nav-leaf"><a href="tables.html#iron-integration">Iron integration</a></li>
+          <li class="level3 nav-leaf"><a href="tables.html#views">Views</a></li>
+          <li class="level3 nav-leaf"><a href="tables.html#constraints">Constraints</a></li>
+          <li class="level2 nav-node"><a href="select.html">SELECT</a></li>
+          <li class="level3 nav-leaf"><a href="select.html#basic-usage">Basic usage</a></li>
+          <li class="level3 nav-leaf"><a href="select.html#projections">Projections</a></li>
+          <li class="level3 nav-leaf"><a href="select.html#distinct">DISTINCT</a></li>
+          <li class="level3 nav-leaf"><a href="select.html#order-by">ORDER BY</a></li>
+          <li class="level3 nav-leaf"><a href="select.html#group-by-and-aggregates">GROUP BY and aggregates</a></li>
+          <li class="level3 nav-leaf"><a href="select.html#joins">JOINs</a></li>
+          <li class="level3 nav-leaf"><a href="select.html#subqueries">Subqueries</a></li>
+          <li class="level3 nav-leaf"><a href="select.html#row-locking-tables-only">Row locking (tables only)</a></li>
+          <li class="level3 nav-leaf"><a href="select.html#from-less-queries">FROM-less queries</a></li>
+          <li class="level2 nav-node"><a href="insert.html">INSERT</a></li>
+          <li class="level3 nav-leaf"><a href="insert.html#single-row">Single row</a></li>
+          <li class="level3 nav-leaf"><a href="insert.html#batch-insert">Batch INSERT</a></li>
+          <li class="level3 nav-leaf"><a href="insert.html#returning">RETURNING</a></li>
+          <li class="level3 nav-leaf"><a href="insert.html#on-conflict">ON CONFLICT</a></li>
+          <li class="level2 nav-node"><a href="update.html">UPDATE</a></li>
+          <li class="level3 nav-leaf"><a href="update.html#basic-update">Basic UPDATE</a></li>
+          <li class="level3 nav-leaf"><a href="update.html#bulk-update">Bulk UPDATE</a></li>
+          <li class="level3 nav-leaf"><a href="update.html#returning">RETURNING</a></li>
+          <li class="level3 nav-leaf"><a href="update.html#updating-from-a-case-class-patch-pattern">Updating from a case class (patch pattern)</a></li>
+          <li class="level2 nav-node"><a href="delete.html">DELETE</a></li>
+          <li class="level3 nav-leaf"><a href="delete.html#basic-delete">Basic DELETE</a></li>
+          <li class="level3 nav-leaf"><a href="delete.html#bulk-delete">Bulk DELETE</a></li>
+          <li class="level3 nav-leaf"><a href="delete.html#returning">RETURNING</a></li>
+          <li class="level2 nav-node"><a href="schema-validation.html">Schema Validation</a></li>
+          <li class="level3 nav-leaf"><a href="schema-validation.html#usage">Usage</a></li>
+          <li class="level3 nav-leaf"><a href="schema-validation.html#mismatch-cases">Mismatch cases</a></li>
+          <li class="level3 nav-leaf"><a href="schema-validation.html#what-it-checks">What it checks</a></li>
+          <li class="level3 nav-leaf"><a href="schema-validation.html#example-catching-drift-at-boot">Example: catching drift at boot</a></li>
+          <li class="level2 nav-node"><a href="extensibility.html">Extensibility</a></li>
+          <li class="level3 nav-leaf"><a href="extensibility.html#typedexpr-contract"><code>TypedExpr</code> contract</a></li>
+          <li class="level3 nav-leaf"><a href="extensibility.html#pgfunction-and-pgoperator"><code>PgFunction</code> and <code>PgOperator</code></a></li>
+          <li class="level3 nav-leaf"><a href="extensibility.html#adding-a-user-defined-function">Adding a user-defined function</a></li>
+          <li class="level3 nav-leaf"><a href="extensibility.html#writing-a-companion-module">Writing a companion module</a></li>
+          <li class="level3 nav-leaf"><a href="extensibility.html#planned-companion-modules">Planned companion modules</a></li>
+        </ul>
+
+        
+<hr class="footer-rule"/>
+<footer>
+  Site generated by <a href="https://typelevel.org/Laika/">Laika</a> with the Helium theme.
+</footer>
+
+
+      </main>
+
+    </div>
+
+  </body>
+
+</html>

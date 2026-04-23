@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+  
+  <head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="generator" content="Typelevel Laika + Helium Theme" />
+  <title>Tables and Views</title>
+  
+  <meta name="author" content="Rui Batista"/>
+  
+  
+  <meta name="description" content="skunk-sharp-docs"/>
+  
+  
+  
+  
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato:400,700">
+  
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Fira+Mono:500">
+  
+  <link rel="stylesheet" type="text/css" href="helium/site/icofont.min.css" />
+    <link rel="stylesheet" type="text/css" href="helium/site/laika-helium.css" />
+  <script src="helium/site/laika-helium.js"></script>
+  
+  
+  <script> /* for avoiding page load transitions */ </script>
+</head>
+
+  <body>
+
+    <header id="top-bar" class="light-default dark-default">
+
+  <div class="row">
+    <a id="nav-icon">
+      <i class="icofont-laika navigationMenu" title="Navigation">&#xefa2;</i>
+    </a>
+    
+    
+  </div>
+
+  <a class="icon-link glyph-link" href="index.html"><i class="icofont-laika home" title="Home">&#xef47;</i></a>
+
+  <div class="row links">
+    
+    <a class="icon-link svg-link" href="https://github.com/ragb/skunk-sharp"><span class="github" title="Source Code"><svg class="svg-icon" width="100%" height="100%" viewBox="0 0 100 100" version="1.1" xmlns="http://www.w3.org/2000/svg" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+  <g class="svg-shape">
+    <path d="M49.995,1c-27.609,-0 -49.995,22.386 -49.995,50.002c-0,22.09 14.325,40.83 34.194,47.444c2.501,0.458 3.413,-1.086 3.413,-2.412c0,-1.185 -0.043,-4.331 -0.067,-8.503c-13.908,3.021 -16.843,-6.704 -16.843,-6.704c-2.274,-5.773 -5.552,-7.311 -5.552,-7.311c-4.54,-3.103 0.344,-3.042 0.344,-3.042c5.018,0.356 7.658,5.154 7.658,5.154c4.46,7.64 11.704,5.433 14.552,4.156c0.454,-3.232 1.744,-5.436 3.174,-6.685c-11.102,-1.262 -22.775,-5.553 -22.775,-24.713c-0,-5.457 1.949,-9.92 5.147,-13.416c-0.516,-1.265 -2.231,-6.348 0.488,-13.233c0,0 4.199,-1.344 13.751,5.126c3.988,-1.108 8.266,-1.663 12.518,-1.682c4.245,0.019 8.523,0.574 12.517,1.682c9.546,-6.47 13.736,-5.126 13.736,-5.126c2.728,6.885 1.013,11.968 0.497,13.233c3.204,3.496 5.141,7.959 5.141,13.416c0,19.209 -11.691,23.436 -22.83,24.673c1.795,1.544 3.394,4.595 3.394,9.26c0,6.682 -0.061,12.076 -0.061,13.715c0,1.338 0.899,2.894 3.438,2.406c19.853,-6.627 34.166,-25.354 34.166,-47.438c-0,-27.616 -22.389,-50.002 -50.005,-50.002"/>
+  </g>
+</svg></span></a>
+    
+  </div>  
+
+</header>
+    
+    <nav id="sidebar">
+
+  <div class="row">
+    
+    <a class="icon-link svg-link" href="https://github.com/ragb/skunk-sharp"><span class="github" title="Source Code"><svg class="svg-icon" width="100%" height="100%" viewBox="0 0 100 100" version="1.1" xmlns="http://www.w3.org/2000/svg" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+  <g class="svg-shape">
+    <path d="M49.995,1c-27.609,-0 -49.995,22.386 -49.995,50.002c-0,22.09 14.325,40.83 34.194,47.444c2.501,0.458 3.413,-1.086 3.413,-2.412c0,-1.185 -0.043,-4.331 -0.067,-8.503c-13.908,3.021 -16.843,-6.704 -16.843,-6.704c-2.274,-5.773 -5.552,-7.311 -5.552,-7.311c-4.54,-3.103 0.344,-3.042 0.344,-3.042c5.018,0.356 7.658,5.154 7.658,5.154c4.46,7.64 11.704,5.433 14.552,4.156c0.454,-3.232 1.744,-5.436 3.174,-6.685c-11.102,-1.262 -22.775,-5.553 -22.775,-24.713c-0,-5.457 1.949,-9.92 5.147,-13.416c-0.516,-1.265 -2.231,-6.348 0.488,-13.233c0,0 4.199,-1.344 13.751,5.126c3.988,-1.108 8.266,-1.663 12.518,-1.682c4.245,0.019 8.523,0.574 12.517,1.682c9.546,-6.47 13.736,-5.126 13.736,-5.126c2.728,6.885 1.013,11.968 0.497,13.233c3.204,3.496 5.141,7.959 5.141,13.416c0,19.209 -11.691,23.436 -22.83,24.673c1.795,1.544 3.394,4.595 3.394,9.26c0,6.682 -0.061,12.076 -0.061,13.715c0,1.338 0.899,2.894 3.438,2.406c19.853,-6.627 34.166,-25.354 34.166,-47.438c-0,-27.616 -22.389,-50.002 -50.005,-50.002"/>
+  </g>
+</svg></span></a>
+    
+  </div>
+
+  <ul class="nav-list">
+    <li class="level1 nav-leaf"><a href="getting-started.html">Getting Started</a></li>
+    <li class="level1 active nav-leaf"><a href="#">Tables and Views</a></li>
+    <li class="level1 nav-leaf"><a href="select.html">SELECT</a></li>
+    <li class="level1 nav-leaf"><a href="insert.html">INSERT</a></li>
+    <li class="level1 nav-leaf"><a href="update.html">UPDATE</a></li>
+    <li class="level1 nav-leaf"><a href="delete.html">DELETE</a></li>
+    <li class="level1 nav-leaf"><a href="schema-validation.html">Schema Validation</a></li>
+    <li class="level1 nav-leaf"><a href="extensibility.html">Extensibility</a></li>
+  </ul>
+
+</nav>
+
+    <div id="container">
+
+      
+<nav id="page-nav">
+  <p class="header"><a href="#">Tables and Views</a></p>
+
+  <ul class="nav-list">
+    <li class="level1 nav-node"><a href="#defining-a-table">Defining a table</a></li>
+    <li class="level2 nav-leaf"><a href="#from-a-case-class">From a case class</a></li>
+    <li class="level2 nav-leaf"><a href="#with-the-column-by-column-builder">With the column-by-column builder</a></li>
+    <li class="level1 nav-node"><a href="#type-tags-unambiguous-codec-selection">Type tags — unambiguous codec selection</a></li>
+    <li class="level2 nav-leaf"><a href="#iron-integration">Iron integration</a></li>
+    <li class="level1 nav-leaf"><a href="#views">Views</a></li>
+    <li class="level1 nav-leaf"><a href="#constraints">Constraints</a></li>
+  </ul>
+
+  <p class="footer"></p>
+</nav>
+
+
+      <main class="content">
+
+        <h1 id="tables-and-views" class="title">Tables and Views</h1>
+        
+        <h2 id="defining-a-table" class="section"><a class="anchor-link left" href="#defining-a-table"><i class="icofont-laika link">&#xef71;</i></a>Defining a table</h2>
+        
+        <h3 id="from-a-case-class" class="section"><a class="anchor-link left" href="#from-a-case-class"><i class="icofont-laika link">&#xef71;</i></a>From a case class</h3>
+        <p><code>Table.of[T](&quot;table_name&quot;)</code> derives columns from the case class fields via <code>Mirror</code>.
+        Each field type must have a <code>PgTypeFor[T]</code> instance that maps it to a Postgres type.</p>
+        <pre><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">dsl</span><span>.*
+</span><span class="keyword">import</span><span> </span><span class="identifier">java</span><span>.</span><span class="identifier">util</span><span>.</span><span class="type-name">UUID</span><span>
+</span><span class="keyword">import</span><span> </span><span class="identifier">java</span><span>.</span><span class="identifier">time</span><span>.</span><span class="type-name">OffsetDateTime</span><span>
+
+</span><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">Post</span><span>(
+  </span><span class="identifier">id</span><span>:         </span><span class="type-name">UUID</span><span>,
+  </span><span class="identifier">author_id</span><span>:  </span><span class="type-name">UUID</span><span>,
+  </span><span class="identifier">title</span><span>:      </span><span class="type-name">String</span><span>,
+  </span><span class="identifier">body</span><span>:       </span><span class="type-name">String</span><span>,
+  </span><span class="identifier">published</span><span>:  </span><span class="type-name">Boolean</span><span>,
+  </span><span class="identifier">created_at</span><span>: </span><span class="type-name">OffsetDateTime</span><span>
+)
+
+</span><span class="keyword">val</span><span> </span><span class="identifier">posts</span><span> = </span><span class="type-name">Table</span><span>.</span><span class="identifier">of</span><span>[</span><span class="type-name">Post</span><span>](</span><span class="string-literal">&quot;posts&quot;</span><span>)
+  .</span><span class="identifier">withPrimary</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>)
+  .</span><span class="identifier">withDefault</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>)
+  .</span><span class="identifier">withDefault</span><span>(</span><span class="string-literal">&quot;created_at&quot;</span><span>)</span></code></pre>
+        <p><code>.withPrimary</code>, <code>.withDefault</code>, and <code>.withUnique</code> all verify the column name exists <strong>at
+        compile time</strong>:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// &quot;nope&quot; is not a column of Post
+</span><span class="type-name">Table</span><span>.</span><span class="identifier">of</span><span>[</span><span class="type-name">Post</span><span>](</span><span class="string-literal">&quot;posts&quot;</span><span>).</span><span class="identifier">withPrimary</span><span>(</span><span class="string-literal">&quot;nope&quot;</span><span>)
+</span><span class="comment">// error: 
+// Column &quot;nope&quot; not found in table. Available columns: [id, author_id, title, body, published, created_at]</span></code></pre>
+        
+        <h3 id="with-the-column-by-column-builder" class="section"><a class="anchor-link left" href="#with-the-column-by-column-builder"><i class="icofont-laika link">&#xef71;</i></a>With the column-by-column builder</h3>
+        <p>When there is no case class, or when you want the row type to be a named tuple, use the
+        builder. The row type is <code>(id: UUID, email: String, age: Int, ...)</code> by default.</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">val</span><span> </span><span class="identifier">users</span><span> = </span><span class="type-name">Table</span><span>.</span><span class="identifier">builder</span><span>(</span><span class="string-literal">&quot;users&quot;</span><span>)
+  .</span><span class="identifier">column</span><span>[</span><span class="type-name">UUID</span><span>](</span><span class="string-literal">&quot;id&quot;</span><span>)
+  .</span><span class="identifier">column</span><span>[</span><span class="type-name">String</span><span>](</span><span class="string-literal">&quot;email&quot;</span><span>)
+  .</span><span class="identifier">column</span><span>[</span><span class="type-name">Int</span><span>](</span><span class="string-literal">&quot;age&quot;</span><span>)
+  .</span><span class="identifier">columnDefaulted</span><span>[</span><span class="type-name">OffsetDateTime</span><span>](</span><span class="string-literal">&quot;created_at&quot;</span><span>)
+  .</span><span class="identifier">columnOpt</span><span>[</span><span class="type-name">OffsetDateTime</span><span>](</span><span class="string-literal">&quot;deleted_at&quot;</span><span>)
+  .</span><span class="identifier">build</span><span>
+  .</span><span class="identifier">withPrimary</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>)
+  .</span><span class="identifier">withDefault</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>)
+  .</span><span class="identifier">withUnique</span><span>(</span><span class="string-literal">&quot;email&quot;</span><span>)</span></code></pre>
+        <p><code>.columnDefaulted</code> marks a column as having a Postgres default (sequence, <code>DEFAULT now()</code>, …)
+        so INSERT can omit it. <code>.columnOpt[T]</code> declares a nullable column (<code>Option[T]</code> in Scala).</p>
+        
+        <h2 id="type-tags-unambiguous-codec-selection" class="section"><a class="anchor-link left" href="#type-tags-unambiguous-codec-selection"><i class="icofont-laika link">&#xef71;</i></a>Type tags — unambiguous codec selection</h2>
+        <p>A bare <code>String</code> field maps to Postgres <code>text</code>. When the column is <code>varchar(256)</code>, use
+        <code>Varchar[256]</code> from <code>skunk.sharp.pg.tags</code>:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">pg</span><span>.</span><span class="identifier">tags</span><span>.*
+
+</span><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">Account</span><span>(
+  </span><span class="identifier">id</span><span>:       </span><span class="type-name">UUID</span><span>,
+  </span><span class="identifier">username</span><span>: </span><span class="type-name">Varchar</span><span>[</span><span class="number-literal">64</span><span>],
+  </span><span class="identifier">bio</span><span>:      </span><span class="type-name">Text</span><span>,
+  </span><span class="identifier">score</span><span>:    </span><span class="type-name">Numeric</span><span>[</span><span class="number-literal">10</span><span>, </span><span class="number-literal">2</span><span>]
+)
+
+</span><span class="keyword">val</span><span> </span><span class="identifier">accounts</span><span> = </span><span class="type-name">Table</span><span>.</span><span class="identifier">of</span><span>[</span><span class="type-name">Account</span><span>](</span><span class="string-literal">&quot;accounts&quot;</span><span>)
+  .</span><span class="identifier">withPrimary</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>)
+  .</span><span class="identifier">withDefault</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>)</span></code></pre>
+        <p>Available tags: <code>Text</code>, <code>Varchar[N]</code>, <code>Bpchar[N]</code>, <code>Int2</code>, <code>Int4</code>, <code>Int8</code>,
+        <code>Float4</code>, <code>Float8</code>, <code>Numeric[P, S]</code>, <code>Timestamptz</code>, <code>Date</code>, <code>Bytea</code>, <code>Jsonb</code>, <code>Json</code>,
+        plus range tags: <code>PgRange[A]</code>.</p>
+        <p>Tags are <strong>opaque subtypes of their base type</strong> (<code>Varchar[N] &lt;: String</code>), so values flow
+        as plain <code>String</code> / <code>Int</code> at runtime with no boxing.</p>
+        
+        <h3 id="iron-integration" class="section"><a class="anchor-link left" href="#iron-integration"><i class="icofont-laika link">&#xef71;</i></a>Iron integration</h3>
+        <p>With <code>skunk-sharp-iron</code>, Iron constraints route to the matching tag automatically:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">dsl</span><span>.*
+</span><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">iron</span><span>.</span><span class="keyword">given</span><span>
+</span><span class="keyword">import</span><span> </span><span class="identifier">io</span><span>.</span><span class="identifier">github</span><span>.</span><span class="identifier">iltotore</span><span>.</span><span class="identifier">iron</span><span>.*
+</span><span class="keyword">import</span><span> </span><span class="identifier">io</span><span>.</span><span class="identifier">github</span><span>.</span><span class="identifier">iltotore</span><span>.</span><span class="identifier">iron</span><span>.</span><span class="identifier">constraint</span><span>.</span><span class="identifier">string</span><span>.*
+</span><span class="keyword">import</span><span> </span><span class="identifier">io</span><span>.</span><span class="identifier">github</span><span>.</span><span class="identifier">iltotore</span><span>.</span><span class="identifier">iron</span><span>.</span><span class="identifier">constraint</span><span>.</span><span class="identifier">numeric</span><span>.*
+
+</span><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">Profile</span><span>(
+  </span><span class="identifier">id</span><span>:       </span><span class="type-name">UUID</span><span>,
+  </span><span class="identifier">username</span><span>: </span><span class="type-name">String</span><span> :| </span><span class="type-name">MaxLength</span><span>[</span><span class="number-literal">64</span><span>],   </span><span class="comment">// → varchar(64)
+</span><span>  </span><span class="identifier">score</span><span>:    </span><span class="type-name">Int</span><span>    :| </span><span class="type-name">Positive</span><span>          </span><span class="comment">// → int4, enforced at the Scala level
+</span><span>)</span></code></pre>
+        
+        <h2 id="views" class="section"><a class="anchor-link left" href="#views"><i class="icofont-laika link">&#xef71;</i></a>Views</h2>
+        <p><code>View.of[T](&quot;view_name&quot;)</code> works exactly like <code>Table.of</code> but the resulting relation is
+        read-only. <code>view.select</code> compiles; <code>view.insert</code> / <code>.update</code> / <code>.delete</code> are compile errors.</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">ActiveUser</span><span>(</span><span class="identifier">id</span><span>: </span><span class="type-name">UUID</span><span>, </span><span class="identifier">email</span><span>: </span><span class="type-name">String</span><span>, </span><span class="identifier">age</span><span>: </span><span class="type-name">Int</span><span>)
+</span><span class="keyword">val</span><span> </span><span class="identifier">active_users</span><span> = </span><span class="type-name">View</span><span>.</span><span class="identifier">of</span><span>[</span><span class="type-name">ActiveUser</span><span>](</span><span class="string-literal">&quot;active_users&quot;</span><span>)</span></code></pre>
+        <pre><code class="nohighlight"><span class="comment">// Views are read-only
+</span><span class="identifier">active_users</span><span>.</span><span class="identifier">insert</span><span>((</span><span class="identifier">id</span><span> = </span><span class="type-name">UUID</span><span>.</span><span class="identifier">randomUUID</span><span>(), </span><span class="identifier">email</span><span> = </span><span class="string-literal">&quot;a@b.com&quot;</span><span>, </span><span class="identifier">age</span><span> = </span><span class="number-literal">30</span><span>))
+</span><span class="comment">// error: 
+// value insert is not a member of skunk.sharp.View[
+//   (
+//     skunk.sharp.Column[java.util.UUID, (&quot;id&quot; : String), (false : Boolean),
+//       EmptyTuple],
+//     skunk.sharp.Column[String, (&quot;email&quot; : String), (false : Boolean), EmptyTuple
+//       ],
+//     skunk.sharp.Column[Int, (&quot;age&quot; : String), (false : Boolean), EmptyTuple]),
+//   (&quot;active_users&quot; : String)].
+// An extension method was tried, but could not be fully constructed:
+// 
+//     skunk.sharp.dsl.insert[Cols, Name](active_users)
+// 
+//     failed with:
+// 
+//         Found:    (repl.MdocSession.MdocApp.active_users :
+//           skunk.sharp.View[
+//             (
+//               skunk.sharp.Column[java.util.UUID, (&quot;id&quot; : String), (false : Boolean),
+//                 EmptyTuple],
+//               skunk.sharp.Column[String, (&quot;email&quot; : String), (false : Boolean),
+//                 EmptyTuple],
+//               skunk.sharp.Column[Int, (&quot;age&quot; : String), (false : Boolean), EmptyTuple])
+//               ,
+//           (&quot;active_users&quot; : String)]
+//         )
+//         Required: skunk.sharp.Table[Cols, Name]
+//         
+//         where:    Cols is a type variable with constraint &lt;: Tuple
+//                   Name is a type variable with constraint &lt;: String &amp; Singleton
+//</span></code></pre>
+        <p>Row locking (<code>.forUpdate</code>, <code>.forShare</code>, …) on a view is also a compile error — Postgres
+        would reject it at runtime anyway.</p>
+        
+        <h2 id="constraints" class="section"><a class="anchor-link left" href="#constraints"><i class="icofont-laika link">&#xef71;</i></a>Constraints</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Method</th>
+              <th>What it does</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>.withPrimary(&quot;col&quot;)</code></td>
+              <td>Marks the column as the primary key (compile-time name check)</td>
+            </tr>
+            <tr>
+              <td><code>.withUnique(&quot;col&quot;)</code></td>
+              <td>Marks the column as unique (used in <code>ON CONFLICT</code> clauses)</td>
+            </tr>
+            <tr>
+              <td><code>.withDefault(&quot;col&quot;)</code></td>
+              <td>Marks the column as having a Postgres default (INSERT may omit it)</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>Multiple constraints can be chained: <code>.withPrimary(&quot;id&quot;).withDefault(&quot;id&quot;).withUnique(&quot;email&quot;)</code>.</p>
+
+        
+<hr class="footer-rule"/>
+<footer>
+  Site generated by <a href="https://typelevel.org/Laika/">Laika</a> with the Helium theme.
+</footer>
+
+
+      </main>
+
+    </div>
+
+  </body>
+
+</html>
