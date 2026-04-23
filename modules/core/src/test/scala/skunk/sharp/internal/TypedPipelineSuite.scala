@@ -29,7 +29,7 @@ class TypedPipelineSuite extends munit.FunSuite {
     // Key point: staying at the `Fragment[Int]` level — NOT crossing into AppliedFragment —
     // preserves Args = Int through to CompiledQuery.mk. The user can ascribe a concrete
     // CompiledQuery[Int, Int] here. When the builder chain threads Args the same way,
-    // `.compileTyped` surfaces it automatically.
+    // `.compile` surfaces it automatically.
     val bool = skunk.codec.all.bool
     val q: CompiledQuery[Int, Boolean] =
       CompiledQuery.mk[Int, Boolean](pred.fragment, pred.args, bool)
@@ -57,12 +57,12 @@ class TypedPipelineSuite extends munit.FunSuite {
     assert(both.fragment.sql.contains("$2"))
   }
 
-  test("end-to-end AND: whereTyped(a && b).compileTyped threads Args = (Int, String)") {
+  test("end-to-end AND: whereTyped(a && b).compile threads Args = (Int, String)") {
     val view = users.columnsView
     val a    = SqlMacros.infixTyped[Int, Int](">=", view.age, 21)
     val b    = SqlMacros.infixTyped[String, String]("=", view.email, "bob@example.com")
     import TypedWhere.&&
-    val q    = users.select.whereTyped(_ => a && b).compileTyped
+    val q    = users.select.where(_ => a && b).compile
 
     val _: (Int, String) = q.args  // concrete tuple at the call site
     assertEquals(q.args, (21, "bob@example.com"))
@@ -71,14 +71,14 @@ class TypedPipelineSuite extends munit.FunSuite {
     assert(typedQ != null)
   }
 
-  test("end-to-end: users.select.whereTyped(...).compileTyped threads Args = Int") {
+  test("end-to-end: users.select.where(...).compile threads Args = Int") {
     // The typed WHERE predicate — produced by the macro.
     val pred = SqlMacros.infixTyped[Int, Int](">=", users.columnsView.age, 21)
 
     // .whereTyped takes the pre-built typed predicate and threads its Args type onto the builder.
-    // .compileTyped surfaces that Args on the resulting CompiledQuery. Row type is the match-type-reduced
+    // .compile surfaces that Args on the resulting CompiledQuery. Row type is the match-type-reduced
     // NamedRowOf[...] of the table — we don't ascribe it directly here because writing out that tuple is noisy.
-    val q = users.select.whereTyped(_ => pred).compileTyped
+    val q = users.select.where(_ => pred).compile
 
     // The concrete Args is Int — accessible via type ascription on q.args.
     val _: Int = q.args

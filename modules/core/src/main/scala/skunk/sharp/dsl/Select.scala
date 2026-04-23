@@ -59,6 +59,18 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
     copy(whereOpt = Some(next))
   }
 
+  /**
+   * Typed `.where` overload — `f` yields a `TypedWhere[A]` (produced by the typed SqlMacros or by combining
+   * other typed predicates with `&&`). Returns a [[TypedSelectEnd]] whose `Args` type parameter carries the
+   * captured-value tuple, surfaced on `CompiledQuery[Args, R]` at `.compile`. `TypedWhere` is deliberately not
+   * a subtype of [[Where]], so overload resolution picks this branch when — and only when — the lambda's
+   * return type is typed.
+   */
+  def where[A](f: SelectView[Ss] => skunk.sharp.internal.TypedWhere[A]): TypedSelectEnd[Ss, A] = {
+    val pred = f(view)
+    new TypedSelectEnd[Ss, A](this, pred.fragment, pred.args)
+  }
+
   def orderBy(f: SelectView[Ss] => OrderBy | Tuple): SelectBuilder[Ss] = {
     val fresh = f(view) match {
       case ob: OrderBy => List(ob)

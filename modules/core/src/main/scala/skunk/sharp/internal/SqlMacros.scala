@@ -119,6 +119,89 @@ private[sharp] object SqlMacros {
   }
 
   /**
+   * Typed variant of [[infix2]]: emits a `TypedWhere[(S, S)]` whose `Args` pair is the two RHS values in order.
+   * Covers `between`, `notBetween`, `betweenSymmetric`. LHS must be a `TypedColumn` — no runtime fallback on
+   * the typed path.
+   */
+  inline def infix2Typed[T, S](
+    inline sep1: String,
+    inline sep2: String,
+    inline lhs:  TypedExpr[T],
+    rhs1:        S,
+    rhs2:        S
+  )(using pf: PgTypeFor[S]): TypedWhere[(S, S)] =
+    ${ infix2TypedImpl[T, S]('sep1, 'sep2, 'lhs, 'rhs1, 'rhs2, 'pf) }
+
+  private def infix2TypedImpl[T: Type, S: Type](
+    sep1: Expr[String],
+    sep2: Expr[String],
+    lhs:  Expr[TypedExpr[T]],
+    rhs1: Expr[S],
+    rhs2: Expr[S],
+    pf:   Expr[PgTypeFor[S]]
+  )(using q: Quotes): Expr[TypedWhere[(S, S)]] = {
+    import q.reflect.*
+
+    lhs.asTerm.tpe.widen.asType match {
+      case '[TypedColumn[t, nb, nm]] =>
+        '{
+          val col = $lhs.asInstanceOf[TypedColumn[t, nb, nm]]
+          val enc = $pf.codec
+          // "<col> <sep1> $1 <sep2> $2"
+          val parts: List[Either[String, cats.data.State[Int, String]]] = List(
+            Left(col.sqlRef + " " + $sep1 + " "),
+            Right(enc.sql),
+            Left(" " + $sep2 + " "),
+            Right(enc.sql)
+          )
+          val combinedEnc: skunk.Encoder[(S, S)] = enc.product(enc)
+          val frag: skunk.Fragment[(S, S)]       =
+            skunk.Fragment(parts, combinedEnc, skunk.util.Origin.unknown)
+          TypedWhere[(S, S)](frag, ($rhs1, $rhs2))
+        }
+      case _ =>
+        report.errorAndAbort(
+          s"skunk-sharp: infix2Typed requires the LHS to be a TypedColumn — got ${lhs.show}",
+          lhs.asTerm.pos
+        )
+    }
+  }
+
+  /**
+   * Typed variant of [[postfix]]: emits a `TypedWhere[skunk.Void]` — no arguments contributed. Covers `IS NULL`,
+   * `IS NOT NULL`, `IS TRUE`, etc. Given no Args, this typed form is mainly useful when combined with other
+   * typed predicates via `&&` — `a && isNullTyped(b)` has `Args = (a.Args, Void)`.
+   */
+  inline def postfixTyped[T](inline lhs: TypedExpr[T], inline suffix: String): TypedWhere[skunk.Void] =
+    ${ postfixTypedImpl[T]('lhs, 'suffix) }
+
+  private def postfixTypedImpl[T: Type](
+    lhs:    Expr[TypedExpr[T]],
+    suffix: Expr[String]
+  )(using q: Quotes): Expr[TypedWhere[skunk.Void]] = {
+    import q.reflect.*
+
+    lhs.asTerm.tpe.widen.asType match {
+      case '[TypedColumn[t, nb, nm]] =>
+        '{
+          val col = $lhs.asInstanceOf[TypedColumn[t, nb, nm]]
+          val frag: skunk.Fragment[skunk.Void] =
+            skunk.Fragment(
+              List(Left(col.sqlRef + $suffix)),
+              skunk.Void.codec,
+              skunk.util.Origin.unknown
+            )
+          TypedWhere[skunk.Void](frag, skunk.Void)
+        }
+      case _ =>
+        report.errorAndAbort(
+          s"skunk-sharp: postfixTyped requires the LHS to be a TypedColumn — got ${lhs.show}",
+          lhs.asTerm.pos
+        )
+    }
+  }
+
+  /**
    * Legacy POC helper — kept for the explicit-baked-path test that exercises the
    * macro without going through the `===` / `>=` / ... extension methods.
    */

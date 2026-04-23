@@ -2,7 +2,7 @@ package skunk.sharp.dsl
 
 import skunk.{AppliedFragment, Codec, Fragment}
 import skunk.sharp.{NamedRowOf, TypedExpr}
-import skunk.sharp.internal.{rowCodec, RawConstants, TypedWhere}
+import skunk.sharp.internal.{rowCodec, RawConstants}
 import skunk.util.Origin
 
 /**
@@ -33,7 +33,7 @@ final class TypedSelectEnd[Ss <: Tuple, Args] private[dsl] (
    * interleaving the cached structural `AppliedFragment`s (which are `AppliedFragment`s over `Void`) with the
    * typed `whereFragment`'s `parts` list.
    */
-  def compileTyped(using ev: IsSingleSource[Ss]): CompiledQuery[Args, NamedRowOf[ev.Cols]] = {
+  def compile(using ev: IsSingleSource[Ss]): CompiledQuery[Args, NamedRowOf[ev.Cols]] = {
     val entries = base.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
     val head    = entries.head
 
@@ -59,13 +59,3 @@ final class TypedSelectEnd[Ss <: Tuple, Args] private[dsl] (
 
 }
 
-extension [Ss <: Tuple](b: SelectBuilder[Ss])
-  /**
-   * Single typed WHERE — `f` must yield a `TypedWhere[A]` directly (usually produced by
-   * `SqlMacros.infixTyped`). Returns a [[TypedSelectEnd]] ready for `.compileTyped`.
-   */
-  def whereTyped[A](f: SelectView[Ss] => TypedWhere[A]): TypedSelectEnd[Ss, A] = {
-    val view = buildSelectView[Ss](b.sources)
-    val pred = f(view)
-    new TypedSelectEnd[Ss, A](b, pred.fragment, pred.args)
-  }
