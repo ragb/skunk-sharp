@@ -47,11 +47,17 @@ private[sharp] object SqlMacros {
     def runtime: Expr[Where] =
       '{ PgOperator.infix[T, S, Boolean]($op)($lhs, TypedExpr.parameterised[S]($rhs)(using $pf)) }
 
-    // When the LHS is a TypedColumn, we can bake the op symbol + encoder placeholder at compile time.
-    // The column identifier itself (`"name"` or `"alias"."name"` — depending on whether JOINs / subqueries
-    // qualified the column) is a runtime value via TypedColumn.sqlRef. Baking it too would break qualified
-    // uses. We still win: one Fragment allocation + one String concat, vs several |+| and intermediate
-    // AppliedFragments in the PgOperator.infix runtime path.
+    // When the LHS is a TypedColumn, we can bake the op symbol + encoder placeholder at compile time AND
+    // produce a TypedWhere[S] whose Args type is concretely the RHS type. The enclosing operator method is a
+    // `transparent inline def` — Scala narrows the inferred type at the call site to the more specific
+    // `TypedWhere[Stripped[T]]`, so `(u.age === 18): TypedWhere[Int]` type-checks without explicit ascription.
+    //
+    // For non-TypedColumn LHS the macro falls back to the runtime PgOperator.infix path which returns a plain
+    // Where — the inferred type at the call site stays as Where. Users who want a typed predicate on a
+    // non-column LHS reach for SqlMacros.infixTyped explicitly.
+    //
+    // The column identifier (`"name"` or `"alias"."name"`) is a runtime value via TypedColumn.sqlRef — the op
+    // symbol and $N placeholder are the compile-time constants.
     lhs.asTerm.tpe.widen.asType match {
       case '[TypedColumn[t, nb, nm]] =>
         val suffix: Expr[String] = Expr(s" $opStr ")
@@ -63,7 +69,7 @@ private[sharp] object SqlMacros {
             enc,
             skunk.util.Origin.unknown
           )
-          TypedExpr(bakedFrag($rhs), skunk.codec.all.bool)
+          TypedWhere[S](bakedFrag, $rhs)
         }
       case _ => runtime
     }
