@@ -97,44 +97,36 @@ extension [T](lhs: TypedExpr[T]) {
   def `!==`(rhs: TypedExpr[T]): Where = exprOp("<>", lhs, rhs)
 }
 
-extension [T](lhs: TypedExpr[T])(using @unused ord: cats.Order[Stripped[T]]) {
-
+extension [T](inline lhs: TypedExpr[T])
   /**
    * `lhs BETWEEN lo AND hi` — inclusive on both ends. Values on the RHS are runtime-parameterised (two `$N`s), so this
    * is distinct from the `col >= lo AND col <= hi` form in SQL surface only — Postgres's planner treats them
    * identically, but users expect the keyword form.
    */
-  def between(lo: Stripped[T], hi: Stripped[T])(using PgTypeFor[Stripped[T]]): Where =
-    betweenRender(lhs, "BETWEEN", lo, hi)
+  inline def between(lo: Stripped[T], hi: Stripped[T])(using
+    @unused ord: cats.Order[Stripped[T]],
+    pf:          PgTypeFor[Stripped[T]]
+  ): Where =
+    SqlMacros.infix2[T, Stripped[T]]("BETWEEN", "AND", lhs, lo, hi)
 
+extension [T](inline lhs: TypedExpr[T])
   /** `lhs NOT BETWEEN lo AND hi`. Exclusive complement. */
-  def notBetween(lo: Stripped[T], hi: Stripped[T])(using PgTypeFor[Stripped[T]]): Where =
-    betweenRender(lhs, "NOT BETWEEN", lo, hi)
+  inline def notBetween(lo: Stripped[T], hi: Stripped[T])(using
+    @unused ord: cats.Order[Stripped[T]],
+    pf:          PgTypeFor[Stripped[T]]
+  ): Where =
+    SqlMacros.infix2[T, Stripped[T]]("NOT BETWEEN", "AND", lhs, lo, hi)
 
+extension [T](inline lhs: TypedExpr[T])
   /**
    * `lhs BETWEEN SYMMETRIC lo AND hi` — Postgres form that auto-swaps `lo` and `hi` if `lo > hi`. Useful when the
    * bounds come from user input and their order is not guaranteed.
    */
-  def betweenSymmetric(lo: Stripped[T], hi: Stripped[T])(using PgTypeFor[Stripped[T]]): Where =
-    betweenRender(lhs, "BETWEEN SYMMETRIC", lo, hi)
-
-}
-
-private def betweenRender[T](
-  lhs: TypedExpr[T],
-  kw: String,
-  lo: Stripped[T],
-  hi: Stripped[T]
-)(using pf: PgTypeFor[Stripped[T]]): Where =
-  new TypedExpr[Boolean] {
-    val render =
-      lhs.render |+|
-        TypedExpr.raw(s" $kw ") |+|
-        TypedExpr.parameterised(lo).render |+|
-        TypedExpr.raw(" AND ") |+|
-        TypedExpr.parameterised(hi).render
-    val codec = skunk.codec.all.bool
-  }
+  inline def betweenSymmetric(lo: Stripped[T], hi: Stripped[T])(using
+    @unused ord: cats.Order[Stripped[T]],
+    pf:          PgTypeFor[Stripped[T]]
+  ): Where =
+    SqlMacros.infix2[T, Stripped[T]]("BETWEEN SYMMETRIC", "AND", lhs, lo, hi)
 
 /**
  * ANY / ALL quantifier over a subquery RHS. Renders as `<lhs> <op> ANY (<subquery>)` or `<lhs> <op> ALL (<subquery>)`.
@@ -263,19 +255,19 @@ object InRhs {
 
 }
 
-extension [T](lhs: TypedExpr[T]) {
-
+extension [T](inline lhs: TypedExpr[T])
   /**
    * `lhs IN (...)`. The right-hand side is anything with an [[InRhs]] instance — a `Reducible` container of values or a
    * [[skunk.sharp.dsl.CompiledQuery]] for subquery IN.
+   *
+   * The `lhs IN ` prefix is baked at compile time when the LHS is a `TypedColumn`; the RHS's `(value1, value2, …)`
+   * or `(subquery)` fragment is produced by the [[InRhs]] instance at runtime as before.
    */
-  def in[Rhs](rhs: Rhs)(using ev: InRhs[Stripped[T], Rhs]): Where =
-    new TypedExpr[Boolean] {
-      val render = lhs.render |+| TypedExpr.raw(" IN ") |+| ev.renderParens(rhs)
-      val codec  = skunk.codec.all.bool
-    }
-
-}
+  inline def in[Rhs](rhs: Rhs)(using ev: InRhs[Stripped[T], Rhs]): Where =
+    TypedExpr(
+      SqlMacros.prefix[T](lhs, "IN") |+| ev.renderParens(rhs),
+      skunk.codec.all.bool
+    )
 
 extension [T](inline lhs: TypedExpr[T])
   /**
