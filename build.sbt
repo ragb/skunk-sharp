@@ -1,17 +1,17 @@
-ThisBuild / tlBaseVersion    := "0.1"
-ThisBuild / organization     := "com.ruiandrebatista"
-ThisBuild / organizationName := "Rui Batista"
-ThisBuild / licenses         := Seq(License.Apache2)
+ThisBuild / tlBaseVersion       := "0.1"
+ThisBuild / organization        := "com.ruiandrebatista"
+ThisBuild / organizationName    := "Rui Batista"
+ThisBuild / licenses            := Seq(License.Apache2)
 ThisBuild / headerCreate / skip := true
 ThisBuild / headerCheck / skip  := true
 ThisBuild / tlCiHeaderCheck     := false
-ThisBuild / developers       := List(
+ThisBuild / developers          := List(
   tlGitHubDev("ragb", "Rui Batista")
 )
 
-ThisBuild / scalaVersion   := "3.8.3"
+ThisBuild / scalaVersion := "3.8.3"
 
-ThisBuild / tlJdkRelease   := Some(17)
+ThisBuild / tlJdkRelease    := Some(17)
 ThisBuild / tlFatalWarnings := true
 
 val skunkV           = "1.0.0"
@@ -95,9 +95,9 @@ lazy val example = project
       "is.cir"                      %% "ciris"                   % cirisV,
       "io.github.arainko"           %% "ducktape"                % ducktapeV,
       "dev.rolang"                  %% "dumbo"                   % dumboV,
-      "org.typelevel"               %% "otel4s-core"             % otel4sV,
+      "org.typelevel"               %% "otel4s-core"             % otel4sV
     ),
-    Compile / unmanagedClasspath += (Compile / resourceDirectory).value,
+    Compile / unmanagedClasspath += (Compile / resourceDirectory).value
   )
 
 lazy val docs = project
@@ -106,9 +106,9 @@ lazy val docs = project
   .enablePlugins(TypelevelSitePlugin)
   .enablePlugins(NoPublishPlugin)
   .settings(
-    name := "skunk-sharp-docs",
-    mdocIn := baseDirectory.value / "docs",
-    mdocVariables := Map("VERSION" -> version.value),
+    name          := "skunk-sharp-docs",
+    mdocIn        := baseDirectory.value / "docs",
+    mdocVariables := Map("VERSION" -> version.value)
   )
 
 lazy val tests = project
@@ -118,11 +118,11 @@ lazy val tests = project
   .settings(
     name := "skunk-sharp-tests",
     libraryDependencies ++= Seq(
-      "org.scalameta"   %% "munit"                           % munitV           % Test,
-      "org.typelevel"   %% "munit-cats-effect"               % munitCatsEffectV % Test,
-      "com.dimafeng"    %% "testcontainers-scala-munit"      % testcontainersV  % Test,
-      "com.dimafeng"    %% "testcontainers-scala-postgresql" % testcontainersV  % Test,
-      "dev.rolang"      %% "dumbo"                           % dumboV           % Test,
-      "org.typelevel"   %% "otel4s-core"                     % otel4sV          % Test
+      "org.scalameta" %% "munit"                           % munitV           % Test,
+      "org.typelevel" %% "munit-cats-effect"               % munitCatsEffectV % Test,
+      "com.dimafeng"  %% "testcontainers-scala-munit"      % testcontainersV  % Test,
+      "com.dimafeng"  %% "testcontainers-scala-postgresql" % testcontainersV  % Test,
+      "dev.rolang"    %% "dumbo"                           % dumboV           % Test,
+      "org.typelevel" %% "otel4s-core"                     % otel4sV          % Test
     )
   )
