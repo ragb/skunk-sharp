@@ -88,17 +88,41 @@ object TypedExpr {
     case x                              => s"${x.toString}::float8"
   }
 
-  /** Construct a raw, parameterless SQL fragment — used internally to emit identifiers, keywords, operator symbols. */
-  def raw(sql: String): AppliedFragment = {
-    val frag: Fragment[Void] = Fragment(List(Left(sql)), Void.codec, Origin.unknown)
-    frag(Void)
-  }
+  /**
+   * Construct a raw, parameterless SQL fragment — used internally to emit identifiers, keywords, operator symbols.
+   *
+   * Fast path for structural tokens that appear in every compiled query (`)`, `(`, `, `, ` AND `, ` WHERE `, ` FROM `,
+   * ` ON `, ` GROUP BY `, ` HAVING `, ` ORDER BY `): return a process-wide-cached `AppliedFragment` instead of
+   * allocating a fresh `Fragment` + `AppliedFragment` per call. A single `.compile` on a moderately complex SELECT
+   * traverses these dozens of times; without the cache every invocation is a fresh allocation and a list-of-lists
+   * merge when `|+|`-ed.
+   */
+  def raw(sql: String): AppliedFragment =
+    sql match {
+      case ")"           => skunk.sharp.internal.RawConstants.CLOSE_PAREN
+      case "("           => skunk.sharp.internal.RawConstants.OPEN_PAREN
+      case ", "          => skunk.sharp.internal.RawConstants.COMMA_SEP
+      case " AND "       => skunk.sharp.internal.RawConstants.AND
+      case " WHERE "     => skunk.sharp.internal.RawConstants.WHERE
+      case " FROM "      => skunk.sharp.internal.RawConstants.FROM
+      case " ON "        => skunk.sharp.internal.RawConstants.ON
+      case " GROUP BY "  => skunk.sharp.internal.RawConstants.GROUP_BY
+      case " HAVING "    => skunk.sharp.internal.RawConstants.HAVING
+      case " ORDER BY "  => skunk.sharp.internal.RawConstants.ORDER_BY
+      case "SELECT "     => skunk.sharp.internal.RawConstants.SELECT
+      case _ =>
+        val frag: Fragment[Void] = Fragment(List(Left(sql)), Void.codec, Origin.unknown)
+        frag(Void)
+    }
 
   /** Join a non-empty list of applied fragments with `sep` between them (e.g. " AND "). */
   def joined(parts: List[AppliedFragment], sep: String): AppliedFragment =
     parts match {
       case Nil          => AppliedFragment.empty
-      case head :: tail => tail.foldLeft(head)((acc, p) => acc |+| raw(sep) |+| p)
+      case head :: tail =>
+        // Allocate the separator once, reuse it in every |+|.
+        val sepAf = raw(sep)
+        tail.foldLeft(head)((acc, p) => acc |+| sepAf |+| p)
     }
 
 }

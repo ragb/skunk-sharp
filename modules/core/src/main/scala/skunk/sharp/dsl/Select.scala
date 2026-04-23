@@ -550,11 +550,13 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
         selectPrefix |+| projList
       else {
         val head     = entries.head
-        val headFrag = selectPrefix |+| projList |+| TypedExpr.raw(" FROM ") |+| aliasedFromEntry(head)
+        val headFrag = selectPrefix |+| projList |+| skunk.sharp.internal.RawConstants.FROM |+| aliasedFromEntry(head)
         entries.tail.foldLeft(headFrag) { (acc, s) =>
           val lateralKw = if (s.isLateral) " LATERAL" else ""
           val fromFrag  = TypedExpr.raw(s" ${s.kind.sql}$lateralKw ") |+| aliasedFromEntry(s)
-          s.onPredOpt.fold(acc |+| fromFrag)(p => acc |+| fromFrag |+| TypedExpr.raw(" ON ") |+| p.render)
+          s.onPredOpt.fold(acc |+| fromFrag)(p =>
+            acc |+| fromFrag |+| skunk.sharp.internal.RawConstants.ON |+| p.render
+          )
         }
       }
     renderClauses(header, whereOpt, groupBys, havingOpt, orderBys, limitOpt, offsetOpt, lockingOpt)
@@ -585,16 +587,18 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
 private[dsl] def renderSelectPrefix(
   distinct: Boolean,
   distinctOnOpt: Option[List[TypedExpr[?]]]
-): skunk.AppliedFragment =
+): skunk.AppliedFragment = {
+  import skunk.sharp.internal.RawConstants.*
   distinctOnOpt match {
     case Some(exprs) =>
-      TypedExpr.raw("SELECT DISTINCT ON (") |+|
+      SELECT_DISTINCT_ON |+|
         TypedExpr.joined(exprs.map(_.render), ", ") |+|
-        TypedExpr.raw(") ")
+        CLOSE_PAREN_SPACE
     case None =>
-      if (distinct) TypedExpr.raw("SELECT DISTINCT ")
-      else TypedExpr.raw("SELECT ")
+      if (distinct) SELECT_DISTINCT
+      else SELECT
   }
+}
 
 // ---- Shared render helper ---------------------------------------------------------------------
 
@@ -608,14 +612,15 @@ private[dsl] def renderClauses(
   offsetOpt: Option[Int],
   lockingOpt: Option[Locking]
 ): skunk.AppliedFragment = {
-  val withWhere = whereOpt.fold(header)(w => header |+| TypedExpr.raw(" WHERE ") |+| w.render)
+  import skunk.sharp.internal.RawConstants.*
+  val withWhere = whereOpt.fold(header)(w => header |+| WHERE |+| w.render)
   val withGroup =
     if (groupBys.isEmpty) withWhere
-    else withWhere |+| TypedExpr.raw(" GROUP BY ") |+| TypedExpr.joined(groupBys.map(_.render), ", ")
-  val withHaving = havingOpt.fold(withGroup)(h => withGroup |+| TypedExpr.raw(" HAVING ") |+| h.render)
+    else withWhere |+| GROUP_BY |+| TypedExpr.joined(groupBys.map(_.render), ", ")
+  val withHaving = havingOpt.fold(withGroup)(h => withGroup |+| HAVING |+| h.render)
   val withOrder  =
     if (orderBys.isEmpty) withHaving
-    else withHaving |+| TypedExpr.raw(" ORDER BY ") |+| TypedExpr.joined(orderBys.map(_.af), ", ")
+    else withHaving |+| ORDER_BY |+| TypedExpr.joined(orderBys.map(_.af), ", ")
   val withLimit  = limitOpt.fold(withOrder)(n => withOrder |+| TypedExpr.raw(s" LIMIT $n"))
   val withOffset = offsetOpt.fold(withLimit)(n => withLimit |+| TypedExpr.raw(s" OFFSET $n"))
   lockingOpt.fold(withOffset)(l => withOffset |+| TypedExpr.raw(" " + l.sql))

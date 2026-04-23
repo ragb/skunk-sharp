@@ -20,21 +20,25 @@ object Where {
    */
   inline def apply(expr: TypedExpr[Boolean]): Where = expr
 
+  import skunk.sharp.internal.RawConstants.{AND, CLOSE_PAREN, OPEN_PAREN}
+  private val OR_KW:      skunk.AppliedFragment = TypedExpr.raw(" OR ")
+  private val NOT_KW_OP:  skunk.AppliedFragment = TypedExpr.raw("NOT (")
+
   /** AND two predicates. */
   def and(l: Where, r: Where): Where = {
-    val rendered = TypedExpr.raw("(") |+| l.render |+| TypedExpr.raw(" AND ") |+| r.render |+| TypedExpr.raw(")")
+    val rendered = OPEN_PAREN |+| l.render |+| AND |+| r.render |+| CLOSE_PAREN
     lift(rendered)
   }
 
   /** OR two predicates. */
   def or(l: Where, r: Where): Where = {
-    val rendered = TypedExpr.raw("(") |+| l.render |+| TypedExpr.raw(" OR ") |+| r.render |+| TypedExpr.raw(")")
+    val rendered = OPEN_PAREN |+| l.render |+| OR_KW |+| r.render |+| CLOSE_PAREN
     lift(rendered)
   }
 
   /** NOT a predicate. */
   def not(w: Where): Where = {
-    val rendered = TypedExpr.raw("NOT (") |+| w.render |+| TypedExpr.raw(")")
+    val rendered = NOT_KW_OP |+| w.render |+| CLOSE_PAREN
     lift(rendered)
   }
 
