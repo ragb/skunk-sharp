@@ -1,6 +1,7 @@
 package skunk.sharp.ops
 
 import skunk.sharp.{PgOperator, TypedExpr}
+import skunk.sharp.internal.SqlMacros
 import skunk.sharp.pg.PgTypeFor
 import skunk.sharp.where.Where
 
@@ -37,26 +38,55 @@ type Stripped[T] = T match {
   case _         => T
 }
 
-/** Infix comparison with a runtime-parameterised RHS. All the value-on-the-right operators share this shape. */
-private def valOp[T](op: String, lhs: TypedExpr[T], rhs: Stripped[T])(using
+/**
+ * Infix comparison with a runtime-parameterised RHS. All the value-on-the-right operators share this shape.
+ *
+ * `inline` + macro: when `lhs` is statically a `TypedColumn[_, _, N]` (the common case — `u.age`, `u.email`, …),
+ * the macro bakes `"<name>" <op> $1` as a compile-time-constant `Fragment` and applies `rhs` directly,
+ * skipping the `a.render |+| raw(" op ") |+| b.render` runtime chain. For any other LHS (function calls,
+ * casts, subquery `.asExpr`) the macro emits the same `PgOperator.infix` call the hand-written helper would.
+ */
+private inline def valOp[T](inline op: String, inline lhs: TypedExpr[T], rhs: Stripped[T])(using
   pf: PgTypeFor[Stripped[T]]
 ): Where =
-  PgOperator.infix[T, Stripped[T], Boolean](op)(lhs, TypedExpr.parameterised(rhs))
+  SqlMacros.infix[T, Stripped[T]](op, lhs, rhs)
 
 /** Infix comparison between two pre-built expressions. Used by the `====` / `!==` column-vs-column overloads. */
 private def exprOp[T](op: String, lhs: TypedExpr[T], rhs: TypedExpr[T]): Where =
   PgOperator.infix[T, T, Boolean](op)(lhs, rhs)
 
+// Each macro-backed operator lives in its own single-method extension so the receiver can be `inline`
+// (Scala requires `inline` parameters only on `inline def` methods, which forces one method per extension).
+
+/** Equality: `lhs = rhs`. For nullable `TypedExpr[Option[X]]`, `rhs` must be an `X` — comparisons with `None`
+  * are a compile error (use `.isNull` instead).
+  */
+extension [T](inline lhs: TypedExpr[T])
+  inline def ===(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where = valOp("=", lhs, rhs)
+
+/** Inequality: `lhs <> rhs`. */
+extension [T](inline lhs: TypedExpr[T])
+  inline def !==(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where = valOp("<>", lhs, rhs)
+
+extension [T](inline lhs: TypedExpr[T])
+  inline def <(rhs: Stripped[T])(using @unused ord: cats.Order[Stripped[T]], pf: PgTypeFor[Stripped[T]]): Where =
+    valOp("<", lhs, rhs)
+
+extension [T](inline lhs: TypedExpr[T])
+  inline def <=(rhs: Stripped[T])(using @unused ord: cats.Order[Stripped[T]], pf: PgTypeFor[Stripped[T]]): Where =
+    valOp("<=", lhs, rhs)
+
+extension [T](inline lhs: TypedExpr[T])
+  inline def >(rhs: Stripped[T])(using @unused ord: cats.Order[Stripped[T]], pf: PgTypeFor[Stripped[T]]): Where =
+    valOp(">", lhs, rhs)
+
+extension [T](inline lhs: TypedExpr[T])
+  inline def >=(rhs: Stripped[T])(using @unused ord: cats.Order[Stripped[T]], pf: PgTypeFor[Stripped[T]]): Where =
+    valOp(">=", lhs, rhs)
+
+// Non-macro operators keep the traditional multi-method extension shape.
+
 extension [T](lhs: TypedExpr[T]) {
-
-  /**
-   * Equality: `lhs = rhs`. For nullable `TypedExpr[Option[X]]`, `rhs` must be an `X` — comparisons with `None` are a
-   * compile error (use `.isNull` instead).
-   */
-  def ===(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where = valOp("=", lhs, rhs)
-
-  /** Inequality: `lhs <> rhs`. */
-  def !==(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where = valOp("<>", lhs, rhs)
 
   /**
    * Column-to-expression equality for when the RHS is another typed expression (another column, a function call, …).
@@ -68,11 +98,6 @@ extension [T](lhs: TypedExpr[T]) {
 }
 
 extension [T](lhs: TypedExpr[T])(using @unused ord: cats.Order[Stripped[T]]) {
-
-  def <(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where  = valOp("<", lhs, rhs)
-  def <=(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where = valOp("<=", lhs, rhs)
-  def >(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where  = valOp(">", lhs, rhs)
-  def >=(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where = valOp(">=", lhs, rhs)
 
   /**
    * `lhs BETWEEN lo AND hi` — inclusive on both ends. Values on the RHS are runtime-parameterised (two `$N`s), so this
