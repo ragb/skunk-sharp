@@ -70,6 +70,55 @@ private[sharp] object SqlMacros {
   }
 
   /**
+   * Typed variant of [[infix]]: emits a `TypedWhere[S]` whose `Args` type is the RHS's scalar type (not erased to
+   * an existential). `.whereTyped(u => u.age === 18)` via this path yields `TypedWhere[Int]`, which
+   * `SelectBuilder.whereTyped` then accumulates on its `Args` parameter — eventually surfaced on
+   * `CompiledQuery[Args, R]` at `.compileTyped`.
+   *
+   * LHS must be a `TypedColumn` — if it isn't, this path is inapplicable (users fall back to the untyped `===`
+   * chain). The baked SQL is identical to the existential `infix`, the only difference is that the enclosing
+   * `Fragment[S]` / `args: S` pair is visible as `TypedWhere[S]` at the return site.
+   */
+  inline def infixTyped[T, S](
+    inline op:  String,
+    inline lhs: TypedExpr[T],
+    rhs:        S
+  )(using pf: PgTypeFor[S]): TypedWhere[S] =
+    ${ infixTypedImpl[T, S]('op, 'lhs, 'rhs, 'pf) }
+
+  private def infixTypedImpl[T: Type, S: Type](
+    op:  Expr[String],
+    lhs: Expr[TypedExpr[T]],
+    rhs: Expr[S],
+    pf:  Expr[PgTypeFor[S]]
+  )(using q: Quotes): Expr[TypedWhere[S]] = {
+    import q.reflect.*
+
+    val opStr: String = op.valueOrAbort
+
+    val opSuffix: Expr[String] = Expr(s" $opStr ")
+
+    lhs.asTerm.tpe.widen.asType match {
+      case '[TypedColumn[t, nb, nm]] =>
+        '{
+          val col = $lhs.asInstanceOf[TypedColumn[t, nb, nm]]
+          val enc = $pf.codec
+          val bakedFrag: skunk.Fragment[S] = skunk.Fragment(
+            List(Left(col.sqlRef + $opSuffix), Right(enc.sql)),
+            enc,
+            skunk.util.Origin.unknown
+          )
+          TypedWhere[S](bakedFrag, $rhs)
+        }
+      case _ =>
+        report.errorAndAbort(
+          s"skunk-sharp: infixTyped requires the LHS to be a TypedColumn — got ${lhs.show}",
+          lhs.asTerm.pos
+        )
+    }
+  }
+
+  /**
    * Legacy POC helper — kept for the explicit-baked-path test that exercises the
    * macro without going through the `===` / `>=` / ... extension methods.
    */

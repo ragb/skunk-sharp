@@ -13,11 +13,12 @@ import skunk.data.Completion
  * extensions on these types — defined once, available everywhere, mirroring [[skunk.Session]]'s own row-fetching
  * surface.
  *
- * Internal representation is a **typed** `skunk.Fragment[Args]` paired with its captured `args: Args`, not an opaque
- * `AppliedFragment`. `Args` is a path-dependent `Tuple` type on the instance: users who want the skunk
- * [[skunk.Query]] / [[skunk.Command]] can reach it via `q.typedQuery` / `c.typedCommand` and call
- * `session.prepare(…)` on it to re-bind different argument values later. `.af: AppliedFragment` stays as a derived
- * `lazy val` for subquery composition and for any call-site that still works at the AppliedFragment level.
+ * Internal representation is a **typed** `skunk.Fragment[Args]` paired with its captured `args: Args`. `Args` is a
+ * visible type parameter: call sites that want it concrete (because the builder chain threaded it, or because the
+ * caller constructed via `CompiledQuery.mk`) see the real tuple; call sites that plumbed through `AppliedFragment`
+ * on the way in see `af.A` — still typed, just not nameable at the call site. Either form works with
+ * `q.typedQuery` / `c.typedCommand` and `session.prepare(…)` to re-bind different argument values later.
+ * `.af: AppliedFragment` remains as a derived `lazy val` for subquery composition.
  */
 final class CompiledQuery[Args, R] private (
   val fragment: Fragment[Args],
