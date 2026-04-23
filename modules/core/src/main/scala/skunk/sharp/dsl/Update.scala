@@ -192,7 +192,7 @@ final class UpdateReady[Cols <: Tuple] private[sharp] (
     new UpdateReady[Cols](table, assignments, Some(next))
   }
 
-  def compile: CompiledCommand = CompiledCommand(compileFragment)
+  def compile: CompiledCommand[?] = CompiledCommand(compileFragment)
 
   private[sharp] def compileFragment: AppliedFragment = {
     val header = table.updateSetHeader
@@ -315,7 +315,7 @@ final class UpdateFromReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tup
     new UpdateFromReady[Cols, Name, Ss](table, sources, assignments, Some(next))
   }
 
-  def compile: CompiledCommand = CompiledCommand(compileFragment)
+  def compile: CompiledCommand[?] = CompiledCommand(compileFragment)
 
   private[sharp] def compileFragment: AppliedFragment = {
     val header      = table.updateSetHeader
@@ -368,7 +368,7 @@ final class MutationReturning[R] private[sharp] (
   returnCodec: Codec[R]
 ) {
 
-  def compile: CompiledQuery[R] = {
+  def compile: CompiledQuery[?, R] = {
     val list = TypedExpr.joined(returning.map(_.render), ", ")
     CompiledQuery(base |+| TypedExpr.raw(" RETURNING ") |+| list, returnCodec)
   }

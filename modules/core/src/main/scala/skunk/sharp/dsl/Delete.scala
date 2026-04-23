@@ -95,7 +95,7 @@ final class DeleteReady[Cols <: Tuple] private[sharp] (
     new DeleteReady[Cols](table, Some(next))
   }
 
-  def compile: CompiledCommand = CompiledCommand(compileFragment)
+  def compile: CompiledCommand[?] = CompiledCommand(compileFragment)
 
   private[sharp] def compileFragment: AppliedFragment = {
     val header = table.deleteFromHeader
@@ -190,7 +190,7 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
     new DeleteUsingReady[Cols, Name, Ss](table, sources, Some(next))
   }
 
-  def compile: CompiledCommand = CompiledCommand(compileFragment)
+  def compile: CompiledCommand[?] = CompiledCommand(compileFragment)
 
   private[sharp] def compileFragment: AppliedFragment = {
     val header       = table.deleteFromHeader

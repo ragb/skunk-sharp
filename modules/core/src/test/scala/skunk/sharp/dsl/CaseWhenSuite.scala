@@ -28,7 +28,7 @@ class CaseWhenSuite extends munit.FunSuite {
   }
 
   test("caseWhen with only .end — no ELSE, result decodes as Option[T]") {
-    val q: CompiledQuery[Option[String]] = users.select(u =>
+    val q: CompiledQuery[?, Option[String]] = users.select(u =>
       caseWhen(u.age < 18, lit("minor")).end
     ).compile
 
@@ -74,9 +74,9 @@ class CaseWhenSuite extends munit.FunSuite {
 
   test(".end decoded type IS Option[T], .otherwise is T") {
     // Type-level assertion — no runtime content needed.
-    val withElse: CompiledQuery[String] =
+    val withElse: CompiledQuery[?, String] =
       users.select(u => caseWhen(u.age < 18, lit("a")).otherwise(lit("b"))).compile
-    val withoutElse: CompiledQuery[Option[String]] =
+    val withoutElse: CompiledQuery[?, Option[String]] =
       users.select(u => caseWhen(u.age < 18, lit("a")).end).compile
     val _ = (withElse, withoutElse)
   }

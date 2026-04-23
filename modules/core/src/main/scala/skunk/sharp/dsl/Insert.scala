@@ -162,7 +162,7 @@ final class InsertCommand[Cols <: Tuple] private[sharp] (
    * Compile into a [[CompiledCommand]]. Use the extensions in [[Compiled]] (`.run`, `.prepare`, …) to execute. Renders
    * a multi-row `VALUES (…), (…)` when more than one row is present, plus any `ON CONFLICT` clause.
    */
-  def compile: CompiledCommand = CompiledCommand(compileFragment)
+  def compile: CompiledCommand[?] = CompiledCommand(compileFragment)
 
   private[sharp] def compileFragment: AppliedFragment = {
     val projections = projected.map(c => s""""${c.name}"""").mkString(", ")
@@ -355,7 +355,7 @@ final class InsertReturning[Cols <: Tuple, R] private[sharp] (
   returnCodec: Codec[R]
 ) {
 
-  def compile: CompiledQuery[R] = {
+  def compile: CompiledQuery[?, R] = {
     val returningList = TypedExpr.joined(returning.map(_.render), ", ")
     val applied       = cmd.compileFragment |+| TypedExpr.raw(" RETURNING ") |+| returningList
     CompiledQuery(applied, returnCodec)

@@ -19,11 +19,11 @@ import skunk.data.Completion
  * `session.prepare(…)` on it to re-bind different argument values later. `.af: AppliedFragment` stays as a derived
  * `lazy val` for subquery composition and for any call-site that still works at the AppliedFragment level.
  */
-sealed trait CompiledQuery[R] {
-  type Args
-  val fragment: Fragment[Args]
-  val args:     Args
+final class CompiledQuery[Args, R] private (
+  val fragment: Fragment[Args],
+  val args:     Args,
   val codec:    Codec[R]
+) {
 
   /** Pre-applied form: `Fragment[Args].apply(Args)` — the opaque AppliedFragment. Cached. Use for subquery embedding. */
   lazy val af: AppliedFragment = fragment(args)
@@ -34,27 +34,28 @@ sealed trait CompiledQuery[R] {
 
 object CompiledQuery {
 
-  /** Construct a `CompiledQuery[R]` from an already-assembled `AppliedFragment` + row codec. */
-  def apply[R](af0: AppliedFragment, codec0: Codec[R]): CompiledQuery[R] = {
-    // Capture the path-dependent Args via a local to keep refinement stable.
-    val frag = af0.fragment
-    val arg  = af0.argument
-    val cod  = codec0
-    new CompiledQuery[R] {
-      type Args = af0.A
-      val fragment: Fragment[af0.A] = frag
-      val args:     af0.A           = arg
-      val codec:    Codec[R]        = cod
-    }
-  }
+  /**
+   * Construct a `CompiledQuery[Args, R]` from an already-assembled `AppliedFragment` + row codec. The existing
+   * call sites that construct a `CompiledQuery` from an AppliedFragment lose the specific Args type — we recover
+   * it via the path-dependent `af0.A` and forward into the `Args` parameter as a wildcard-like existential.
+   *
+   * Call sites that want a **concrete** visible Args tuple (so the user can ascribe
+   * `val q: CompiledQuery[(Int, String), Row]`) should construct via `mk` and pass the typed Fragment + args
+   * directly rather than going through AppliedFragment — typically from a macro that knows both pieces.
+   */
+  def apply[R](af0: AppliedFragment, codec0: Codec[R]): CompiledQuery[af0.A, R] =
+    new CompiledQuery[af0.A, R](af0.fragment, af0.argument, codec0)
 
+  /** Direct construction when the caller already has a typed fragment + args (skipping AppliedFragment). */
+  def mk[Args, R](fragment: Fragment[Args], args: Args, codec: Codec[R]): CompiledQuery[Args, R] =
+    new CompiledQuery[Args, R](fragment, args, codec)
 }
 
 /** The compiled form of a statement that does not return rows (INSERT/UPDATE/DELETE without RETURNING). */
-sealed trait CompiledCommand {
-  type Args
-  val fragment: Fragment[Args]
+final class CompiledCommand[Args] private (
+  val fragment: Fragment[Args],
   val args:     Args
+) {
 
   /** Cached pre-applied form. */
   lazy val af: AppliedFragment = fragment(args)
@@ -65,23 +66,18 @@ sealed trait CompiledCommand {
 
 object CompiledCommand {
 
-  def apply(af0: AppliedFragment): CompiledCommand = {
-    val frag = af0.fragment
-    val arg  = af0.argument
-    new CompiledCommand {
-      type Args = af0.A
-      val fragment: Fragment[af0.A] = frag
-      val args:     af0.A           = arg
-    }
-  }
+  def apply(af0: AppliedFragment): CompiledCommand[af0.A] =
+    new CompiledCommand[af0.A](af0.fragment, af0.argument)
 
+  def mk[Args](fragment: Fragment[Args], args: Args): CompiledCommand[Args] =
+    new CompiledCommand[Args](fragment, args)
 }
 
 /**
  * Session-facing operations for queries. Deliberately mirror [[skunk.Session]]'s own row-fetching API so there's one
  * vocabulary to learn.
  */
-extension [R](q: CompiledQuery[R]) {
+extension [Args, R](q: CompiledQuery[Args, R]) {
 
   /** Run and collect all rows. */
   inline def run[F[_]](session: Session[F]): F[List[R]] =
@@ -111,7 +107,7 @@ extension [R](q: CompiledQuery[R]) {
    * `Args` is `Int *: EmptyTuple` — a tuple type a real call site can ascribe. Today this is the cleanest path
    * out of AppliedFragment's opaque arg bag.
    */
-  def prepared[F[_]](session: Session[F]): F[PreparedQuery[F, q.Args, R]] =
+  def prepared[F[_]](session: Session[F]): F[PreparedQuery[F, Args, R]] =
     session.prepare(q.typedQuery)
 
   /** Kleisli variant of [[run]] — session injected at the call edge. */
@@ -136,14 +132,14 @@ extension [R](q: CompiledQuery[R]) {
 }
 
 /** Session-facing operations for commands (INSERT/UPDATE/DELETE without RETURNING). */
-extension (c: CompiledCommand) {
+extension [Args](c: CompiledCommand[Args]) {
 
   /** Execute and return the completion message. */
   inline def run[F[_]](session: Session[F]): F[Completion] =
     session.execute(c.fragment.command)(c.args)
 
   /** Prepare the command as a skunk [[skunk.PreparedCommand]] for re-execution with different argument values. */
-  def prepared[F[_]](session: Session[F]): F[PreparedCommand[F, c.Args]] =
+  def prepared[F[_]](session: Session[F]): F[PreparedCommand[F, Args]] =
     session.prepare(c.typedCommand)
 
   /** Kleisli variant of [[run]] — session injected at the call edge. */
@@ -174,14 +170,14 @@ extension (c: CompiledCommand) {
 sealed trait AsSubquery[Q, T] {
   def codec(q: Q): Codec[T]
   def render(q: Q): () => AppliedFragment
-  final def toCompiled(q: Q): CompiledQuery[T] = CompiledQuery(render(q)(), codec(q))
+  final def toCompiled(q: Q): CompiledQuery[?, T] = CompiledQuery(render(q)(), codec(q))
 }
 
 object AsSubquery {
 
-  given identity[T]: AsSubquery[CompiledQuery[T], T] = new AsSubquery[CompiledQuery[T], T] {
-    def codec(q: CompiledQuery[T]): Codec[T]               = q.codec
-    def render(q: CompiledQuery[T]): () => AppliedFragment = () => q.af
+  given identity[T]: AsSubquery[CompiledQuery[?, T], T] = new AsSubquery[CompiledQuery[?, T], T] {
+    def codec(q: CompiledQuery[?, T]): Codec[T]               = q.codec
+    def render(q: CompiledQuery[?, T]): () => AppliedFragment = () => q.af
   }
 
   given fromProjected[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, T](using

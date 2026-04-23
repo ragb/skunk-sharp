@@ -370,7 +370,7 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
    * Whole-row `.compile` — only available on single-source builders. Multi-source builders must project first via
    * `.select(f)`.
    */
-  def compile(using ev: IsSingleSource[Ss]): CompiledQuery[NamedRowOf[ev.Cols]] = {
+  def compile(using ev: IsSingleSource[Ss]): CompiledQuery[?, NamedRowOf[ev.Cols]] = {
     val entries  = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
     val head     = entries.head
     val frag     = compileFragment
@@ -567,7 +567,7 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
    * in the projection must appear in the GROUP BY; aggregates, literals, aliased expressions are free. When no GROUP BY
    * is declared, the check is vacuous.
    */
-  def compile(using ev: GroupCoverage[Proj, Groups]): CompiledQuery[Row] = {
+  def compile(using ev: GroupCoverage[Proj, Groups]): CompiledQuery[?, Row] = {
     val entries  = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
     val frag     = compileFragment
     val ctes     = collectCtesInOrder(entries)
