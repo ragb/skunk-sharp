@@ -43,4 +43,26 @@ class TypedPipelineSuite extends munit.FunSuite {
     assert(typedQ != null)
   }
 
+  test("end-to-end: users.select.whereTyped(...).compileTyped threads Args = Int") {
+    // The typed WHERE predicate — produced by the macro.
+    val pred = SqlMacros.infixTyped[Int, Int](">=", users.columnsView.age, 21)
+
+    // .whereTyped takes the pre-built typed predicate and threads its Args type onto the builder.
+    // .compileTyped surfaces that Args on the resulting CompiledQuery. Row type is the match-type-reduced
+    // NamedRowOf[...] of the table — we don't ascribe it directly here because writing out that tuple is noisy.
+    val q = users.select.whereTyped(_ => pred).compileTyped
+
+    // The concrete Args is Int — accessible via type ascription on q.args.
+    val _: Int = q.args
+    assertEquals(q.args, 21)
+    assert(q.fragment.sql.contains("$1"))
+    assert(q.fragment.sql.contains("SELECT"))
+    assert(q.fragment.sql.contains("FROM"))
+    assert(q.fragment.sql.contains("WHERE"))
+
+    // Prepared-query path typed with Int input — the Int ascription on the input slot proves Args reached here.
+    val typedQ: skunk.Query[Int, ?] = q.typedQuery
+    assert(typedQ != null)
+  }
+
 }
