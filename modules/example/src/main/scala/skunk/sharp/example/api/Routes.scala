@@ -27,7 +27,6 @@ object Routes {
   ): HttpRoutes[IO] = {
 
     val roomEndpoints: List[ServerEndpoint[Any, IO]] = List(
-
       Endpoints.rooms.list.serverLogic[IO] { _ =>
         Stream.resource(pool).flatMap(rooms.findAll.run).map(_.toResponse).compile.toList
           .map(_.asRight[Err])
@@ -75,7 +74,6 @@ object Routes {
     )
 
     val bookingEndpoints: List[ServerEndpoint[Any, IO]] = List(
-
       Endpoints.bookings.list.serverLogic[IO] { _ =>
         Stream.resource(pool).flatMap(bookings.findAll.run).map(_.toResponse).compile.toList
           .map(_.asRight[Err])
@@ -101,9 +99,9 @@ object Routes {
         pool.useKleisli(
           (for {
             _ <- EitherT(
-                   bookings.findOverlapping(req.roomId, req.startDate, req.endDate)
-                     .map(xs => Either.cond(xs.isEmpty, (), conflict("Room already booked during this period")))
-                 )
+              bookings.findOverlapping(req.roomId, req.startDate, req.endDate)
+                .map(xs => Either.cond(xs.isEmpty, (), conflict("Room already booked during this period")))
+            )
             id      <- EitherT.liftF(bookings.create(req.toRow))
             booking <- EitherT.fromOptionF(bookings.findById(id), internal("booking disappeared after create"))
           } yield booking.toResponse).value

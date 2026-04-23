@@ -128,7 +128,10 @@ trait PgNumeric {
 
   /** `atan2(y, x)` — angle in radians between the positive x-axis and the point `(x, y)`. */
   def atan2[A, B](y: TypedExpr[A], x: TypedExpr[B])(using pf: PgTypeFor[Lift[A, Double]]): TypedExpr[Lift[A, Double]] =
-    TypedExpr(TypedExpr.raw("atan2(") |+| y.render |+| TypedExpr.raw(", ") |+| x.render |+| TypedExpr.raw(")"), pf.codec)
+    TypedExpr(
+      TypedExpr.raw("atan2(") |+| y.render |+| TypedExpr.raw(", ") |+| x.render |+| TypedExpr.raw(")"),
+      pf.codec
+    )
 
   // -------- Hyperbolic --------------------------------------------------------------------------
 

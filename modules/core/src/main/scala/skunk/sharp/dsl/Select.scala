@@ -354,7 +354,16 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
         TypedExpr.raw(s"$projStr FROM ") |+| aliasedFromEntry(head)
       else
         TypedExpr.raw(projStr)
-    renderClauses(selectPrefix |+| headerNoSelect, whereOpt, groupBys, havingOpt, orderBys, limitOpt, offsetOpt, lockingOpt)
+    renderClauses(
+      selectPrefix |+| headerNoSelect,
+      whereOpt,
+      groupBys,
+      havingOpt,
+      orderBys,
+      limitOpt,
+      offsetOpt,
+      lockingOpt
+    )
   }
 
   /**
@@ -645,7 +654,17 @@ extension (rel: skunk.sharp.empty.type) {
   /** FROM-less SELECT of a single expression — no lambda noise. `empty.select(Pg.now)` → `SELECT now()`. */
   def select[T](e: TypedExpr[T]): ProjectedSelect[EmptyTuple, TypedExpr[T] *: EmptyTuple, EmptyTuple, T] =
     new ProjectedSelect[EmptyTuple, TypedExpr[T] *: EmptyTuple, EmptyTuple, T](
-      EmptyTuple, false, List(e), e.codec, None, Nil, None, Nil, None, None, None
+      EmptyTuple,
+      false,
+      List(e),
+      e.codec,
+      None,
+      Nil,
+      None,
+      Nil,
+      None,
+      None,
+      None
     )
 
   /** FROM-less SELECT of a tuple of expressions — no lambda noise. `empty.select((expr1, expr2))`. */
@@ -653,7 +672,17 @@ extension (rel: skunk.sharp.empty.type) {
     val exprs = t.toList.asInstanceOf[List[TypedExpr[?]]]
     val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[X]]]
     new ProjectedSelect[EmptyTuple, X, EmptyTuple, ExprOutputs[X]](
-      EmptyTuple, false, exprs, codec, None, Nil, None, Nil, None, None, None
+      EmptyTuple,
+      false,
+      exprs,
+      codec,
+      None,
+      Nil,
+      None,
+      Nil,
+      None,
+      None,
+      None
     )
   }
 

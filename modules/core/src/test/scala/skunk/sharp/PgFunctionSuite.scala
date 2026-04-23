@@ -156,8 +156,16 @@ class PgFunctionSuite extends munit.FunSuite {
 
   test("sin / cos / tan / asin / acos / atan return Double via Lift") {
     val af = products
-      .select(p => (Pg.sin(p.weight), Pg.cos(p.weight), Pg.tan(p.weight),
-                   Pg.asin(p.weight), Pg.acos(p.weight), Pg.atan(p.weight)))
+      .select(p =>
+        (
+          Pg.sin(p.weight),
+          Pg.cos(p.weight),
+          Pg.tan(p.weight),
+          Pg.asin(p.weight),
+          Pg.acos(p.weight),
+          Pg.atan(p.weight)
+        )
+      )
       .compile.af
     assertEquals(
       af.fragment.sql,
@@ -182,8 +190,14 @@ class PgFunctionSuite extends munit.FunSuite {
 
   test("initcap / translate / lpad / rpad preserve tag") {
     val af = products
-      .select(p => (Pg.initcap(p.name), Pg.translate(p.name, "abc", "xyz"),
-                   Pg.lpad(p.name, 10), Pg.rpad(p.name, 10, "*")))
+      .select(p =>
+        (
+          Pg.initcap(p.name),
+          Pg.translate(p.name, "abc", "xyz"),
+          Pg.lpad(p.name, 10),
+          Pg.rpad(p.name, 10, "*")
+        )
+      )
       .compile.af
     assert(af.fragment.sql.contains("""initcap("name")"""), af.fragment.sql)
     assert(af.fragment.sql.contains("""translate("name", $"""), af.fragment.sql)
@@ -259,8 +273,14 @@ class PgFunctionSuite extends munit.FunSuite {
 
   test("stddev / variance / corr / regrCount render correctly") {
     val af = products
-      .select(p => (Pg.stddev(p.weight), Pg.variance(p.weight),
-                   Pg.corr(p.weight, p.weight), Pg.regrCount(p.weight, p.weight)))
+      .select(p =>
+        (
+          Pg.stddev(p.weight),
+          Pg.variance(p.weight),
+          Pg.corr(p.weight, p.weight),
+          Pg.regrCount(p.weight, p.weight)
+        )
+      )
       .compile.af
     assert(af.fragment.sql.contains("""stddev("weight")"""), af.fragment.sql)
     assert(af.fragment.sql.contains("""variance("weight")"""), af.fragment.sql)
@@ -270,9 +290,16 @@ class PgFunctionSuite extends munit.FunSuite {
 
   test("stddevPop / stddevSamp / varPop / varSamp / covarPop / covarSamp render correctly") {
     val af = products
-      .select(p => (Pg.stddevPop(p.weight), Pg.stddevSamp(p.weight),
-                   Pg.varPop(p.weight), Pg.varSamp(p.weight),
-                   Pg.covarPop(p.weight, p.weight), Pg.covarSamp(p.weight, p.weight)))
+      .select(p =>
+        (
+          Pg.stddevPop(p.weight),
+          Pg.stddevSamp(p.weight),
+          Pg.varPop(p.weight),
+          Pg.varSamp(p.weight),
+          Pg.covarPop(p.weight, p.weight),
+          Pg.covarSamp(p.weight, p.weight)
+        )
+      )
       .compile.af
     assert(af.fragment.sql.contains("stddev_pop("), af.fragment.sql)
     assert(af.fragment.sql.contains("stddev_samp("), af.fragment.sql)
@@ -284,10 +311,18 @@ class PgFunctionSuite extends munit.FunSuite {
 
   test("regr_* functions render correctly") {
     val af = products
-      .select(p => (Pg.regrSlope(p.weight, p.weight), Pg.regrIntercept(p.weight, p.weight),
-                   Pg.regrR2(p.weight, p.weight), Pg.regrAvgX(p.weight, p.weight),
-                   Pg.regrAvgY(p.weight, p.weight), Pg.regrSxx(p.weight, p.weight),
-                   Pg.regrSyy(p.weight, p.weight), Pg.regrSxy(p.weight, p.weight)))
+      .select(p =>
+        (
+          Pg.regrSlope(p.weight, p.weight),
+          Pg.regrIntercept(p.weight, p.weight),
+          Pg.regrR2(p.weight, p.weight),
+          Pg.regrAvgX(p.weight, p.weight),
+          Pg.regrAvgY(p.weight, p.weight),
+          Pg.regrSxx(p.weight, p.weight),
+          Pg.regrSyy(p.weight, p.weight),
+          Pg.regrSxy(p.weight, p.weight)
+        )
+      )
       .compile.af
     assert(af.fragment.sql.contains("regr_slope("), af.fragment.sql)
     assert(af.fragment.sql.contains("regr_intercept("), af.fragment.sql)

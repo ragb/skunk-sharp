@@ -37,9 +37,9 @@ class WindowFunctionSuite extends PgFixture {
             .orderBy(u => u.age.asc)
             .compile.run(s)
           nums = rows.map(_._2)
-          _ = assert(nums.nonEmpty, "expected results")
-          _ = assert(nums.forall(_ > 0L), s"all row_numbers must be > 0, got $nums")
-          _ = assertEquals(nums.toSet.size, nums.size, s"row_numbers must be unique, got $nums")
+          _    = assert(nums.nonEmpty, "expected results")
+          _    = assert(nums.forall(_ > 0L), s"all row_numbers must be > 0, got $nums")
+          _    = assertEquals(nums.toSet.size, nums.size, s"row_numbers must be unique, got $nums")
         } yield ()
       }
     }
@@ -50,17 +50,17 @@ class WindowFunctionSuite extends PgFixture {
       session(containers).use { s =>
         val pfx = "wf-sum"
         for {
-          _ <- seed(s, pfx)
+          _    <- seed(s, pfx)
           rows <- users
             .select(u => (u.age, Pg.sum(u.age).over(WindowSpec.partitionBy(u.age))))
             .where(u => u.email.like(s"$pfx-%"))
             .compile.run(s)
           // age=10 has 2 rows → partition sum = 20; age=30 has 1 → sum=30
           age10Rows = rows.filter(_._1 == 10)
-          _ = assert(age10Rows.nonEmpty, "need age=10 rows")
-          _ = assert(age10Rows.forall(_._2 == 20L), s"sum for age=10 partition should be 20, got $age10Rows")
+          _         = assert(age10Rows.nonEmpty, "need age=10 rows")
+          _         = assert(age10Rows.forall(_._2 == 20L), s"sum for age=10 partition should be 20, got $age10Rows")
           age30Rows = rows.filter(_._1 == 30)
-          _ = assert(age30Rows.forall(_._2 == 30L), s"sum for age=30 partition should be 30, got $age30Rows")
+          _         = assert(age30Rows.forall(_._2 == 30L), s"sum for age=30 partition should be 30, got $age30Rows")
         } yield ()
       }
     }
@@ -71,22 +71,24 @@ class WindowFunctionSuite extends PgFixture {
       session(containers).use { s =>
         val pfx = "wf-cnt"
         for {
-          _ <- seed(s, pfx)
+          _    <- seed(s, pfx)
           rows <- users
             .select(u =>
-              (u.age,
-               Pg.countAll.over(
-                 WindowSpec.orderBy(u.age.asc).rowsBetween(FrameBound.UnboundedPreceding, FrameBound.CurrentRow)
-               ))
+              (
+                u.age,
+                Pg.countAll.over(
+                  WindowSpec.orderBy(u.age.asc).rowsBetween(FrameBound.UnboundedPreceding, FrameBound.CurrentRow)
+                )
+              )
             )
             .where(u => u.email.like(s"$pfx-%"))
             .orderBy(u => u.age.asc)
             .compile.run(s)
-          _ = assert(rows.nonEmpty, "expected rows")
+          _      = assert(rows.nonEmpty, "expected rows")
           counts = rows.map(_._2)
           paired = counts.zip(counts.drop(1))
-          _ = assert(paired.forall { case (a, b) => b >= a }, s"cumulative counts must be non-decreasing: $counts")
-          _ = assertEquals(counts.last, rows.size.toLong)
+          _      = assert(paired.forall { case (a, b) => b >= a }, s"cumulative counts must be non-decreasing: $counts")
+          _      = assertEquals(counts.last, rows.size.toLong)
         } yield ()
       }
     }
@@ -97,7 +99,7 @@ class WindowFunctionSuite extends PgFixture {
       session(containers).use { s =>
         val pfx = "wf-lag"
         for {
-          _ <- seed(s, pfx)
+          _    <- seed(s, pfx)
           rows <- users
             .select(u => (u.age, Pg.lag(u.age).over(WindowSpec.orderBy(u.age.asc, u.email.asc))))
             .where(u => u.email.like(s"$pfx-%"))
@@ -116,7 +118,7 @@ class WindowFunctionSuite extends PgFixture {
       session(containers).use { s =>
         val pfx = "wf-lagd"
         for {
-          _ <- seed(s, pfx)
+          _    <- seed(s, pfx)
           rows <- users
             .select(u => (u.age, Pg.lag(u.age, 1, 0).over(WindowSpec.orderBy(u.age.asc, u.email.asc))))
             .where(u => u.email.like(s"$pfx-%"))
@@ -134,16 +136,18 @@ class WindowFunctionSuite extends PgFixture {
       session(containers).use { s =>
         val pfx = "wf-rnk"
         for {
-          _ <- seed(s, pfx)
+          _    <- seed(s, pfx)
           rows <- users
-            .select(u => (u.age, Pg.rank.over(WindowSpec.orderBy(u.age.asc)), Pg.denseRank.over(WindowSpec.orderBy(u.age.asc))))
+            .select(u =>
+              (u.age, Pg.rank.over(WindowSpec.orderBy(u.age.asc)), Pg.denseRank.over(WindowSpec.orderBy(u.age.asc)))
+            )
             .where(u => u.email.like(s"$pfx-%"))
             .orderBy(u => u.age.asc)
             .compile.run(s)
           _ = assert(rows.nonEmpty, "expected rows")
           // age=10 appears twice → rank=1; age=20 → rank=3 (gap), dense_rank=2
-          age20Rows = rows.filter(_._1 == 20)
-          _ = assert(age20Rows.nonEmpty, "need age=20 rows")
+          age20Rows                = rows.filter(_._1 == 20)
+          _                        = assert(age20Rows.nonEmpty, "need age=20 rows")
           (_, rank20, denseRank20) = age20Rows.head
           _ = assert(rank20 >= 3L, s"rank for age=20 (after 2 age=10 ties) should be >= 3, got $rank20")
           _ = assert(denseRank20 == 2L, s"dense_rank for age=20 should be 2, got $denseRank20")
@@ -157,12 +161,19 @@ class WindowFunctionSuite extends PgFixture {
       session(containers).use { s =>
         val pfx = "wf-fv"
         for {
-          _ <- seed(s, pfx)
+          _    <- seed(s, pfx)
           rows <- users
             .select(u =>
-              (u.age,
-               Pg.firstValue(u.age).over(WindowSpec.orderBy(u.age.asc).rowsBetween(FrameBound.UnboundedPreceding, FrameBound.UnboundedFollowing)),
-               Pg.lastValue(u.age).over(WindowSpec.orderBy(u.age.asc).rowsBetween(FrameBound.UnboundedPreceding, FrameBound.UnboundedFollowing))
+              (
+                u.age,
+                Pg.firstValue(u.age).over(WindowSpec.orderBy(u.age.asc).rowsBetween(
+                  FrameBound.UnboundedPreceding,
+                  FrameBound.UnboundedFollowing
+                )),
+                Pg.lastValue(u.age).over(WindowSpec.orderBy(u.age.asc).rowsBetween(
+                  FrameBound.UnboundedPreceding,
+                  FrameBound.UnboundedFollowing
+                ))
               )
             )
             .where(u => u.email.like(s"$pfx-%"))

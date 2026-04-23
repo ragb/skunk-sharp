@@ -61,9 +61,8 @@ extension [R](q: CompiledQuery[R]) {
   def optionK[F[_]]: Kleisli[F, Session[F], Option[R]] = Kleisli(s => option(s))
 
   /**
-   * A `Kleisli` whose container is `Stream[F, *]` — i.e., `Session[F] => Stream[F, R]`. Calling `.run(session)`
-   * gives a plain `Stream[F, R]`, so multiple streams share a session without any natural-transformation
-   * boilerplate:
+   * A `Kleisli` whose container is `Stream[F, *]` — i.e., `Session[F] => Stream[F, R]`. Calling `.run(session)` gives a
+   * plain `Stream[F, R]`, so multiple streams share a session without any natural-transformation boilerplate:
    * {{{
    *   Stream.resource(pool).flatMap(rooms.findAll.run)    // Stream[IO, RoomRow]
    * }}}

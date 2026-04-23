@@ -19,8 +19,8 @@ private[dsl] trait IsCte {
  * In a FROM clause it renders as just its name (`"name"` or `"name" AS "alias"`). The actual `WITH "name" AS (body)`
  * preamble is prepended once, at the outermost `.compile` call, by [[renderWithPreamble]].
  *
- * `deps` records which other CTEs this one directly references (captured at creation time). [[renderWithPreamble]] does a
- * depth-first walk over deps so chained CTEs (`cte2` whose body references `cte1`) are always emitted in the right
+ * `deps` records which other CTEs this one directly references (captured at creation time). [[renderWithPreamble]] does
+ * a depth-first walk over deps so chained CTEs (`cte2` whose body references `cte1`) are always emitted in the right
  * dependency order.
  */
 final class CteRelation[Cols <: Tuple, Name <: String & Singleton] private[sharp] (
@@ -42,8 +42,8 @@ final class CteRelation[Cols <: Tuple, Name <: String & Singleton] private[sharp
   override def fromFragmentWith(a: String): AppliedFragment =
     if (a == cteName) TypedExpr.raw(s""""$cteName"""")
     else TypedExpr.raw(s""""$cteName" AS "$a"""")
-}
 
+}
 
 /**
  * Lift a whole-row SELECT into a named CTE.
@@ -53,8 +53,8 @@ final class CteRelation[Cols <: Tuple, Name <: String & Singleton] private[sharp
  *   active.select.compile   // WITH "active" AS (SELECT … FROM "users" WHERE …) SELECT … FROM "active"
  * }}}
  *
- * The returned [[CteRelation]] can be joined, re-aliased, and used anywhere a [[Relation]] is accepted. Multiple CTEs in
- * the same query are collected and deduplicated at compile time — each `WITH` entry appears only once, in dependency
+ * The returned [[CteRelation]] can be joined, re-aliased, and used anywhere a [[Relation]] is accepted. Multiple CTEs
+ * in the same query are collected and deduplicated at compile time — each `WITH` entry appears only once, in dependency
  * order.
  */
 def cte[Ss <: Tuple, N <: String & Singleton](
@@ -83,7 +83,10 @@ def cte[Ss <: Tuple, N <: String & Singleton](
 def cte[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row, N <: String & Singleton](
   name: N,
   query: ProjectedSelect[Ss, Proj, Groups, Row]
-)(using gc: GroupCoverage[Proj, Groups], @scala.annotation.unused np: AllNamedProj[Proj]): CteRelation[ProjCols[Proj], N] = {
+)(using
+  gc: GroupCoverage[Proj, Groups],
+  @scala.annotation.unused np: AllNamedProj[Proj]
+): CteRelation[ProjCols[Proj], N] = {
   val entries = query.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
   val deps    = directCtes(entries)
   val cols    = buildProjectedCols(query.projections).asInstanceOf[ProjCols[Proj]]
@@ -94,8 +97,9 @@ def cte[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row, N <: String & Singleto
 
 /** Extract the directly-referenced CTEs from a source-entry list (handles re-aliased CteRelations via [[IsCte]]). */
 private[dsl] def directCtes(entries: List[SourceEntry[?, ?, ?, ?]]): List[CteRelation[?, ?]] =
-  entries.collect { case e if e.relation.isInstanceOf[IsCte] =>
-    e.relation.asInstanceOf[IsCte].underlyingCte
+  entries.collect {
+    case e if e.relation.isInstanceOf[IsCte] =>
+      e.relation.asInstanceOf[IsCte].underlyingCte
   }
 
 /**
@@ -103,8 +107,8 @@ private[dsl] def directCtes(entries: List[SourceEntry[?, ?, ?, ?]]): List[CteRel
  * (earliest dependency first). Duplicate names are visited only once.
  */
 private[dsl] def collectCtesInOrder(entries: List[SourceEntry[?, ?, ?, ?]]): List[CteRelation[?, ?]] = {
-  val result  = scala.collection.mutable.ListBuffer.empty[CteRelation[?, ?]]
-  val visited = scala.collection.mutable.LinkedHashSet.empty[String]
+  val result                            = scala.collection.mutable.ListBuffer.empty[CteRelation[?, ?]]
+  val visited                           = scala.collection.mutable.LinkedHashSet.empty[String]
   def visit(c: CteRelation[?, ?]): Unit =
     if (!visited.contains(c.cteName)) {
       visited += c.cteName

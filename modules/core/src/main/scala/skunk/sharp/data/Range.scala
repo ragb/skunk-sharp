@@ -27,8 +27,8 @@ object Range {
    * `None` for `lower` / `upper` means unbounded (−∞ / +∞ respectively). Postgres renders unbounded bounds with an
    * empty string inside the range literal (`[,10)`).
    *
-   * `lowerInclusive = true` → `[` (default); `false` → `(`.
-   * `upperInclusive = false` → `)` (default for non-discrete types); `true` → `]`.
+   * `lowerInclusive = true` → `[` (default); `false` → `(`. `upperInclusive = false` → `)` (default for non-discrete
+   * types); `true` → `]`.
    *
    * Note: Postgres canonicalises discrete range types (int4, int8, date) to `[lower, upper)` on read-back, so the
    * decoded form may differ from what was written.
@@ -44,8 +44,8 @@ object Range {
   def empty[A]: Range[A] = Empty
 
   /**
-   * Convenience constructor for a `Bounds` range. Defaults: lower-inclusive `[`, upper-exclusive `)`.
-   * Pass `None` for an unbounded endpoint.
+   * Convenience constructor for a `Bounds` range. Defaults: lower-inclusive `[`, upper-exclusive `)`. Pass `None` for
+   * an unbounded endpoint.
    */
   def apply[A](
     lower: Option[A] = None,

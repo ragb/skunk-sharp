@@ -115,8 +115,10 @@ trait PgAggregate {
 
   /** `regr_count(y, x)` — number of non-null `(y, x)` pairs; never returns NULL. */
   def regrCount[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Long] =
-    TypedExpr(TypedExpr.raw("regr_count(") |+| y.render |+| TypedExpr.raw(", ") |+| x.render |+| TypedExpr.raw(")"),
-      skunk.codec.all.int8)
+    TypedExpr(
+      TypedExpr.raw("regr_count(") |+| y.render |+| TypedExpr.raw(", ") |+| x.render |+| TypedExpr.raw(")"),
+      skunk.codec.all.int8
+    )
 
   /** `regr_r2(y, x)` — square of the correlation coefficient. */
   def regrR2[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("regr_r2", y, x)

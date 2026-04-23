@@ -234,12 +234,12 @@ extension [Cols <: Tuple, Name <: String & Singleton](c: CteRelation[Cols, Name]
     new Relation[Cols] with IsCte {
       type Alias = A
       type Mode  = AliasMode.Explicit
-      val currentAlias: A           = a
-      def name: String              = cteRef.cteName
-      def columns: Cols             = cteRef.cols0
-      def schema: Option[String]    = None
-      def expectedTableType: String = ""
-      def underlyingCte             = cteRef
+      val currentAlias: A                                       = a
+      def name: String                                          = cteRef.cteName
+      def columns: Cols                                         = cteRef.cols0
+      def schema: Option[String]                                = None
+      def expectedTableType: String                             = ""
+      def underlyingCte                                         = cteRef
       override def fromFragmentWith(x: String): AppliedFragment = cteRef.fromFragmentWith(x)
     }
   }

@@ -15,7 +15,7 @@ class GroupingSetsSuite extends PgFixture {
   private def seedSales(s: skunk.Session[cats.effect.IO], idBase: Int) =
     sales.insert.values(
       NonEmptyList.of(
-        (id = idBase,     year = 2024, quarter = 1, amount = 100),
+        (id = idBase, year = 2024, quarter = 1, amount = 100),
         (id = idBase + 1, year = 2024, quarter = 2, amount = 200),
         (id = idBase + 2, year = 2025, quarter = 1, amount = 300),
         (id = idBase + 3, year = 2025, quarter = 2, amount = 400)
@@ -27,7 +27,7 @@ class GroupingSetsSuite extends PgFixture {
     withContainers { containers =>
       session(containers).use { s =>
         for {
-          _ <- seedSales(s, idBase = 100)
+          _    <- seedSales(s, idBase = 100)
           rows <- sales.select
             .where(ss => ss.id >= 100 && ss.id <= 103)
             .groupBy(ss => Pg.rollup(ss.year, ss.quarter))
@@ -36,10 +36,10 @@ class GroupingSetsSuite extends PgFixture {
             .run(s)
           // grouping(year, quarter): 0 = leaf, 1 = year-subtotal, 3 = grand total
           bitmasks = rows.map(_._1).toSet
-          _ = assert(bitmasks.contains(0), s"missing leaf rows (bitmask 0), got $bitmasks")
-          _ = assert(bitmasks.contains(1), s"missing quarter-subtotal rows (bitmask 1), got $bitmasks")
-          _ = assert(bitmasks.contains(3), s"missing grand-total row (bitmask 3), got $bitmasks")
-          _ = assertEquals(rows.size, 7)
+          _        = assert(bitmasks.contains(0), s"missing leaf rows (bitmask 0), got $bitmasks")
+          _        = assert(bitmasks.contains(1), s"missing quarter-subtotal rows (bitmask 1), got $bitmasks")
+          _        = assert(bitmasks.contains(3), s"missing grand-total row (bitmask 3), got $bitmasks")
+          _        = assertEquals(rows.size, 7)
         } yield ()
       }
     }
@@ -49,7 +49,7 @@ class GroupingSetsSuite extends PgFixture {
     withContainers { containers =>
       session(containers).use { s =>
         for {
-          _ <- seedSales(s, idBase = 200)
+          _    <- seedSales(s, idBase = 200)
           rows <- sales.select
             .where(ss => ss.id >= 200 && ss.id <= 203)
             .groupBy(ss => Pg.cube(ss.year, ss.quarter))
@@ -57,10 +57,10 @@ class GroupingSetsSuite extends PgFixture {
             .compile
             .run(s)
           bitmasks = rows.map(_._1).toSet
-          _ = assert(bitmasks.contains(0), s"missing (year, quarter) rows, got $bitmasks")
-          _ = assert(bitmasks.contains(1), s"missing (year) rows, got $bitmasks")
-          _ = assert(bitmasks.contains(2), s"missing (quarter) rows, got $bitmasks")
-          _ = assert(bitmasks.contains(3), s"missing grand-total row, got $bitmasks")
+          _        = assert(bitmasks.contains(0), s"missing (year, quarter) rows, got $bitmasks")
+          _        = assert(bitmasks.contains(1), s"missing (year) rows, got $bitmasks")
+          _        = assert(bitmasks.contains(2), s"missing (quarter) rows, got $bitmasks")
+          _        = assert(bitmasks.contains(3), s"missing grand-total row, got $bitmasks")
           // CUBE (year, quarter) = GROUPING SETS ((y,q),(y),(q),()) = 4+2+2+1 = 9 distinct rows
           _ = assertEquals(rows.size, 9)
         } yield ()
@@ -72,7 +72,7 @@ class GroupingSetsSuite extends PgFixture {
     withContainers { containers =>
       session(containers).use { s =>
         for {
-          _ <- seedSales(s, idBase = 300)
+          _    <- seedSales(s, idBase = 300)
           rows <- sales.select
             .where(ss => ss.id >= 300 && ss.id <= 303)
             .groupBy(ss =>
@@ -86,9 +86,9 @@ class GroupingSetsSuite extends PgFixture {
             .compile
             .run(s)
           bitmasks = rows.map(_._1).toSet
-          _ = assert(bitmasks.contains(0), s"missing (year,quarter) rows, got $bitmasks")
-          _ = assert(bitmasks.contains(1), s"missing (year) rows, got $bitmasks")
-          _ = assert(bitmasks.contains(3), s"missing grand-total rows, got $bitmasks")
+          _        = assert(bitmasks.contains(0), s"missing (year,quarter) rows, got $bitmasks")
+          _        = assert(bitmasks.contains(1), s"missing (year) rows, got $bitmasks")
+          _        = assert(bitmasks.contains(3), s"missing grand-total rows, got $bitmasks")
           // 4 leaf + 2 year-subtotal + 1 grand total = 7
           _ = assertEquals(rows.size, 7)
         } yield ()
@@ -100,7 +100,7 @@ class GroupingSetsSuite extends PgFixture {
     withContainers { containers =>
       session(containers).use { s =>
         for {
-          _ <- seedSales(s, idBase = 400)
+          _    <- seedSales(s, idBase = 400)
           rows <- sales.select
             .where(ss => ss.id >= 400 && ss.id <= 403)
             .groupBy(ss => Pg.rollup(ss.year))
@@ -109,8 +109,8 @@ class GroupingSetsSuite extends PgFixture {
             .run(s)
           // bitmask 0 = year is present; bitmask 1 = year is aggregated (grand total)
           grandTotal = rows.find(_._1 == 1)
-          _ = assert(grandTotal.isDefined, s"no grand-total row found, rows=$rows")
-          _ = assertEquals(grandTotal.get._2, 4L)
+          _          = assert(grandTotal.isDefined, s"no grand-total row found, rows=$rows")
+          _          = assertEquals(grandTotal.get._2, 4L)
         } yield ()
       }
     }

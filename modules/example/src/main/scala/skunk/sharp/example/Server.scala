@@ -22,7 +22,7 @@ object Server {
 
     pool.use { sessionPool =>
       val routes = Routes(sessionPool, RoomRepository.live, BookingRepository.live)
-      val logged  = HttpLogger.httpRoutes[IO](logHeaders = false, logBody = false)(routes)
+      val logged = HttpLogger.httpRoutes[IO](logHeaders = false, logBody = false)(routes)
 
       val host = Host.fromString(cfg.server.host).getOrElse(host"0.0.0.0")
       val port = Port.fromInt(cfg.server.port).getOrElse(port"8080")

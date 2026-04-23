@@ -108,11 +108,16 @@ final class UpdateBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
   ] = {
     val targetEntry =
       new SourceEntry[Table[Cols, Name], Cols, Cols, Name](
-        table, table.currentAlias, table.columns, table.columns, JoinKind.Inner, None
+        table,
+        table.currentAlias,
+        table.columns,
+        table.columns,
+        JoinKind.Inner,
+        None
       )
-    val rel         = aR(other)
-    val oCols       = rel.columns.asInstanceOf[CR]
-    val otherEntry  =
+    val rel        = aR(other)
+    val oCols      = rel.columns.asInstanceOf[CR]
+    val otherEntry =
       new SourceEntry[RR, CR, CR, AR](rel, aR.aliasValue(other), oCols, oCols, JoinKind.Inner, None)
     new UpdateFromBuilder[
       Cols,
@@ -245,11 +250,12 @@ final class UpdateFromBuilder[Cols <: Tuple, Name <: String & Singleton, Ss <: T
     aR: AsRelation.Aux[R, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
   ): UpdateFromBuilder[Cols, Name, Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]] = {
-    val rel        = aR(other)
-    val oCols      = rel.columns.asInstanceOf[CR]
-    val entry      = new SourceEntry[RR, CR, CR, AR](rel, aR.aliasValue(other), oCols, oCols, JoinKind.Inner, None)
+    val rel   = aR(other)
+    val oCols = rel.columns.asInstanceOf[CR]
+    val entry = new SourceEntry[RR, CR, CR, AR](rel, aR.aliasValue(other), oCols, oCols, JoinKind.Inner, None)
     new UpdateFromBuilder[Cols, Name, Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]](
-      table, sources :* entry
+      table,
+      sources :* entry
     )
   }
 
@@ -368,10 +374,9 @@ final class MutationReturning[R] private[sharp] (
   }
 
   /**
-   * Map the returned row to a case class. Works for both plain-tuple projections (from
-   * `.returningTuple`) and named-tuple projections (from `.returningAll`): the [[MutationReturning.Unwrap]]
-   * match type strips names before the `MirroredElemTypes` comparison so the compiler can resolve the
-   * constraint in both cases.
+   * Map the returned row to a case class. Works for both plain-tuple projections (from `.returningTuple`) and
+   * named-tuple projections (from `.returningAll`): the [[MutationReturning.Unwrap]] match type strips names before the
+   * `MirroredElemTypes` comparison so the compiler can resolve the constraint in both cases.
    */
   def to[T <: Product](using
     m: scala.deriving.Mirror.ProductOf[T] { type MirroredElemTypes = MutationReturning.Unwrap[R] & Tuple }
@@ -385,10 +390,14 @@ final class MutationReturning[R] private[sharp] (
 }
 
 object MutationReturning {
-  /** Strip named-tuple labels so `to[T]` accepts both `.returningTuple` (plain tuple) and `.returningAll` (named tuple). */
+
+  /**
+   * Strip named-tuple labels so `to[T]` accepts both `.returningTuple` (plain tuple) and `.returningAll` (named tuple).
+   */
   type Unwrap[R] = R match
     case scala.NamedTuple.NamedTuple[?, v] => v
-    case _                                  => R
+    case _                                 => R
+
 }
 
 // ---- SetAssignment + := extension -----------------------------------------------------------------

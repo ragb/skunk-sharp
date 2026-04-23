@@ -12,7 +12,7 @@ object CteSuite {
 }
 
 class CteSuite extends PgFixture {
-  import CteSuite.{User, Post}
+  import CteSuite.{Post, User}
 
   private val users = Table.of[User]("users").withDefault("created_at")
   private val posts = Table.of[Post]("posts").withDefault("created_at")
@@ -78,13 +78,14 @@ class CteSuite extends PgFixture {
             (id = UUID.randomUUID, user_id = uid2, title = "p3")
           )).compile.run(s)
           // CTE: post counts per user
-          counts = cte("post_counts",
+          counts = cte(
+            "post_counts",
             posts.select(p => (p.user_id.as("uid"), Pg.count(p.id).as("cnt"))).groupBy(p => p.user_id)
           )
           rows <- counts.select(c => (c.uid, c.cnt)).compile.run(s)
           byUser = rows.toMap
-          _ = assert(byUser.get(uid1).exists(_ >= 2L), s"uid1 should have ≥ 2 posts, got $byUser")
-          _ = assert(byUser.get(uid2).exists(_ >= 1L), s"uid2 should have ≥ 1 post, got $byUser")
+          _      = assert(byUser.get(uid1).exists(_ >= 2L), s"uid1 should have ≥ 2 posts, got $byUser")
+          _      = assert(byUser.get(uid2).exists(_ >= 1L), s"uid2 should have ≥ 1 post, got $byUser")
         } yield ()
       }
     }
@@ -100,7 +101,7 @@ class CteSuite extends PgFixture {
             (id = UUID.randomUUID, email = s"$pfx-ch3@x", age = 30, deleted_at = Option.empty[OffsetDateTime])
           )).compile.run(s)
           // base: users matching prefix
-          base    = cte("base_users", users.select.where(u => u.email.like(s"$pfx-ch%")))
+          base = cte("base_users", users.select.where(u => u.email.like(s"$pfx-ch%")))
           // derived: from base, only adults
           derived = cte("adults_only", base.select.where(u => u.age >= 18))
           rows <- derived.select(u => u.email).orderBy(u => u.email.asc).compile.run(s)

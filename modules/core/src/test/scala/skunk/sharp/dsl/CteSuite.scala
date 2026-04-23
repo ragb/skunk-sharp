@@ -11,7 +11,7 @@ object CteSuite {
 }
 
 class CteSuite extends munit.FunSuite {
-  import CteSuite.{User, Post}
+  import CteSuite.{Post, User}
 
   private val users = Table.of[User]("users")
   private val posts = Table.of[Post]("posts")
@@ -46,7 +46,8 @@ class CteSuite extends munit.FunSuite {
   // ---- projected CTEs -------------------------------------------------------------------------
 
   test("projected CTE — named columns from AliasedExpr") {
-    val totals = cte("totals",
+    val totals = cte(
+      "totals",
       users.select(u => (u.age.as("years"), u.email.as("addr")))
     )
     val af = totals.select(t => (t.years, t.addr)).compile.af
@@ -59,7 +60,7 @@ class CteSuite extends munit.FunSuite {
   test("two independent CTEs appear in the WITH clause") {
     val activeUsers = cte("active_users", users.select.where(u => u.deleted_at.isNull))
     val published   = cte("published", posts.select.where(p => p.status === "published"))
-    val af = activeUsers
+    val af          = activeUsers
       .innerJoin(published).on(r => r.active_users.id ==== r.published.user_id)
       .select(r => (r.active_users.email, r.published.title))
       .compile.af
@@ -95,7 +96,7 @@ class CteSuite extends munit.FunSuite {
   // ---- type-level checks ----------------------------------------------------------------------
 
   test("CteRelation is a Relation — compile type is CompiledQuery[NamedRowOf[...]]") {
-    val active = cte("active_users", users.select.where(u => u.deleted_at.isNull))
+    val active         = cte("active_users", users.select.where(u => u.deleted_at.isNull))
     val _: Relation[?] = active
   }
 }

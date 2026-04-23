@@ -13,6 +13,7 @@ object Transformers {
     def toResponse: RoomResponse = row.to[RoomResponse]
 
   extension (row: BookingRow)
+
     def toResponse: BookingResponse =
       row.into[BookingResponse]
         .transform(
@@ -30,6 +31,7 @@ object Transformers {
     def toRow: RoomRow.Patch = req.to[RoomRow.Patch]
 
   extension (req: CreateBookingRequest)
+
     def toRow: BookingRow.Create =
       req.into[BookingRow.Create]
         .transform(

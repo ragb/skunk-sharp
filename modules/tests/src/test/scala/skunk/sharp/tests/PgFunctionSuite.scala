@@ -238,7 +238,7 @@ class PgFunctionSuite extends PgFixture {
     withContainers { containers =>
       session(containers).use { s =>
         for {
-          a <- empty.select(Pg.atan2(lit(1.0), lit(1.0))).compile.unique(s)
+          a  <- empty.select(Pg.atan2(lit(1.0), lit(1.0))).compile.unique(s)
           sh <- empty.select(Pg.sinh(lit(0.0))).compile.unique(s)
           ch <- empty.select(Pg.cosh(lit(0.0))).compile.unique(s)
           th <- empty.select(Pg.tanh(lit(0.0))).compile.unique(s)

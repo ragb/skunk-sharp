@@ -20,6 +20,7 @@ class UpdateFromDeleteUsingSuite extends PgFixture {
 
   private val users =
     Table.of[User]("users").withPrimary("id").withUnique("email").withDefault("created_at")
+
   private val posts = Table.of[Post]("posts").withPrimary("id").withDefault("created_at")
   private val tags  = Table.of[Tag]("tags").withPrimary("id")
 
@@ -33,8 +34,11 @@ class UpdateFromDeleteUsingSuite extends PgFixture {
         for {
           // Seed: one user at age 10, one post belonging to that user
           _ <- users.insert((
-            id = userId, email = s"$tag@example.com", age = 10,
-            created_at = now, deleted_at = None
+            id = userId,
+            email = s"$tag@example.com",
+            age = 10,
+            created_at = now,
+            deleted_at = None
           )).compile.run(s)
           _ <- posts.insert((id = postId, user_id = userId, title = "hello", created_at = now)).compile.run(s)
           // UPDATE users SET age = 99 FROM posts WHERE users.id = posts.user_id AND posts.id = <postId>
@@ -62,8 +66,11 @@ class UpdateFromDeleteUsingSuite extends PgFixture {
         val now    = OffsetDateTime.now()
         for {
           _ <- users.insert((
-            id = userId, email = s"$tag-old@example.com", age = 1,
-            created_at = now, deleted_at = None
+            id = userId,
+            email = s"$tag-old@example.com",
+            age = 1,
+            created_at = now,
+            deleted_at = None
           )).compile.run(s)
           _ <- posts.insert((id = postId, user_id = userId, title = s"$tag-title", created_at = now)).compile.run(s)
           // UPDATE users SET email = posts.title FROM posts WHERE users.id = posts.user_id
@@ -91,8 +98,11 @@ class UpdateFromDeleteUsingSuite extends PgFixture {
         val now    = OffsetDateTime.now()
         for {
           _ <- users.insert((
-            id = userId, email = s"$tag@example.com", age = 1,
-            created_at = now, deleted_at = None
+            id = userId,
+            email = s"$tag@example.com",
+            age = 1,
+            created_at = now,
+            deleted_at = None
           )).compile.run(s)
           _ <- posts.insert((id = postId, user_id = userId, title = "t", created_at = now)).compile.run(s)
           _ <- tags.insert((id = tagId, post_id = postId, name = "scala")).compile.run(s)
@@ -124,10 +134,13 @@ class UpdateFromDeleteUsingSuite extends PgFixture {
         val now    = OffsetDateTime.now()
         for {
           _ <- users.insert((
-            id = userId, email = s"$tag@example.com", age = 5,
-            created_at = now, deleted_at = None
+            id = userId,
+            email = s"$tag@example.com",
+            age = 5,
+            created_at = now,
+            deleted_at = None
           )).compile.run(s)
-          _ <- posts.insert((id = postId, user_id = userId, title = "t", created_at = now)).compile.run(s)
+          _      <- posts.insert((id = postId, user_id = userId, title = "t", created_at = now)).compile.run(s)
           emails <- users.update
             .from(posts)
             .set(r => r.users.age := 42)
@@ -149,8 +162,11 @@ class UpdateFromDeleteUsingSuite extends PgFixture {
         val now    = OffsetDateTime.now()
         for {
           _ <- users.insert((
-            id = userId, email = s"$tag@example.com", age = 1,
-            created_at = now, deleted_at = None
+            id = userId,
+            email = s"$tag@example.com",
+            age = 1,
+            created_at = now,
+            deleted_at = None
           )).compile.run(s)
           _ <- posts.insert((id = postId, user_id = userId, title = "del-me", created_at = now)).compile.run(s)
           // DELETE FROM posts USING users WHERE posts.user_id = users.id AND users.id = <userId>
@@ -178,8 +194,11 @@ class UpdateFromDeleteUsingSuite extends PgFixture {
         val now    = OffsetDateTime.now()
         for {
           _ <- users.insert((
-            id = userId, email = s"$tag@example.com", age = 1,
-            created_at = now, deleted_at = None
+            id = userId,
+            email = s"$tag@example.com",
+            age = 1,
+            created_at = now,
+            deleted_at = None
           )).compile.run(s)
           _ <- posts.insert((id = postId, user_id = userId, title = "p", created_at = now)).compile.run(s)
           _ <- tags.insert((id = tagId, post_id = postId, name = "x")).compile.run(s)
@@ -209,8 +228,11 @@ class UpdateFromDeleteUsingSuite extends PgFixture {
         val now    = OffsetDateTime.now()
         for {
           _ <- users.insert((
-            id = userId, email = s"$tag@example.com", age = 1,
-            created_at = now, deleted_at = None
+            id = userId,
+            email = s"$tag@example.com",
+            age = 1,
+            created_at = now,
+            deleted_at = None
           )).compile.run(s)
           _ <- posts.insert((id = postId, user_id = userId, title = "ret-title", created_at = now)).compile.run(s)
           // DELETE FROM posts USING users RETURNING posts.title

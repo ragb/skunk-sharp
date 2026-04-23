@@ -17,12 +17,12 @@ object Main extends IOApp.Simple {
 
   private def migrate(db: DbConfig): IO[Unit] = {
     val conn = ConnectionConfig(
-      host     = db.host,
-      port     = db.port,
-      user     = db.user,
+      host = db.host,
+      port = db.port,
+      user = db.user,
       database = db.database,
       password = Some(db.password),
-      ssl      = ConnectionConfig.SSL.None
+      ssl = ConnectionConfig.SSL.None
     )
     Dumbo.withResourcesIn[IO]("migrations").apply(conn).runMigration.void
   }

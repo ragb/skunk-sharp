@@ -24,17 +24,18 @@ class RangesSuite extends PgFixture {
   test("round-trip: insert and select a daterange column") {
     withContainers { containers =>
       session(containers).use { s =>
-        val period = PgRange[LocalDate](lower = Some(LocalDate.of(2024, 1, 1)), upper = Some(LocalDate.of(2024, 12, 31)))
+        val period =
+          PgRange[LocalDate](lower = Some(LocalDate.of(2024, 1, 1)), upper = Some(LocalDate.of(2024, 12, 31)))
         for {
-          _ <- bookings.insert((id = 1, period = period)).compile.run(s)
+          _    <- bookings.insert((id = 1, period = period)).compile.run(s)
           rows <- bookings.select.where(b => b.id === 1).compile.run(s)
           row = rows.head
           // Postgres canonicalises daterange to [lower, upper) — upper becomes 2025-01-01
-          _ = assertEquals(row.id, 1)
-          _ = assert(row.period.isInstanceOf[Range.Bounds[?]], s"expected Bounds, got ${row.period}")
+          _      = assertEquals(row.id, 1)
+          _      = assert(row.period.isInstanceOf[Range.Bounds[?]], s"expected Bounds, got ${row.period}")
           bounds = row.period.asInstanceOf[Range.Bounds[LocalDate]]
-          _ = assertEquals(bounds.lower, Some(LocalDate.of(2024, 1, 1)))
-          _ = assertEquals(bounds.lowerInclusive, true)
+          _      = assertEquals(bounds.lower, Some(LocalDate.of(2024, 1, 1)))
+          _      = assertEquals(bounds.lowerInclusive, true)
         } yield ()
       }
     }
@@ -47,13 +48,13 @@ class RangesSuite extends PgFixture {
         val t2   = OffsetDateTime.of(2024, 9, 1, 0, 0, 0, 0, ZoneOffset.UTC)
         val slot = PgRange[OffsetDateTime](lower = Some(t1), upper = Some(t2))
         for {
-          _   <- reservations.insert((id = 1, slot = slot)).compile.run(s)
+          _    <- reservations.insert((id = 1, slot = slot)).compile.run(s)
           rows <- reservations.select.where(r => r.id === 1).compile.run(s)
-          row = rows.head
-          _ = assertEquals(row.id, 1)
+          row    = rows.head
+          _      = assertEquals(row.id, 1)
           bounds = row.slot.asInstanceOf[Range.Bounds[OffsetDateTime]]
-          _ = assertEquals(bounds.lower, Some(t1))
-          _ = assertEquals(bounds.upper, Some(t2))
+          _      = assertEquals(bounds.lower, Some(t1))
+          _      = assertEquals(bounds.upper, Some(t2))
         } yield ()
       }
     }
@@ -64,10 +65,10 @@ class RangesSuite extends PgFixture {
       session(containers).use { s =>
         val empty = PgRange.empty[LocalDate]
         for {
-          _ <- bookings.insert((id = 2, period = empty)).compile.run(s)
+          _    <- bookings.insert((id = 2, period = empty)).compile.run(s)
           rows <- bookings.select.where(b => b.id === 2).compile.run(s)
           row = rows.head
-          _ = assert(row.period == Range.Empty, s"expected Empty, got ${row.period}")
+          _   = assert(row.period == Range.Empty, s"expected Empty, got ${row.period}")
         } yield ()
       }
     }
@@ -80,9 +81,21 @@ class RangesSuite extends PgFixture {
       session(containers).use { s =>
         for {
           _ <- bookings.insert.values(
-            (id = 10, period = PgRange[LocalDate](lower = Some(LocalDate.of(2024, 1, 1)), upper = Some(LocalDate.of(2024, 6, 30)))),
-            (id = 11, period = PgRange[LocalDate](lower = Some(LocalDate.of(2024, 7, 1)), upper = Some(LocalDate.of(2024, 12, 31)))),
-            (id = 12, period = PgRange[LocalDate](lower = Some(LocalDate.of(2024, 4, 1)), upper = Some(LocalDate.of(2024, 9, 30))))
+            (
+              id = 10,
+              period =
+                PgRange[LocalDate](lower = Some(LocalDate.of(2024, 1, 1)), upper = Some(LocalDate.of(2024, 6, 30)))
+            ),
+            (
+              id = 11,
+              period =
+                PgRange[LocalDate](lower = Some(LocalDate.of(2024, 7, 1)), upper = Some(LocalDate.of(2024, 12, 31)))
+            ),
+            (
+              id = 12,
+              period =
+                PgRange[LocalDate](lower = Some(LocalDate.of(2024, 4, 1)), upper = Some(LocalDate.of(2024, 9, 30)))
+            )
           ).compile.run(s)
           // probe ends 2024-07-01 exclusive, so id=11 (starts 2024-07-01) does not overlap
           probe = PgRange[LocalDate](lower = Some(LocalDate.of(2024, 5, 1)), upper = Some(LocalDate.of(2024, 7, 1)))
@@ -102,8 +115,16 @@ class RangesSuite extends PgFixture {
       session(containers).use { s =>
         for {
           _ <- bookings.insert.values(
-            (id = 20, period = PgRange[LocalDate](lower = Some(LocalDate.of(2024, 1, 1)), upper = Some(LocalDate.of(2024, 6, 30)))),
-            (id = 21, period = PgRange[LocalDate](lower = Some(LocalDate.of(2024, 7, 1)), upper = Some(LocalDate.of(2024, 12, 31))))
+            (
+              id = 20,
+              period =
+                PgRange[LocalDate](lower = Some(LocalDate.of(2024, 1, 1)), upper = Some(LocalDate.of(2024, 6, 30)))
+            ),
+            (
+              id = 21,
+              period =
+                PgRange[LocalDate](lower = Some(LocalDate.of(2024, 7, 1)), upper = Some(LocalDate.of(2024, 12, 31)))
+            )
           ).compile.run(s)
           target = LocalDate.of(2024, 3, 15)
           ids <- bookings
@@ -122,8 +143,16 @@ class RangesSuite extends PgFixture {
       session(containers).use { s =>
         for {
           _ <- bookings.insert.values(
-            (id = 30, period = PgRange[LocalDate](lower = Some(LocalDate.of(2024, 1, 1)), upper = Some(LocalDate.of(2024, 12, 31)))),
-            (id = 31, period = PgRange[LocalDate](lower = Some(LocalDate.of(2024, 6, 1)), upper = Some(LocalDate.of(2024, 7, 31))))
+            (
+              id = 30,
+              period =
+                PgRange[LocalDate](lower = Some(LocalDate.of(2024, 1, 1)), upper = Some(LocalDate.of(2024, 12, 31)))
+            ),
+            (
+              id = 31,
+              period =
+                PgRange[LocalDate](lower = Some(LocalDate.of(2024, 6, 1)), upper = Some(LocalDate.of(2024, 7, 31)))
+            )
           ).compile.run(s)
           // id=31 is a strict sub-range of id=30; only id=30 contains sub (id=31 IS sub — self-contains is true, both would pass @>)
           // Use a sub that is strictly inside id=30 but not equal to id=31
@@ -146,14 +175,14 @@ class RangesSuite extends PgFixture {
       session(containers).use { s =>
         val period = PgRange[LocalDate](lower = Some(LocalDate.of(2024, 3, 1)), upper = Some(LocalDate.of(2024, 9, 1)))
         for {
-          _ <- bookings.insert((id = 40, period = period)).compile.run(s)
+          _    <- bookings.insert((id = 40, period = period)).compile.run(s)
           rows <- bookings
             .select(b => (Pg.rangeLower(b.period), Pg.rangeUpper(b.period)))
             .where(b => b.id === 40)
             .compile.run(s)
           (lo, hi) = rows.head
-          _ = assertEquals(lo, Some(LocalDate.of(2024, 3, 1)))
-          _ = assertEquals(hi, Some(LocalDate.of(2024, 9, 1)))
+          _        = assertEquals(lo, Some(LocalDate.of(2024, 3, 1)))
+          _        = assertEquals(hi, Some(LocalDate.of(2024, 9, 1)))
         } yield ()
       }
     }
@@ -173,11 +202,11 @@ class RangesSuite extends PgFixture {
             .where(b => b.id.in(NonEmptyList.of(50, 51, 52)))
             .compile.run(s)
             .map(_.sortBy(_._1))
-          _ = assertEquals(rows(0)._2, true)   // id=50 is empty
-          _ = assertEquals(rows(1)._4, false)  // id=51 upper_inf false
-          _ = assertEquals(rows(1)._3, true)   // id=51 lower_inf true
-          _ = assertEquals(rows(2)._4, true)   // id=52 upper_inf true
-          _ = assertEquals(rows(2)._3, false)  // id=52 lower_inf false
+          _ = assertEquals(rows(0)._2, true)  // id=50 is empty
+          _ = assertEquals(rows(1)._4, false) // id=51 upper_inf false
+          _ = assertEquals(rows(1)._3, true)  // id=51 lower_inf true
+          _ = assertEquals(rows(2)._4, true)  // id=52 upper_inf true
+          _ = assertEquals(rows(2)._3, false) // id=52 lower_inf false
         } yield ()
       }
     }
@@ -191,7 +220,8 @@ class RangesSuite extends PgFixture {
         val lo = LocalDate.of(2024, 1, 1)
         val hi = LocalDate.of(2024, 12, 31)
         for {
-          _ <- bookings.insert((id = 60, period = PgRange[LocalDate](lower = Some(lo), upper = Some(hi)))).compile.run(s)
+          _ <-
+            bookings.insert((id = 60, period = PgRange[LocalDate](lower = Some(lo), upper = Some(hi)))).compile.run(s)
           ids <- bookings
             .select(b => b.id)
             .where(b => b.period.overlaps(Pg.daterange(param(lo), param(hi))))

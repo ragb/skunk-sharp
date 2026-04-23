@@ -5,8 +5,8 @@ import skunk.sharp.TypedExpr
 import skunk.sharp.where.Where
 
 /**
- * Evidence that `R` is a Postgres range-shaped Scala type. Carries the element type `Elem` so that
- * `containsElem` / `rangeContainedByElem` can mention the element without an extra type parameter at the call site.
+ * Evidence that `R` is a Postgres range-shaped Scala type. Carries the element type `Elem` so that `containsElem` /
+ * `rangeContainedByElem` can mention the element without an extra type parameter at the call site.
  */
 sealed trait IsRange[R] {
   type Elem

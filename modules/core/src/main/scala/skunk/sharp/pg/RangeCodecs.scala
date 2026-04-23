@@ -6,9 +6,8 @@ import skunk.sharp.data.Range
 /**
  * Internal helpers for building Postgres range codecs from an inner element codec.
  *
- * Postgres range literals: `[lower,upper)`, `(lower,upper]`, `[,upper)` (unbounded lower), `(,)` (all), `empty`.
- * Values that contain spaces, commas, or brackets are double-quoted by Postgres; we handle this in both encoding and
- * decoding.
+ * Postgres range literals: `[lower,upper)`, `(lower,upper]`, `[,upper)` (unbounded lower), `(,)` (all), `empty`. Values
+ * that contain spaces, commas, or brackets are double-quoted by Postgres; we handle this in both encoding and decoding.
  */
 private[pg] object RangeCodecs {
 
@@ -27,7 +26,7 @@ private[pg] object RangeCodecs {
 
   private def encodeRange[A](r: Range[A], inner: Codec[A]): String =
     r match {
-      case Range.Empty => "empty"
+      case Range.Empty                        => "empty"
       case Range.Bounds(lower, upper, li, ui) =>
         val lb = if (li) "[" else "("
         val ub = if (ui) "]" else ")"
@@ -56,13 +55,13 @@ private[pg] object RangeCodecs {
       else {
         val content = t.substring(1, t.length - 1)
         splitAtComma(content) match {
-          case None => Left(s"invalid range content (no comma): $s")
+          case None                       => Left(s"invalid range content (no comma): $s")
           case Some((lowerStr, upperStr)) =>
             for {
               lower <- if (lowerStr.isEmpty) Right(None)
-                       else decodeElem(unquote(lowerStr), inner).map(Some(_))
+              else decodeElem(unquote(lowerStr), inner).map(Some(_))
               upper <- if (upperStr.isEmpty) Right(None)
-                       else decodeElem(unquote(upperStr), inner).map(Some(_))
+              else decodeElem(unquote(upperStr), inner).map(Some(_))
             } yield Range.Bounds(lower, upper, lowerInclusive, upperInclusive)
         }
       }

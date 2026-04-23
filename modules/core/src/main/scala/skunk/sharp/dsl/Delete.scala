@@ -62,11 +62,16 @@ final class DeleteBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
   ] = {
     val targetEntry =
       new SourceEntry[Table[Cols, Name], Cols, Cols, Name](
-        table, table.currentAlias, table.columns, table.columns, JoinKind.Inner, None
+        table,
+        table.currentAlias,
+        table.columns,
+        table.columns,
+        JoinKind.Inner,
+        None
       )
-    val rel         = aR(other)
-    val oCols       = rel.columns.asInstanceOf[CR]
-    val otherEntry  =
+    val rel        = aR(other)
+    val oCols      = rel.columns.asInstanceOf[CR]
+    val otherEntry =
       new SourceEntry[RR, CR, CR, AR](rel, aR.aliasValue(other), oCols, oCols, JoinKind.Inner, None)
     new DeleteUsingBuilder[
       Cols,
@@ -149,7 +154,8 @@ final class DeleteUsingBuilder[Cols <: Tuple, Name <: String & Singleton, Ss <: 
     val oCols = rel.columns.asInstanceOf[CR]
     val entry = new SourceEntry[RR, CR, CR, AR](rel, aR.aliasValue(other), oCols, oCols, JoinKind.Inner, None)
     new DeleteUsingBuilder[Cols, Name, Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]](
-      table, sources :* entry
+      table,
+      sources :* entry
     )
   }
 

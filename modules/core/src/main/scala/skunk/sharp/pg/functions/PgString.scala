@@ -182,7 +182,7 @@ trait PgString {
   /** `format(fmt, args*)` — `printf`-style text formatting; always returns `text`. */
   def format(fmt: String, args: TypedExpr[?]*): TypedExpr[String] = {
     val fmtFrag = TypedExpr.parameterised(fmt).render
-    val body =
+    val body    =
       if (args.isEmpty) fmtFrag |+| TypedExpr.raw(")")
       else fmtFrag |+| TypedExpr.raw(", ") |+| TypedExpr.joined(args.map(_.render).toList, ", ") |+| TypedExpr.raw(")")
     TypedExpr(TypedExpr.raw("format(") |+| body, skunk.codec.all.text)

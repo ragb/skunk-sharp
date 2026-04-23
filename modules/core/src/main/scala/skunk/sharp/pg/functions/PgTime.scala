@@ -59,7 +59,9 @@ trait PgTime {
    * `extract(field FROM e)` — extract a date/time field as `BigDecimal` (Postgres 14+ returns `numeric`). `field` is a
    * bare SQL keyword such as `"year"`, `"month"`, `"epoch"`. Tracks input nullability via [[Lift]].
    */
-  def extract[T](field: String, e: TypedExpr[T])(using pf: PgTypeFor[Lift[T, BigDecimal]]): TypedExpr[Lift[T, BigDecimal]] =
+  def extract[T](field: String, e: TypedExpr[T])(using
+    pf: PgTypeFor[Lift[T, BigDecimal]]
+  ): TypedExpr[Lift[T, BigDecimal]] =
     TypedExpr(TypedExpr.raw(s"extract($field FROM ") |+| e.render |+| TypedExpr.raw(")"), pf.codec)
 
   // -------- Truncation -------------------------------------------------------------------------
@@ -117,8 +119,12 @@ trait PgTime {
 
   /** `make_timestamp(year, month, day, h, m, s)` — timestamp without time zone. */
   def makeTimestamp(
-    year: TypedExpr[Int], month: TypedExpr[Int], day: TypedExpr[Int],
-    h: TypedExpr[Int], m: TypedExpr[Int], s: TypedExpr[Double]
+    year: TypedExpr[Int],
+    month: TypedExpr[Int],
+    day: TypedExpr[Int],
+    h: TypedExpr[Int],
+    m: TypedExpr[Int],
+    s: TypedExpr[Double]
   ): TypedExpr[LocalDateTime] =
     TypedExpr(
       TypedExpr.raw("make_timestamp(") |+|

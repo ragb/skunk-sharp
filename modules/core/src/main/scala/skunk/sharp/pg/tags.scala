@@ -123,14 +123,19 @@ object tags {
 
     /** `int4range` — range of 32-bit integers. */
     type Int4Range = PgRange[Int]
+
     /** `int8range` — range of 64-bit integers. */
     type Int8Range = PgRange[Long]
+
     /** `numrange` — range of arbitrary-precision decimals. */
     type NumRange = PgRange[BigDecimal]
+
     /** `daterange` — range of calendar dates. */
     type DateRange = PgRange[LocalDate]
+
     /** `tsrange` — range of timestamps without time zone. */
     type TsRange = PgRange[LocalDateTime]
+
     /** `tstzrange` — range of timestamps with time zone. */
     type TstzRange = PgRange[OffsetDateTime]
 
@@ -174,12 +179,18 @@ object tags {
 
     given tsRangePgTypeFor: PgTypeFor[PgRange[LocalDateTime]] =
       PgTypeFor.instance(
-        RangeCodecs.rangeCodec(pg.timestamp, skunk.data.Type("tsrange")).asInstanceOf[skunk.Codec[PgRange[LocalDateTime]]]
+        RangeCodecs.rangeCodec(
+          pg.timestamp,
+          skunk.data.Type("tsrange")
+        ).asInstanceOf[skunk.Codec[PgRange[LocalDateTime]]]
       )
 
     given tstzRangePgTypeFor: PgTypeFor[PgRange[OffsetDateTime]] =
       PgTypeFor.instance(
-        RangeCodecs.rangeCodec(pg.timestamptz, skunk.data.Type("tstzrange")).asInstanceOf[skunk.Codec[PgRange[OffsetDateTime]]]
+        RangeCodecs.rangeCodec(
+          pg.timestamptz,
+          skunk.data.Type("tstzrange")
+        ).asInstanceOf[skunk.Codec[PgRange[OffsetDateTime]]]
       )
 
   }

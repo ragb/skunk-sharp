@@ -61,7 +61,8 @@ class RangeSuite extends munit.FunSuite {
   }
 
   test("daterange(lo, hi) renders daterange(lo, hi)") {
-    val af = empty.select(_ => Pg.daterange(param(LocalDate.of(2024, 1, 1)), param(LocalDate.of(2024, 12, 31)))).compile.af
+    val af =
+      empty.select(_ => Pg.daterange(param(LocalDate.of(2024, 1, 1)), param(LocalDate.of(2024, 12, 31)))).compile.af
     assert(af.fragment.sql.contains("daterange("), af.fragment.sql)
   }
 
@@ -74,7 +75,12 @@ class RangeSuite extends munit.FunSuite {
   // -------- Operators ---------------------------------------------------------------
 
   test("@> contains renders correctly") {
-    val q = bookings.select(b => b.id).where(b => b.period.contains(param(PgRange[LocalDate](lower = Some(LocalDate.of(2024, 1, 1)), upper = Some(LocalDate.of(2024, 12, 31)))))).compile
+    val q = bookings.select(b => b.id).where(b =>
+      b.period.contains(param(PgRange[LocalDate](
+        lower = Some(LocalDate.of(2024, 1, 1)),
+        upper = Some(LocalDate.of(2024, 12, 31))
+      )))
+    ).compile
     assert(q.af.fragment.sql.contains(""""period" @>"""), q.af.fragment.sql)
   }
 
@@ -119,11 +125,13 @@ class RangeSuite extends munit.FunSuite {
   }
 
   test("rangeUnion / rangeIntersect / rangeDiff render arithmetic ops") {
-    val af = bookings.select(b => (
-      b.period.rangeUnion(param(PgRange[LocalDate]())),
-      b.period.rangeIntersect(param(PgRange[LocalDate]())),
-      b.period.rangeDiff(param(PgRange[LocalDate]()))
-    )).compile.af
+    val af = bookings.select(b =>
+      (
+        b.period.rangeUnion(param(PgRange[LocalDate]())),
+        b.period.rangeIntersect(param(PgRange[LocalDate]())),
+        b.period.rangeDiff(param(PgRange[LocalDate]()))
+      )
+    ).compile.af
     assert(af.fragment.sql.contains(""""period" +"""), af.fragment.sql)
     assert(af.fragment.sql.contains(""""period" *"""), af.fragment.sql)
     assert(af.fragment.sql.contains(""""period" -"""), af.fragment.sql)

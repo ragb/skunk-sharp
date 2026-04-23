@@ -7,9 +7,9 @@ import skunk.sharp.pg.PgTypeFor
  * Window-only functions — ranking, distribution, offset access, and value functions that must be used with an
  * `OVER (…)` clause. Mixed into [[skunk.sharp.Pg]].
  *
- * Unlike aggregates, these functions have no meaning without a window frame — Postgres rejects them outside `OVER`.
- * The DSL doesn't enforce this at compile time (the `.over(…)` extension is always available on any `TypedExpr`), but
- * the names and semantics match the Postgres docs.
+ * Unlike aggregates, these functions have no meaning without a window frame — Postgres rejects them outside `OVER`. The
+ * DSL doesn't enforce this at compile time (the `.over(…)` extension is always available on any `TypedExpr`), but the
+ * names and semantics match the Postgres docs.
  *
  * Use the `.over(spec)` extension (imported via `skunk.sharp.dsl.*`) on any of these values / results:
  *

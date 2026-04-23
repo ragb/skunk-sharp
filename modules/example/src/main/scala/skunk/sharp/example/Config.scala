@@ -31,7 +31,7 @@ object AppConfig {
       env("SERVER_PORT").as[Int].default(8080)
     ).parMapN { (dbHost, dbPort, dbName, dbUser, dbPass, maxSess, serverHost, serverPort) =>
       AppConfig(
-        db     = DbConfig(dbHost, dbPort, dbName, dbUser, dbPass, maxSess),
+        db = DbConfig(dbHost, dbPort, dbName, dbUser, dbPass, maxSess),
         server = ServerConfig(serverHost, serverPort)
       )
     }.load[IO]

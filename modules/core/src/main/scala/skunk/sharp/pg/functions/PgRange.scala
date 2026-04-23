@@ -64,11 +64,18 @@ trait PgRangeFns {
   // -------- Constructor functions -----------------------------------------------------------
 
   /** `int4range(lo, hi)` — construct an `int4range` with default `[)` bounds. */
-  def int4range(lo: TypedExpr[Int], hi: TypedExpr[Int])(using pf: PgTypeFor[PgRangeTag[Int]]): TypedExpr[PgRangeTag[Int]] =
-    TypedExpr(TypedExpr.raw("int4range(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+| TypedExpr.raw(")"), pf.codec)
+  def int4range(lo: TypedExpr[Int], hi: TypedExpr[Int])(using
+    pf: PgTypeFor[PgRangeTag[Int]]
+  ): TypedExpr[PgRangeTag[Int]] =
+    TypedExpr(
+      TypedExpr.raw("int4range(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+| TypedExpr.raw(")"),
+      pf.codec
+    )
 
   /** `int4range(lo, hi, bounds)` — construct an `int4range` with explicit bounds string (e.g. `"[]"`, `"()"`, …). */
-  def int4range(lo: TypedExpr[Int], hi: TypedExpr[Int], bounds: String)(using pf: PgTypeFor[PgRangeTag[Int]]): TypedExpr[PgRangeTag[Int]] =
+  def int4range(lo: TypedExpr[Int], hi: TypedExpr[Int], bounds: String)(using
+    pf: PgTypeFor[PgRangeTag[Int]]
+  ): TypedExpr[PgRangeTag[Int]] =
     TypedExpr(
       TypedExpr.raw("int4range(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+|
         TypedExpr.raw(", ") |+| TypedExpr.parameterised(bounds).render |+| TypedExpr.raw(")"),
@@ -76,11 +83,18 @@ trait PgRangeFns {
     )
 
   /** `int8range(lo, hi)` — construct an `int8range` with default `[)` bounds. */
-  def int8range(lo: TypedExpr[Long], hi: TypedExpr[Long])(using pf: PgTypeFor[PgRangeTag[Long]]): TypedExpr[PgRangeTag[Long]] =
-    TypedExpr(TypedExpr.raw("int8range(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+| TypedExpr.raw(")"), pf.codec)
+  def int8range(lo: TypedExpr[Long], hi: TypedExpr[Long])(using
+    pf: PgTypeFor[PgRangeTag[Long]]
+  ): TypedExpr[PgRangeTag[Long]] =
+    TypedExpr(
+      TypedExpr.raw("int8range(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+| TypedExpr.raw(")"),
+      pf.codec
+    )
 
   /** `int8range(lo, hi, bounds)`. */
-  def int8range(lo: TypedExpr[Long], hi: TypedExpr[Long], bounds: String)(using pf: PgTypeFor[PgRangeTag[Long]]): TypedExpr[PgRangeTag[Long]] =
+  def int8range(lo: TypedExpr[Long], hi: TypedExpr[Long], bounds: String)(using
+    pf: PgTypeFor[PgRangeTag[Long]]
+  ): TypedExpr[PgRangeTag[Long]] =
     TypedExpr(
       TypedExpr.raw("int8range(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+|
         TypedExpr.raw(", ") |+| TypedExpr.parameterised(bounds).render |+| TypedExpr.raw(")"),
@@ -88,11 +102,18 @@ trait PgRangeFns {
     )
 
   /** `numrange(lo, hi)` — construct a `numrange` with default `[)` bounds. */
-  def numrange(lo: TypedExpr[BigDecimal], hi: TypedExpr[BigDecimal])(using pf: PgTypeFor[PgRangeTag[BigDecimal]]): TypedExpr[PgRangeTag[BigDecimal]] =
-    TypedExpr(TypedExpr.raw("numrange(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+| TypedExpr.raw(")"), pf.codec)
+  def numrange(lo: TypedExpr[BigDecimal], hi: TypedExpr[BigDecimal])(using
+    pf: PgTypeFor[PgRangeTag[BigDecimal]]
+  ): TypedExpr[PgRangeTag[BigDecimal]] =
+    TypedExpr(
+      TypedExpr.raw("numrange(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+| TypedExpr.raw(")"),
+      pf.codec
+    )
 
   /** `numrange(lo, hi, bounds)`. */
-  def numrange(lo: TypedExpr[BigDecimal], hi: TypedExpr[BigDecimal], bounds: String)(using pf: PgTypeFor[PgRangeTag[BigDecimal]]): TypedExpr[PgRangeTag[BigDecimal]] =
+  def numrange(lo: TypedExpr[BigDecimal], hi: TypedExpr[BigDecimal], bounds: String)(using
+    pf: PgTypeFor[PgRangeTag[BigDecimal]]
+  ): TypedExpr[PgRangeTag[BigDecimal]] =
     TypedExpr(
       TypedExpr.raw("numrange(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+|
         TypedExpr.raw(", ") |+| TypedExpr.parameterised(bounds).render |+| TypedExpr.raw(")"),
@@ -100,11 +121,18 @@ trait PgRangeFns {
     )
 
   /** `daterange(lo, hi)` — construct a `daterange` with default `[)` bounds. */
-  def daterange(lo: TypedExpr[LocalDate], hi: TypedExpr[LocalDate])(using pf: PgTypeFor[PgRangeTag[LocalDate]]): TypedExpr[PgRangeTag[LocalDate]] =
-    TypedExpr(TypedExpr.raw("daterange(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+| TypedExpr.raw(")"), pf.codec)
+  def daterange(lo: TypedExpr[LocalDate], hi: TypedExpr[LocalDate])(using
+    pf: PgTypeFor[PgRangeTag[LocalDate]]
+  ): TypedExpr[PgRangeTag[LocalDate]] =
+    TypedExpr(
+      TypedExpr.raw("daterange(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+| TypedExpr.raw(")"),
+      pf.codec
+    )
 
   /** `daterange(lo, hi, bounds)`. */
-  def daterange(lo: TypedExpr[LocalDate], hi: TypedExpr[LocalDate], bounds: String)(using pf: PgTypeFor[PgRangeTag[LocalDate]]): TypedExpr[PgRangeTag[LocalDate]] =
+  def daterange(lo: TypedExpr[LocalDate], hi: TypedExpr[LocalDate], bounds: String)(using
+    pf: PgTypeFor[PgRangeTag[LocalDate]]
+  ): TypedExpr[PgRangeTag[LocalDate]] =
     TypedExpr(
       TypedExpr.raw("daterange(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+|
         TypedExpr.raw(", ") |+| TypedExpr.parameterised(bounds).render |+| TypedExpr.raw(")"),
@@ -112,11 +140,18 @@ trait PgRangeFns {
     )
 
   /** `tsrange(lo, hi)` — construct a `tsrange` with default `[)` bounds. */
-  def tsrange(lo: TypedExpr[LocalDateTime], hi: TypedExpr[LocalDateTime])(using pf: PgTypeFor[PgRangeTag[LocalDateTime]]): TypedExpr[PgRangeTag[LocalDateTime]] =
-    TypedExpr(TypedExpr.raw("tsrange(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+| TypedExpr.raw(")"), pf.codec)
+  def tsrange(lo: TypedExpr[LocalDateTime], hi: TypedExpr[LocalDateTime])(using
+    pf: PgTypeFor[PgRangeTag[LocalDateTime]]
+  ): TypedExpr[PgRangeTag[LocalDateTime]] =
+    TypedExpr(
+      TypedExpr.raw("tsrange(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+| TypedExpr.raw(")"),
+      pf.codec
+    )
 
   /** `tsrange(lo, hi, bounds)`. */
-  def tsrange(lo: TypedExpr[LocalDateTime], hi: TypedExpr[LocalDateTime], bounds: String)(using pf: PgTypeFor[PgRangeTag[LocalDateTime]]): TypedExpr[PgRangeTag[LocalDateTime]] =
+  def tsrange(lo: TypedExpr[LocalDateTime], hi: TypedExpr[LocalDateTime], bounds: String)(using
+    pf: PgTypeFor[PgRangeTag[LocalDateTime]]
+  ): TypedExpr[PgRangeTag[LocalDateTime]] =
     TypedExpr(
       TypedExpr.raw("tsrange(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+|
         TypedExpr.raw(", ") |+| TypedExpr.parameterised(bounds).render |+| TypedExpr.raw(")"),
@@ -124,11 +159,18 @@ trait PgRangeFns {
     )
 
   /** `tstzrange(lo, hi)` — construct a `tstzrange` with default `[)` bounds. */
-  def tstzrange(lo: TypedExpr[OffsetDateTime], hi: TypedExpr[OffsetDateTime])(using pf: PgTypeFor[PgRangeTag[OffsetDateTime]]): TypedExpr[PgRangeTag[OffsetDateTime]] =
-    TypedExpr(TypedExpr.raw("tstzrange(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+| TypedExpr.raw(")"), pf.codec)
+  def tstzrange(lo: TypedExpr[OffsetDateTime], hi: TypedExpr[OffsetDateTime])(using
+    pf: PgTypeFor[PgRangeTag[OffsetDateTime]]
+  ): TypedExpr[PgRangeTag[OffsetDateTime]] =
+    TypedExpr(
+      TypedExpr.raw("tstzrange(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+| TypedExpr.raw(")"),
+      pf.codec
+    )
 
   /** `tstzrange(lo, hi, bounds)`. */
-  def tstzrange(lo: TypedExpr[OffsetDateTime], hi: TypedExpr[OffsetDateTime], bounds: String)(using pf: PgTypeFor[PgRangeTag[OffsetDateTime]]): TypedExpr[PgRangeTag[OffsetDateTime]] =
+  def tstzrange(lo: TypedExpr[OffsetDateTime], hi: TypedExpr[OffsetDateTime], bounds: String)(using
+    pf: PgTypeFor[PgRangeTag[OffsetDateTime]]
+  ): TypedExpr[PgRangeTag[OffsetDateTime]] =
     TypedExpr(
       TypedExpr.raw("tstzrange(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+|
         TypedExpr.raw(", ") |+| TypedExpr.parameterised(bounds).render |+| TypedExpr.raw(")"),
