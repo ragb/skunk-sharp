@@ -10,8 +10,6 @@ ThisBuild / developers       := List(
 
 ThisBuild / scalaVersion   := "3.8.3"
 
-// Pick up locally-published SNAPSHOT artifacts (currently dumbo 0.9.0-SNAPSHOT while upstream PR is pending).
-ThisBuild / resolvers += Resolver.mavenLocal
 ThisBuild / tlJdkRelease   := Some(17)
 ThisBuild / tlFatalWarnings := true
 
@@ -24,7 +22,7 @@ val munitCatsEffectV = "2.1.0"
 val ironV            = "3.0.2"
 val refinedV         = "0.11.3"
 val testcontainersV  = "0.44.1"
-val dumboV           = "0.9.0-SNAPSHOT"
+val dumboV           = "0.9.0"
 val otel4sV          = "0.16.0"
 val tapirV           = "1.11.9"
 val http4sV          = "0.23.30"
