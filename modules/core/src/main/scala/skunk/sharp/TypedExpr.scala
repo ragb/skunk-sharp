@@ -99,17 +99,21 @@ object TypedExpr {
    */
   def raw(sql: String): AppliedFragment =
     sql match {
-      case ")"           => skunk.sharp.internal.RawConstants.CLOSE_PAREN
-      case "("           => skunk.sharp.internal.RawConstants.OPEN_PAREN
-      case ", "          => skunk.sharp.internal.RawConstants.COMMA_SEP
-      case " AND "       => skunk.sharp.internal.RawConstants.AND
-      case " WHERE "     => skunk.sharp.internal.RawConstants.WHERE
-      case " FROM "      => skunk.sharp.internal.RawConstants.FROM
-      case " ON "        => skunk.sharp.internal.RawConstants.ON
-      case " GROUP BY "  => skunk.sharp.internal.RawConstants.GROUP_BY
-      case " HAVING "    => skunk.sharp.internal.RawConstants.HAVING
-      case " ORDER BY "  => skunk.sharp.internal.RawConstants.ORDER_BY
-      case "SELECT "     => skunk.sharp.internal.RawConstants.SELECT
+      case ")"                        => skunk.sharp.internal.RawConstants.CLOSE_PAREN
+      case "("                        => skunk.sharp.internal.RawConstants.OPEN_PAREN
+      case ", "                       => skunk.sharp.internal.RawConstants.COMMA_SEP
+      case " AND "                    => skunk.sharp.internal.RawConstants.AND
+      case " WHERE "                  => skunk.sharp.internal.RawConstants.WHERE
+      case " FROM "                   => skunk.sharp.internal.RawConstants.FROM
+      case " ON "                     => skunk.sharp.internal.RawConstants.ON
+      case " GROUP BY "               => skunk.sharp.internal.RawConstants.GROUP_BY
+      case " HAVING "                 => skunk.sharp.internal.RawConstants.HAVING
+      case " ORDER BY "               => skunk.sharp.internal.RawConstants.ORDER_BY
+      case "SELECT "                  => skunk.sharp.internal.RawConstants.SELECT
+      case "VALUES "                  => skunk.sharp.internal.RawConstants.VALUES
+      case " RETURNING "              => skunk.sharp.internal.RawConstants.RETURNING
+      case " USING "                  => skunk.sharp.internal.RawConstants.USING
+      case " ON CONFLICT DO NOTHING"  => skunk.sharp.internal.RawConstants.ON_CONFLICT_DO_NOTHING
       case _ =>
         val frag: Fragment[Void] = Fragment(List(Left(sql)), Void.codec, Origin.unknown)
         frag(Void)

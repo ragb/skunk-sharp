@@ -52,7 +52,7 @@ final class UpdateBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
    * `.updateAll`.
    */
   def set(f: ColumnsView[Cols] => SetAssignment[?] | Tuple): UpdateWithSet[Cols] = {
-    val view        = ColumnsView(table.columns)
+    val view        = table.columnsView
     val assignments = f(view) match {
       case sa: SetAssignment[?] => List(sa)
       case t: Tuple             => t.toList.asInstanceOf[List[SetAssignment[?]]]
@@ -168,7 +168,7 @@ final class UpdateWithSet[Cols <: Tuple] private[sharp] (
 
   /** Narrow with a WHERE clause. Transitions to [[UpdateReady]]. */
   def where(f: ColumnsView[Cols] => Where): UpdateReady[Cols] = {
-    val view = ColumnsView(table.columns)
+    val view = table.columnsView
     new UpdateReady[Cols](table, assignments, Some(f(view)))
   }
 
@@ -187,7 +187,7 @@ final class UpdateReady[Cols <: Tuple] private[sharp] (
 
   /** Chain another WHERE — AND-combined with the existing one. */
   def where(f: ColumnsView[Cols] => Where): UpdateReady[Cols] = {
-    val view = ColumnsView(table.columns)
+    val view = table.columnsView
     val next = whereOpt.fold(f(view))(_ && f(view))
     new UpdateReady[Cols](table, assignments, Some(next))
   }
@@ -203,14 +203,14 @@ final class UpdateReady[Cols <: Tuple] private[sharp] (
 
   /** Append `RETURNING <expr>` — single-value form. */
   def returning[T](f: ColumnsView[Cols] => TypedExpr[T]): MutationReturning[T] = {
-    val view = ColumnsView(table.columns)
+    val view = table.columnsView
     val expr = f(view)
     new MutationReturning[T](compileFragment, List(expr), expr.codec)
   }
 
   /** Append `RETURNING <e1>, <e2>, …` — tuple form. */
   def returningTuple[T <: NonEmptyTuple](f: ColumnsView[Cols] => T): MutationReturning[ExprOutputs[T]] = {
-    val view  = ColumnsView(table.columns)
+    val view  = table.columnsView
     val exprs = f(view).toList.asInstanceOf[List[TypedExpr[?]]]
     val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
     new MutationReturning[ExprOutputs[T]](compileFragment, exprs, codec)

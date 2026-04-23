@@ -31,6 +31,14 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
   val currentAlias: Name        = name
   val expectedTableType: String = "BASE TABLE"
 
+  /**
+   * Cached unqualified columns view — reused across every `.where` / `.returning` / `.select(f)` / … lambda on
+   * this table instance. Without this cache each lambda invocation rebuilds one `Array` + N `TypedColumn`
+   * instances. Qualified (alias-prefixed) views — used by JOINs and `.alias("u")` — are not cached because they
+   * depend on the runtime alias string.
+   */
+  lazy val columnsView: ColumnsView[Cols] = ColumnsView(columns)
+
   /** Place the table in a non-default schema. */
   def inSchema(s: String): Table[Cols, Name] = copy(schema = Some(s))
 

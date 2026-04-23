@@ -22,21 +22,25 @@ private[sharp] object RawConstants {
   }
 
   // Clause separators
-  val SELECT:             AppliedFragment = mk("SELECT ")
-  val SELECT_DISTINCT:    AppliedFragment = mk("SELECT DISTINCT ")
-  val SELECT_DISTINCT_ON: AppliedFragment = mk("SELECT DISTINCT ON (")
-  val CLOSE_PAREN_SPACE:  AppliedFragment = mk(") ")
-  val FROM:               AppliedFragment = mk(" FROM ")
-  val WHERE:              AppliedFragment = mk(" WHERE ")
-  val GROUP_BY:           AppliedFragment = mk(" GROUP BY ")
-  val HAVING:             AppliedFragment = mk(" HAVING ")
-  val ORDER_BY:           AppliedFragment = mk(" ORDER BY ")
-  val ON:                 AppliedFragment = mk(" ON ")
-  val AND:                AppliedFragment = mk(" AND ")
+  val SELECT:                AppliedFragment = mk("SELECT ")
+  val SELECT_DISTINCT:       AppliedFragment = mk("SELECT DISTINCT ")
+  val SELECT_DISTINCT_ON:    AppliedFragment = mk("SELECT DISTINCT ON (")
+  val CLOSE_PAREN_SPACE:     AppliedFragment = mk(") ")
+  val FROM:                  AppliedFragment = mk(" FROM ")
+  val WHERE:                 AppliedFragment = mk(" WHERE ")
+  val GROUP_BY:              AppliedFragment = mk(" GROUP BY ")
+  val HAVING:                AppliedFragment = mk(" HAVING ")
+  val ORDER_BY:              AppliedFragment = mk(" ORDER BY ")
+  val ON:                    AppliedFragment = mk(" ON ")
+  val AND:                   AppliedFragment = mk(" AND ")
+  val VALUES:                AppliedFragment = mk("VALUES ")
+  val RETURNING:             AppliedFragment = mk(" RETURNING ")
+  val USING:                 AppliedFragment = mk(" USING ")
+  val ON_CONFLICT_DO_NOTHING: AppliedFragment = mk(" ON CONFLICT DO NOTHING")
 
   // Punctuation
-  val COMMA_SEP:          AppliedFragment = mk(", ")
-  val OPEN_PAREN:         AppliedFragment = mk("(")
-  val CLOSE_PAREN:        AppliedFragment = mk(")")
+  val COMMA_SEP:             AppliedFragment = mk(", ")
+  val OPEN_PAREN:            AppliedFragment = mk("(")
+  val CLOSE_PAREN:           AppliedFragment = mk(")")
 
 }

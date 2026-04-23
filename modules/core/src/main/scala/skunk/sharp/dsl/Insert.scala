@@ -188,14 +188,14 @@ final class InsertCommand[Cols <: Tuple] private[sharp] (
 
   /** Append a `RETURNING <expr>` clause. Single-value form. */
   def returning[T](f: ColumnsView[Cols] => TypedExpr[T]): InsertReturning[Cols, T] = {
-    val view = ColumnsView(table.columns)
+    val view = table.columnsView
     val expr = f(view)
     new InsertReturning[Cols, T](this, List(expr), expr.codec)
   }
 
   /** Append a `RETURNING <e1>, <e2>, …` clause — multi-value return. */
   def returningTuple[T <: NonEmptyTuple](f: ColumnsView[Cols] => T): InsertReturning[Cols, ExprOutputs[T]] = {
-    val view  = ColumnsView(table.columns)
+    val view  = table.columnsView
     val exprs = f(view).toList.asInstanceOf[List[TypedExpr[?]]]
     val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
     new InsertReturning[Cols, ExprOutputs[T]](this, exprs, codec)
@@ -227,7 +227,7 @@ final class InsertCommand[Cols <: Tuple] private[sharp] (
   )(using
     ev: HasUniqueness[Cols, N] =:= true
   ): OnConflictBuilder[Cols] = {
-    val view = ColumnsView(table.columns)
+    val view = table.columnsView
     val col  = f(view)
     new OnConflictBuilder[Cols](this, List(col.name))
   }
@@ -249,7 +249,7 @@ final class InsertCommand[Cols <: Tuple] private[sharp] (
   )(using
     ev: HasCompositeUniqueness[Cols, NamesOfTypedCols[T]] =:= true
   ): OnConflictBuilder[Cols] = {
-    val view  = ColumnsView(table.columns)
+    val view  = table.columnsView
     val names = f(view).toList.asInstanceOf[List[TypedColumn[?, ?, ?]]].map(_.name)
     new OnConflictBuilder[Cols](this, names)
   }
