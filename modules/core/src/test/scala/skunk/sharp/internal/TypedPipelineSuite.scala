@@ -43,6 +43,34 @@ class TypedPipelineSuite extends munit.FunSuite {
     assert(typedQ != null)
   }
 
+  test("TypedWhere.&& pairs Args into a twiddle — (Int, String)") {
+    val view = users.columnsView
+    val a    = SqlMacros.infixTyped[Int, Int](">=", view.age, 18)
+    val b    = SqlMacros.infixTyped[String, String]("=", view.email, "alice@example.com")
+
+    import TypedWhere.&&
+    val both = a && b
+    val _: TypedWhere[(Int, String)] = both
+    assertEquals(both.args, (18, "alice@example.com"))
+    // Fragment SQL carries two placeholders from the combined encoder.
+    assert(both.fragment.sql.contains("$1"))
+    assert(both.fragment.sql.contains("$2"))
+  }
+
+  test("end-to-end AND: whereTyped(a && b).compileTyped threads Args = (Int, String)") {
+    val view = users.columnsView
+    val a    = SqlMacros.infixTyped[Int, Int](">=", view.age, 21)
+    val b    = SqlMacros.infixTyped[String, String]("=", view.email, "bob@example.com")
+    import TypedWhere.&&
+    val q    = users.select.whereTyped(_ => a && b).compileTyped
+
+    val _: (Int, String) = q.args  // concrete tuple at the call site
+    assertEquals(q.args, (21, "bob@example.com"))
+
+    val typedQ: skunk.Query[(Int, String), ?] = q.typedQuery
+    assert(typedQ != null)
+  }
+
   test("end-to-end: users.select.whereTyped(...).compileTyped threads Args = Int") {
     // The typed WHERE predicate — produced by the macro.
     val pred = SqlMacros.infixTyped[Int, Int](">=", users.columnsView.age, 21)

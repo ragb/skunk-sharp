@@ -25,4 +25,36 @@ private[sharp] final case class TypedWhere[Args](
 
   /** Escape hatch back to the existential Where — useful during migration so mixed call sites keep compiling. */
   def toWhere: Where = TypedExpr(fragment(args), codec)
+
+  /**
+   * AND two typed predicates, combining their argument tuples. The resulting `Args` is the pair `(Args, That)` —
+   * skunk's twiddle-pair style matches how [[skunk.Fragment.~]] composes. Callers typically chain via the
+   * `TypedWhere.&&` extension for infix syntax.
+   */
+  def and[That](that: TypedWhere[That]): TypedWhere[(Args, That)] = {
+    import skunk.sharp.internal.RawConstants
+    // Parts: ( Args-frag  AND  That-frag )
+    // The outer parens match Where.and's runtime form — parenthesised AND for unambiguous grouping.
+    val parts =
+      RawConstants.OPEN_PAREN.fragment.parts ++
+        fragment.parts ++
+        RawConstants.AND.fragment.parts ++
+        that.fragment.parts ++
+        RawConstants.CLOSE_PAREN.fragment.parts
+
+    // Combined encoder: product of the two. skunk's Encoder has `.product` which gives Encoder[(A, B)].
+    val combinedEncoder = fragment.encoder.product(that.fragment.encoder)
+
+    val combinedFragment: Fragment[(Args, That)] =
+      Fragment(parts, combinedEncoder, skunk.util.Origin.unknown)
+
+    TypedWhere[(Args, That)](combinedFragment, (args, that.args))
+  }
+}
+
+private[sharp] object TypedWhere {
+
+  /** Infix AND — `p1 && p2` — delegating to [[TypedWhere.and]]. */
+  extension [A](lhs: TypedWhere[A]) def &&[B](rhs: TypedWhere[B]): TypedWhere[(A, B)] = lhs.and(rhs)
+
 }
