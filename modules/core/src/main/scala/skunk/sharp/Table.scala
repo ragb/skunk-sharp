@@ -39,6 +39,14 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
    */
   lazy val columnsView: ColumnsView[Cols] = ColumnsView(columns)
 
+  /**
+   * Cached statement-header `AppliedFragment`s for the three DML verbs. Each `.compile` on a DELETE or UPDATE
+   * would otherwise re-allocate `DELETE FROM "name"` / `UPDATE "name" SET ` every call (string interpolation
+   * and then a fresh Fragment). Cached once per `Table` instance and reused across compiles.
+   */
+  lazy val deleteFromHeader: skunk.AppliedFragment = TypedExpr.raw(s"DELETE FROM $qualifiedName")
+  lazy val updateSetHeader:  skunk.AppliedFragment = TypedExpr.raw(s"UPDATE $qualifiedName SET ")
+
   /** Place the table in a non-default schema. */
   def inSchema(s: String): Table[Cols, Name] = copy(schema = Some(s))
 

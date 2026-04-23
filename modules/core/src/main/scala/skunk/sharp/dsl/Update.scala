@@ -195,7 +195,7 @@ final class UpdateReady[Cols <: Tuple] private[sharp] (
   def compile: CompiledCommand = CompiledCommand(compileFragment)
 
   private[sharp] def compileFragment: AppliedFragment = {
-    val header = TypedExpr.raw(s"UPDATE ${table.qualifiedName} SET ")
+    val header = table.updateSetHeader
     val sets   = TypedExpr.joined(assignments.map(_.render), ", ")
     val base   = header |+| sets
     whereOpt.fold(base)(w => base |+| TypedExpr.raw(" WHERE ") |+| w.render)
@@ -318,7 +318,7 @@ final class UpdateFromReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tup
   def compile: CompiledCommand = CompiledCommand(compileFragment)
 
   private[sharp] def compileFragment: AppliedFragment = {
-    val header      = TypedExpr.raw(s"UPDATE ${table.qualifiedName} SET ")
+    val header      = table.updateSetHeader
     val sets        = TypedExpr.joined(assignments.map(_.render), ", ")
     val base        = header |+| sets
     val fromEntries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].tail

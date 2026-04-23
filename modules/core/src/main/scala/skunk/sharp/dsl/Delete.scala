@@ -98,7 +98,7 @@ final class DeleteReady[Cols <: Tuple] private[sharp] (
   def compile: CompiledCommand = CompiledCommand(compileFragment)
 
   private[sharp] def compileFragment: AppliedFragment = {
-    val header = TypedExpr.raw(s"DELETE FROM ${table.qualifiedName}")
+    val header = table.deleteFromHeader
     whereOpt.fold(header)(w => header |+| TypedExpr.raw(" WHERE ") |+| w.render)
   }
 
@@ -193,7 +193,7 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
   def compile: CompiledCommand = CompiledCommand(compileFragment)
 
   private[sharp] def compileFragment: AppliedFragment = {
-    val header       = TypedExpr.raw(s"DELETE FROM ${table.qualifiedName}")
+    val header       = table.deleteFromHeader
     val usingEntries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].tail
     val withUsing    =
       if usingEntries.isEmpty then header
