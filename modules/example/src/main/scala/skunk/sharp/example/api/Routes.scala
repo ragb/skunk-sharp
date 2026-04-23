@@ -1,5 +1,6 @@
 package skunk.sharp.example.api
 
+import cats.data.Kleisli
 import cats.effect.IO
 import cats.syntax.all.*
 import fs2.Stream
@@ -34,33 +35,30 @@ object Routes {
       },
 
       Endpoints.rooms.getById.serverLogic[IO] { id =>
-        pool.use(rooms.findById(id).run)
-          .map(_.map(_.toResponse).toRight(notFound(s"Room $id not found")))
+        pool.useKleisli(rooms.findById(id))
+          .map(_.toRight(notFound(s"Room $id not found")).map(_.toResponse))
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
 
       Endpoints.rooms.create.serverLogic[IO] { req =>
-        pool.use { s =>
-          rooms.create(req.toRow).run(s)
-            .flatMap(id => rooms.findById(id).run(s).map(_.get.toResponse))
-        }
-          .map(_.asRight[Err])
+        pool.useKleisli(for {
+          id   <- rooms.create(req.toRow)
+          room <- rooms.findById(id)
+        } yield room.get.toResponse.asRight[Err])
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
 
       Endpoints.rooms.patch.serverLogic[IO] { (id, req) =>
-        pool.use(rooms.patch(id, req.toRow).run)
-          .map(_.map(_.toResponse).toRight(notFound(s"Room $id not found")))
+        pool.useKleisli(rooms.patch(id, req.toRow))
+          .map(_.toRight(notFound(s"Room $id not found")).map(_.toResponse))
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
 
       Endpoints.rooms.delete.serverLogic[IO] { id =>
-        pool.use { s =>
-          rooms.findById(id).run(s).flatMap {
-            case None    => IO.pure(notFound(s"Room $id not found").asLeft[Unit])
-            case Some(_) => rooms.delete(id).run(s).as(().asRight[Err])
-          }
-        }
+        pool.useKleisli(for {
+          opt    <- rooms.findById(id)
+          result <- opt.traverse(_ => rooms.delete(id))
+        } yield result.toRight(notFound(s"Room $id not found")).void)
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       }
     )
@@ -74,8 +72,8 @@ object Routes {
       },
 
       Endpoints.bookings.getById.serverLogic[IO] { id =>
-        pool.use(bookings.findById(id).run)
-          .map(_.map(_.toResponse).toRight(notFound(s"Booking $id not found")))
+        pool.useKleisli(bookings.findById(id))
+          .map(_.toRight(notFound(s"Booking $id not found")).map(_.toResponse))
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
 
@@ -86,26 +84,28 @@ object Routes {
       },
 
       Endpoints.bookings.create.serverLogic[IO] { req =>
-        pool.use { s =>
-          bookings.findOverlapping(req.roomId, req.startDate, req.endDate).run(s).flatMap {
+        pool.useKleisli(for {
+          overlapping <- bookings.findOverlapping(req.roomId, req.startDate, req.endDate)
+          result <- overlapping match {
             case _ :: _ =>
-              IO.pure(conflict("Room already booked during this period").asLeft[BookingResponse])
+              Kleisli.liftF[IO, Session[IO], Either[Err, BookingResponse]](
+                IO.pure(conflict("Room already booked during this period").asLeft)
+              )
             case Nil =>
-              bookings.create(req.toRow).run(s)
-                .flatMap(id => bookings.findById(id).run(s).map(_.get.toResponse))
-                .map(_.asRight[Err])
+              for {
+                id      <- bookings.create(req.toRow)
+                booking <- bookings.findById(id)
+              } yield booking.get.toResponse.asRight[Err]
           }
-        }
+        } yield result)
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
 
       Endpoints.bookings.delete.serverLogic[IO] { id =>
-        pool.use { s =>
-          bookings.findById(id).run(s).flatMap {
-            case None    => IO.pure(notFound(s"Booking $id not found").asLeft[Unit])
-            case Some(_) => bookings.delete(id).run(s).as(().asRight[Err])
-          }
-        }
+        pool.useKleisli(for {
+          opt    <- bookings.findById(id)
+          result <- opt.traverse(_ => bookings.delete(id))
+        } yield result.toRight(notFound(s"Booking $id not found")).void)
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       }
     )
