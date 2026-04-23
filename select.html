@@ -138,7 +138,7 @@
   .</span><span class="identifier">offset</span><span>(</span><span class="number-literal">100</span><span>)
   .</span><span class="identifier">compile</span></code></pre>
         <p>Execution methods on <code>CompiledQuery[R]</code>:</p>
-        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// session: skunk.Session[IO]
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">val</span><span> </span><span class="identifier">session</span><span>: </span><span class="identifier">skunk</span><span>.</span><span class="type-name">Session</span><span>[</span><span class="identifier">cats</span><span>.</span><span class="identifier">effect</span><span>.</span><span class="type-name">IO</span><span>] = </span><span class="literal-value">null</span><span>
 </span><span class="identifier">q1</span><span>.</span><span class="identifier">run</span><span>(</span><span class="identifier">session</span><span>)        </span><span class="comment">// IO[List[R]]
 </span><span class="identifier">q2</span><span>.</span><span class="identifier">unique</span><span>(</span><span class="identifier">session</span><span>)     </span><span class="comment">// IO[R]           — raises if 0 or &gt;1 rows
 </span><span class="identifier">q3</span><span>.</span><span class="identifier">option</span><span>(</span><span class="identifier">session</span><span>)     </span><span class="comment">// IO[Option[R]]   — raises if &gt;1 row
@@ -151,10 +151,10 @@
 
 </span><span class="comment">// Multiple columns → CompiledQuery[(email: String, age: Int)]
 </span><span class="keyword">val</span><span> </span><span class="identifier">snap</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>(</span><span class="identifier">u</span><span> =&gt; (</span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span>, </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span>)).</span><span class="identifier">compile</span></code></pre>
-        <p>Map a multi-column projection to a case class with <code>.as[T]</code>:</p>
+        <p>Map a multi-column projection to a case class with <code>.to[T]</code>:</p>
         <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">UserSnap</span><span>(</span><span class="identifier">email</span><span>: </span><span class="type-name">String</span><span>, </span><span class="identifier">age</span><span>: </span><span class="type-name">Int</span><span>)
-</span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>(</span><span class="identifier">u</span><span> =&gt; (</span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span>, </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span>)).</span><span class="identifier">as</span><span>[</span><span class="type-name">UserSnap</span><span>].</span><span class="identifier">compile</span></code></pre>
-        <p>The <code>.as[T]</code> alignment is checked at compile time — field types must match the
+</span><span class="keyword">val</span><span> </span><span class="identifier">snaps</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>(</span><span class="identifier">u</span><span> =&gt; (</span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span>, </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span>)).</span><span class="identifier">to</span><span>[</span><span class="type-name">UserSnap</span><span>].</span><span class="identifier">compile</span></code></pre>
+        <p>The <code>.to[T]</code> alignment is checked at compile time — field types must match the
         projection tuple in order.</p>
         
         <h2 id="distinct" class="section"><a class="anchor-link left" href="#distinct"><i class="icofont-laika link">&#xef71;</i></a>DISTINCT</h2>

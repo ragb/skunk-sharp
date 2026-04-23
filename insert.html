@@ -166,7 +166,8 @@
   .</span><span class="identifier">returningAll</span><span>
   .</span><span class="identifier">compile</span></code></pre>
         <p>With RETURNING you use query execution methods:</p>
-        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="identifier">insertReturningId</span><span>.</span><span class="identifier">unique</span><span>(</span><span class="identifier">session</span><span>)  </span><span class="comment">// IO[UUID]
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">val</span><span> </span><span class="identifier">session</span><span>: </span><span class="identifier">skunk</span><span>.</span><span class="type-name">Session</span><span>[</span><span class="identifier">cats</span><span>.</span><span class="identifier">effect</span><span>.</span><span class="type-name">IO</span><span>] = </span><span class="literal-value">null</span><span>
+</span><span class="identifier">insertReturningId</span><span>.</span><span class="identifier">unique</span><span>(</span><span class="identifier">session</span><span>)  </span><span class="comment">// IO[UUID]
 </span><span class="identifier">insertReturningAll</span><span>.</span><span class="identifier">unique</span><span>(</span><span class="identifier">session</span><span>) </span><span class="comment">// IO[(id: UUID, email: String, ...)]</span></code></pre>
         
         <h2 id="on-conflict" class="section"><a class="anchor-link left" href="#on-conflict"><i class="icofont-laika link">&#xef71;</i></a>ON CONFLICT</h2>

@@ -99,7 +99,7 @@
 
         <h1 id="delete" class="title">DELETE</h1>
         <p>DELETE uses the same <strong>staged builder</strong> pattern as UPDATE:</p>
-        <pre><code>users.delete  →  .where(…) or .deleteAll  →  .compile</code></pre>
+        <pre class="keep-together pdf epub"><code class="text">users.delete  →  .where(…) or .deleteAll  →  .compile</code></pre>
         <p>Calling <code>.compile</code> without either <code>.where</code> or <code>.deleteAll</code> is a compile error.</p>
         
         <h2 id="basic-delete" class="section"><a class="anchor-link left" href="#basic-delete"><i class="icofont-laika link">&#xef71;</i></a>Basic DELETE</h2>
@@ -159,7 +159,8 @@
   .</span><span class="identifier">where</span><span>(</span><span class="identifier">p</span><span> =&gt; </span><span class="identifier">p</span><span>.</span><span class="identifier">views</span><span> &lt; </span><span class="number-literal">10</span><span>)
   .</span><span class="identifier">returningAll</span><span>
   .</span><span class="identifier">compile</span></code></pre>
-        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="identifier">deleteReturning</span><span>.</span><span class="identifier">stream</span><span>(</span><span class="identifier">session</span><span>)     </span><span class="comment">// fs2.Stream[IO, (id: UUID, author_id: UUID, ...)]
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">val</span><span> </span><span class="identifier">session</span><span>: </span><span class="identifier">skunk</span><span>.</span><span class="type-name">Session</span><span>[</span><span class="identifier">cats</span><span>.</span><span class="identifier">effect</span><span>.</span><span class="type-name">IO</span><span>] = </span><span class="literal-value">null</span><span>
+</span><span class="identifier">deleteReturning</span><span>.</span><span class="identifier">stream</span><span>(</span><span class="identifier">session</span><span>)     </span><span class="comment">// fs2.Stream[IO, (id: UUID, author_id: UUID, ...)]
 </span><span class="identifier">deleteReturning</span><span>.</span><span class="identifier">run</span><span>(</span><span class="identifier">session</span><span>)        </span><span class="comment">// IO[List[(id: UUID, ...)]]</span></code></pre>
         <p><code>.returning(p =&gt; p.id)</code> returns only specific columns; <code>.returningAll</code> returns the whole row.</p>
 

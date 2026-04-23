@@ -100,7 +100,7 @@
 
         <h1 id="update" class="title">UPDATE</h1>
         <p>UPDATE uses a <strong>staged builder</strong> to prevent accidental bulk updates. The stages are:</p>
-        <pre><code>users.update  →  .set(…)  →  .where(…) or .updateAll  →  .compile</code></pre>
+        <pre class="keep-together pdf epub"><code class="text">users.update  →  .set(…)  →  .where(…) or .updateAll  →  .compile</code></pre>
         <p>Calling <code>.compile</code> without either <code>.where</code> or <code>.updateAll</code> is a <strong>compile error</strong> — the
         <code>.compile</code> method simply does not exist on the intermediate <code>UpdateWithSet</code> type.</p>
         
@@ -174,7 +174,8 @@
   .</span><span class="identifier">returningAll</span><span>
   .</span><span class="identifier">to</span><span>[</span><span class="type-name">User</span><span>]
   .</span><span class="identifier">compile</span></code></pre>
-        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="identifier">updateReturning</span><span>.</span><span class="identifier">option</span><span>(</span><span class="identifier">session</span><span>)      </span><span class="comment">// IO[Option[(id: UUID, email: String, ...)]]
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">val</span><span> </span><span class="identifier">session</span><span>: </span><span class="identifier">skunk</span><span>.</span><span class="type-name">Session</span><span>[</span><span class="identifier">cats</span><span>.</span><span class="identifier">effect</span><span>.</span><span class="type-name">IO</span><span>] = </span><span class="literal-value">null</span><span>
+</span><span class="identifier">updateReturning</span><span>.</span><span class="identifier">option</span><span>(</span><span class="identifier">session</span><span>)      </span><span class="comment">// IO[Option[(id: UUID, email: String, ...)]]
 </span><span class="identifier">updateReturningUser</span><span>.</span><span class="identifier">option</span><span>(</span><span class="identifier">session</span><span>)  </span><span class="comment">// IO[Option[User]]</span></code></pre>
         
         <h2 id="updating-from-a-case-class-patch-pattern" class="section"><a class="anchor-link left" href="#updating-from-a-case-class-patch-pattern"><i class="icofont-laika link">&#xef71;</i></a>Updating from a case class (patch pattern)</h2>
