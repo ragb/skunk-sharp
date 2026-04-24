@@ -127,6 +127,21 @@ class TypedPipelineSuite extends munit.FunSuite {
     assert(c.fragment.sql.contains("WHERE"))
   }
 
+  test("typed UPDATE: multi-assign via & combinator") {
+    import skunk.sharp.internal.TypedWhere
+    import skunk.sharp.dsl.TypedSetAssignment.&
+    val pred = SqlMacros.infixTyped[Int, Int]("=", users.columnsView.age, 99)
+    val c = users.update
+      .setT(u => (u.email :=% "multi@x") & (u.age :=% 77))
+      .where(_ => pred)
+      .compile
+    // Args layout: ((setArgsCombined), whereArgs) = ((String, Int), Int)
+    val _: ((String, Int), Int) = c.args
+    assertEquals(c.args, (("multi@x", 77), 99))
+    assert(c.fragment.sql.contains("SET"))
+    assert(c.fragment.sql.contains(", "))
+  }
+
   test("typed UPDATE: single setT alone, no where") {
     val c = users.update.setT(u => u.age :=% 99).compile
     val _: Int = c.args

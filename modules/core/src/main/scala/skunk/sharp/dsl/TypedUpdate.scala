@@ -32,6 +32,26 @@ object TypedSetAssignment {
     new TypedSetAssignment[T, T](col, frag, value)
   }
 
+  /** Combine two typed assignments — comma-joined SQL, paired-args `(ArgsL, ArgsR)`. */
+  def combine[T1, A1, T2, A2](
+    lhs: TypedSetAssignment[T1, A1],
+    rhs: TypedSetAssignment[T2, A2]
+  ): TypedSetAssignment[Unit, (A1, A2)] = {
+    val combinedParts =
+      lhs.fragment.parts ++ RawConstants.COMMA_SEP.fragment.parts ++ rhs.fragment.parts
+    val combinedEnc = lhs.fragment.encoder.product(rhs.fragment.encoder)
+    val frag: Fragment[(A1, A2)] =
+      Fragment(combinedParts, combinedEnc, Origin.unknown)
+    // Column type isn't meaningful for the combined result — we use `Unit` as a neutral marker; the column
+    // ref only matters for single-column assignments (not used downstream on the combined form).
+    new TypedSetAssignment[Unit, (A1, A2)](null.asInstanceOf[TypedColumn[Unit, ?, ?]], frag, (lhs.args, rhs.args))
+  }
+
+  /** Infix `&` combinator — reads like the commas in a SET list. */
+  extension [T1, A1](lhs: TypedSetAssignment[T1, A1])
+    def &[T2, A2](rhs: TypedSetAssignment[T2, A2]): TypedSetAssignment[Unit, (A1, A2)] =
+      combine(lhs, rhs)
+
 }
 
 extension [T, Null <: Boolean, N <: String & Singleton](col: TypedColumn[T, Null, N])
