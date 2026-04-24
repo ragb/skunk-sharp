@@ -41,6 +41,16 @@ final class DeleteBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
     new DeleteReady[Cols](table, Some(f(view)))
   }
 
+  /**
+   * Typed WHERE overload — `f` yields a `TypedWhere[A]`. Returns a [[TypedDeleteReady]] carrying `Args = A` so
+   * `.compile` surfaces `CompiledCommand[A]` with the concrete captured-value tuple.
+   */
+  def where[A](f: ColumnsView[Cols] => skunk.sharp.internal.TypedWhere[A]): TypedDeleteReady[Cols, Name, A] = {
+    val view = table.columnsView
+    val pred = f(view)
+    new TypedDeleteReady[Cols, Name, A](table, pred.fragment, pred.args)
+  }
+
   /** "Yes, delete every row." Explicit opt-in — skips the WHERE requirement. */
   def deleteAll: DeleteReady[Cols] =
     new DeleteReady[Cols](table, None)

@@ -84,6 +84,23 @@ class TypedPipelineSuite extends munit.FunSuite {
     assert(q.fragment.sql.contains("LIMIT 10"))
   }
 
+  test("typed DELETE: Args visible as Int on .compile") {
+    val pred = SqlMacros.infixTyped[Int, Int](">=", users.columnsView.age, 50)
+    val c = users.delete.where(_ => pred).compile
+    val _: Int = c.args
+    assertEquals(c.args, 50)
+    assert(c.fragment.sql.startsWith("DELETE FROM"))
+    val _: skunk.Command[Int] = c.typedCommand
+  }
+
+  test("typed DELETE chaining two WHEREs accumulates Args = ((Int, String))") {
+    val a = SqlMacros.infixTyped[Int, Int](">=", users.columnsView.age, 50)
+    val b = SqlMacros.infixTyped[String, String]("=", users.columnsView.email, "test@x")
+    val c = users.delete.where(_ => a).where(_ => b).compile
+    val _: (Int, String) = c.args
+    assertEquals(c.args, (50, "test@x"))
+  }
+
   test("typed .having extends Args to (whereArgs, havingArgs)") {
     val wherePred  = SqlMacros.infixTyped[Int, Int](">=", users.columnsView.age, 18)
     val havingPred = SqlMacros.infixTyped[Int, Int](">", users.columnsView.age, 100)
