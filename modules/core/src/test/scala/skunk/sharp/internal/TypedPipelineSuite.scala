@@ -84,6 +84,29 @@ class TypedPipelineSuite extends munit.FunSuite {
     assert(q.fragment.sql.contains("LIMIT 10"))
   }
 
+  test("typed INSERT RETURNING id — Args = (String, Int), R = UUID") {
+    val q = users.insert.insertT((email = "b@x", age = 40)).returning(u => u.id)
+    val _: (String, Int) = q.args
+    assert(q.fragment.sql.contains("RETURNING"))
+    val _: skunk.Query[(String, Int), UUID] = q.typedQuery
+  }
+
+  test("typed UPDATE RETURNING * — Args threads, R is NamedRow") {
+    val pred = SqlMacros.infixTyped[Int, Int]("=", users.columnsView.age, 99)
+    val q    = users.update.setT(u => u.email :=% "r@x").where(_ => pred).returningAll
+    val _: (String, Int) = q.args
+    assert(q.fragment.sql.contains("RETURNING"))
+  }
+
+  test("typed DELETE RETURNING single expr — Args = Int, R = String") {
+    val pred = SqlMacros.infixTyped[Int, Int](">=", users.columnsView.age, 50)
+    val q    = users.delete.where(_ => pred).returning(u => u.email)
+    val _: Int = q.args
+    val _: skunk.Query[Int, String] = q.typedQuery
+    assert(q.fragment.sql.startsWith("DELETE"))
+    assert(q.fragment.sql.contains("RETURNING"))
+  }
+
   test("typed INSERT: row's value tuple is the visible Args") {
     val c = users.insert.insertT((email = "a@x", age = 30)).compile
     val _: (String, Int) = c.args
