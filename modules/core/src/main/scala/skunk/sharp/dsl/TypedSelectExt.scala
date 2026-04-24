@@ -15,24 +15,44 @@ import skunk.util.Origin
  * `(Args, A)` — same as `TypedWhere.&&`.
  */
 final class TypedSelectBuilder[Ss <: Tuple, Args] private[dsl] (
-  private[dsl] val base:          SelectBuilder[Ss],
-  private[dsl] val whereFragment: Fragment[Args],
-  private[dsl] val whereArgs:     Args,
-  private[dsl] val orderBys:      List[OrderBy] = Nil,
-  private[dsl] val limitOpt:      Option[Int] = None,
-  private[dsl] val offsetOpt:     Option[Int] = None,
-  private[dsl] val distinct:      Boolean = false
+  private[dsl] val base:           SelectBuilder[Ss],
+  private[dsl] val whereFragment:  Fragment[Args],
+  private[dsl] val whereArgs:      Args,
+  private[dsl] val groupBys:       List[skunk.sharp.TypedExpr[?]] = Nil,
+  private[dsl] val havingFragment: Option[Fragment[?]] = None,
+  private[dsl] val havingArgs:     Option[Any] = None,
+  private[dsl] val orderBys:       List[OrderBy] = Nil,
+  private[dsl] val limitOpt:       Option[Int] = None,
+  private[dsl] val offsetOpt:      Option[Int] = None,
+  private[dsl] val distinct:       Boolean = false,
+  private[dsl] val lockingOpt:     Option[Locking] = None
 ) {
 
   private def withState[A2](
-    whereFragment: Fragment[A2] = this.whereFragment.asInstanceOf[Fragment[A2]],
-    whereArgs:     A2           = this.whereArgs.asInstanceOf[A2],
-    orderBys:      List[OrderBy] = this.orderBys,
-    limitOpt:      Option[Int]   = this.limitOpt,
-    offsetOpt:     Option[Int]   = this.offsetOpt,
-    distinct:      Boolean       = this.distinct
+    whereFragment:  Fragment[A2]  = this.whereFragment.asInstanceOf[Fragment[A2]],
+    whereArgs:      A2            = this.whereArgs.asInstanceOf[A2],
+    groupBys:       List[skunk.sharp.TypedExpr[?]] = this.groupBys,
+    havingFragment: Option[Fragment[?]] = this.havingFragment,
+    havingArgs:     Option[Any]   = this.havingArgs,
+    orderBys:       List[OrderBy] = this.orderBys,
+    limitOpt:       Option[Int]   = this.limitOpt,
+    offsetOpt:      Option[Int]   = this.offsetOpt,
+    distinct:       Boolean       = this.distinct,
+    lockingOpt:     Option[Locking] = this.lockingOpt
   ): TypedSelectBuilder[Ss, A2] =
-    new TypedSelectBuilder[Ss, A2](base, whereFragment, whereArgs, orderBys, limitOpt, offsetOpt, distinct)
+    new TypedSelectBuilder[Ss, A2](
+      base,
+      whereFragment,
+      whereArgs,
+      groupBys,
+      havingFragment,
+      havingArgs,
+      orderBys,
+      limitOpt,
+      offsetOpt,
+      distinct,
+      lockingOpt
+    )
 
   private def view: SelectView[Ss] = buildSelectView[Ss](base.sources)
 
@@ -60,6 +80,38 @@ final class TypedSelectBuilder[Ss <: Tuple, Args] private[dsl] (
     withState[Args](orderBys = orderBys ++ fresh)
   }
 
+  /**
+   * `GROUP BY …` — grouping keys are expressions over columns (no runtime params), so `Args` is unchanged. The
+   * lambda may yield either a single `TypedExpr[?]` or a `Tuple` of them.
+   */
+  def groupBy(f: SelectView[Ss] => skunk.sharp.TypedExpr[?] | Tuple): TypedSelectBuilder[Ss, Args] = {
+    val fresh = f(view) match {
+      case e: skunk.sharp.TypedExpr[?] => List(e)
+      case t: Tuple                    => t.toList.asInstanceOf[List[skunk.sharp.TypedExpr[?]]]
+    }
+    withState[Args](groupBys = groupBys ++ fresh)
+  }
+
+  // ---- Row-level locking — Args unchanged, gated on single-source Table ----
+
+  def forUpdate(using ev: IsSingleTable[Ss]): TypedSelectBuilder[Ss, Args] =
+    withState[Args](lockingOpt = Some(Locking(LockMode.ForUpdate)))
+
+  def forNoKeyUpdate(using ev: IsSingleTable[Ss]): TypedSelectBuilder[Ss, Args] =
+    withState[Args](lockingOpt = Some(Locking(LockMode.ForNoKeyUpdate)))
+
+  def forShare(using ev: IsSingleTable[Ss]): TypedSelectBuilder[Ss, Args] =
+    withState[Args](lockingOpt = Some(Locking(LockMode.ForShare)))
+
+  def forKeyShare(using ev: IsSingleTable[Ss]): TypedSelectBuilder[Ss, Args] =
+    withState[Args](lockingOpt = Some(Locking(LockMode.ForKeyShare)))
+
+  def skipLocked(using ev: IsSingleTable[Ss]): TypedSelectBuilder[Ss, Args] =
+    withState[Args](lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.SkipLocked)))
+
+  def noWait(using ev: IsSingleTable[Ss]): TypedSelectBuilder[Ss, Args] =
+    withState[Args](lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.NoWait)))
+
   /** `LIMIT n` — `n` is rendered as a SQL integer literal, no `$N`. `Args` unchanged. */
   def limit(n: Int): TypedSelectBuilder[Ss, Args] = withState[Args](limitOpt = Some(n))
 
@@ -86,6 +138,13 @@ final class TypedSelectBuilder[Ss <: Tuple, Args] private[dsl] (
       selectKw |+| TypedExpr.raw("*") |+| RawConstants.FROM |+| aliasedFromEntry(head)
     val wherePrefix: AppliedFragment = RawConstants.WHERE
 
+    val afterGroupBy: List[Either[String, cats.data.State[Int, String]]] =
+      if (groupBys.isEmpty) Nil
+      else {
+        val af = RawConstants.GROUP_BY |+| TypedExpr.joined(groupBys.map(_.render), ", ")
+        af.fragment.parts
+      }
+
     val afterOrderBy: List[Either[String, cats.data.State[Int, String]]] =
       if (orderBys.isEmpty) Nil
       else {
@@ -103,13 +162,20 @@ final class TypedSelectBuilder[Ss <: Tuple, Args] private[dsl] (
         TypedExpr.raw(s" OFFSET $n").fragment.parts
       )
 
+    val afterLocking: List[Either[String, cats.data.State[Int, String]]] =
+      lockingOpt.fold(Nil: List[Either[String, cats.data.State[Int, String]]])(l =>
+        TypedExpr.raw(" " + l.sql).fragment.parts
+      )
+
     val combinedParts: List[Either[String, cats.data.State[Int, String]]] =
       projFrom.fragment.parts ++
         wherePrefix.fragment.parts ++
         whereFragment.parts ++
+        afterGroupBy ++
         afterOrderBy ++
         afterLimit ++
-        afterOffset
+        afterOffset ++
+        afterLocking
 
     val combinedFragment: Fragment[Args] =
       Fragment(combinedParts, whereFragment.encoder, Origin.unknown)

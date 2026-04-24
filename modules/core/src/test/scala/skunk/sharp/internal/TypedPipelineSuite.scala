@@ -84,6 +84,18 @@ class TypedPipelineSuite extends munit.FunSuite {
     assert(q.fragment.sql.contains("LIMIT 10"))
   }
 
+  test("typed chain: .where + .groupBy + .forUpdate Args stable") {
+    val pred = SqlMacros.infixTyped[Int, Int](">=", users.columnsView.age, 5)
+    val q = users.select
+      .where(_ => pred)
+      .groupBy(u => u.email)
+      .forUpdate
+      .compile
+    val _: Int = q.args
+    assert(q.fragment.sql.contains("GROUP BY"))
+    assert(q.fragment.sql.contains("FOR UPDATE"))
+  }
+
   test("two typed WHEREs in chain: Args = ((first, second))") {
     val a = SqlMacros.infixTyped[Int, Int](">=", users.columnsView.age, 18)
     val b = SqlMacros.infixTyped[String, String]("=", users.columnsView.email, "alice")
