@@ -71,6 +71,27 @@ class TypedPipelineSuite extends munit.FunSuite {
     assert(typedQ != null)
   }
 
+  test("typed chain: .where + .orderBy + .limit keeps Args = Int") {
+    val pred = SqlMacros.infixTyped[Int, Int](">=", users.columnsView.age, 21)
+    val q = users.select
+      .where(_ => pred)
+      .orderBy(u => u.email.asc)
+      .limit(10)
+      .compile
+    val _: Int = q.args
+    assertEquals(q.args, 21)
+    assert(q.fragment.sql.contains("ORDER BY"))
+    assert(q.fragment.sql.contains("LIMIT 10"))
+  }
+
+  test("two typed WHEREs in chain: Args = ((first, second))") {
+    val a = SqlMacros.infixTyped[Int, Int](">=", users.columnsView.age, 18)
+    val b = SqlMacros.infixTyped[String, String]("=", users.columnsView.email, "alice")
+    val q = users.select.where(_ => a).where(_ => b).compile
+    val _: (Int, String) = q.args
+    assertEquals(q.args, (18, "alice"))
+  }
+
   test("end-to-end: users.select.where(...).compile threads Args = Int") {
     // The typed WHERE predicate — produced by the macro.
     val pred = SqlMacros.infixTyped[Int, Int](">=", users.columnsView.age, 21)

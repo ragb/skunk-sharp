@@ -66,9 +66,9 @@ final class SelectBuilder[Ss <: Tuple] private[sharp] (
    * a subtype of [[Where]], so overload resolution picks this branch when — and only when — the lambda's
    * return type is typed.
    */
-  def where[A](f: SelectView[Ss] => skunk.sharp.internal.TypedWhere[A]): TypedSelectEnd[Ss, A] = {
+  def where[A](f: SelectView[Ss] => skunk.sharp.internal.TypedWhere[A]): TypedSelectBuilder[Ss, A] = {
     val pred = f(view)
-    new TypedSelectEnd[Ss, A](this, pred.fragment, pred.args)
+    new TypedSelectBuilder[Ss, A](this, pred.fragment, pred.args)
   }
 
   def orderBy(f: SelectView[Ss] => OrderBy | Tuple): SelectBuilder[Ss] = {
