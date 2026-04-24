@@ -22,7 +22,7 @@ import scala.deriving.Mirror
  *   - `.onConflictDoNothing` / `.onConflict(c => c.id).doNothing` / `.doUpdate(…)` / `.doUpdateFromExcluded(…)` —
  *     upsert.
  */
-final class InsertBuilder[Cols <: Tuple] private[sharp] (table: Table[Cols, ?]) {
+final class InsertBuilder[Cols <: Tuple] private[sharp] (private[sharp] val table: Table[Cols, ?]) {
 
   /**
    * Insert a single row. `row` is any named tuple whose field names are a subset of the table's columns and whose

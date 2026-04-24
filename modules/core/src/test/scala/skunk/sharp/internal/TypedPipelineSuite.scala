@@ -84,6 +84,15 @@ class TypedPipelineSuite extends munit.FunSuite {
     assert(q.fragment.sql.contains("LIMIT 10"))
   }
 
+  test("typed INSERT: row's value tuple is the visible Args") {
+    val c = users.insert.insertT((email = "a@x", age = 30)).compile
+    val _: (String, Int) = c.args
+    assertEquals(c.args, ("a@x", 30))
+    assert(c.fragment.sql.startsWith("INSERT INTO"))
+    assert(c.fragment.sql.contains("VALUES"))
+    val _: skunk.Command[(String, Int)] = c.typedCommand
+  }
+
   test("typed UPDATE: setT then where threads (T, W) Args") {
     val pred = SqlMacros.infixTyped[Int, Int]("=", users.columnsView.age, 99)
     // Note: := on TypedColumn returns SetAssignment (untyped); :=% returns TypedSetAssignment.
