@@ -11,13 +11,15 @@ import skunk.util.Origin
  * chain stays typed and `.compile` yields `CompiledQuery[Args, R]` with the concrete `Args` tuple surfaced.
  *
  * Operations that don't capture runtime values (`.orderBy`, `.limit`, `.offset`, `.distinctRows`, row-level
- * locking) pass `Args` through unchanged. A second typed `.where(typedPred)` extends `Args` to the twiddle pair
- * `(Args, A)` — same as `TypedWhere.&&`.
+ * locking, `.groupBy`) pass `Args` through unchanged. A second typed `.where(typedPred)` extends `Args` via
+ * combined-encoder composition. `.having(typedPred)` extends `Args` too, but renders its captured placeholders
+ * in SQL position after `GROUP BY` — internally each clause stores its own `Fragment[?]`, and `.compile`
+ * assembles them in correct SQL order with an encoder product.
  */
 final class TypedSelectBuilder[Ss <: Tuple, Args] private[dsl] (
   private[dsl] val base:           SelectBuilder[Ss],
-  private[dsl] val whereFragment:  Fragment[Args],
-  private[dsl] val whereArgs:      Args,
+  private[dsl] val whereFragment:  Fragment[?],
+  private[dsl] val whereArgs:      Any,
   private[dsl] val groupBys:       List[skunk.sharp.TypedExpr[?]] = Nil,
   private[dsl] val havingFragment: Option[Fragment[?]] = None,
   private[dsl] val havingArgs:     Option[Any] = None,
@@ -29,8 +31,8 @@ final class TypedSelectBuilder[Ss <: Tuple, Args] private[dsl] (
 ) {
 
   private def withState[A2](
-    whereFragment:  Fragment[A2]  = this.whereFragment.asInstanceOf[Fragment[A2]],
-    whereArgs:      A2            = this.whereArgs.asInstanceOf[A2],
+    whereFragment:  Fragment[?]   = this.whereFragment,
+    whereArgs:      Any           = this.whereArgs,
     groupBys:       List[skunk.sharp.TypedExpr[?]] = this.groupBys,
     havingFragment: Option[Fragment[?]] = this.havingFragment,
     havingArgs:     Option[Any]   = this.havingArgs,
@@ -65,10 +67,10 @@ final class TypedSelectBuilder[Ss <: Tuple, Args] private[dsl] (
         RawConstants.AND.fragment.parts ++
         pred.fragment.parts ++
         RawConstants.CLOSE_PAREN.fragment.parts
-    val combinedEncoder = whereFragment.encoder.product(pred.fragment.encoder)
+    val combinedEncoder = whereFragment.encoder.asInstanceOf[skunk.Encoder[Args]].product(pred.fragment.encoder)
     val combinedFragment: Fragment[(Args, A)] =
       Fragment(combinedParts, combinedEncoder, Origin.unknown)
-    withState[(Args, A)](combinedFragment, (whereArgs, pred.args))
+    withState[(Args, A)](combinedFragment, (whereArgs.asInstanceOf[Args], pred.args))
   }
 
   /** `ORDER BY …` — no runtime params captured (columns + direction keywords only). `Args` unchanged. */
@@ -92,6 +94,20 @@ final class TypedSelectBuilder[Ss <: Tuple, Args] private[dsl] (
     withState[Args](groupBys = groupBys ++ fresh)
   }
 
+  /**
+   * `HAVING <typed-predicate>` — extends `Args` to `(Args, HA)`. Unlike `.where` which AND-joins into one
+   * WHERE clause, HAVING lives as a separate SQL clause between GROUP BY and ORDER BY. Internally the WHERE
+   * fragment and the HAVING fragment are stored independently; `.compile` assembles them in SQL order with
+   * a product encoder so the combined `Fragment[(Args, HA)]` matches the intended `Args` tuple exactly.
+   */
+  def having[HA](f: SelectView[Ss] => TypedWhere[HA]): TypedSelectBuilder[Ss, (Args, HA)] = {
+    val pred = f(view)
+    withState[(Args, HA)](
+      havingFragment = Some(pred.fragment),
+      havingArgs     = Some(pred.args)
+    )
+  }
+
   // ---- Row-level locking — Args unchanged, gated on single-source Table ----
 
   def forUpdate(using ev: IsSingleTable[Ss]): TypedSelectBuilder[Ss, Args] =
@@ -112,19 +128,19 @@ final class TypedSelectBuilder[Ss <: Tuple, Args] private[dsl] (
   def noWait(using ev: IsSingleTable[Ss]): TypedSelectBuilder[Ss, Args] =
     withState[Args](lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.NoWait)))
 
-  /** `LIMIT n` — `n` is rendered as a SQL integer literal, no `$N`. `Args` unchanged. */
+  /** `LIMIT n`. */
   def limit(n: Int): TypedSelectBuilder[Ss, Args] = withState[Args](limitOpt = Some(n))
 
-  /** `OFFSET n`. Same treatment as `limit`. */
+  /** `OFFSET n`. */
   def offset(n: Int): TypedSelectBuilder[Ss, Args] = withState[Args](offsetOpt = Some(n))
 
   /** `SELECT DISTINCT`. */
   def distinctRows: TypedSelectBuilder[Ss, Args] = withState[Args](distinct = true)
 
   /**
-   * Compile the typed chain into a `CompiledQuery[Args, R]`. Manual assembly — the typed Fragment[Args] must
-   * drive the final encoder so `Args` isn't erased by the `AppliedFragment` `|+|` composition used for
-   * untyped builds.
+   * Compile the typed chain into a `CompiledQuery[Args, R]`. Manual assembly — the combined Fragment must use
+   * `whereFragment.encoder` (and optionally `havingFragment.encoder`, combined via `.product`) so `Args` isn't
+   * erased by the `AppliedFragment` `|+|` composition used for untyped builds.
    */
   def compile(using ev: IsSingleSource[Ss]): CompiledQuery[Args, NamedRowOf[ev.Cols]] = {
     val entries = base.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
@@ -133,7 +149,6 @@ final class TypedSelectBuilder[Ss <: Tuple, Args] private[dsl] (
     val selectKw: AppliedFragment =
       if (distinct) RawConstants.SELECT_DISTINCT else RawConstants.SELECT
 
-    // SELECT [DISTINCT] * FROM <relation> WHERE <typed> [ORDER BY …] [LIMIT n] [OFFSET n]
     val projFrom: AppliedFragment =
       selectKw |+| TypedExpr.raw("*") |+| RawConstants.FROM |+| aliasedFromEntry(head)
     val wherePrefix: AppliedFragment = RawConstants.WHERE
@@ -167,22 +182,45 @@ final class TypedSelectBuilder[Ss <: Tuple, Args] private[dsl] (
         TypedExpr.raw(" " + l.sql).fragment.parts
       )
 
+    // HAVING clause (between GROUP BY and ORDER BY). Combined with WHERE encoder via product.
+    val (havingParts, havingEncoderOpt, havingArgsOpt): (
+      List[Either[String, cats.data.State[Int, String]]],
+      Option[skunk.Encoder[Any]],
+      Option[Any]
+    ) = havingFragment match {
+      case None     => (Nil, None, None)
+      case Some(hf) =>
+        val parts   = RawConstants.HAVING.fragment.parts ++ hf.parts
+        val encoder = hf.encoder.asInstanceOf[skunk.Encoder[Any]]
+        (parts, Some(encoder), havingArgs)
+    }
+
     val combinedParts: List[Either[String, cats.data.State[Int, String]]] =
       projFrom.fragment.parts ++
         wherePrefix.fragment.parts ++
         whereFragment.parts ++
         afterGroupBy ++
+        havingParts ++
         afterOrderBy ++
         afterLimit ++
         afterOffset ++
         afterLocking
 
+    val (combinedEncoder, combinedArgs): (skunk.Encoder[Args], Args) = havingEncoderOpt match {
+      case None =>
+        (whereFragment.encoder.asInstanceOf[skunk.Encoder[Args]], whereArgs.asInstanceOf[Args])
+      case Some(henc) =>
+        val enc  = whereFragment.encoder.asInstanceOf[skunk.Encoder[Any]].product(henc)
+        val args = (whereArgs, havingArgsOpt.get)
+        (enc.asInstanceOf[skunk.Encoder[Args]], args.asInstanceOf[Args])
+    }
+
     val combinedFragment: Fragment[Args] =
-      Fragment(combinedParts, whereFragment.encoder, Origin.unknown)
+      Fragment(combinedParts, combinedEncoder, Origin.unknown)
 
     val codec: Codec[NamedRowOf[ev.Cols]] =
       rowCodec(head.effectiveCols).asInstanceOf[Codec[NamedRowOf[ev.Cols]]]
 
-    CompiledQuery.mk[Args, NamedRowOf[ev.Cols]](combinedFragment, whereArgs, codec)
+    CompiledQuery.mk[Args, NamedRowOf[ev.Cols]](combinedFragment, combinedArgs, codec)
   }
 }

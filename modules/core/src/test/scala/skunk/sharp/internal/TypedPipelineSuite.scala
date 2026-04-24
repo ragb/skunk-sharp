@@ -84,6 +84,21 @@ class TypedPipelineSuite extends munit.FunSuite {
     assert(q.fragment.sql.contains("LIMIT 10"))
   }
 
+  test("typed .having extends Args to (whereArgs, havingArgs)") {
+    val wherePred  = SqlMacros.infixTyped[Int, Int](">=", users.columnsView.age, 18)
+    val havingPred = SqlMacros.infixTyped[Int, Int](">", users.columnsView.age, 100)
+    val q = users.select
+      .where(_ => wherePred)
+      .groupBy(u => u.email)
+      .having(_ => havingPred)
+      .compile
+    val _: (Int, Int) = q.args
+    assertEquals(q.args, (18, 100))
+    assert(q.fragment.sql.contains("WHERE"))
+    assert(q.fragment.sql.contains("GROUP BY"))
+    assert(q.fragment.sql.contains("HAVING"))
+  }
+
   test("typed chain: .where + .groupBy + .forUpdate Args stable") {
     val pred = SqlMacros.infixTyped[Int, Int](">=", users.columnsView.age, 5)
     val q = users.select
