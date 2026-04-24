@@ -43,6 +43,24 @@ private[dsl] object TypedReturning {
 
 }
 
+/**
+ * Extension to map a `CompiledQuery[Args, R]` whose `R` is a product (named tuple from `.returningAll` or a
+ * plain tuple from `.returningTuple`) to a case class via `Mirror.ProductOf`. The mapping is codec-level —
+ * same `Args`, new codec that reads into `T`.
+ */
+extension [Args, R](q: CompiledQuery[Args, R])
+  /** Map the row shape to a case class `T` whose field types align with `R` (named-tuple- or tuple-wise). */
+  def to[T <: Product](using
+    m: scala.deriving.Mirror.ProductOf[T] {
+      type MirroredElemTypes = skunk.sharp.dsl.MutationReturning.Unwrap[R] & Tuple
+    }
+  ): CompiledQuery[Args, T] = {
+    val mapped: skunk.Codec[T] = q.codec.imap[T](r => m.fromProduct(r.asInstanceOf[Product]))(t =>
+      Tuple.fromProductTyped[T](t)(using m).asInstanceOf[R]
+    )
+    CompiledQuery.mk[Args, T](q.fragment, q.args, mapped)
+  }
+
 // ---- TypedDeleteReady RETURNING -----------------------------------------------------------------
 
 extension [Cols <: Tuple, Name <: String & Singleton, Args](b: TypedDeleteReady[Cols, Name, Args])
@@ -62,6 +80,21 @@ extension [Cols <: Tuple, Name <: String & Singleton, Args](b: TypedDeleteReady[
       base.args,
       TypedReturning.wholeRowExprs(b.table),
       TypedReturning.wholeRowCodec(b.table)
+    )
+  }
+
+extension [Cols <: Tuple, Name <: String & Singleton, Args](b: TypedDeleteReady[Cols, Name, Args])
+  /** Tuple `RETURNING <e1>, <e2>, …` — returns a `CompiledQuery[Args, ExprOutputs[T]]`. */
+  def returningTuple[T <: NonEmptyTuple](
+    f: skunk.sharp.ColumnsView[Cols] => T
+  ): CompiledQuery[Args, ExprOutputs[T]] = {
+    val exprs = f(b.table.columnsView).toList.asInstanceOf[List[TypedExpr[?]]]
+    val base  = b.compile
+    TypedReturning.compile(
+      base.fragment,
+      base.args,
+      exprs,
+      TypedReturning.tupleExprCodec[ExprOutputs[T]](exprs)
     )
   }
 
@@ -87,6 +120,21 @@ extension [Cols <: Tuple, Name <: String & Singleton, Args](b: TypedUpdateReady[
     )
   }
 
+extension [Cols <: Tuple, Name <: String & Singleton, Args](b: TypedUpdateReady[Cols, Name, Args])
+  /** Tuple `RETURNING <e1>, <e2>, …`. */
+  def returningTuple[T <: NonEmptyTuple](
+    f: skunk.sharp.ColumnsView[Cols] => T
+  ): CompiledQuery[Args, ExprOutputs[T]] = {
+    val exprs = f(b.table.columnsView).toList.asInstanceOf[List[TypedExpr[?]]]
+    val base  = b.compile
+    TypedReturning.compile(
+      base.fragment,
+      base.args,
+      exprs,
+      TypedReturning.tupleExprCodec[ExprOutputs[T]](exprs)
+    )
+  }
+
 // ---- TypedInsertCommand RETURNING -----------------------------------------------------------------
 
 extension [Cols <: Tuple, Args](b: TypedInsertCommand[Cols, Args])
@@ -106,5 +154,20 @@ extension [Cols <: Tuple, Args](b: TypedInsertCommand[Cols, Args])
       base.args,
       TypedReturning.wholeRowExprs(b.table),
       TypedReturning.wholeRowCodec(b.table)
+    )
+  }
+
+extension [Cols <: Tuple, Args](b: TypedInsertCommand[Cols, Args])
+  /** Tuple `RETURNING <e1>, <e2>, …`. */
+  def returningTuple[T <: NonEmptyTuple](
+    f: skunk.sharp.ColumnsView[Cols] => T
+  ): CompiledQuery[Args, ExprOutputs[T]] = {
+    val exprs = f(b.table.columnsView).toList.asInstanceOf[List[TypedExpr[?]]]
+    val base  = b.compile
+    TypedReturning.compile(
+      base.fragment,
+      base.args,
+      exprs,
+      TypedReturning.tupleExprCodec[ExprOutputs[T]](exprs)
     )
   }

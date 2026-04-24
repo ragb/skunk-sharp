@@ -84,6 +84,19 @@ class TypedPipelineSuite extends munit.FunSuite {
     assert(q.fragment.sql.contains("LIMIT 10"))
   }
 
+  test("typed INSERT .returningTuple yields CompiledQuery[Args, (UUID, String)]") {
+    val q = users.insert.insertT((email = "c@x", age = 1)).returningTuple(u => (u.id, u.email))
+    val _: (String, Int) = q.args
+    assert(q.fragment.sql.contains("RETURNING"))
+  }
+
+  test("typed DELETE .returningAll + .to[User] maps to case class") {
+    val pred = SqlMacros.infixTyped[Int, Int]("=", users.columnsView.age, 0)
+    val q = users.delete.where(_ => pred).returningAll.to[User]
+    val _: Int = q.args
+    val _: skunk.Query[Int, User] = q.typedQuery
+  }
+
   test("typed INSERT RETURNING id — Args = (String, Int), R = UUID") {
     val q = users.insert.insertT((email = "b@x", age = 40)).returning(u => u.id)
     val _: (String, Int) = q.args
