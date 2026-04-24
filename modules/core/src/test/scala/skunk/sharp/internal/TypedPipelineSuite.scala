@@ -84,6 +84,23 @@ class TypedPipelineSuite extends munit.FunSuite {
     assert(q.fragment.sql.contains("LIMIT 10"))
   }
 
+  test("typed UPDATE: setT then where threads (T, W) Args") {
+    val pred = SqlMacros.infixTyped[Int, Int]("=", users.columnsView.age, 99)
+    // Note: := on TypedColumn returns SetAssignment (untyped); :=% returns TypedSetAssignment.
+    val c = users.update.setT(u => u.email :=% "new@x").where(_ => pred).compile
+    val _: (String, Int) = c.args
+    assertEquals(c.args, ("new@x", 99))
+    assert(c.fragment.sql.startsWith("UPDATE"))
+    assert(c.fragment.sql.contains("SET"))
+    assert(c.fragment.sql.contains("WHERE"))
+  }
+
+  test("typed UPDATE: single setT alone, no where") {
+    val c = users.update.setT(u => u.age :=% 99).compile
+    val _: Int = c.args
+    assertEquals(c.args, 99)
+  }
+
   test("typed DELETE: Args visible as Int on .compile") {
     val pred = SqlMacros.infixTyped[Int, Int](">=", users.columnsView.age, 50)
     val c = users.delete.where(_ => pred).compile
