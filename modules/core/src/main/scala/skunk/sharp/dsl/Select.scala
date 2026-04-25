@@ -390,25 +390,31 @@ final class SelectBuilder[Ss <: Tuple, WArgs, HArgs] private[sharp] (
   }
 
   private def compileBodyParts(head: SourceEntry[?, ?, ?, ?]): List[SelectBuilder.BodyPart] = {
-    val cols           = head.effectiveCols.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
-    val projStr        = cols.map(c => s""""${c.name}"""").mkString(", ")
-    val selectPrefix   = renderSelectPrefix(distinct, distinctOnOpt)
-    val headStart      =
-      if (head.relation.hasFromClause)
-        selectPrefix |+| TypedExpr.raw(s"$projStr FROM ") |+| aliasedFromEntry(head)
-      else
-        selectPrefix |+| TypedExpr.raw(projStr)
-    // Tail entries (additional joined sources): each source's keyword + alias + ON predicate go into the
-    // header, so any ON-predicate args are baked into the header AppliedFragment and surfaced through
-    // assemble's pre-encoder pairing.
+    val cols         = head.effectiveCols.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
+    val projStr      = cols.map(c => s""""${c.name}"""").mkString(", ")
+    val selectPrefix = renderSelectPrefix(distinct, distinctOnOpt)
+    val headerParts  = scala.collection.mutable.ListBuffer[AppliedFragment](selectPrefix)
+    if (head.relation.hasFromClause) {
+      headerParts += TypedExpr.raw(s"$projStr FROM ")
+      headerParts += aliasedFromEntry(head)
+    } else {
+      headerParts += TypedExpr.raw(projStr)
+    }
+    // Tail entries (additional joined sources): keyword + alias + ON predicate go directly into the
+    // header parts list. Any ON-predicate args ride along on the predicate's AppliedFragment and
+    // surface through assemble's pre-encoder pairing.
     val tail = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].tail
-    val header = tail.foldLeft(headStart) { (acc, s) =>
+    tail.foreach { s =>
       val lateralKw = if (s.isLateral) " LATERAL" else ""
-      val fromFrag  = TypedExpr.raw(s" ${s.kind.sql}$lateralKw ") |+| aliasedFromEntry(s)
-      s.onPredOpt.fold(acc |+| fromFrag)(p => acc |+| fromFrag |+| RawConstants.ON |+| p.render)
+      headerParts += TypedExpr.raw(s" ${s.kind.sql}$lateralKw ")
+      headerParts += aliasedFromEntry(s)
+      s.onPredOpt.foreach { p =>
+        headerParts += RawConstants.ON
+        headerParts += p.render
+      }
     }
     SelectBuilder.bodyPartsAround(
-      header,
+      headerParts.toList,
       whereOpt,
       groupBys,
       havingOpt,
@@ -469,9 +475,16 @@ object SelectBuilder {
    */
   private[dsl] type BodyPart = Either[AppliedFragment, (Fragment[?], Any)]
 
-  /** Build the body-parts list for a SELECT or projected SELECT in render order. */
+  /**
+   * Build the body-parts list for a SELECT or projected SELECT in render order.
+   *
+   * `headerParts` is the SELECT/FROM/JOIN section flattened into individual `AppliedFragment`s — each becomes a
+   * `Left(_)` body part directly, skipping the throwaway intermediate `Fragment + AppliedFragment` allocations
+   * that a `|+|` chain would produce. `assemble` flattens all `Left(_)` parts into one final `Fragment[Args]`,
+   * so splitting the header costs nothing at the SQL-output level.
+   */
   private[dsl] def bodyPartsAround(
-    header:   AppliedFragment,
+    headerParts: List[AppliedFragment],
     whereOpt: Option[(Fragment[?], Any)],
     groupBys: List[TypedExpr[?]],
     havingOpt: Option[(Fragment[?], Any)],
@@ -480,7 +493,8 @@ object SelectBuilder {
     offsetOpt: Option[Int],
     lockingOpt: Option[Locking]
   ): List[BodyPart] = {
-    val buf = scala.collection.mutable.ListBuffer[BodyPart](Left(header))
+    val buf = scala.collection.mutable.ListBuffer[BodyPart]()
+    headerParts.foreach(af => buf += Left(af))
     whereOpt.foreach { case (f, a) =>
       buf += Left(RawConstants.WHERE)
       buf += Right((f, a))
@@ -785,22 +799,23 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
     val entries      = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
     val projList     = TypedExpr.joined(projections.map(_.render), ", ")
     val selectPrefix = renderSelectPrefix(distinct, distinctOnOpt)
-    val header       =
-      if (entries.isEmpty || !entries.head.relation.hasFromClause)
-        selectPrefix |+| projList
-      else {
-        val head     = entries.head
-        val headFrag = selectPrefix |+| projList |+| RawConstants.FROM |+| aliasedFromEntry(head)
-        entries.tail.foldLeft(headFrag) { (acc, s) =>
-          val lateralKw = if (s.isLateral) " LATERAL" else ""
-          val fromFrag  = TypedExpr.raw(s" ${s.kind.sql}$lateralKw ") |+| aliasedFromEntry(s)
-          s.onPredOpt.fold(acc |+| fromFrag)(p =>
-            acc |+| fromFrag |+| RawConstants.ON |+| p.render
-          )
+    val headerParts  = scala.collection.mutable.ListBuffer[AppliedFragment](selectPrefix, projList)
+    if (entries.nonEmpty && entries.head.relation.hasFromClause) {
+      val head = entries.head
+      headerParts += RawConstants.FROM
+      headerParts += aliasedFromEntry(head)
+      entries.tail.foreach { s =>
+        val lateralKw = if (s.isLateral) " LATERAL" else ""
+        headerParts += TypedExpr.raw(s" ${s.kind.sql}$lateralKw ")
+        headerParts += aliasedFromEntry(s)
+        s.onPredOpt.foreach { p =>
+          headerParts += RawConstants.ON
+          headerParts += p.render
         }
       }
+    }
     SelectBuilder.bodyPartsAround(
-      header,
+      headerParts.toList,
       whereOpt,
       groupBys,
       havingOpt,

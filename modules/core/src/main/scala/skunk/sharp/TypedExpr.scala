@@ -89,39 +89,19 @@ object TypedExpr {
   }
 
   /**
-   * Construct a raw, parameterless SQL fragment — used internally to emit identifiers, keywords, operator symbols.
+   * Build an `AppliedFragment` from a SQL string.
    *
-   * Fast path for structural tokens that appear in every compiled query (`)`, `(`, `, `, ` AND `, ` WHERE `, ` FROM `,
-   * ` ON `, ` GROUP BY `, ` HAVING `, ` ORDER BY `): return a process-wide-cached `AppliedFragment` instead of
-   * allocating a fresh `Fragment` + `AppliedFragment` per call. A single `.compile` on a moderately complex SELECT
-   * traverses these dozens of times; without the cache every invocation is a fresh allocation and a list-of-lists
-   * merge when `|+|`-ed.
+   * Compile-time-constant arguments — `raw("(")`, `raw(" || ")`, `raw("array_append(")`, … — intern through a
+   * process-wide table at first call and return the same shared `AppliedFragment` instance forever after, so
+   * the DSL allocates each constant exactly once. The intent: the *only* places in a compiled query that
+   * allocate fresh `AppliedFragment`s per call are the ones whose SQL is genuinely dynamic — `whereRaw` /
+   * `havingRaw` payloads, runtime-built alias / kind / type-name interpolations.
+   *
+   * Runtime-built strings (computed via `s"…"` against variables) skip the intern table and allocate fresh,
+   * so the cache stays bounded by the source-code string set rather than user input.
    */
-  def raw(sql: String): AppliedFragment =
-    sql match {
-      case ")"                        => skunk.sharp.internal.RawConstants.CLOSE_PAREN
-      case "("                        => skunk.sharp.internal.RawConstants.OPEN_PAREN
-      case ", "                       => skunk.sharp.internal.RawConstants.COMMA_SEP
-      case " AND "                    => skunk.sharp.internal.RawConstants.AND
-      case " WHERE "                  => skunk.sharp.internal.RawConstants.WHERE
-      case " FROM "                   => skunk.sharp.internal.RawConstants.FROM
-      case " ON "                     => skunk.sharp.internal.RawConstants.ON
-      case " GROUP BY "               => skunk.sharp.internal.RawConstants.GROUP_BY
-      case " HAVING "                 => skunk.sharp.internal.RawConstants.HAVING
-      case " ORDER BY "               => skunk.sharp.internal.RawConstants.ORDER_BY
-      case "SELECT "                  => skunk.sharp.internal.RawConstants.SELECT
-      case "VALUES "                  => skunk.sharp.internal.RawConstants.VALUES
-      case " RETURNING "              => skunk.sharp.internal.RawConstants.RETURNING
-      case " USING "                  => skunk.sharp.internal.RawConstants.USING
-      case " ON CONFLICT DO NOTHING"  => skunk.sharp.internal.RawConstants.ON_CONFLICT_DO_NOTHING
-      case " ASC"                     => skunk.sharp.internal.RawConstants.ASC
-      case " DESC"                    => skunk.sharp.internal.RawConstants.DESC
-      case " NULLS FIRST"             => skunk.sharp.internal.RawConstants.NULLS_FIRST
-      case " NULLS LAST"              => skunk.sharp.internal.RawConstants.NULLS_LAST
-      case _ =>
-        val frag: Fragment[Void] = Fragment(List(Left(sql)), Void.codec, Origin.unknown)
-        frag(Void)
-    }
+  inline def raw(inline sql: String): AppliedFragment =
+    ${ skunk.sharp.internal.RawMacro.impl('sql) }
 
   /**
    * Join a non-empty list of applied fragments with `sep` between them (e.g. " AND ").
@@ -147,8 +127,9 @@ object TypedExpr {
         val frag: Fragment[Void] = Fragment(List(Left(str)), Void.codec, Origin.unknown)
         frag(Void)
       case head :: tail =>
-        // Allocate the separator once, reuse it in every |+|.
-        val sepAf = raw(sep)
+        // Allocate the separator once, reuse it in every |+|. Go through `intern` directly because we can't
+        // call the inline `raw` macro from the same source file as its definition.
+        val sepAf = skunk.sharp.internal.RawConstants.intern(sep)
         tail.foldLeft(head)((acc, p) => acc |+| sepAf |+| p)
     }
 
@@ -180,7 +161,7 @@ extension [T](expr: TypedExpr[T]) {
 
   def cast[U](using pf: PgTypeFor[U]): TypedExpr[U] = {
     val castName = skunk.sharp.pg.PgTypes.castName(skunk.sharp.pg.PgTypes.typeOf(pf.codec))
-    TypedExpr(expr.render |+| TypedExpr.raw(s"::$castName"), pf.codec)
+    TypedExpr(expr.render |+| skunk.sharp.internal.RawConstants.rawDynamic(s"::$castName"), pf.codec)
   }
 
   /**
@@ -193,7 +174,7 @@ extension [T](expr: TypedExpr[T]) {
    * error for misuse.
    */
   def as[N <: String & Singleton](name: N): AliasedExpr[T, N] = {
-    val rendered = expr.render |+| TypedExpr.raw(s""" AS "$name"""")
+    val rendered = expr.render |+| skunk.sharp.internal.RawConstants.rawDynamic(s""" AS "$name"""")
     val c        = expr.codec
     new AliasedExpr[T, N] {
       val aliasName = name
