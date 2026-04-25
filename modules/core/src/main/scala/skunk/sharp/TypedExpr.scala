@@ -114,6 +114,10 @@ object TypedExpr {
       case " RETURNING "              => skunk.sharp.internal.RawConstants.RETURNING
       case " USING "                  => skunk.sharp.internal.RawConstants.USING
       case " ON CONFLICT DO NOTHING"  => skunk.sharp.internal.RawConstants.ON_CONFLICT_DO_NOTHING
+      case " ASC"                     => skunk.sharp.internal.RawConstants.ASC
+      case " DESC"                    => skunk.sharp.internal.RawConstants.DESC
+      case " NULLS FIRST"             => skunk.sharp.internal.RawConstants.NULLS_FIRST
+      case " NULLS LAST"              => skunk.sharp.internal.RawConstants.NULLS_LAST
       case _ =>
         val frag: Fragment[Void] = Fragment(List(Left(sql)), Void.codec, Origin.unknown)
         frag(Void)

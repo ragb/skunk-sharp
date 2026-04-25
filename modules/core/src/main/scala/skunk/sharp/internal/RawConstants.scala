@@ -43,4 +43,10 @@ private[sharp] object RawConstants {
   val OPEN_PAREN:            AppliedFragment = mk("(")
   val CLOSE_PAREN:           AppliedFragment = mk(")")
 
+  // ORDER BY direction / null placement keywords
+  val ASC:                   AppliedFragment = mk(" ASC")
+  val DESC:                  AppliedFragment = mk(" DESC")
+  val NULLS_FIRST:           AppliedFragment = mk(" NULLS FIRST")
+  val NULLS_LAST:            AppliedFragment = mk(" NULLS LAST")
+
 }
