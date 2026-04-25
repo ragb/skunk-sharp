@@ -119,15 +119,46 @@ object TypedExpr {
         frag(Void)
     }
 
-  /** Join a non-empty list of applied fragments with `sep` between them (e.g. " AND "). */
+  /**
+   * Join a non-empty list of applied fragments with `sep` between them (e.g. " AND ").
+   *
+   * Fast path: when every input AF has only `Left(str)` parts (no `$N` placeholders), collapse the whole
+   * list into a single `AppliedFragment` whose `Fragment` has one `Left(joined-string)` part and a `Void`
+   * encoder. This skips the per-call `|+|` chain — list-of-lists merges and product-encoder allocation —
+   * for projection/group-by/returning lists where every entry is a column reference, alias, or numeric
+   * literal. Falls back to the `|+|` chain when any entry is parameterised.
+   */
   def joined(parts: List[AppliedFragment], sep: String): AppliedFragment =
     parts match {
-      case Nil          => AppliedFragment.empty
+      case Nil         => AppliedFragment.empty
+      case head :: Nil => head
+      case head :: tail if parts.forall(isStaticAf) =>
+        val sb = new StringBuilder
+        sb ++= staticString(head)
+        tail.foreach { p =>
+          sb ++= sep
+          sb ++= staticString(p)
+        }
+        val str = sb.result()
+        val frag: Fragment[Void] = Fragment(List(Left(str)), Void.codec, Origin.unknown)
+        frag(Void)
       case head :: tail =>
         // Allocate the separator once, reuse it in every |+|.
         val sepAf = raw(sep)
         tail.foldLeft(head)((acc, p) => acc |+| sepAf |+| p)
     }
+
+  private def isStaticAf(af: AppliedFragment): Boolean =
+    af.fragment.parts.forall(_.isLeft)
+
+  private def staticString(af: AppliedFragment): String = {
+    val sb = new StringBuilder
+    af.fragment.parts.foreach {
+      case Left(s)  => sb ++= s
+      case Right(_) => // unreachable when isStaticAf is true
+    }
+    sb.result()
+  }
 
 }
 
