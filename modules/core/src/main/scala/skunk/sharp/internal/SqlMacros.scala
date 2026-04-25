@@ -1,36 +1,35 @@
 package skunk.sharp.internal
 
-import skunk.sharp.{PgOperator, TypedColumn, TypedExpr}
+import skunk.{Encoder, Fragment}
+import skunk.sharp.{TypedColumn, TypedExpr}
 import skunk.sharp.pg.PgTypeFor
 import skunk.sharp.where.Where
+import skunk.util.Origin
 
 import scala.quoted.{Expr, Quotes, Type}
 
 /**
- * Compile-time SQL assembly primitives. Each helper here is the macro-backed
- * equivalent of a runtime `PgOperator.infix(...)` call: when the LHS is
- * statically known to be a `TypedColumn[_, _, N]` with a singleton name `N`,
- * the macro inlines the name and emits a single `skunk.Fragment` whose `parts`
- * list has compile-time-constant strings, bypassing the runtime `|+|` chain.
+ * Compile-time SQL assembly primitives. Each helper here is the macro-backed equivalent of a runtime
+ * `PgOperator.infix(...)` call: when the LHS is statically known to be a `TypedColumn[_, _, N]` with a singleton
+ * name `N`, the macro inlines the name and emits a single `skunk.Fragment` whose `parts` list has compile-time
+ * constant strings, bypassing the runtime `|+|` chain.
  *
- * For LHS shapes we can't resolve at compile time (any `TypedExpr[T]` that
- * isn't a `TypedColumn` literal — e.g. `lower(col)`, `col.cast[_]`, a subquery
- * `.asExpr`) the macro emits the same runtime expression the hand-written
- * `valOp` helper would have produced. Behaviour is identical either way.
+ * For LHS shapes we can't resolve at compile time (any `TypedExpr[T]` that isn't a `TypedColumn` literal — e.g.
+ * `lower(col)`, `col.cast[_]`, a subquery `.asExpr`) the macro still produces a `Where[A]` whose visible `Args`
+ * type is the RHS's scalar type — the LHS's existential bound parameters are baked in via `Encoder.contramap`.
+ * Behaviour is identical either way.
  */
 private[sharp] object SqlMacros {
 
   /**
-   * Inline a binary infix comparison `lhs <op> <rhs>` where the RHS is a runtime
-   * value encoded as a parameter. Dispatches at compile time:
-   *   - LHS is a `TypedColumn[_, _, N]` (N singleton) → baked fragment path.
-   *   - anything else → runtime `PgOperator.infix` + `TypedExpr.parameterised`.
+   * Inline a binary infix comparison `lhs <op> <rhs>` where the RHS is a runtime value encoded as a parameter.
+   * Both branches return `Where[S]` — the visible `Args` is concretely the RHS type.
    */
   inline def infix[T, S](
     inline op:  String,
     inline lhs: TypedExpr[T],
     rhs:        S
-  )(using pf: PgTypeFor[S]): Where =
+  )(using pf: PgTypeFor[S]): Where[S] =
     ${ infixImpl[T, S]('op, 'lhs, 'rhs, 'pf) }
 
   private def infixImpl[T: Type, S: Type](
@@ -38,114 +37,78 @@ private[sharp] object SqlMacros {
     lhs: Expr[TypedExpr[T]],
     rhs: Expr[S],
     pf:  Expr[PgTypeFor[S]]
-  )(using q: Quotes): Expr[Where] = {
+  )(using q: Quotes): Expr[Where[S]] = {
     import q.reflect.*
 
-    val opStr: String = op.valueOrAbort
-
-    // Runtime fallback — the existing PgOperator.infix path.
-    def runtime: Expr[Where] =
-      '{ PgOperator.infix[T, S, Boolean]($op)($lhs, TypedExpr.parameterised[S]($rhs)(using $pf)) }
-
-    // When the LHS is a TypedColumn, we can bake the op symbol + encoder placeholder at compile time AND
-    // produce a TypedWhere[S] whose Args type is concretely the RHS type. The enclosing operator method is a
-    // `transparent inline def` — Scala narrows the inferred type at the call site to the more specific
-    // `TypedWhere[Stripped[T]]`, so `(u.age === 18): TypedWhere[Int]` type-checks without explicit ascription.
-    //
-    // For non-TypedColumn LHS the macro falls back to the runtime PgOperator.infix path which returns a plain
-    // Where — the inferred type at the call site stays as Where. Users who want a typed predicate on a
-    // non-column LHS reach for SqlMacros.infixTyped explicitly.
-    //
-    // The column identifier (`"name"` or `"alias"."name"`) is a runtime value via TypedColumn.sqlRef — the op
-    // symbol and $N placeholder are the compile-time constants.
-    lhs.asTerm.tpe.widen.asType match {
-      case '[TypedColumn[t, nb, nm]] =>
-        val suffix: Expr[String] = Expr(s" $opStr ")
-        '{
-          val col       = $lhs.asInstanceOf[TypedColumn[t, nb, nm]]
-          val enc       = $pf.codec
-          val bakedFrag = skunk.Fragment(
-            List(Left(col.sqlRef + $suffix), Right(enc.sql)),
-            enc,
-            skunk.util.Origin.unknown
-          )
-          TypedWhere[S](bakedFrag, $rhs)
-        }
-      case _ => runtime
-    }
-  }
-
-  /**
-   * Typed variant of [[infix]]: emits a `TypedWhere[S]` whose `Args` type is the RHS's scalar type (not erased to
-   * an existential). `.whereTyped(u => u.age === 18)` via this path yields `TypedWhere[Int]`, which
-   * `SelectBuilder.whereTyped` then accumulates on its `Args` parameter — eventually surfaced on
-   * `CompiledQuery[Args, R]` at `.compileTyped`.
-   *
-   * LHS must be a `TypedColumn` — if it isn't, this path is inapplicable (users fall back to the untyped `===`
-   * chain). The baked SQL is identical to the existential `infix`, the only difference is that the enclosing
-   * `Fragment[S]` / `args: S` pair is visible as `TypedWhere[S]` at the return site.
-   */
-  inline def infixTyped[T, S](
-    inline op:  String,
-    inline lhs: TypedExpr[T],
-    rhs:        S
-  )(using pf: PgTypeFor[S]): TypedWhere[S] =
-    ${ infixTypedImpl[T, S]('op, 'lhs, 'rhs, 'pf) }
-
-  private def infixTypedImpl[T: Type, S: Type](
-    op:  Expr[String],
-    lhs: Expr[TypedExpr[T]],
-    rhs: Expr[S],
-    pf:  Expr[PgTypeFor[S]]
-  )(using q: Quotes): Expr[TypedWhere[S]] = {
-    import q.reflect.*
-
-    val opStr: String = op.valueOrAbort
-
+    val opStr: String         = op.valueOrAbort
     val opSuffix: Expr[String] = Expr(s" $opStr ")
 
     lhs.asTerm.tpe.widen.asType match {
       case '[TypedColumn[t, nb, nm]] =>
         '{
-          val col = $lhs.asInstanceOf[TypedColumn[t, nb, nm]]
-          val enc = $pf.codec
-          val bakedFrag: skunk.Fragment[S] = skunk.Fragment(
+          val col       = $lhs.asInstanceOf[TypedColumn[t, nb, nm]]
+          val enc       = $pf.codec
+          val bakedFrag = skunk.Fragment(
             List(Left(col.sqlRef + $opSuffix), Right(enc.sql)),
             enc,
             skunk.util.Origin.unknown
           )
-          TypedWhere[S](bakedFrag, $rhs)
+          Where[S](bakedFrag, $rhs)
         }
       case _ =>
-        report.errorAndAbort(
-          s"skunk-sharp: infixTyped requires the LHS to be a TypedColumn — got ${lhs.show}",
-          lhs.asTerm.pos
-        )
+        '{
+          // Non-TypedColumn LHS: render the LHS to AppliedFragment, then bake its args via contramap so the
+          // resulting Where carries Args = S (just the RHS) while still holding the LHS's bound values inside
+          // the encoder.
+          val lhsAf  = $lhs.render
+          val rhsEnc = $pf.codec
+          SqlMacros.infixContramap[S](lhsAf, $opSuffix, rhsEnc, $rhs)
+        }
     }
   }
 
   /**
-   * Typed variant of [[infix2]]: emits a `TypedWhere[(S, S)]` whose `Args` pair is the two RHS values in order.
-   * Covers `between`, `notBetween`, `betweenSymmetric`. LHS must be a `TypedColumn` — no runtime fallback on
-   * the typed path.
+   * Runtime helper for the non-`TypedColumn` LHS branch: takes a pre-applied LHS fragment, an op-suffix string,
+   * an RHS encoder + value, and produces a `Where[S]` whose fragment encodes only the RHS at the call site
+   * while still rendering the LHS's bound values inline.
    */
-  inline def infix2Typed[T, S](
+  private[sharp] def infixContramap[S](
+    lhsAf:    skunk.AppliedFragment,
+    opSuffix: String,
+    rhsEnc:   Encoder[S],
+    rhs:      S
+  ): Where[S] = {
+    val lhsEnc: Encoder[Any] = lhsAf.fragment.encoder.asInstanceOf[Encoder[Any]]
+    val lhsArg: Any          = lhsAf.argument
+    val parts                = lhsAf.fragment.parts ++ List(Left(opSuffix), Right(rhsEnc.sql))
+    val combinedEnc: Encoder[S] =
+      lhsEnc.product(rhsEnc).contramap[S](r => (lhsArg, r))
+    val frag: Fragment[S] = Fragment(parts, combinedEnc, Origin.unknown)
+    Where[S](frag, rhs)
+  }
+
+  /**
+   * Inline a 2-argument infix predicate: `<lhs> <sep1> <rhs1> <sep2> <rhs2>` — `BETWEEN lo AND hi`,
+   * `NOT BETWEEN lo AND hi`, `BETWEEN SYMMETRIC lo AND hi`. Returns `Where[(S, S)]` — the two RHS values are
+   * the visible Args tuple. Non-TypedColumn LHS uses the same contramap technique to preserve typed Args.
+   */
+  inline def infix2[T, S](
     inline sep1: String,
     inline sep2: String,
     inline lhs:  TypedExpr[T],
     rhs1:        S,
     rhs2:        S
-  )(using pf: PgTypeFor[S]): TypedWhere[(S, S)] =
-    ${ infix2TypedImpl[T, S]('sep1, 'sep2, 'lhs, 'rhs1, 'rhs2, 'pf) }
+  )(using pf: PgTypeFor[S]): Where[(S, S)] =
+    ${ infix2Impl[T, S]('sep1, 'sep2, 'lhs, 'rhs1, 'rhs2, 'pf) }
 
-  private def infix2TypedImpl[T: Type, S: Type](
+  private def infix2Impl[T: Type, S: Type](
     sep1: Expr[String],
     sep2: Expr[String],
     lhs:  Expr[TypedExpr[T]],
     rhs1: Expr[S],
     rhs2: Expr[S],
     pf:   Expr[PgTypeFor[S]]
-  )(using q: Quotes): Expr[TypedWhere[(S, S)]] = {
+  )(using q: Quotes): Expr[Where[(S, S)]] = {
     import q.reflect.*
 
     lhs.asTerm.tpe.widen.asType match {
@@ -153,38 +116,59 @@ private[sharp] object SqlMacros {
         '{
           val col = $lhs.asInstanceOf[TypedColumn[t, nb, nm]]
           val enc = $pf.codec
-          // "<col> <sep1> $1 <sep2> $2"
           val parts: List[Either[String, cats.data.State[Int, String]]] = List(
             Left(col.sqlRef + " " + $sep1 + " "),
             Right(enc.sql),
             Left(" " + $sep2 + " "),
             Right(enc.sql)
           )
-          val combinedEnc: skunk.Encoder[(S, S)] = enc.product(enc)
-          val frag: skunk.Fragment[(S, S)]       =
-            skunk.Fragment(parts, combinedEnc, skunk.util.Origin.unknown)
-          TypedWhere[(S, S)](frag, ($rhs1, $rhs2))
+          val combinedEnc = enc.product(enc)
+          val frag: skunk.Fragment[(S, S)] = skunk.Fragment(parts, combinedEnc, skunk.util.Origin.unknown)
+          Where[(S, S)](frag, ($rhs1, $rhs2))
         }
       case _ =>
-        report.errorAndAbort(
-          s"skunk-sharp: infix2Typed requires the LHS to be a TypedColumn — got ${lhs.show}",
-          lhs.asTerm.pos
-        )
+        '{
+          SqlMacros.infix2Contramap[S]($lhs.render, $sep1, $sep2, $pf.codec, $rhs1, $rhs2)
+        }
     }
   }
 
-  /**
-   * Typed variant of [[postfix]]: emits a `TypedWhere[skunk.Void]` — no arguments contributed. Covers `IS NULL`,
-   * `IS NOT NULL`, `IS TRUE`, etc. Given no Args, this typed form is mainly useful when combined with other
-   * typed predicates via `&&` — `a && isNullTyped(b)` has `Args = (a.Args, Void)`.
-   */
-  inline def postfixTyped[T](inline lhs: TypedExpr[T], inline suffix: String): TypedWhere[skunk.Void] =
-    ${ postfixTypedImpl[T]('lhs, 'suffix) }
+  /** Runtime helper for non-`TypedColumn` LHS in [[infix2]]. */
+  private[sharp] def infix2Contramap[S](
+    lhsAf: skunk.AppliedFragment,
+    sep1:  String,
+    sep2:  String,
+    enc:   Encoder[S],
+    rhs1:  S,
+    rhs2:  S
+  ): Where[(S, S)] = {
+    val lhsEnc: Encoder[Any] = lhsAf.fragment.encoder.asInstanceOf[Encoder[Any]]
+    val lhsArg: Any          = lhsAf.argument
+    val parts =
+      lhsAf.fragment.parts ++ List(
+        Left(" " + sep1 + " "),
+        Right(enc.sql),
+        Left(" " + sep2 + " "),
+        Right(enc.sql)
+      )
+    val rhsPair: Encoder[(S, S)] = enc.product(enc)
+    val combined: Encoder[(S, S)] =
+      lhsEnc.product(rhsPair).contramap[(S, S)](p => (lhsArg, p))
+    val frag: Fragment[(S, S)] = Fragment(parts, combined, Origin.unknown)
+    Where[(S, S)](frag, (rhs1, rhs2))
+  }
 
-  private def postfixTypedImpl[T: Type](
+  /**
+   * Inline a postfix no-argument predicate `<lhs> <suffix>` — `IS NULL`, `IS NOT NULL`, `IS TRUE`, …. Returns
+   * `Where[skunk.Void]` — no parameters captured.
+   */
+  inline def postfix[T](inline lhs: TypedExpr[T], inline suffix: String): Where[skunk.Void] =
+    ${ postfixImpl[T]('lhs, 'suffix) }
+
+  private def postfixImpl[T: Type](
     lhs:    Expr[TypedExpr[T]],
     suffix: Expr[String]
-  )(using q: Quotes): Expr[TypedWhere[skunk.Void]] = {
+  )(using q: Quotes): Expr[Where[skunk.Void]] = {
     import q.reflect.*
 
     lhs.asTerm.tpe.widen.asType match {
@@ -197,93 +181,33 @@ private[sharp] object SqlMacros {
               skunk.Void.codec,
               skunk.util.Origin.unknown
             )
-          TypedWhere[skunk.Void](frag, skunk.Void)
+          Where[skunk.Void](frag, skunk.Void)
         }
       case _ =>
-        report.errorAndAbort(
-          s"skunk-sharp: postfixTyped requires the LHS to be a TypedColumn — got ${lhs.show}",
-          lhs.asTerm.pos
-        )
-    }
-  }
-
-  /**
-   * Legacy POC helper — kept for the explicit-baked-path test that exercises the
-   * macro without going through the `===` / `>=` / ... extension methods.
-   */
-  inline def columnValOp[T, Null <: Boolean, N <: String & Singleton](
-    inline col: TypedColumn[T, Null, N],
-    inline op:  String,
-    rhs:        T
-  )(using pf: PgTypeFor[T]): Where =
-    infix[T, T](op, col, rhs)
-
-  /**
-   * Inline a 2-argument infix predicate: `<lhs> <sep1> <rhs1> <sep2> <rhs2>` — `BETWEEN lo AND hi`,
-   * `NOT BETWEEN lo AND hi`, `BETWEEN SYMMETRIC lo AND hi`. When the LHS is a `TypedColumn`, the prefix
-   * `"<col> <sep1> "` is baked into a single `Fragment[Void]`; the two RHS values are still bound via
-   * `TypedExpr.parameterised` and composed with `|+|` — saves the `lhs.render` allocation and one
-   * `raw(...)` allocation over the hand-rolled chain.
-   */
-  inline def infix2[T, S](
-    inline sep1: String,
-    inline sep2: String,
-    inline lhs:  TypedExpr[T],
-    rhs1:        S,
-    rhs2:        S
-  )(using pf: PgTypeFor[S]): Where =
-    ${ infix2Impl[T, S]('sep1, 'sep2, 'lhs, 'rhs1, 'rhs2, 'pf) }
-
-  private def infix2Impl[T: Type, S: Type](
-    sep1: Expr[String],
-    sep2: Expr[String],
-    lhs:  Expr[TypedExpr[T]],
-    rhs1: Expr[S],
-    rhs2: Expr[S],
-    pf:   Expr[PgTypeFor[S]]
-  )(using q: Quotes): Expr[Where] = {
-    import q.reflect.*
-
-    def runtime: Expr[Where] =
-      '{
-        TypedExpr(
-          $lhs.render |+|
-            TypedExpr.raw(" " + $sep1 + " ") |+|
-            TypedExpr.parameterised[S]($rhs1)(using $pf).render |+|
-            TypedExpr.raw(" " + $sep2 + " ") |+|
-            TypedExpr.parameterised[S]($rhs2)(using $pf).render,
-          skunk.codec.all.bool
-        )
-      }
-
-    lhs.asTerm.tpe.widen.asType match {
-      case '[TypedColumn[t, nb, nm]] =>
         '{
-          val col = $lhs.asInstanceOf[TypedColumn[t, nb, nm]]
-          val prefix = skunk.AppliedFragment(
-            skunk.Fragment(
-              List(Left(col.sqlRef + " " + $sep1 + " ")),
-              skunk.Void.codec,
-              skunk.util.Origin.unknown
-            ),
-            skunk.Void
-          )
-          TypedExpr(
-            prefix |+|
-              TypedExpr.parameterised[S]($rhs1)(using $pf).render |+|
-              TypedExpr.raw(" " + $sep2 + " ") |+|
-              TypedExpr.parameterised[S]($rhs2)(using $pf).render,
-            skunk.codec.all.bool
-          )
+          SqlMacros.postfixContramap($lhs.render, $suffix)
         }
-      case _ => runtime
     }
   }
 
+  /** Runtime helper for non-`TypedColumn` LHS in [[postfix]]. */
+  private[sharp] def postfixContramap(
+    lhsAf:  skunk.AppliedFragment,
+    suffix: String
+  ): Where[skunk.Void] = {
+    val lhsEnc: Encoder[Any] = lhsAf.fragment.encoder.asInstanceOf[Encoder[Any]]
+    val lhsArg: Any          = lhsAf.argument
+    val parts                = lhsAf.fragment.parts ++ List(Left(suffix))
+    val voidEnc: Encoder[skunk.Void] =
+      lhsEnc.contramap[skunk.Void](_ => lhsArg)
+    val frag: Fragment[skunk.Void] = Fragment(parts, voidEnc, Origin.unknown)
+    Where[skunk.Void](frag, skunk.Void)
+  }
+
   /**
-   * Build a parameterless `AppliedFragment` rendering the LHS followed by a literal op string. Used by operators whose
-   * RHS is already assembled as an `AppliedFragment` at call time (e.g. `IN (…)` with a variadic value list or a
-   * subquery). When the LHS is a `TypedColumn`, the whole `"<col> <op> "` literal is a single baked
+   * Build a parameterless `AppliedFragment` rendering the LHS followed by a literal op string. Used by operators
+   * whose RHS is already assembled as an `AppliedFragment` at call time (e.g. `IN (…)` with a variadic value
+   * list or a subquery). When the LHS is a `TypedColumn`, the whole `"<col> <op> "` literal is a single baked
    * `Fragment[Void]`; otherwise falls back to `lhs.render |+| raw(" <op> ")`.
    */
   inline def prefix[T](inline lhs: TypedExpr[T], inline op: String): skunk.AppliedFragment =
@@ -316,45 +240,14 @@ private[sharp] object SqlMacros {
   }
 
   /**
-   * Inline a postfix no-argument predicate `<lhs> <suffix>` — `IS NULL`, `IS NOT NULL`, `IS TRUE`, …. When the LHS is a
-   * `TypedColumn`, the macro emits a single `Fragment[Void]` whose `parts` is `List(Left(col.sqlRef + suffix))` —
-   * no encoder, no `$N`, one allocation. Runtime fallback for other LHS shapes.
+   * Legacy POC helper — kept for the explicit-baked-path test that exercises the macro without going through
+   * the `===` / `>=` / ... extension methods.
    */
-  inline def postfix[T](inline lhs: TypedExpr[T], inline suffix: String): Where =
-    ${ postfixImpl[T]('lhs, 'suffix) }
-
-  private def postfixImpl[T: Type](
-    lhs:    Expr[TypedExpr[T]],
-    suffix: Expr[String]
-  )(using q: Quotes): Expr[Where] = {
-    import q.reflect.*
-
-    def runtime: Expr[Where] =
-      '{
-        TypedExpr(
-          $lhs.render |+| TypedExpr.raw($suffix),
-          skunk.codec.all.bool
-        )
-      }
-
-    lhs.asTerm.tpe.widen.asType match {
-      case '[TypedColumn[t, nb, nm]] =>
-        '{
-          val col = $lhs.asInstanceOf[TypedColumn[t, nb, nm]]
-          TypedExpr(
-            skunk.AppliedFragment(
-              skunk.Fragment(
-                List(Left(col.sqlRef + $suffix)),
-                skunk.Void.codec,
-                skunk.util.Origin.unknown
-              ),
-              skunk.Void
-            ),
-            skunk.codec.all.bool
-          )
-        }
-      case _ => runtime
-    }
-  }
+  inline def columnValOp[T, Null <: Boolean, N <: String & Singleton](
+    inline col: TypedColumn[T, Null, N],
+    inline op:  String,
+    rhs:        T
+  )(using pf: PgTypeFor[T]): Where[T] =
+    infix[T, T](op, col, rhs)
 
 }

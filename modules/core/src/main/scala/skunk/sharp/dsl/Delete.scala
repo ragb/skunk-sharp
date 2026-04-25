@@ -1,67 +1,49 @@
 package skunk.sharp.dsl
 
-import skunk.{AppliedFragment, Codec}
+import skunk.{AppliedFragment, Codec, Fragment, Void}
 import skunk.sharp.*
-import skunk.sharp.internal.tupleCodec
-import skunk.sharp.where.{&&, Where}
+import skunk.sharp.internal.{tupleCodec, RawConstants}
+import skunk.sharp.where.Where
 
 /**
- * DELETE builder — compile-time staged so you can't accidentally run a `DELETE FROM …` with no WHERE.
+ * DELETE builder — compile-time staged so you can't accidentally run a `DELETE FROM …` with no WHERE, and
+ * threads `Args` end-to-end so `.compile` surfaces `CompiledCommand[Args]` (or `CompiledQuery[Args, R]` via
+ * `.returning`).
  *
  * State machine:
  *
- *   1. `users.delete` → [[DeleteBuilder]] (entry). No `.run` / `.returning` here; only `.where(…)`, the explicit
- *      `.deleteAll` opt-in, or `.using(…)` for multi-source form are visible.
- *   2. `.where(…)` or `.deleteAll` → [[DeleteReady]]. `.run`, `.returning`, `.returningTuple`, `.returningAll` live
- *      here. `.where` here chains (AND-combines).
+ *   1. `users.delete` → [[DeleteBuilder]] (entry, `Args = Void`).
+ *   2. `.where(_ => Where[A])` → [[DeleteReady]] with `Args = A`. Subsequent `.where` extends `Args` to
+ *      `Where.Concat[Args, A2]`.
+ *   3. `.deleteAll` → [[DeleteReady]] with `Args = Void`.
+ *   4. `.compile`, `.returning*` available on [[DeleteReady]].
  *
- * For multi-table form (`DELETE … USING …`):
+ * Multi-table form (`DELETE … USING …`):
  *
- *   1. `.using(otherRel)` on [[DeleteBuilder]] → [[DeleteUsingBuilder]]. Chain further `.using(…)` for more sources.
- *   2. `.where(r => r.<target>…)` / `.deleteAll` → [[DeleteUsingReady]].
- *
- * {{{
- *   users.delete.where(u => u.id === someId).run(session)
- *   users.delete.deleteAll.run(session)   // explicit opt-in for "drop everything"
- *
- *   // Multi-table (DELETE … USING …)
- *   users.delete
- *     .using(posts)
- *     .where(r => r.users.id ==== r.posts.user_id)
- *     .compile.run(session)
- * }}}
+ *   1. `.using(otherRel)` → [[DeleteUsingBuilder]].
+ *   2. `.where(...)` / `.deleteAll` → [[DeleteUsingReady]].
  */
 final class DeleteBuilder[Cols <: Tuple, Name <: String & Singleton] private[sharp] (
   private[sharp] val table: Table[Cols, Name]
 ) {
 
-  /** Narrow with a WHERE clause. Transitions to [[DeleteReady]]. */
-  def where(f: ColumnsView[Cols] => Where): DeleteReady[Cols] = {
-    val view = table.columnsView
-    new DeleteReady[Cols](table, Some(f(view)))
+  /** Narrow with a typed WHERE clause. Transitions to [[DeleteReady]] carrying `Args = A`. */
+  def where[A](f: ColumnsView[Cols] => Where[A]): DeleteReady[Cols, Name, A] = {
+    val pred = f(table.columnsView)
+    new DeleteReady[Cols, Name, A](table, Some((pred.fragment, pred.args)))
   }
 
-  /**
-   * Typed WHERE overload — `f` yields a `TypedWhere[A]`. Returns a [[TypedDeleteReady]] carrying `Args = A` so
-   * `.compile` surfaces `CompiledCommand[A]` with the concrete captured-value tuple.
-   */
-  def where[A](f: ColumnsView[Cols] => skunk.sharp.internal.TypedWhere[A]): TypedDeleteReady[Cols, Name, A] = {
-    val view = table.columnsView
-    val pred = f(view)
-    new TypedDeleteReady[Cols, Name, A](table, pred.fragment, pred.args)
+  /** Escape hatch: AND in a pre-applied `AppliedFragment`. */
+  def whereRaw(af: AppliedFragment): DeleteReady[Cols, Name, ?] = {
+    val combined = SelectBuilder.andRawInto(None, af)
+    new DeleteReady[Cols, Name, Any](table, Some(combined))
   }
 
   /** "Yes, delete every row." Explicit opt-in — skips the WHERE requirement. */
-  def deleteAll: DeleteReady[Cols] =
-    new DeleteReady[Cols](table, None)
+  def deleteAll: DeleteReady[Cols, Name, Void] =
+    new DeleteReady[Cols, Name, Void](table, None)
 
-  /**
-   * Add an extra USING source — transitions to [[DeleteUsingBuilder]], which exposes `.where` with a multi-source
-   * `JoinedView` lambda. The resulting SQL is `DELETE FROM <target> USING <other>, … WHERE …`.
-   *
-   * Chain `.using(a).using(b)` for multiple extra sources. The alias of each added source must be distinct from the
-   * target's name and from all previously-added source aliases.
-   */
+  /** Add an extra USING source — transitions to [[DeleteUsingBuilder]]. */
   def using[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](other: R)(using
     aR: AsRelation.Aux[R, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, Name *: EmptyTuple]
@@ -92,49 +74,83 @@ final class DeleteBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
 
 }
 
-/** DELETE in a runnable state: WHERE clause committed (or `.deleteAll` explicitly called). */
-final class DeleteReady[Cols <: Tuple] private[sharp] (
-  table: Table[Cols, ?],
-  whereOpt: Option[Where]
+/** DELETE in a runnable state. Carries the cumulative `Args` from typed WHERE predicates. */
+final class DeleteReady[Cols <: Tuple, Name <: String & Singleton, Args] private[sharp] (
+  private[sharp] val table: Table[Cols, Name],
+  private[sharp] val whereOpt: Option[(Fragment[?], Any)]
 ) {
 
-  /** Chain another WHERE — AND-combined with the existing one. */
-  def where(f: ColumnsView[Cols] => Where): DeleteReady[Cols] = {
-    val view = table.columnsView
-    val next = whereOpt.fold(f(view))(_ && f(view))
-    new DeleteReady[Cols](table, Some(next))
+  /** Chain another typed WHERE — AND-combined; extends `Args` via `Where.Concat`. */
+  def where[A](f: ColumnsView[Cols] => Where[A]): DeleteReady[Cols, Name, Where.Concat[Args, A]] = {
+    val pred = f(table.columnsView)
+    val combined = SelectBuilder.andInto(whereOpt, pred)
+    new DeleteReady[Cols, Name, Where.Concat[Args, A]](table, Some(combined))
   }
 
-  def compile: CompiledCommand[?] = CompiledCommand(compileFragment)
-
-  private[sharp] def compileFragment: AppliedFragment = {
-    val header = table.deleteFromHeader
-    whereOpt.fold(header)(w => header |+| TypedExpr.raw(" WHERE ") |+| w.render)
+  /** Escape hatch — widens `Args` to `?`. */
+  def whereRaw(af: AppliedFragment): DeleteReady[Cols, Name, ?] = {
+    val combined = SelectBuilder.andRawInto(whereOpt, af)
+    new DeleteReady[Cols, Name, Any](table, Some(combined))
   }
+
+  /** Body-part list for the inner DELETE statement (without RETURNING). */
+  private def deleteParts: List[BodyPart] = {
+    val buf = scala.collection.mutable.ListBuffer[BodyPart](Left(table.deleteFromHeader))
+    whereOpt.foreach { case (f, a) =>
+      buf += Left(RawConstants.WHERE)
+      buf += Right((f, a))
+    }
+    buf.toList
+  }
+
+  def compile: CompiledCommand[Args] = MutationAssembly.command[Args](deleteParts)
 
   /** Append `RETURNING <expr>` — single-value form. */
-  def returning[T](f: ColumnsView[Cols] => TypedExpr[T]): MutationReturning[T] = {
-    val view = table.columnsView
-    val expr = f(view)
-    new MutationReturning[T](compileFragment, List(expr), expr.codec)
+  def returning[T](f: ColumnsView[Cols] => TypedExpr[T]): CompiledQuery[Args, T] = {
+    val expr = f(table.columnsView)
+    MutationAssembly.withReturning[Args, T](deleteParts, List(expr), expr.codec)
   }
 
   /** Append `RETURNING <e1>, <e2>, …` — tuple form. */
-  def returningTuple[T <: NonEmptyTuple](f: ColumnsView[Cols] => T): MutationReturning[ExprOutputs[T]] = {
-    val view  = table.columnsView
-    val exprs = f(view).toList.asInstanceOf[List[TypedExpr[?]]]
+  def returningTuple[T <: NonEmptyTuple](f: ColumnsView[Cols] => T): CompiledQuery[Args, ExprOutputs[T]] = {
+    val exprs = f(table.columnsView).toList.asInstanceOf[List[TypedExpr[?]]]
     val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
-    new MutationReturning[ExprOutputs[T]](compileFragment, exprs, codec)
+    MutationAssembly.withReturning[Args, ExprOutputs[T]](deleteParts, exprs, codec)
   }
 
   /** Append `RETURNING <all columns>` — whole-row projection. */
-  def returningAll: MutationReturning[NamedRowOf[Cols]] = {
+  def returningAll: CompiledQuery[Args, NamedRowOf[Cols]] = {
     val exprs =
       table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
         TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
       )
     val codec = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
-    new MutationReturning[NamedRowOf[Cols]](compileFragment, exprs, codec)
+    MutationAssembly.withReturning[Args, NamedRowOf[Cols]](deleteParts, exprs, codec)
+  }
+
+}
+
+/**
+ * Shared command/RETURNING assembly for mutation builders (DELETE / UPDATE / INSERT). All take a body-parts
+ * list (the statement up to but not including RETURNING) and either compile it as a `CompiledCommand[Args]` or
+ * append `RETURNING <exprs>` and compile as `CompiledQuery[Args, R]`. Args is preserved across the boundary —
+ * RETURNING projections don't introduce captures (column refs / aggregates only).
+ */
+private[dsl] object MutationAssembly {
+
+  def command[Args](parts: List[BodyPart]): CompiledCommand[Args] = {
+    val cq = SelectBuilder.assemble[Args, skunk.Void](parts, Nil, skunk.Void.codec)
+    CompiledCommand.mk[Args](cq.fragment, cq.args)
+  }
+
+  def withReturning[Args, R](
+    base: List[BodyPart],
+    returning: List[TypedExpr[?]],
+    codec: Codec[R]
+  ): CompiledQuery[Args, R] = {
+    val list  = TypedExpr.joined(returning.map(_.render), ", ")
+    val parts = base :+ Left(RawConstants.RETURNING) :+ Left(list)
+    SelectBuilder.assemble[Args, R](parts, Nil, codec)
   }
 
 }
@@ -144,18 +160,12 @@ final class DeleteReady[Cols <: Tuple] private[sharp] (
 /**
  * Multi-source DELETE builder — the result of calling `.using(other)` on [[DeleteBuilder]]. Transitions to
  * [[DeleteUsingReady]] after `.where(…)` or `.deleteAll`.
- *
- * `Ss` is the full sources tuple: the target table entry sits at the head (index 0), extra USING sources follow at
- * indices 1+. The `.where` lambda receives `JoinedView[Ss]` keyed by each source's alias.
- *
- * Rendered form: `DELETE FROM "target" USING "src1", "src2", … WHERE …`.
  */
 final class DeleteUsingBuilder[Cols <: Tuple, Name <: String & Singleton, Ss <: Tuple] private[sharp] (
   private[sharp] val table: Table[Cols, Name],
   private[sharp] val sources: Ss
 ) {
 
-  /** Chain another USING source. Its alias must be distinct from all aliases already in `Ss`. */
   def using[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](other: R)(using
     aR: AsRelation.Aux[R, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
@@ -169,78 +179,86 @@ final class DeleteUsingBuilder[Cols <: Tuple, Name <: String & Singleton, Ss <: 
     )
   }
 
-  /** Narrow with a WHERE clause. Transitions to [[DeleteUsingReady]]. */
-  def where(f: JoinedView[Ss] => Where): DeleteUsingReady[Cols, Name, Ss] = {
+  def where[A](f: JoinedView[Ss] => Where[A]): DeleteUsingReady[Cols, Name, Ss, A] = {
     val view = buildJoinedView(sources)
-    new DeleteUsingReady[Cols, Name, Ss](table, sources, Some(f(view)))
+    val pred = f(view)
+    new DeleteUsingReady[Cols, Name, Ss, A](table, sources, Some((pred.fragment, pred.args)))
   }
 
-  /** "Yes, delete every row." Explicit opt-in — skips the WHERE requirement. */
-  def deleteAll: DeleteUsingReady[Cols, Name, Ss] =
-    new DeleteUsingReady[Cols, Name, Ss](table, sources, None)
+  def whereRaw(af: AppliedFragment): DeleteUsingReady[Cols, Name, Ss, ?] = {
+    val combined = SelectBuilder.andRawInto(None, af)
+    new DeleteUsingReady[Cols, Name, Ss, Any](table, sources, Some(combined))
+  }
+
+  def deleteAll: DeleteUsingReady[Cols, Name, Ss, Void] =
+    new DeleteUsingReady[Cols, Name, Ss, Void](table, sources, None)
 
 }
 
-/**
- * Multi-source DELETE in a runnable state. Renders `DELETE FROM "target" USING "src1", … WHERE …`.
- *
- * `.returning` / `.returningTuple` lambdas receive the full `JoinedView[Ss]` — columns from target and USING sources
- * are all accessible. `.returningAll` returns only the target table's full row.
- */
-final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tuple] private[sharp] (
-  table: Table[Cols, Name],
-  sources: Ss,
-  whereOpt: Option[Where]
+/** Multi-source DELETE in a runnable state. */
+final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tuple, Args] private[sharp] (
+  private[sharp] val table: Table[Cols, Name],
+  private[sharp] val sources: Ss,
+  private[sharp] val whereOpt: Option[(Fragment[?], Any)]
 ) {
 
-  /** Chain another WHERE — AND-combined with the existing one. */
-  def where(f: JoinedView[Ss] => Where): DeleteUsingReady[Cols, Name, Ss] = {
+  def where[A](f: JoinedView[Ss] => Where[A]): DeleteUsingReady[Cols, Name, Ss, Where.Concat[Args, A]] = {
     val view = buildJoinedView(sources)
-    val next = whereOpt.fold(f(view))(_ && f(view))
-    new DeleteUsingReady[Cols, Name, Ss](table, sources, Some(next))
+    val pred = f(view)
+    val combined = SelectBuilder.andInto(whereOpt, pred)
+    new DeleteUsingReady[Cols, Name, Ss, Where.Concat[Args, A]](table, sources, Some(combined))
   }
 
-  def compile: CompiledCommand[?] = CompiledCommand(compileFragment)
+  def whereRaw(af: AppliedFragment): DeleteUsingReady[Cols, Name, Ss, ?] = {
+    val combined = SelectBuilder.andRawInto(whereOpt, af)
+    new DeleteUsingReady[Cols, Name, Ss, Any](table, sources, Some(combined))
+  }
 
-  private[sharp] def compileFragment: AppliedFragment = {
-    val header       = table.deleteFromHeader
+  def compile: CompiledCommand[Args] = MutationAssembly.command[Args](bodyParts)
+
+  private def bodyParts: List[BodyPart] = {
+    val buf = scala.collection.mutable.ListBuffer[BodyPart](Left(table.deleteFromHeader))
     val usingEntries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].tail
-    val withUsing    =
-      if usingEntries.isEmpty then header
-      else header |+| TypedExpr.raw(" USING ") |+| TypedExpr.joined(usingEntries.map(aliasedFromEntry), ", ")
-    whereOpt.fold(withUsing)(w => withUsing |+| TypedExpr.raw(" WHERE ") |+| w.render)
+    if (usingEntries.nonEmpty) {
+      buf += Left(RawConstants.USING)
+      buf += Left(TypedExpr.joined(usingEntries.map(aliasedFromEntry), ", "))
+    }
+    whereOpt.foreach { case (f, a) =>
+      buf += Left(RawConstants.WHERE)
+      buf += Right((f, a))
+    }
+    buf.toList
   }
 
-  /** Append `RETURNING <expr>` — lambda receives the full `JoinedView[Ss]`. */
-  def returning[T](f: JoinedView[Ss] => TypedExpr[T]): MutationReturning[T] = {
-    val view = buildJoinedView(sources)
-    val expr = f(view)
-    new MutationReturning[T](compileFragment, List(expr), expr.codec)
+  def returning[T](f: JoinedView[Ss] => TypedExpr[T]): CompiledQuery[Args, T] = {
+    val expr = f(buildJoinedView(sources))
+    MutationAssembly.withReturning[Args, T](bodyParts, List(expr), expr.codec)
   }
 
-  /** Append `RETURNING <e1>, <e2>, …` — tuple form, full `JoinedView[Ss]`. */
-  def returningTuple[T <: NonEmptyTuple](f: JoinedView[Ss] => T): MutationReturning[ExprOutputs[T]] = {
-    val view  = buildJoinedView(sources)
-    val exprs = f(view).toList.asInstanceOf[List[TypedExpr[?]]]
+  def returningTuple[T <: NonEmptyTuple](f: JoinedView[Ss] => T): CompiledQuery[Args, ExprOutputs[T]] = {
+    val exprs = f(buildJoinedView(sources)).toList.asInstanceOf[List[TypedExpr[?]]]
     val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
-    new MutationReturning[ExprOutputs[T]](compileFragment, exprs, codec)
+    MutationAssembly.withReturning[Args, ExprOutputs[T]](bodyParts, exprs, codec)
   }
 
-  /** Append `RETURNING <all columns>` — whole-row projection of the target table only. */
-  def returningAll: MutationReturning[NamedRowOf[Cols]] = {
+  def returningAll: CompiledQuery[Args, NamedRowOf[Cols]] = {
     val exprs =
       table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
         TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
       )
     val codec = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
-    new MutationReturning[NamedRowOf[Cols]](compileFragment, exprs, codec)
+    MutationAssembly.withReturning[Args, NamedRowOf[Cols]](bodyParts, exprs, codec)
   }
 
 }
 
+// ---- BodyPart re-export ---------------------------------------------------------------------------
+
+/** Local alias for the BodyPart type defined on SelectBuilder — keeps the signatures terse. */
+private[dsl] type BodyPart = SelectBuilder.BodyPart
+
 // ---- Entry point ----------------------------------------------------------------------------------
 
-/** DELETE entry point lives on [[Table]] (views reject at compile time). `users.delete.where(…)`. */
 extension [Cols <: Tuple, Name <: String & Singleton](table: Table[Cols, Name]) {
   def delete: DeleteBuilder[Cols, Name] = new DeleteBuilder[Cols, Name](table)
 }

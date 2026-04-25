@@ -85,7 +85,7 @@ extension [Cols <: Tuple](r: Relation[Cols]) {
  * set-op results need a little more `Cols`-metadata threading; `.asExpr` (scalar-subquery-as-expression) covers the
  * common cases in the meantime.
  */
-extension [Ss <: Tuple](sb: SelectBuilder[Ss])(using ev: IsSingleSource[Ss]) {
+extension [Ss <: Tuple, WA, HA](sb: SelectBuilder[Ss, WA, HA])(using ev: IsSingleSource[Ss]) {
 
   def alias[A <: String & Singleton](a: A): Relation[ev.Cols] {
     type Alias = A
@@ -124,8 +124,8 @@ extension [Ss <: Tuple](sb: SelectBuilder[Ss])(using ev: IsSingleSource[Ss]) {
  * there's still only one user-visible `.compile` on the whole tree. `GroupCoverage` is summoned here so the inner
  * rendering is as valid as a standalone `.compile` would be.
  */
-extension [Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row](
-  ps: ProjectedSelect[Ss, Proj, Groups, Row]
+extension [Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WA, HA, Row](
+  ps: ProjectedSelect[Ss, Proj, Groups, WA, HA, Row]
 )(using gc: GroupCoverage[Proj, Groups], @scala.annotation.unused np: AllNamedProj[Proj]) {
 
   def alias[A <: String & Singleton](a: A): Relation[ProjCols[Proj]] {
@@ -440,7 +440,7 @@ final class SourceEntry[
   val originalCols: Cols0,
   val effectiveCols: Cols,
   val kind: JoinKind,           // for the base source this is `Inner` (cosmetic — not rendered for index 0)
-  val onPredOpt: Option[Where], // `None` for the base source and CROSS joins; `Some` for INNER/LEFT/RIGHT/FULL
+  val onPredOpt: Option[Where[?]], // `None` for the base source and CROSS joins; `Some` for INNER/LEFT/RIGHT/FULL
   val isLateral: Boolean = false
 )
 
@@ -541,9 +541,13 @@ final class IncompleteJoin[
    * (possibly nullabilified) committed sources plus the pending source appended.
    */
   def on(
-    f: OnView[Ss, CR0, AR] => Where
-  ): SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR]]] = {
-    val pred  = f(buildOnView[Ss, CR0, AR](sources, pendingOriginalCols, pendingAlias))
+    f: OnView[Ss, CR0, AR] => skunk.sharp.TypedExpr[Boolean]
+  ): SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR]], skunk.Void, skunk.Void] = {
+    val rawPred = f(buildOnView[Ss, CR0, AR](sources, pendingOriginalCols, pendingAlias))
+    val pred: Where[?] = rawPred match {
+      case w: Where[?] @unchecked => w
+      case other                  => Where(other)
+    }
     val entry = new SourceEntry[RR, CR0, CR, AR](
       pendingRelation,
       pendingAlias,
@@ -553,13 +557,12 @@ final class IncompleteJoin[
       Some(pred),
       isLateral
     )
-    // Nullabilify committed sources' effective cols for RIGHT / FULL. INNER / LEFT pass through unchanged.
     val finalCommitted: Tuple = kind match {
       case JoinKind.Right | JoinKind.Full => nullabilifySources(sources)
       case _                              => sources
     }
     val nextSources = (finalCommitted :* entry).asInstanceOf[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR]]]
-    new SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR]]](nextSources)
+    new SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR]], skunk.Void, skunk.Void](nextSources)
   }
 
 }
@@ -671,13 +674,13 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
   def crossJoin[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](right: R)(using
     aR: AsRelation.Aux[R, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
-  ): SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR])] = {
+  ): SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR]), skunk.Void, skunk.Void] = {
     val baseEntry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val rel       = aR(right)
     val rCols     = rel.columns.asInstanceOf[CR]
     val rEntry    =
       new SourceEntry[RR, CR, CR, AR](rel, aR.aliasValue(right), rCols, rCols, JoinKind.Cross, None)
-    new SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR])]((baseEntry, rEntry))
+    new SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR]), skunk.Void, skunk.Void]((baseEntry, rEntry))
   }
 
   // ---- LATERAL joins ---------------------------------------------------------------------------
@@ -757,7 +760,7 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
   )(using
     aR: AsRelation.Aux[T, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
-  ): SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR])] = {
+  ): SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR]), skunk.Void, skunk.Void] = {
     val baseEntry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val outer     = ColumnsView.qualified(baseEntry.effectiveCols, baseEntry.alias)
     val t         = fn(outer)
@@ -773,7 +776,7 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
         None,
         isLateral = true
       )
-    new SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR])]((baseEntry, rEntry))
+    new SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR]), skunk.Void, skunk.Void]((baseEntry, rEntry))
   }
 
 }

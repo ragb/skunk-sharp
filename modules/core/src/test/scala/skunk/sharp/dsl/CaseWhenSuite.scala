@@ -41,8 +41,10 @@ class CaseWhenSuite extends munit.FunSuite {
   test("caseWhen usable in WHERE — renders as a boolean expression at the filter") {
     val af = users.select(u => u.email)
       .where(u =>
-        caseWhen(u.age < 18, lit(false))
-          .otherwise(lit(true))
+        skunk.sharp.where.Where(
+          caseWhen(u.age < 18, lit(false))
+            .otherwise(lit(true))
+        )
       )
       .compile.af
 
