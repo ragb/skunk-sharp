@@ -31,6 +31,32 @@ final class CompiledQuery[Args, R] private (
 
   /** Typed skunk `Query[Args, R]` — suitable for `session.prepare(q.typedQuery)` to reuse with different arg values. */
   def typedQuery: Query[Args, R] = fragment.query(codec)
+
+  /**
+   * Identity — `.compile` on an already-compiled query is a no-op. Lets call sites uniformly write
+   * `<builder>.<some-shape>.compile.af` regardless of whether `<some-shape>` itself produces a `CompiledQuery`
+   * (e.g. `.returning(...)`) or an intermediate that compiles to one.
+   */
+  def compile: CompiledQuery[Args, R] = this
+
+  /**
+   * Map the row shape into a case class `T` whose `MirroredElemTypes` align with `R`. Works for plain-tuple
+   * projections (e.g. from `.returningTuple`) and named-tuple projections (e.g. from `.returningAll`) — the
+   * [[CompiledQueryMapping.Unwrap]] match type strips named-tuple labels before the comparison.
+   *
+   * Lives as an instance method (rather than an extension) so the name `to` doesn't clash with the package-
+   * level `pg.arrays.to` extension exported from [[skunk.sharp.dsl]].
+   */
+  def to[T <: Product](using
+    m: scala.deriving.Mirror.ProductOf[T] {
+      type MirroredElemTypes = CompiledQueryMapping.Unwrap[R] & Tuple
+    }
+  ): CompiledQuery[Args, T] = {
+    val mapped: skunk.Codec[T] = codec.imap[T](r => m.fromProduct(r.asInstanceOf[Product]))(t =>
+      Tuple.fromProductTyped[T](t)(using m).asInstanceOf[R]
+    )
+    CompiledQuery.mk[Args, T](fragment, args, mapped)
+  }
 }
 
 object CompiledQuery {
@@ -63,6 +89,9 @@ final class CompiledCommand[Args] private (
 
   /** Typed skunk `Command[Args]` — suitable for `session.prepare(c.typedCommand)` to reuse. */
   def typedCommand: Command[Args] = fragment.command
+
+  /** Identity — `.compile` on an already-compiled command is a no-op. */
+  def compile: CompiledCommand[Args] = this
 }
 
 object CompiledCommand {
@@ -72,6 +101,14 @@ object CompiledCommand {
 
   def mk[Args](fragment: Fragment[Args], args: Args): CompiledCommand[Args] =
     new CompiledCommand[Args](fragment, args)
+}
+
+/** Strip named-tuple labels for the `to[T]` match-type unification on [[CompiledQuery]]. */
+object CompiledQueryMapping {
+
+  type Unwrap[R] = R match
+    case scala.NamedTuple.NamedTuple[?, v] => v
+    case _                                 => R
 }
 
 /**
@@ -181,33 +218,28 @@ object AsSubquery {
     def render(q: CompiledQuery[?, T]): () => AppliedFragment = () => q.af
   }
 
-  given fromProjected[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, T](using
+  given fromProjected[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WA, HA, T](using
     ev: skunk.sharp.GroupCoverage[Proj, Groups]
-  ): AsSubquery[ProjectedSelect[Ss, Proj, Groups, T], T] =
-    new AsSubquery[ProjectedSelect[Ss, Proj, Groups, T], T] {
-      def codec(q: ProjectedSelect[Ss, Proj, Groups, T]): Codec[T]               = q.codec
-      def render(q: ProjectedSelect[Ss, Proj, Groups, T]): () => AppliedFragment = () => q.compile(using ev).af
+  ): AsSubquery[ProjectedSelect[Ss, Proj, Groups, WA, HA, T], T] =
+    new AsSubquery[ProjectedSelect[Ss, Proj, Groups, WA, HA, T], T] {
+      def codec(q: ProjectedSelect[Ss, Proj, Groups, WA, HA, T]): Codec[T]               = q.codec
+      def render(q: ProjectedSelect[Ss, Proj, Groups, WA, HA, T]): () => AppliedFragment = () => q.compile(using ev).af
     }
 
   /**
    * Whole-row SelectBuilder → subquery of NamedRow. Relies on the same `IsSingleSource` evidence `.compile` uses.
-   *
-   * The result-type `R` is split from the `NamedRowOf[C]` computation via a `=:=` constraint so the compiler can
-   * satisfy it even when `R` has already been reduced at the call site (e.g. when chaining `.union` → `.intersect` on a
-   * `SetOpQuery[R]` whose `R` the earlier step already normalised to the concrete named-tuple form). Matching the two
-   * shapes directly — `AsSubquery[SelectBuilder[Ss], NamedRowOf[C]]` — loses that round-trip: Scala won't always expand
-   * the match type inside `NamedRowOf` during implicit search.
+   * Args slots `WA` / `HA` are absorbed into the existential `?` of the resulting CompiledQuery.
    */
-  given fromSelectBuilder[Ss <: Tuple, C <: Tuple, R](using
+  given fromSelectBuilder[Ss <: Tuple, WA, HA, C <: Tuple, R](using
     ev: IsSingleSource.Aux[Ss, C],
     eq: R =:= skunk.sharp.NamedRowOf[C]
-  ): AsSubquery[SelectBuilder[Ss], R] =
-    new AsSubquery[SelectBuilder[Ss], R] {
-      def codec(b: SelectBuilder[Ss]): Codec[R] = {
+  ): AsSubquery[SelectBuilder[Ss, WA, HA], R] =
+    new AsSubquery[SelectBuilder[Ss, WA, HA], R] {
+      def codec(b: SelectBuilder[Ss, WA, HA]): Codec[R] = {
         val entries = b.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
         skunk.sharp.internal.rowCodec(entries.head.effectiveCols).asInstanceOf[Codec[R]]
       }
-      def render(b: SelectBuilder[Ss]): () => AppliedFragment = () => b.compile(using ev).af
+      def render(b: SelectBuilder[Ss, WA, HA]): () => AppliedFragment = () => b.compile(using ev).af
     }
 
   given fromSetOp[T]: AsSubquery[SetOpQuery[T], T] = new AsSubquery[SetOpQuery[T], T] {

@@ -85,27 +85,52 @@ Aggregates live on `Pg` in [PgFunction.scala](modules/core/src/main/scala/skunk/
 
 Every builder's `.compile` returns one of two types — defined in [Compiled.scala](modules/core/src/main/scala/skunk/sharp/dsl/Compiled.scala):
 
-- `CompiledQuery[R]` — for SELECT, `RETURNING`-variants. Extensions: `.run`, `.unique`, `.option`, `.stream`, `.cursor`.
-- `CompiledCommand` — for INSERT/UPDATE/DELETE without RETURNING. Extensions: `.run`.
+- `CompiledQuery[Args, R]` — for SELECT, `RETURNING`-variants. Extensions: `.run`, `.unique`, `.option`, `.stream`, `.cursor`, `.prepared`.
+- `CompiledCommand[Args]` — for INSERT/UPDATE/DELETE without RETURNING. Extensions: `.run`, `.prepared`.
 
-All session-facing operations live as `inline` extensions on these two types, defined once — so every verb (including `RETURNING` variants) shares the full [`skunk.Session`](https://github.com/typelevel/skunk) execution surface (list-fetch, single-row, option, streaming, cursor). Usage: `users.select.where(…).compile.stream(session)`, `users.delete.where(…).compile.run(session)`, `users.insert(…).returning(u => u.id).compile.unique(session)`.
+`Args` is the captured-parameter tuple — visible at the call site for typed builder chains. A `users.select.where(u => u.age >= 18 && u.email === "x").compile` produces `CompiledQuery[(Int, String), NamedRow]`; users can ascribe the type, build the query once, and re-bind values via `q.prepared(session): F[PreparedQuery[F, Args, R]]`.
 
-`.prepare` / `.prepareR` are deliberately *not* exposed here — skunk's `PreparedQuery` takes differing argument values on each call, but our `AppliedFragment` has arguments baked in. Users who need true reusable prepared queries build a `skunk.Query[A, B]` directly.
+The fragment is held as `Fragment[Args]` + `args: Args` internally; `.af: AppliedFragment` is a derived `lazy val` for subquery embedding.
+
+All session-facing operations live as `inline` extensions on these two types, defined once — so every verb (including `RETURNING` variants) shares the full [`skunk.Session`](https://github.com/typelevel/skunk) execution surface. Usage: `users.select.where(…).compile.stream(session)`, `users.delete.where(…).compile.run(session)`, `users.insert(…).returning(u => u.id).compile.unique(session)`.
+
+## `Args` threading — typed captured parameters
+
+Every builder threads two captured-args type parameters end-to-end:
+
+- `SelectBuilder[Ss, WArgs, HArgs]` — `WArgs` accumulates from `.where(_ => Where[A])` lambdas, `HArgs` from `.having(_ => Where[H])`. Other operations (`.orderBy`, `.limit`, `.offset`, `.distinctRows`, locking, `.groupBy`) leave them unchanged.
+- `ProjectedSelect[Ss, Proj, Groups, WArgs, HArgs, Row]` — same `WArgs` / `HArgs` story.
+- `DeleteReady[Cols, Name, Args]` — `Args` from `.where(_ => Where[A])`.
+- `UpdateReady[Cols, Name, SetArgs, WArgs]` — `SetArgs` from `.set(_ => col := value)` (single-col), widened to `Any` for tuple-form `.set` and `.patch`.
+- `InsertCommand[Cols, Args]` — `Args` is the row-values tuple for single-row insert; widened to `?` for `.values(...)` batch and `.from(query)`.
+
+`.compile` collapses the parameter slots through the `Where.Concat[A, B]` match type, which drops `skunk.Void` placeholders so a no-WHERE / no-HAVING query is `CompiledQuery[Void, R]`, a WHERE-only query is `CompiledQuery[WArgs, R]`, and so on. Combined predicates pair via raw tuples — `Where[A] && Where[B]` is `Where[(A, B)]`, no normalisation.
+
+**Operators** in [`skunk.sharp.ops`](modules/core/src/main/scala/skunk/sharp/ops/ExprOps.scala) (`===`, `>=`, `between`, `like`, `in`, …) all return `Where[Stripped[T]]` — typed `Args`, never existential. The `SqlMacros.infix` / `infix2` / `postfix` paths bake the LHS column reference + op symbol into a constant `Fragment[Args]` when LHS is a `TypedColumn`; for non-`TypedColumn` LHS (e.g. `Pg.lower(col)`, `col.cast[…]`) the macro renders the LHS to `AppliedFragment` and uses `Encoder.contramap` to bake those existential args while still surfacing the typed RHS `Args` at the result.
+
+**Escape hatches** for genuinely runtime-built predicates:
+
+- `.whereRaw(af: AppliedFragment)` / `.havingRaw(af)` on `SelectBuilder`/`ProjectedSelect`/mutation builders — accept a pre-applied `AppliedFragment` (any third-party fragment, dynamic filter list, etc.) and widen the corresponding slot's `Args` to `?`. The fragment's bound values are baked via contramap; subsequent typed `.where`/`.having` calls compose normally.
+- `Where(typedExpr: TypedExpr[Boolean])` — lift any boolean-typed `TypedExpr` (subquery `Pg.exists(...)`, jsonb `@>`, range `<<`, …) to `Where[Void]`. Used by extension modules whose operators don't ship typed `Args`.
 
 ## Compile-time SQL goal (design aspiration)
 
 **Non-trivial goal for v0.1+**: compile as much SQL structure as possible at compile time, so only the actual query
-parameters (user-supplied values) are emitted at runtime. Today the DSL builds `AppliedFragment`s at runtime by
-composing via `|+|`. The target shape:
+parameters (user-supplied values) are emitted at runtime.
 
-- Column names, table names, projection lists, operator symbols, `ORDER BY` / `LIMIT` / `OFFSET` literals → known at
-  compile time from `Cols` and the lambda AST. Emit them into the static `parts` of a `skunk.Fragment` via a macro.
-- Only the user-supplied parameter values flow through encoders at runtime. These are the `AppliedFragment.argument`.
-- `inline` + quoted macros let us generate the `Fragment[A]` structure per query type, specialised per `Cols`/lambda,
-  so `sbt compile` carries most of the cost and runtime is a tight parameter-binding path.
+**Done so far** (on `macro-sql-assembly`):
+- `WHERE`-operator macro baking — every `===`, `>=`, `between`, `in`, `like`, `isNull`, … with a `TypedColumn` LHS produces a single `skunk.Fragment` whose `parts` is compile-time-constant strings.
+- Structural-token cache (`SELECT `, ` FROM `, ` WHERE `, `, `, `(`, ` AND `, ` GROUP BY `, ` HAVING `, ` ORDER BY `, …) — process-wide-shared `AppliedFragment`s, returned by `TypedExpr.raw` for the hot strings.
+- `lazy val` caching on `TypedColumn.render`, `Table.columnsView`, `Table.deleteFromHeader`, `Table.updateSetHeader`.
+- `CompiledQuery[Args, R]` / `CompiledCommand[Args]` carry `Fragment[Args]` + `args` — typed throughout.
+- All builders thread `Args` end-to-end (this file's *Args threading* section).
 
-This is a substantial refactor; the current runtime assembly is easier to maintain and already correct, so we land
-features first and revisit assembly strategy once the DSL surface stabilises.
+Measured: ~27% faster `.compile` than `main`, ~3-7× less heap allocation per call. `CompileBench` in `modules/core/src/test/scala/skunk/sharp/bench/CompileBench.scala`.
+
+**Still to do** (Phase 5 / issue #24's acid test):
+- Bake projection lists, `ORDER BY` direction keywords, `LIMIT`/`OFFSET` literal forms.
+- A macro that owns the entire builder chain so the fully-static query case (`users.select.where(u => u.id === lit(uuid)).compile`) collapses to a single interned `Fragment[Void]` at expansion time. Today each leaf bakes its own `parts` list and they concatenate at runtime.
+- Compile-time assertion that fully-static queries are `Fragment` constants (the negative twin: dynamic queries must NOT collapse).
 
 ## Schema validation
 

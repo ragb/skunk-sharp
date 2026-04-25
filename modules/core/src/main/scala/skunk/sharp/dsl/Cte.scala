@@ -57,9 +57,9 @@ final class CteRelation[Cols <: Tuple, Name <: String & Singleton] private[sharp
  * in the same query are collected and deduplicated at compile time — each `WITH` entry appears only once, in dependency
  * order.
  */
-def cte[Ss <: Tuple, N <: String & Singleton](
+def cte[Ss <: Tuple, WA, HA, N <: String & Singleton](
   name: N,
-  query: SelectBuilder[Ss]
+  query: SelectBuilder[Ss, WA, HA]
 )(using ev: IsSingleSource[Ss]): CteRelation[ev.Cols, N] = {
   val entries = query.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
   val deps    = directCtes(entries)
@@ -80,9 +80,9 @@ def cte[Ss <: Tuple, N <: String & Singleton](
  *   totals.innerJoin(users).on(r => r.totals.user_id ==== r.users.id).select(r => (r.users.email, r.totals.total)).compile
  * }}}
  */
-def cte[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Row, N <: String & Singleton](
+def cte[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WA, HA, Row, N <: String & Singleton](
   name: N,
-  query: ProjectedSelect[Ss, Proj, Groups, Row]
+  query: ProjectedSelect[Ss, Proj, Groups, WA, HA, Row]
 )(using
   gc: GroupCoverage[Proj, Groups],
   @scala.annotation.unused np: AllNamedProj[Proj]

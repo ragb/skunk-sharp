@@ -2,6 +2,7 @@ package skunk.sharp.circe
 
 import io.circe.Json as CirceJson
 import skunk.sharp.TypedExpr
+import skunk.sharp.where.Where
 
 /**
  * Extension operators on `TypedExpr[Jsonb[A]]` for any `A` — the operators act at the SQL level on jsonb bytes, so the
@@ -54,24 +55,24 @@ extension [A](e: TypedExpr[Jsonb[A]]) {
   }
 
   /** `jsonb @> jsonb` — left contains right. */
-  def contains[B](other: TypedExpr[Jsonb[B]]): TypedExpr[Boolean] =
-    TypedExpr(e.render |+| TypedExpr.raw(" @> ") |+| other.render, skunk.codec.all.bool)
+  def contains[B](other: TypedExpr[Jsonb[B]]): Where[skunk.Void] =
+    Where(TypedExpr(e.render |+| TypedExpr.raw(" @> ") |+| other.render, skunk.codec.all.bool))
 
   /** `jsonb <@ jsonb` — left is contained by right. */
-  def containedBy[B](other: TypedExpr[Jsonb[B]]): TypedExpr[Boolean] =
-    TypedExpr(e.render |+| TypedExpr.raw(" <@ ") |+| other.render, skunk.codec.all.bool)
+  def containedBy[B](other: TypedExpr[Jsonb[B]]): Where[skunk.Void] =
+    Where(TypedExpr(e.render |+| TypedExpr.raw(" <@ ") |+| other.render, skunk.codec.all.bool))
 
   /** `jsonb ? 'key'` — does the top-level have the key? */
-  def hasKey(key: String): TypedExpr[Boolean] =
-    TypedExpr(e.render |+| TypedExpr.raw(" ? ") |+| TypedExpr.parameterised(key).render, skunk.codec.all.bool)
+  def hasKey(key: String): Where[skunk.Void] =
+    Where(TypedExpr(e.render |+| TypedExpr.raw(" ? ") |+| TypedExpr.parameterised(key).render, skunk.codec.all.bool))
 
   /** `jsonb ?| ARRAY[...]` — does the top-level have any of the keys? */
-  def hasAnyKey(keys: String*): TypedExpr[Boolean] =
-    TypedExpr(e.render |+| TypedExpr.raw(s" ?| ${textArray(keys)}"), skunk.codec.all.bool)
+  def hasAnyKey(keys: String*): Where[skunk.Void] =
+    Where(TypedExpr(e.render |+| TypedExpr.raw(s" ?| ${textArray(keys)}"), skunk.codec.all.bool))
 
   /** `jsonb ?& ARRAY[...]` — does the top-level have all the keys? */
-  def hasAllKeys(keys: String*): TypedExpr[Boolean] =
-    TypedExpr(e.render |+| TypedExpr.raw(s" ?& ${textArray(keys)}"), skunk.codec.all.bool)
+  def hasAllKeys(keys: String*): Where[skunk.Void] =
+    Where(TypedExpr(e.render |+| TypedExpr.raw(s" ?& ${textArray(keys)}"), skunk.codec.all.bool))
 
   /** Render a `'{a,b,c}'`-style PG text path literal. */
   private def escapePathElem(s: String): String =

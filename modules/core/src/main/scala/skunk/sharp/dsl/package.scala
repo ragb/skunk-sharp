@@ -63,7 +63,7 @@ package object dsl {
   val Pg: skunk.sharp.Pg.type                 = skunk.sharp.Pg
 
   // ---- WHERE predicate type and combinators ----
-  type Where = skunk.sharp.where.Where
+  type Where[A] = skunk.sharp.where.Where[A]
   val Where: skunk.sharp.where.Where.type = skunk.sharp.where.Where
 
   // The expression-level operators ("WHERE operators" historically, but they produce a plain
@@ -101,9 +101,8 @@ package object dsl {
   }
   export skunk.sharp.ops.Stripped
 
-  // Boolean combinators (`&&`, `||`, `!`, `and`, `or`, `not`) stay in `skunk.sharp.where` — they're about
-  // composing predicates, not building them.
-  export skunk.sharp.where.{&&, ||, and, not, or}
+  // Boolean combinators (`&&`, `||`, `!`, `and`, `or`, `not`) live as methods on `Where[?]` itself — no
+  // separate exports needed.
 
   // ---- Schema validation ----
   val SchemaValidator: skunk.sharp.validation.SchemaValidator.type = skunk.sharp.validation.SchemaValidator
@@ -169,7 +168,7 @@ package object dsl {
    * Start a `CASE`. Each branch has its own boolean predicate. The first branch's `branch: TypedExpr[T]` pins the
    * output type; later `.when`s must agree.
    */
-  def caseWhen[T](cond: skunk.sharp.where.Where, branch: skunk.sharp.TypedExpr[T]): CaseWhen[T] =
+  def caseWhen[T](cond: skunk.sharp.TypedExpr[Boolean], branch: skunk.sharp.TypedExpr[T]): CaseWhen[T] =
     new CaseWhen[T](List((cond, branch)), branch.codec)
 
 }
