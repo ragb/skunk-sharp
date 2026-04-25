@@ -47,6 +47,18 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
   lazy val deleteFromHeader: skunk.AppliedFragment = TypedExpr.raw(s"DELETE FROM $qualifiedName")
   lazy val updateSetHeader:  skunk.AppliedFragment = TypedExpr.raw(s"UPDATE $qualifiedName SET ")
 
+  /**
+   * Cached `INSERT INTO "name" ("col1", "col2", …) ` header for the full-column-set case — the typical
+   * `users.insert(row)` where every column is supplied. Skips the per-compile `s"…"` interpolation +
+   * column-name `mkString` that `InsertCommand.headerAf` would otherwise rebuild every time. Subset inserts
+   * (`.insert(partialRow)` with `withDefault`-elided columns) bypass this cache and build dynamically.
+   */
+  lazy val insertIntoFullHeader: skunk.AppliedFragment = {
+    val cols = columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
+    val projStr = cols.map(c => s""""${c.name}"""").mkString(", ")
+    TypedExpr.raw(s"INSERT INTO $qualifiedName ($projStr) ")
+  }
+
   /** Place the table in a non-default schema. */
   def inSchema(s: String): Table[Cols, Name] = copy(schema = Some(s))
 

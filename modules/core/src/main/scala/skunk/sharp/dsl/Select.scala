@@ -405,8 +405,7 @@ final class SelectBuilder[Ss <: Tuple, WArgs, HArgs] private[sharp] (
     // surface through assemble's pre-encoder pairing.
     val tail = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].tail
     tail.foreach { s =>
-      val lateralKw = if (s.isLateral) " LATERAL" else ""
-      headerParts += TypedExpr.raw(s" ${s.kind.sql}$lateralKw ")
+      headerParts += (if (s.isLateral) s.kind.lateralKeywordAf else s.kind.keywordAf)
       headerParts += aliasedFromEntry(s)
       s.onPredOpt.foreach { p =>
         headerParts += RawConstants.ON
@@ -773,8 +772,8 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
         val head     = entries.head
         val headFrag = selectPrefix |+| projList |+| RawConstants.FROM |+| aliasedFromEntry(head)
         entries.tail.foldLeft(headFrag) { (acc, s) =>
-          val lateralKw = if (s.isLateral) " LATERAL" else ""
-          val fromFrag  = TypedExpr.raw(s" ${s.kind.sql}$lateralKw ") |+| aliasedFromEntry(s)
+          val kindAf   = if (s.isLateral) s.kind.lateralKeywordAf else s.kind.keywordAf
+          val fromFrag = kindAf |+| aliasedFromEntry(s)
           s.onPredOpt.fold(acc |+| fromFrag)(p =>
             acc |+| fromFrag |+| RawConstants.ON |+| p.render
           )
@@ -805,8 +804,7 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
       headerParts += RawConstants.FROM
       headerParts += aliasedFromEntry(head)
       entries.tail.foreach { s =>
-        val lateralKw = if (s.isLateral) " LATERAL" else ""
-        headerParts += TypedExpr.raw(s" ${s.kind.sql}$lateralKw ")
+        headerParts += (if (s.isLateral) s.kind.lateralKeywordAf else s.kind.keywordAf)
         headerParts += aliasedFromEntry(s)
         s.onPredOpt.foreach { p =>
           headerParts += RawConstants.ON

@@ -138,10 +138,12 @@ final class InsertCommand[Cols <: Tuple, Args] private[sharp] (
 
   // ---- Body parts ---------------------------------------------------------------
 
-  private def headerAf: AppliedFragment = {
-    val projections = projected.map(c => s""""${c.name}"""").mkString(", ")
-    TypedExpr.raw(s"INSERT INTO ${table.qualifiedName} ($projections) ")
-  }
+  private def headerAf: AppliedFragment =
+    if (projected.size == table.columns.size) table.insertIntoFullHeader
+    else {
+      val projections = projected.map(c => s""""${c.name}"""").mkString(", ")
+      TypedExpr.raw(s"INSERT INTO ${table.qualifiedName} ($projections) ")
+    }
 
   private def insertParts: List[BodyPart] = {
     val buf = scala.collection.mutable.ListBuffer[BodyPart](Left(headerAf))

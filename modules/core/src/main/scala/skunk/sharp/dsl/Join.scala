@@ -261,6 +261,14 @@ enum JoinKind(val sql: String) {
   case Right extends JoinKind("RIGHT JOIN")
   case Full  extends JoinKind("FULL OUTER JOIN")
   case Cross extends JoinKind("CROSS JOIN")
+
+  /**
+   * Pre-rendered ` <kind> ` and ` <kind> LATERAL ` AppliedFragments — interned once per enum case so the SELECT
+   * compiler can splice the join keyword as a single shared instance instead of `s"…"`-interpolating + allocating
+   * a fresh `Fragment` + `AppliedFragment` per source per compile.
+   */
+  val keywordAf:        skunk.AppliedFragment = skunk.sharp.internal.RawConstants.intern(s" $sql ")
+  val lateralKeywordAf: skunk.AppliedFragment = skunk.sharp.internal.RawConstants.intern(s" $sql LATERAL ")
 }
 
 /**
