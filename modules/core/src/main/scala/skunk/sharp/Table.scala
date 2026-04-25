@@ -32,14 +32,6 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
   val expectedTableType: String = "BASE TABLE"
 
   /**
-   * Cached unqualified columns view — reused across every `.where` / `.returning` / `.select(f)` / … lambda on
-   * this table instance. Without this cache each lambda invocation rebuilds one `Array` + N `TypedColumn`
-   * instances. Qualified (alias-prefixed) views — used by JOINs and `.alias("u")` — are not cached because they
-   * depend on the runtime alias string.
-   */
-  lazy val columnsView: ColumnsView[Cols] = ColumnsView(columns)
-
-  /**
    * Cached statement-header `AppliedFragment`s for the three DML verbs. Each `.compile` on a DELETE or UPDATE
    * would otherwise re-allocate `DELETE FROM "name"` / `UPDATE "name" SET ` every call (string interpolation
    * and then a fresh Fragment). Cached once per `Table` instance and reused across compiles.
@@ -58,6 +50,7 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
     val projStr = cols.map(c => s""""${c.name}"""").mkString(", ")
     TypedExpr.raw(s"INSERT INTO $qualifiedName ($projStr) ")
   }
+
 
   /** Place the table in a non-default schema. */
   def inSchema(s: String): Table[Cols, Name] = copy(schema = Some(s))

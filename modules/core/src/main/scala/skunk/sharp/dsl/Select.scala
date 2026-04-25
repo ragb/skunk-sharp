@@ -390,15 +390,35 @@ final class SelectBuilder[Ss <: Tuple, WArgs, HArgs] private[sharp] (
   }
 
   private def compileBodyParts(head: SourceEntry[?, ?, ?, ?]): List[SelectBuilder.BodyPart] = {
-    val cols         = head.effectiveCols.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
-    val projStr      = cols.map(c => s""""${c.name}"""").mkString(", ")
+    val rel          = head.relation
     val selectPrefix = renderSelectPrefix(distinct, distinctOnOpt)
     val headerParts  = scala.collection.mutable.ListBuffer[AppliedFragment](selectPrefix)
-    if (head.relation.hasFromClause) {
-      headerParts += TypedExpr.raw(s"$projStr FROM ")
-      headerParts += aliasedFromEntry(head)
+    val canCacheCols = (head.effectiveCols eq rel.columns) && (head.alias == rel.currentAlias)
+    if (rel.hasFromClause) {
+      if (canCacheCols) {
+        rel.starProjFromAfOpt match {
+          case Some(af) => headerParts += af
+          case None =>
+            // Subquery / parameterised FROM — keep the projection list cached but the FROM AF dynamic so
+            // its bound parameters thread through.
+            headerParts += rel.starProjAf
+            headerParts += RawConstants.FROM
+            headerParts += aliasedFromEntry(head)
+        }
+      } else {
+        val cols    = head.effectiveCols.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
+        val projStr = cols.map(c => s""""${c.name}"""").mkString(", ")
+        headerParts += TypedExpr.raw(s"$projStr FROM ")
+        headerParts += aliasedFromEntry(head)
+      }
     } else {
-      headerParts += TypedExpr.raw(projStr)
+      if (canCacheCols) {
+        headerParts += rel.starProjAf
+      } else {
+        val cols    = head.effectiveCols.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
+        val projStr = cols.map(c => s""""${c.name}"""").mkString(", ")
+        headerParts += TypedExpr.raw(projStr)
+      }
     }
     // Tail entries (additional joined sources): keyword + alias + ON predicate go directly into the
     // header parts list. Any ON-predicate args ride along on the predicate's AppliedFragment and
@@ -510,8 +530,8 @@ object SelectBuilder {
       buf += Left(RawConstants.ORDER_BY)
       buf += Left(TypedExpr.joined(orderBys.map(_.af), ", "))
     }
-    limitOpt.foreach(n => buf += Left(TypedExpr.raw(s" LIMIT $n")))
-    offsetOpt.foreach(n => buf += Left(TypedExpr.raw(s" OFFSET $n")))
+    limitOpt.foreach(n => buf += Left(RawConstants.limitAf(n)))
+    offsetOpt.foreach(n => buf += Left(RawConstants.offsetAf(n)))
     lockingOpt.foreach(l => buf += Left(TypedExpr.raw(" " + l.sql)))
     buf.toList
   }
@@ -875,8 +895,8 @@ private[dsl] def renderClauses(
   val withOrder  =
     if (orderBys.isEmpty) withHaving
     else withHaving |+| ORDER_BY |+| TypedExpr.joined(orderBys.map(_.af), ", ")
-  val withLimit  = limitOpt.fold(withOrder)(n => withOrder |+| TypedExpr.raw(s" LIMIT $n"))
-  val withOffset = offsetOpt.fold(withLimit)(n => withLimit |+| TypedExpr.raw(s" OFFSET $n"))
+  val withLimit  = limitOpt.fold(withOrder)(n => withOrder |+| RawConstants.limitAf(n))
+  val withOffset = offsetOpt.fold(withLimit)(n => withLimit |+| RawConstants.offsetAf(n))
   lockingOpt.fold(withOffset)(l => withOffset |+| TypedExpr.raw(" " + l.sql))
 }
 
@@ -986,9 +1006,16 @@ type SelectView[Ss <: Tuple] = Ss match {
 private[sharp] def buildSelectView[Ss <: Tuple](sources: Ss): SelectView[Ss] =
   sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]] match {
     case single :: Nil =>
-      if (single.alias == single.relation.name)
-        ColumnsView(single.effectiveCols).asInstanceOf[SelectView[Ss]]
-      else
+      if (single.alias == single.relation.name) {
+        // Default-alias case: reuse the relation's cached `columnsView` when the source's effective cols
+        // match the relation's own column tuple (no JOIN-driven nullabilification rewrite). Skips the
+        // per-call `Array` + N `TypedColumn` allocation that `ColumnsView(...)` would otherwise do every
+        // time the user invokes `.where` / `.orderBy` / `.select(lambda)`.
+        if (single.effectiveCols eq single.relation.columns)
+          single.relation.columnsView.asInstanceOf[SelectView[Ss]]
+        else
+          ColumnsView(single.effectiveCols).asInstanceOf[SelectView[Ss]]
+      } else
         ColumnsView.qualified(single.effectiveCols, single.alias).asInstanceOf[SelectView[Ss]]
     case _ => buildJoinedView[Ss](sources).asInstanceOf[SelectView[Ss]]
   }

@@ -39,8 +39,75 @@ private[sharp] object RawConstants {
     }
   }
 
+  /**
+   * Process-wide counter of fresh `AppliedFragment` allocations driven by runtime-built SQL strings —
+   * `s"…"` interpolations against variables, `whereRaw` / `havingRaw` payloads. Read by benchmarks /
+   * diagnostics to track progress toward the "everything except whereRaw/havingRaw is static" goal.
+   * The counter is best-effort — concurrent compiles may race on increments, but the order-of-magnitude
+   * count over millions of compiles is what matters.
+   */
+  private[sharp] val rawDynamicCount: java.util.concurrent.atomic.AtomicLong =
+    new java.util.concurrent.atomic.AtomicLong(0L)
+
+  /**
+   * When set to a non-null map, every `rawDynamic` call records the calling stack frame as a key and
+   * increments its counter. Used by benchmarks to attribute the per-compile dynamic-AF count to specific
+   * call sites. Off by default (null) so production has zero overhead.
+   */
+  @volatile private[sharp] var rawDynamicByCallSite: java.util.concurrent.ConcurrentHashMap[String, Long] = null
+
+  /**
+   * Bounded array caches for `" LIMIT n"` and `" OFFSET n"` AppliedFragments. Pagination patterns reuse a
+   * small fixed set of values (10, 20, 25, 50, 100, …); pre-allocating the first `LimitOffsetCacheSize`
+   * entries lazily covers the realistic spread without unbounded memory growth. Larger values fall back to
+   * `rawDynamic` and allocate fresh per compile.
+   */
+  private final val LimitOffsetCacheSize = 1024
+  private val limitCache:  Array[AppliedFragment] = new Array[AppliedFragment](LimitOffsetCacheSize)
+  private val offsetCache: Array[AppliedFragment] = new Array[AppliedFragment](LimitOffsetCacheSize)
+
+  /** Resolve `" LIMIT n"` to a cached AF when `0 <= n < 1024`, otherwise allocate fresh via `rawDynamic`. */
+  private[sharp] def limitAf(n: Int): AppliedFragment = {
+    if (n >= 0 && n < LimitOffsetCacheSize) {
+      val cached = limitCache(n)
+      if (cached ne null) cached
+      else {
+        val af = mk(s" LIMIT $n")
+        limitCache(n) = af
+        af
+      }
+    } else rawDynamic(s" LIMIT $n")
+  }
+
+  /** Resolve `" OFFSET n"` to a cached AF when `0 <= n < 1024`, otherwise allocate fresh via `rawDynamic`. */
+  private[sharp] def offsetAf(n: Int): AppliedFragment = {
+    if (n >= 0 && n < LimitOffsetCacheSize) {
+      val cached = offsetCache(n)
+      if (cached ne null) cached
+      else {
+        val af = mk(s" OFFSET $n")
+        offsetCache(n) = af
+        af
+      }
+    } else rawDynamic(s" OFFSET $n")
+  }
+
   /** Build a fresh `AppliedFragment` for a runtime-built string — no caching. */
-  private[sharp] def rawDynamic(s: String): AppliedFragment = mk(s)
+  private[sharp] def rawDynamic(s: String): AppliedFragment = {
+    rawDynamicCount.incrementAndGet()
+    val cs = rawDynamicByCallSite
+    if (cs ne null) {
+      val frames = Thread.currentThread.getStackTrace
+      // Skip the first 3 frames: getStackTrace, rawDynamic, the macro splice site.
+      val key =
+        if (frames.length > 3) {
+          val f = frames(3)
+          s"${f.getClassName}.${f.getMethodName}(${f.getFileName}:${f.getLineNumber})"
+        } else "<unknown>"
+      val _ = cs.merge(key, 1L, (a, b) => a + b)
+    }
+    mk(s)
+  }
 
   private def mk(s: String): AppliedFragment = {
     val frag: Fragment[Void] = Fragment(List(Left(s)), Void.codec, Origin.unknown)
