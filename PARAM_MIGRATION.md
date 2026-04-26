@@ -190,6 +190,10 @@ Document in CLAUDE.md that:
 - Macro that owns the entire builder chain producing a single interned `Fragment[Void]` per fully-static call site.
 - Per-call-site Fragment template caching (`u.id === Param[Int]` rebuilds Fragment per `.where` invocation; could intern).
 - Iron-module updates beyond what TypedExpr signature changes force.
+- **Named params**: `Param[T, N <: String & Singleton]` (e.g. `Param[UUID]("id")`) so multi-param queries compile-check
+  arg names at `.run(session)(named-tuple)`. Args at the QueryTemplate level become a `NamedTuple[Names, Values]`
+  for the all-named case; combinator chains merge NamedTuples via Scala 3.7+ type-level ops. Phase 2 — don't block
+  on the NamedTuple-merge machinery before the basic plumbing works.
 
 ## Risk / open questions
 
