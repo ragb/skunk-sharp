@@ -1,8 +1,12 @@
 # Resume: Param migration (TypedExpr[T] → TypedExpr[T, Args])
 
 **Branch**: `param-placeholders` (off `macro-sql-assembly`)
-**Head**: `3703952` (pg/functions batch — core compiles)
-**Compiles**: `core/compile` ✅ clean. `core/Test/compile` ❌ 105 errors — tests still reference old API.
+**Head**: `81c703b` (all 363 core tests pass)
+**Compiles**: `core/compile` ✅. `core/Test/compile` ✅. `core/test` ✅ 363/363 pass.
+
+Integration tests (`tests/test`) and the iron module (`iron/compile`) have not been
+migrated — they still reference the old `TypedExpr[T]` / `.render` / `CompiledQuery`
+surface and will need the same patterns applied.
 **Plan**: see [`PARAM_MIGRATION.md`](PARAM_MIGRATION.md) for the full file-by-file checklist + design rationale.
 
 ## What's done (6 commits on the branch)
