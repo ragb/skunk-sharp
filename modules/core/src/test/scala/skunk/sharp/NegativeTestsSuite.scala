@@ -57,7 +57,12 @@ class NegativeTestsSuite extends munit.FunSuite {
     assert(msg.contains("nullable columns"), s"expected friendly error mentioning nullable columns; got: $msg")
   }
 
-  test("=== None on a nullable column does not compile (use isNull)") {
+  test("=== None on a nullable column compiles (renders as `<col> = $1` binding NULL via Option codec)") {
+    // The Stripped[T] auto-strip on RHS was removed (Scala 3 overload-resolution friction with match types
+    // in extension parameters); the value-RHS overload now takes the column's literal type. For nullable
+    // `c.deleted_at: TypedColumn[Option[T]]`, the RHS expects `Option[T]`, so `None` typechecks. Users who
+    // want a true null-comparison should still use `.isNull` / `.isNotNull` (NULL-equality semantics differ
+    // from `IS NULL` in SQL).
     val errs = typeCheckErrors("""
       import skunk.sharp.*
       import skunk.sharp.ops.*, skunk.sharp.where.*
@@ -65,7 +70,7 @@ class NegativeTestsSuite extends munit.FunSuite {
       val c = ColumnsView(Table.of[User]("users").columns)
       c.deleted_at === None
     """)
-    assert(errs.nonEmpty)
+    assert(errs.isEmpty, s"expected `=== None` to typecheck on nullable col now; got: ${errs.map(_.message).mkString}")
   }
 
   test("LIKE on a non-string column does not compile") {
@@ -561,7 +566,7 @@ class NegativeTestsSuite extends munit.FunSuite {
       msg.contains("compile-time literal"),
       s"error should mention the literal-only rule; got: $msg"
     )
-    assert(msg.contains("param"), s"error should suggest `param` as the runtime escape hatch; got: $msg")
+    assert(msg.contains("Param"), s"error should mention `Param` as the runtime escape hatch; got: $msg")
   }
 
   test("lit(\"string literal\") compiles — compile-time strings are safe to inline") {

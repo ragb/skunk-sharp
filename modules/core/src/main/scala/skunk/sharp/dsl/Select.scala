@@ -310,13 +310,20 @@ final class SelectBuilder[Ss <: Tuple, WArgs, HArgs] private[sharp] (
     : ProjectedSelect[Ss, NormProj[X], EmptyTuple, WArgs, HArgs, ProjResult[X]] = select[X](f)
 
   /**
-   * Bridge for [[Cte]] / `SelectBuilder.alias` that still need an `AppliedFragment`. Compiles, then binds the
-   * Args. Currently constrained to `WArgs = Void` and `HArgs = Void` — typed-args threading through CTE bodies
-   * and aliased subqueries is roadmap.
+   * Bridge for [[Cte]] / `SelectBuilder.alias` that still need an `AppliedFragment`. Renders the SELECT body
+   * **without** the CTE preamble (the outer query's `assemble` is responsible for emitting `WITH` once).
+   * Currently constrained to `WArgs = Void` and `HArgs = Void` — typed-args threading through CTE bodies and
+   * aliased subqueries is roadmap.
    */
   private[dsl] def compileFragment(using ev: IsSingleSource[Ss]): AppliedFragment = {
-    val tpl = compile(using ev)
-    tpl.fragment.asInstanceOf[Fragment[Void]].apply(Void)
+    val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
+    val head    = entries.head
+    val tpl     = SelectBuilder.assemble[Void, NamedRowOf[ev.Cols]](
+      bodyParts = compileBodyParts(head),
+      ctes      = Nil, // outer query owns the WITH preamble
+      codec     = rowCodec(head.effectiveCols).asInstanceOf[Codec[NamedRowOf[ev.Cols]]]
+    )
+    tpl.fragment.apply(Void)
   }
 
   /**
@@ -680,10 +687,17 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
     )
   }
 
-  /** Bridge for [[Cte]] / `.alias` paths still on AppliedFragment. Constrained to Void-args inner queries. */
+  /**
+   * Bridge for [[Cte]] / `.alias` paths still on AppliedFragment. Renders the body without CTE preamble
+   * (outer query's `assemble` owns the WITH). Constrained to Void-args inner queries.
+   */
   private[dsl] def compileFragment(using @scala.annotation.unused ev: GroupCoverage[Proj, Groups]): AppliedFragment = {
-    val tpl = compile(using ev)
-    tpl.fragment.asInstanceOf[Fragment[Void]].apply(Void)
+    val tpl = SelectBuilder.assemble[Void, Row](
+      bodyParts = compileBodyParts(),
+      ctes      = Nil,
+      codec     = codec
+    )
+    tpl.fragment.apply(Void)
   }
 
   /** Compile into a [[QueryTemplate]]. Enforces [[GroupCoverage]]. */

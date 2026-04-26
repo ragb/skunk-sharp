@@ -106,8 +106,11 @@ class WhereSuite extends munit.FunSuite {
     assertEquals(w.fragment.sql, """"email" NOT SIMILAR TO $1""")
   }
 
-  test("comparing a nullable column to None/Option does NOT compile") {
-    // Documents the compile-time rejection with a compiletime.testing assertion.
+  test("comparing a nullable column to None typechecks (renders bound NULL via Option codec)") {
+    // The Stripped[T] auto-strip on RHS was removed (Scala 3 overload-resolution friction with match types
+    // in extension parameters); the value-RHS overload now takes the column's literal type, so for
+    // `c.deleted_at: TypedColumn[Option[T]]` the RHS expects `Option[T]` and `None` typechecks. Use
+    // `.isNull` / `.isNotNull` for SQL-NULL-safe comparison.
     import scala.compiletime.testing.*
     val result: List[Error] = typeCheckErrors("""
       import skunk.sharp.*
@@ -118,6 +121,6 @@ class WhereSuite extends munit.FunSuite {
       val c = ColumnsView(t.columns)
       c.deleted_at === None
     """)
-    assert(result.nonEmpty, "expected `=== None` on a nullable column to be a compile error")
+    assert(result.isEmpty, s"expected `=== None` to typecheck on nullable col now; got: ${result.map(_.message).mkString}")
   }
 }
