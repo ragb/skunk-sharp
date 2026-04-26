@@ -35,7 +35,7 @@ class SetOpSuite extends munit.FunSuite {
   }
 
   test("INTERSECT / INTERSECT ALL / EXCEPT / EXCEPT ALL render the matching keyword") {
-    def sqlOf(q: SetOpQuery[?]): String = q.compile.af.fragment.sql
+    def sqlOf(q: SetOpQuery[?]): String = q.compile.fragment.sql
 
     assert(sqlOf(users.select.intersect(admins.select)).contains(" INTERSECT ("))
     assert(sqlOf(users.select.intersectAll(admins.select)).contains(" INTERSECT ALL ("))

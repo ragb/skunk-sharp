@@ -583,7 +583,6 @@ class NegativeTestsSuite extends munit.FunSuite {
 
   test("lit(String) renders the SQL single-quoted literal with `'` doubled") {
     import skunk.sharp.dsl.*
-    val af = lit("it's").render
-    assertEquals(af.fragment.sql, "'it''s'")
+    assertEquals(lit("it's").fragment.sql, "'it''s'")
   }
 }

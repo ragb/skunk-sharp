@@ -31,8 +31,11 @@ import scala.annotation.unused
  */
 
 /**
- * Type-level alias: stripped of the outermost `Option[_]` if there is one, otherwise unchanged. Drives the RHS
- * of comparison operators so callers pass the underlying value even for nullable columns.
+ * Type-level alias: strip outermost `Option[_]` if there is one, otherwise unchanged. **Not** used in the
+ * comparison operators below — overloaded extensions whose parameters mention a match type confuse Scala 3's
+ * resolution machinery and the value-overload silently fails to apply. Comparison operators take `T` directly
+ * for the value-RHS form; nullable-column cases pass `Some(value)` / `None` (or use `.isNull` / `.isNotNull`).
+ * Kept exported for source-compat with code that referenced the alias.
  */
 type Stripped[T] = T match {
   case Option[x] => x
@@ -49,51 +52,68 @@ private def opCombine[T, U, A, B](
   Where(frag)
 }
 
-/** Equality: `lhs = rhs`. */
+// Each operator's typed-RHS form and value-RHS form live in *separate* extension blocks. Putting them in a
+// single block confuses Scala 3's overload resolution when one branch has a `using` clause and the match-type
+// `T` appears in a parameter position — overload search fails before the `using` is summoned.
+
 extension [T, A](lhs: TypedExpr[T, A]) {
+  /** `lhs = rhs` — typed expression / Param / literal RHS. */
+  def ===[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] = opCombine(lhs, " = ", rhs)
+}
 
-  /** Equality with another typed expression / Param / literal. */
-  def ===[B](rhs: TypedExpr[Stripped[T], B]): Where[Where.Concat[A, B]] = opCombine(lhs, " = ", rhs)
-
-  /** Equality with a runtime value (bound as `$N` via [[Param.bind]]). */
-  def ===(rhs: Stripped[T])(using pf: PgTypeFor[Stripped[T]]): Where[A] =
+extension [T, A](lhs: TypedExpr[T, A]) {
+  /** `lhs = value` — runtime value baked via [[Param.bind]]. */
+  def ===(rhs: T)(using pf: PgTypeFor[T]): Where[A] =
     opCombine(lhs, " = ", Param.bind(rhs)).asInstanceOf[Where[A]]
+}
 
-  /** Inequality: `lhs <> rhs`. */
-  def !==[B](rhs: TypedExpr[Stripped[T], B]): Where[Where.Concat[A, B]] = opCombine(lhs, " <> ", rhs)
+extension [T, A](lhs: TypedExpr[T, A]) {
+  def !==[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] = opCombine(lhs, " <> ", rhs)
+}
 
-  /** Inequality with a runtime value. */
-  def !==(rhs: Stripped[T])(using pf: PgTypeFor[Stripped[T]]): Where[A] =
+extension [T, A](lhs: TypedExpr[T, A]) {
+  def !==(rhs: T)(using pf: PgTypeFor[T]): Where[A] =
     opCombine(lhs, " <> ", Param.bind(rhs)).asInstanceOf[Where[A]]
+}
 
-  /** `lhs < rhs`. */
-  def <[B](rhs: TypedExpr[Stripped[T], B])(using @unused ord: cats.Order[Stripped[T]]): Where[Where.Concat[A, B]] =
+extension [T, A](lhs: TypedExpr[T, A]) {
+  def <[B](rhs: TypedExpr[T, B])(using @unused ord: cats.Order[T]): Where[Where.Concat[A, B]] =
     opCombine(lhs, " < ", rhs)
+}
 
-  def <(rhs: Stripped[T])(using @unused ord: cats.Order[Stripped[T]], pf: PgTypeFor[Stripped[T]]): Where[A] =
+extension [T, A](lhs: TypedExpr[T, A]) {
+  def <(rhs: T)(using @unused ord: cats.Order[T], pf: PgTypeFor[T]): Where[A] =
     opCombine(lhs, " < ", Param.bind(rhs)).asInstanceOf[Where[A]]
+}
 
-  /** `lhs <= rhs`. */
-  def <=[B](rhs: TypedExpr[Stripped[T], B])(using @unused ord: cats.Order[Stripped[T]]): Where[Where.Concat[A, B]] =
+extension [T, A](lhs: TypedExpr[T, A]) {
+  def <=[B](rhs: TypedExpr[T, B])(using @unused ord: cats.Order[T]): Where[Where.Concat[A, B]] =
     opCombine(lhs, " <= ", rhs)
+}
 
-  def <=(rhs: Stripped[T])(using @unused ord: cats.Order[Stripped[T]], pf: PgTypeFor[Stripped[T]]): Where[A] =
+extension [T, A](lhs: TypedExpr[T, A]) {
+  def <=(rhs: T)(using @unused ord: cats.Order[T], pf: PgTypeFor[T]): Where[A] =
     opCombine(lhs, " <= ", Param.bind(rhs)).asInstanceOf[Where[A]]
+}
 
-  /** `lhs > rhs`. */
-  def >[B](rhs: TypedExpr[Stripped[T], B])(using @unused ord: cats.Order[Stripped[T]]): Where[Where.Concat[A, B]] =
+extension [T, A](lhs: TypedExpr[T, A]) {
+  def >[B](rhs: TypedExpr[T, B])(using @unused ord: cats.Order[T]): Where[Where.Concat[A, B]] =
     opCombine(lhs, " > ", rhs)
+}
 
-  def >(rhs: Stripped[T])(using @unused ord: cats.Order[Stripped[T]], pf: PgTypeFor[Stripped[T]]): Where[A] =
+extension [T, A](lhs: TypedExpr[T, A]) {
+  def >(rhs: T)(using @unused ord: cats.Order[T], pf: PgTypeFor[T]): Where[A] =
     opCombine(lhs, " > ", Param.bind(rhs)).asInstanceOf[Where[A]]
+}
 
-  /** `lhs >= rhs`. */
-  def >=[B](rhs: TypedExpr[Stripped[T], B])(using @unused ord: cats.Order[Stripped[T]]): Where[Where.Concat[A, B]] =
+extension [T, A](lhs: TypedExpr[T, A]) {
+  def >=[B](rhs: TypedExpr[T, B])(using @unused ord: cats.Order[T]): Where[Where.Concat[A, B]] =
     opCombine(lhs, " >= ", rhs)
+}
 
-  def >=(rhs: Stripped[T])(using @unused ord: cats.Order[Stripped[T]], pf: PgTypeFor[Stripped[T]]): Where[A] =
+extension [T, A](lhs: TypedExpr[T, A]) {
+  def >=(rhs: T)(using @unused ord: cats.Order[T], pf: PgTypeFor[T]): Where[A] =
     opCombine(lhs, " >= ", Param.bind(rhs)).asInstanceOf[Where[A]]
-
 }
 
 /** Column-to-expression equality alias for source compat. Equivalent to `===` with TypedExpr RHS. */
@@ -107,42 +127,42 @@ extension [T, A](lhs: TypedExpr[T, A]) {
 /** `lhs BETWEEN lo AND hi` family. */
 extension [T, A](lhs: TypedExpr[T, A]) {
 
-  def between[B, C](lo: TypedExpr[Stripped[T], B], hi: TypedExpr[Stripped[T], C])(using
-    @unused ord: cats.Order[Stripped[T]]
+  def between[B, C](lo: TypedExpr[T, B], hi: TypedExpr[T, C])(using
+    @unused ord: cats.Order[T]
   ): Where[Where.Concat[A, Where.Concat[B, C]]] = {
     val rhs = TypedExpr.combineSep(lo.fragment, " AND ", hi.fragment)
-    opCombine(lhs, " BETWEEN ", TypedExpr[Stripped[T], Where.Concat[B, C]](rhs, lo.codec))
+    opCombine(lhs, " BETWEEN ", TypedExpr[T, Where.Concat[B, C]](rhs, lo.codec))
   }
 
-  def between(lo: Stripped[T], hi: Stripped[T])(using
-    @unused ord: cats.Order[Stripped[T]],
-    pf: PgTypeFor[Stripped[T]]
+  def between(lo: T, hi: T)(using
+    @unused ord: cats.Order[T],
+    pf: PgTypeFor[T]
   ): Where[A] =
     between(Param.bind(lo), Param.bind(hi)).asInstanceOf[Where[A]]
 
-  def notBetween[B, C](lo: TypedExpr[Stripped[T], B], hi: TypedExpr[Stripped[T], C])(using
-    @unused ord: cats.Order[Stripped[T]]
+  def notBetween[B, C](lo: TypedExpr[T, B], hi: TypedExpr[T, C])(using
+    @unused ord: cats.Order[T]
   ): Where[Where.Concat[A, Where.Concat[B, C]]] = {
     val rhs = TypedExpr.combineSep(lo.fragment, " AND ", hi.fragment)
-    opCombine(lhs, " NOT BETWEEN ", TypedExpr[Stripped[T], Where.Concat[B, C]](rhs, lo.codec))
+    opCombine(lhs, " NOT BETWEEN ", TypedExpr[T, Where.Concat[B, C]](rhs, lo.codec))
   }
 
-  def notBetween(lo: Stripped[T], hi: Stripped[T])(using
-    @unused ord: cats.Order[Stripped[T]],
-    pf: PgTypeFor[Stripped[T]]
+  def notBetween(lo: T, hi: T)(using
+    @unused ord: cats.Order[T],
+    pf: PgTypeFor[T]
   ): Where[A] =
     notBetween(Param.bind(lo), Param.bind(hi)).asInstanceOf[Where[A]]
 
-  def betweenSymmetric[B, C](lo: TypedExpr[Stripped[T], B], hi: TypedExpr[Stripped[T], C])(using
-    @unused ord: cats.Order[Stripped[T]]
+  def betweenSymmetric[B, C](lo: TypedExpr[T, B], hi: TypedExpr[T, C])(using
+    @unused ord: cats.Order[T]
   ): Where[Where.Concat[A, Where.Concat[B, C]]] = {
     val rhs = TypedExpr.combineSep(lo.fragment, " AND ", hi.fragment)
-    opCombine(lhs, " BETWEEN SYMMETRIC ", TypedExpr[Stripped[T], Where.Concat[B, C]](rhs, lo.codec))
+    opCombine(lhs, " BETWEEN SYMMETRIC ", TypedExpr[T, Where.Concat[B, C]](rhs, lo.codec))
   }
 
-  def betweenSymmetric(lo: Stripped[T], hi: Stripped[T])(using
-    @unused ord: cats.Order[Stripped[T]],
-    pf: PgTypeFor[Stripped[T]]
+  def betweenSymmetric(lo: T, hi: T)(using
+    @unused ord: cats.Order[T],
+    pf: PgTypeFor[T]
   ): Where[A] =
     betweenSymmetric(Param.bind(lo), Param.bind(hi)).asInstanceOf[Where[A]]
 
@@ -151,16 +171,16 @@ extension [T, A](lhs: TypedExpr[T, A]) {
 /** `lhs IS DISTINCT FROM rhs` / `lhs IS NOT DISTINCT FROM rhs` — NULL-safe (in)equality. */
 extension [T, A](lhs: TypedExpr[T, A]) {
 
-  def isDistinctFrom[B](rhs: TypedExpr[Stripped[T], B]): Where[Where.Concat[A, B]] =
+  def isDistinctFrom[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] =
     opCombine(lhs, " IS DISTINCT FROM ", rhs)
 
-  def isDistinctFrom(rhs: Stripped[T])(using pf: PgTypeFor[Stripped[T]]): Where[A] =
+  def isDistinctFrom(rhs: T)(using pf: PgTypeFor[T]): Where[A] =
     isDistinctFrom(Param.bind(rhs)).asInstanceOf[Where[A]]
 
-  def isNotDistinctFrom[B](rhs: TypedExpr[Stripped[T], B]): Where[Where.Concat[A, B]] =
+  def isNotDistinctFrom[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] =
     opCombine(lhs, " IS NOT DISTINCT FROM ", rhs)
 
-  def isNotDistinctFrom(rhs: Stripped[T])(using pf: PgTypeFor[Stripped[T]]): Where[A] =
+  def isNotDistinctFrom(rhs: T)(using pf: PgTypeFor[T]): Where[A] =
     isNotDistinctFrom(Param.bind(rhs)).asInstanceOf[Where[A]]
 
   /** Source-compat aliases for the column-vs-column NULL-safe variants. */
@@ -175,28 +195,28 @@ extension [T, A](lhs: TypedExpr[T, A]) {
 /** `lhs LIKE pattern` / `ILIKE` / `SIMILAR TO`. */
 extension [T, A](lhs: TypedExpr[T, A]) {
 
-  def like[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
+  def like[B](pattern: TypedExpr[String, B])(using @unused ev: T <:< String): Where[Where.Concat[A, B]] =
     opCombine(lhs, " LIKE ", pattern)
 
-  def like(pattern: String)(using @unused ev: Stripped[T] <:< String, pf: PgTypeFor[String]): Where[A] =
+  def like(pattern: String)(using @unused ev: T <:< String, pf: PgTypeFor[String]): Where[A] =
     like(Param.bind(pattern)).asInstanceOf[Where[A]]
 
-  def ilike[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
+  def ilike[B](pattern: TypedExpr[String, B])(using @unused ev: T <:< String): Where[Where.Concat[A, B]] =
     opCombine(lhs, " ILIKE ", pattern)
 
-  def ilike(pattern: String)(using @unused ev: Stripped[T] <:< String, pf: PgTypeFor[String]): Where[A] =
+  def ilike(pattern: String)(using @unused ev: T <:< String, pf: PgTypeFor[String]): Where[A] =
     ilike(Param.bind(pattern)).asInstanceOf[Where[A]]
 
-  def similarTo[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
+  def similarTo[B](pattern: TypedExpr[String, B])(using @unused ev: T <:< String): Where[Where.Concat[A, B]] =
     opCombine(lhs, " SIMILAR TO ", pattern)
 
-  def similarTo(pattern: String)(using @unused ev: Stripped[T] <:< String, pf: PgTypeFor[String]): Where[A] =
+  def similarTo(pattern: String)(using @unused ev: T <:< String, pf: PgTypeFor[String]): Where[A] =
     similarTo(Param.bind(pattern)).asInstanceOf[Where[A]]
 
-  def notSimilarTo[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
+  def notSimilarTo[B](pattern: TypedExpr[String, B])(using @unused ev: T <:< String): Where[Where.Concat[A, B]] =
     opCombine(lhs, " NOT SIMILAR TO ", pattern)
 
-  def notSimilarTo(pattern: String)(using @unused ev: Stripped[T] <:< String, pf: PgTypeFor[String]): Where[A] =
+  def notSimilarTo(pattern: String)(using @unused ev: T <:< String, pf: PgTypeFor[String]): Where[A] =
     notSimilarTo(Param.bind(pattern)).asInstanceOf[Where[A]]
 
 }
@@ -257,7 +277,7 @@ object InRhs {
 extension [T, A](lhs: TypedExpr[T, A]) {
 
   /** `lhs IN (...)`. RHS bound parameters are baked into the encoder; result Args = LHS Args. */
-  def in[Rhs](rhs: Rhs)(using ev: InRhs[Stripped[T], Rhs]): Where[A] = {
+  def in[Rhs](rhs: Rhs)(using ev: InRhs[T, Rhs]): Where[A] = {
     val rhsFrag = ev.renderParens(rhs)
     val combined = TypedExpr.combineSep(lhs.fragment, " IN ", rhsFrag)
     Where(combined.asInstanceOf[Fragment[A]])
@@ -283,16 +303,16 @@ private def quantifiedRender[T, A, Q, ET, QA](
   Where(frag)
 }
 
-extension [T, A](lhs: TypedExpr[T, A])(using @unused ord: cats.Order[Stripped[T]]) {
+extension [T, A](lhs: TypedExpr[T, A])(using @unused ord: cats.Order[T]) {
 
-  def ltAny[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T], QA]): Where[A]  = quantifiedRender(lhs, "<",  "ANY", q)
-  def lteAny[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T], QA]): Where[A] = quantifiedRender(lhs, "<=", "ANY", q)
-  def gtAny[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T], QA]): Where[A]  = quantifiedRender(lhs, ">",  "ANY", q)
-  def gteAny[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T], QA]): Where[A] = quantifiedRender(lhs, ">=", "ANY", q)
+  def ltAny[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, T, QA]): Where[A]  = quantifiedRender(lhs, "<",  "ANY", q)
+  def lteAny[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, T, QA]): Where[A] = quantifiedRender(lhs, "<=", "ANY", q)
+  def gtAny[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, T, QA]): Where[A]  = quantifiedRender(lhs, ">",  "ANY", q)
+  def gteAny[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, T, QA]): Where[A] = quantifiedRender(lhs, ">=", "ANY", q)
 
-  def ltAll[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T], QA]): Where[A]  = quantifiedRender(lhs, "<",  "ALL", q)
-  def lteAll[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T], QA]): Where[A] = quantifiedRender(lhs, "<=", "ALL", q)
-  def gtAll[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T], QA]): Where[A]  = quantifiedRender(lhs, ">",  "ALL", q)
-  def gteAll[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T], QA]): Where[A] = quantifiedRender(lhs, ">=", "ALL", q)
+  def ltAll[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, T, QA]): Where[A]  = quantifiedRender(lhs, "<",  "ALL", q)
+  def lteAll[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, T, QA]): Where[A] = quantifiedRender(lhs, "<=", "ALL", q)
+  def gtAll[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, T, QA]): Where[A]  = quantifiedRender(lhs, ">",  "ALL", q)
+  def gteAll[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, T, QA]): Where[A] = quantifiedRender(lhs, ">=", "ALL", q)
 
 }

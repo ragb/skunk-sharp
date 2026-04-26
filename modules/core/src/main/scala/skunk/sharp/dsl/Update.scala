@@ -25,17 +25,24 @@ final class UpdateBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
   private[sharp] val table: Table[Cols, Name]
 ) {
 
-  def set(f: ColumnsView[Cols] => SetAssignment[?, ?] | Tuple): UpdateWithSet[Cols, Name, Any] = {
+  /**
+   * `SET <col := value>` / `SET (<col := v>, ...)`. **SetArgs is fixed to `Void`**: the underlying typed
+   * Fragment encoder still composes whatever args the assignments contribute (typed Param chained with
+   * value-baked assignments works at runtime), but the static `SetArgs` slot stays `Void` so it doesn't
+   * collide with `WArgs` in `Where.Concat[SetArgs, WArgs]` reduction. Threading typed Args through SET
+   * lands when we ship the per-row Args reduction typeclass.
+   */
+  def set(f: ColumnsView[Cols] => SetAssignment[?, ?] | Tuple): UpdateWithSet[Cols, Name, Void] = {
     val view = table.columnsView
     val raw = f(view) match {
       case sa: SetAssignment[?, ?] => List(sa)
       case t: Tuple                => t.toList.asInstanceOf[List[SetAssignment[?, ?]]]
     }
     val combined = SetAssignment.combineAll(raw)
-    new UpdateWithSet[Cols, Name, Any](table, combined)
+    new UpdateWithSet[Cols, Name, Void](table, combined)
   }
 
-  inline def patch[R <: NamedTuple.AnyNamedTuple](p: R): UpdateWithSet[Cols, Name, Any] = {
+  inline def patch[R <: NamedTuple.AnyNamedTuple](p: R): UpdateWithSet[Cols, Name, Void] = {
     CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[R]]
     CompileChecks.requirePatchValueTypes[Cols, NamedTuple.Names[R], NamedTuple.DropNames[R]]
     val names  = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
@@ -43,7 +50,7 @@ final class UpdateBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
     buildPatch(table, names, values)
   }
 
-  inline def patch[T <: Product](p: T)(using m: Mirror.ProductOf[T]): UpdateWithSet[Cols, Name, Any] = {
+  inline def patch[T <: Product](p: T)(using m: Mirror.ProductOf[T]): UpdateWithSet[Cols, Name, Void] = {
     CompileChecks.requireAllNamesInCols[Cols, m.MirroredElemLabels]
     CompileChecks.requirePatchValueTypes[Cols, m.MirroredElemLabels, m.MirroredElemTypes]
     val names  = constValueTuple[m.MirroredElemLabels].toList.asInstanceOf[List[String]]
@@ -85,7 +92,7 @@ private[sharp] def buildPatch[Cols <: Tuple, Name <: String & Singleton](
   table: Table[Cols, Name],
   names: List[String],
   values: List[Any]
-): UpdateWithSet[Cols, Name, Any] = {
+): UpdateWithSet[Cols, Name, Void] = {
   val allCols = table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
   val byName  = allCols.iterator.map(c => c.name.toString -> c).toMap
   val assignments: List[SetAssignment[?, ?]] =
@@ -101,7 +108,7 @@ private[sharp] def buildPatch[Cols <: Tuple, Name <: String & Singleton](
       "skunk-sharp: .patch(...) produced an empty SET list — every field was None. Postgres rejects UPDATE without SET; provide at least one Some(...)."
     )
   val combined = SetAssignment.combineAll(assignments)
-  new UpdateWithSet[Cols, Name, Any](table, combined)
+  new UpdateWithSet[Cols, Name, Void](table, combined)
 }
 
 final class UpdateWithSet[Cols <: Tuple, Name <: String & Singleton, SetArgs] private[sharp] (
@@ -200,14 +207,14 @@ final class UpdateFromBuilder[Cols <: Tuple, Name <: String & Singleton, Ss <: T
     )
   }
 
-  def set(f: JoinedView[Ss] => SetAssignment[?, ?] | Tuple): UpdateFromWithSet[Cols, Name, Ss, Any] = {
+  def set(f: JoinedView[Ss] => SetAssignment[?, ?] | Tuple): UpdateFromWithSet[Cols, Name, Ss, Void] = {
     val view = buildJoinedView(sources)
     val raw = f(view) match {
       case sa: SetAssignment[?, ?] => List(sa)
       case t: Tuple                => t.toList.asInstanceOf[List[SetAssignment[?, ?]]]
     }
     val combined = SetAssignment.combineAll(raw)
-    new UpdateFromWithSet[Cols, Name, Ss, Any](table, sources, combined)
+    new UpdateFromWithSet[Cols, Name, Ss, Void](table, sources, combined)
   }
 
 }

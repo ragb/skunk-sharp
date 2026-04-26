@@ -95,7 +95,7 @@ class CteSuite extends munit.FunSuite {
 
   // ---- type-level checks ----------------------------------------------------------------------
 
-  test("CteRelation is a Relation — compile type is CompiledQuery[NamedRowOf[...]]") {
+  test("CteRelation is a Relation — compile type is QueryTemplate[NamedRowOf[...]]") {
     val active         = cte("active_users", users.select.where(u => u.deleted_at.isNull))
     val _: Relation[?] = active
   }

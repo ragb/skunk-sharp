@@ -18,8 +18,8 @@ import skunk.util.Origin
  * combined CASE expression's Args is widened to `?` (existential) — typed-args threading through CASE branches
  * is roadmap.
  *
- * Terminate with `.otherwise(elseBranch)` (returns `TypedExpr[T, ?]`) or `.end` (returns
- * `TypedExpr[Option[T], ?]`).
+ * Terminate with `.otherwise(elseBranch)` (returns `TypedExpr[T, Any]`) or `.end` (returns
+ * `TypedExpr[Option[T], Any]`).
  */
 final class CaseWhen[T] private[sharp] (
   private val branches: List[(TypedExpr[Boolean, ?], TypedExpr[T, ?])],
@@ -31,18 +31,16 @@ final class CaseWhen[T] private[sharp] (
     new CaseWhen[T](branches :+ (cond, branch), branchCodec)
 
   /** `ELSE <branch> END` — all paths covered, result is always a value of `T`. */
-  def otherwise[A](branch: TypedExpr[T, A]): TypedExpr[T, ?] =
+  def otherwise[A](branch: TypedExpr[T, A]): TypedExpr[T, Any] =
     renderCaseWhen[T](branches, Some(branch), branchCodec)
 
   /** `END` without an ELSE — Postgres returns NULL when no branch matches, so result is `Option[T]`. */
-  def end: TypedExpr[Option[T], ?] =
-    renderCaseWhen[Option[T]](
-      branches.map { case (c, b) =>
-        (c, TypedExpr[Option[T], Any](b.fragment.asInstanceOf[Fragment[Any]], b.codec.asInstanceOf[Codec[T]].opt.asInstanceOf[Codec[Option[T]]]))
-      },
-      None,
-      branchCodec.opt
-    )
+  def end: TypedExpr[Option[T], Any] = {
+    val opted: List[(TypedExpr[Boolean, ?], TypedExpr[Option[T], ?])] = branches.map { case (c, b) =>
+      (c, TypedExpr[Option[T], Any](b.fragment.asInstanceOf[Fragment[Any]], b.codec.asInstanceOf[Codec[T]].opt.asInstanceOf[Codec[Option[T]]]))
+    }
+    renderCaseWhen[Option[T]](opted, None, branchCodec.opt)
+  }
 
 }
 
@@ -50,7 +48,7 @@ private def renderCaseWhen[R](
   branches: List[(TypedExpr[Boolean, ?], TypedExpr[?, ?])],
   elseOpt:  Option[TypedExpr[?, ?]],
   codec0:   Codec[R]
-): TypedExpr[R, ?] = {
+): TypedExpr[R, Any] = {
   // Concatenate parts: CASE [WHEN <cond> THEN <branch>]* [ELSE <else>] END
   val partsBuf = scala.collection.mutable.ListBuffer[Either[String, cats.data.State[Int, String]]]()
   partsBuf += Left("CASE")

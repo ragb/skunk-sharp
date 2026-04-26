@@ -110,7 +110,7 @@ class GroupBySuite extends munit.FunSuite {
   }
 
   test("TypedExpr.as return type captures the alias name as a singleton") {
-    val aliased: skunk.sharp.AliasedExpr[Long, "cnt"] = Pg.countAll.as("cnt")
+    val aliased: skunk.sharp.AliasedExpr[Long, "cnt", skunk.Void] = Pg.countAll.as("cnt")
     assertEquals(aliased.aliasName, "cnt")
   }
 

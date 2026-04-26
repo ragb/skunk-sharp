@@ -105,8 +105,10 @@ package object dsl {
   }
   export skunk.sharp.ops.Stripped
 
-  // Boolean combinators (`&&`, `||`, `!`, `and`, `or`, `not`) live as methods on `Where[?]` itself — no
-  // separate exports needed.
+  // Boolean combinators (`&&`, `||`, `!`, `and`, `or`, `not`) — top-level extension on
+  // `TypedExpr[Boolean, A]` defined in `skunk.sharp.where`. Re-exported here so a single
+  // `import skunk.sharp.dsl.*` brings them into scope.
+  export skunk.sharp.where.{&&, ||, and, or, not, unary_!}
 
   // ---- Schema validation ----
   val SchemaValidator: skunk.sharp.validation.SchemaValidator.type = skunk.sharp.validation.SchemaValidator
