@@ -30,7 +30,7 @@ final class SetOpQuery[R] private[sharp] (
 ) {
 
   /** Materialise the entire chain into a terminal [[CompiledQuery]] — the single walking point for the tree. */
-  def compile: CompiledQuery[R] = CompiledQuery(renderFn(), codec)
+  def compile: CompiledQuery[?, R] = CompiledQuery(renderFn(), codec)
 
   /** `(<this>) UNION (<right>)` — deduplicated union. */
   def union[Q](right: Q)(using ev: AsSubquery[Q, R]): SetOpQuery[R] = append("UNION", right)

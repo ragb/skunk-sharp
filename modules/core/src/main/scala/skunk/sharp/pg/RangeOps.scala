@@ -40,7 +40,7 @@ object IsRange {
  */
 object RangeOps {
 
-  private def boolOp[R](op: String, l: TypedExpr[R], r: TypedExpr[R]): Where =
+  private def boolOp[R](op: String, l: TypedExpr[R], r: TypedExpr[R]): Where[skunk.Void] =
     Where(new TypedExpr[Boolean] {
       val render = l.render |+| TypedExpr.raw(s" $op ") |+| r.render
       val codec  = pg.bool
@@ -52,28 +52,28 @@ object RangeOps {
   extension [R](lhs: TypedExpr[R])(using @annotation.unused ev: IsRange[R]) {
 
     /** `a @> b` — left range contains every point in right range. */
-    def contains(rhs: TypedExpr[R]): Where = boolOp("@>", lhs, rhs)
+    def contains(rhs: TypedExpr[R]): Where[skunk.Void] = boolOp("@>", lhs, rhs)
 
     /** `a <@ b` — left range is contained by right range. */
-    def containedBy(rhs: TypedExpr[R]): Where = boolOp("<@", lhs, rhs)
+    def containedBy(rhs: TypedExpr[R]): Where[skunk.Void] = boolOp("<@", lhs, rhs)
 
     /** `a && b` — ranges overlap (share at least one point). */
-    def overlaps(rhs: TypedExpr[R]): Where = boolOp("&&", lhs, rhs)
+    def overlaps(rhs: TypedExpr[R]): Where[skunk.Void] = boolOp("&&", lhs, rhs)
 
     /** `a << b` — every point in left range is strictly less than every point in right range. */
-    def strictlyLeft(rhs: TypedExpr[R]): Where = boolOp("<<", lhs, rhs)
+    def strictlyLeft(rhs: TypedExpr[R]): Where[skunk.Void] = boolOp("<<", lhs, rhs)
 
     /** `a >> b` — every point in left range is strictly greater than every point in right range. */
-    def strictlyRight(rhs: TypedExpr[R]): Where = boolOp(">>", lhs, rhs)
+    def strictlyRight(rhs: TypedExpr[R]): Where[skunk.Void] = boolOp(">>", lhs, rhs)
 
     /** `a &< b` — left range does not extend to the right of right range. */
-    def doesNotExtendRight(rhs: TypedExpr[R]): Where = boolOp("&<", lhs, rhs)
+    def doesNotExtendRight(rhs: TypedExpr[R]): Where[skunk.Void] = boolOp("&<", lhs, rhs)
 
     /** `a &> b` — left range does not extend to the left of right range. */
-    def doesNotExtendLeft(rhs: TypedExpr[R]): Where = boolOp("&>", lhs, rhs)
+    def doesNotExtendLeft(rhs: TypedExpr[R]): Where[skunk.Void] = boolOp("&>", lhs, rhs)
 
     /** `a -|- b` — ranges are adjacent (no gap, no overlap). */
-    def adjacent(rhs: TypedExpr[R]): Where = boolOp("-|-", lhs, rhs)
+    def adjacent(rhs: TypedExpr[R]): Where[skunk.Void] = boolOp("-|-", lhs, rhs)
 
     /** `a + b` — range union (ranges must overlap or be adjacent). */
     def rangeUnion(rhs: TypedExpr[R]): TypedExpr[R] = rangeOp("+", lhs, rhs)
@@ -89,14 +89,14 @@ object RangeOps {
   extension [R, E](lhs: TypedExpr[R])(using @annotation.unused ev: IsRange.Aux[R, E]) {
 
     /** `a @> e` — range contains the given element. */
-    def containsElem(elem: TypedExpr[E]): Where =
+    def containsElem(elem: TypedExpr[E]): Where[skunk.Void] =
       Where(new TypedExpr[Boolean] {
         val render = lhs.render |+| TypedExpr.raw(" @> ") |+| elem.render
         val codec  = pg.bool
       })
 
     /** `e <@ a` — element is contained in this range. Sugar for `range.containsElem(elem)` read from the elem side. */
-    def elemContainedBy(elem: TypedExpr[E]): Where =
+    def elemContainedBy(elem: TypedExpr[E]): Where[skunk.Void] =
       Where(new TypedExpr[Boolean] {
         val render = elem.render |+| TypedExpr.raw(" <@ ") |+| lhs.render
         val codec  = pg.bool

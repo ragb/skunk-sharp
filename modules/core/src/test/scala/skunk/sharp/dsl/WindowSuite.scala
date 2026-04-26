@@ -203,17 +203,17 @@ class WindowSuite extends munit.FunSuite {
   // ---- Type-level checks -----------------------------------------------------------------------
 
   test("lag without default decodes as Option[Int]") {
-    val _: CompiledQuery[Option[Int]] =
+    val _: CompiledQuery[?, Option[Int]] =
       users.select(u => Pg.lag(u.age).over(WindowSpec.orderBy(u.age.asc))).compile
   }
 
   test("lag with default decodes as Int (non-optional)") {
-    val _: CompiledQuery[Int] =
+    val _: CompiledQuery[?, Int] =
       users.select(u => Pg.lag(u.age, 1, 0).over(WindowSpec.orderBy(u.age.asc))).compile
   }
 
   test("row_number decodes as Long") {
-    val _: CompiledQuery[Long] =
+    val _: CompiledQuery[?, Long] =
       users.select(u => Pg.rowNumber.over(WindowSpec.orderBy(u.age.asc))).compile
   }
 

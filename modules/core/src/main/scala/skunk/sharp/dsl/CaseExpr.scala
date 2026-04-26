@@ -2,7 +2,6 @@ package skunk.sharp.dsl
 
 import skunk.Codec
 import skunk.sharp.TypedExpr
-import skunk.sharp.where.Where
 
 /**
  * `CASE WHEN … THEN … [ELSE …] END` — the universal conditional primitive. Usable in SELECT projections, WHERE, ORDER
@@ -28,12 +27,12 @@ import skunk.sharp.where.Where
  * (`import skunk.sharp.dsl.*`) alongside `lit` / `param` / `Table`, rather than under `Pg.…`.
  */
 final class CaseWhen[T] private[sharp] (
-  private val branches: List[(Where, TypedExpr[T])],
+  private val branches: List[(TypedExpr[Boolean], TypedExpr[T])],
   private val branchCodec: Codec[T]
 ) {
 
-  /** Append another `WHEN` branch. Branch type must match the first branch's `T`. */
-  def when(cond: Where, branch: TypedExpr[T]): CaseWhen[T] =
+  /** Append another `WHEN` branch. Accepts any `TypedExpr[Boolean]` (including any `Where[A]`). */
+  def when(cond: TypedExpr[Boolean], branch: TypedExpr[T]): CaseWhen[T] =
     new CaseWhen[T](branches :+ (cond, branch), branchCodec)
 
   /** `ELSE <branch> END` — all paths covered, result is always a value of `T`. */
@@ -53,7 +52,7 @@ final class CaseWhen[T] private[sharp] (
 }
 
 private def renderCaseWhen[R](
-  branches: List[(Where, TypedExpr[?])],
+  branches: List[(TypedExpr[Boolean], TypedExpr[?])],
   elseOpt: Option[TypedExpr[?]],
   codec0: Codec[R]
 ): TypedExpr[R] =

@@ -175,7 +175,7 @@ class SelectSuite extends munit.FunSuite {
   }
 
   test("comparison operator as one projection among many — decoded row type includes Boolean") {
-    val q: CompiledQuery[(String, Boolean)] = users
+    val q: CompiledQuery[?, (String, Boolean)] = users
       .select(u => (u.email, u.age >= 18))
       .compile
 

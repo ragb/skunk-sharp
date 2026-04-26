@@ -21,14 +21,20 @@ final class TypedColumn[T, Null <: Boolean, N <: String & Singleton](
 ) extends TypedExpr[T] {
 
   /** SQL identifier form — `"name"` or `"alias"."name"` / `alias."name"` depending on qualifier state. */
-  def sqlRef: String =
+  lazy val sqlRef: String =
     qualifier match {
       case None                      => s""""$name""""
       case Some(q) if quoteQualifier => s""""$q"."$name""""
       case Some(q) /* unquoted */    => s"""$q."$name""""
     }
 
-  def render: skunk.AppliedFragment = TypedExpr.raw(sqlRef)
+  /**
+   * Rendered `AppliedFragment` for this column reference. Cached as a `lazy val` — `TypedColumn` instances live
+   * for the duration of a builder chain (created once per WHERE / SELECT lambda invocation), and `.render` is
+   * called once per projection column in every `.compile`. Without caching, every compile re-allocates one
+   * `Fragment[Void]` + one `AppliedFragment` per column referenced.
+   */
+  override lazy val render: skunk.AppliedFragment = TypedExpr.raw(sqlRef)
 
 }
 

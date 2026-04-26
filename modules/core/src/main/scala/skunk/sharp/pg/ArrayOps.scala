@@ -40,7 +40,7 @@ object IsArray {
  */
 object ArrayOps {
 
-  private def boolOp[A](op: String, l: TypedExpr[A], r: TypedExpr[A]): Where = {
+  private def boolOp[A](op: String, l: TypedExpr[A], r: TypedExpr[A]): Where[skunk.Void] = {
     val af = l.render |+| TypedExpr.raw(s" $op ") |+| r.render
     Where(new TypedExpr[Boolean] {
       val render = af
@@ -51,13 +51,13 @@ object ArrayOps {
   extension [A](lhs: TypedExpr[A])(using @annotation.unused ev: IsArray[A]) {
 
     /** `a @> b` — left array contains every element of right array. */
-    def contains(rhs: TypedExpr[A]): Where = boolOp("@>", lhs, rhs)
+    def contains(rhs: TypedExpr[A]): Where[skunk.Void] = boolOp("@>", lhs, rhs)
 
     /** `a <@ b` — left array is contained by the right array. */
-    def containedBy(rhs: TypedExpr[A]): Where = boolOp("<@", lhs, rhs)
+    def containedBy(rhs: TypedExpr[A]): Where[skunk.Void] = boolOp("<@", lhs, rhs)
 
     /** `a && b` — arrays share at least one element. */
-    def overlaps(rhs: TypedExpr[A]): Where = boolOp("&&", lhs, rhs)
+    def overlaps(rhs: TypedExpr[A]): Where[skunk.Void] = boolOp("&&", lhs, rhs)
 
     /** `a || b` — concatenate arrays. Renders as `||`; result type is the same array type. */
     def concat(rhs: TypedExpr[A]): TypedExpr[A] =
@@ -68,7 +68,7 @@ object ArrayOps {
   extension [E](elem: TypedExpr[E]) {
 
     /** `elem = ANY(array)` — does the array contain the given element? */
-    def elemOf[A](arr: TypedExpr[A])(using @annotation.unused ev: IsArray.Aux[A, E]): Where = {
+    def elemOf[A](arr: TypedExpr[A])(using @annotation.unused ev: IsArray.Aux[A, E]): Where[skunk.Void] = {
       val af = elem.render |+| TypedExpr.raw(" = ANY(") |+| arr.render |+| TypedExpr.raw(")")
       Where(new TypedExpr[Boolean] {
         val render = af

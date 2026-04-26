@@ -42,8 +42,8 @@ trait PgTime {
     aEnd: TypedExpr[T],
     bStart: TypedExpr[T],
     bEnd: TypedExpr[T]
-  ): skunk.sharp.where.Where =
-    new TypedExpr[Boolean] {
+  ): skunk.sharp.where.Where[skunk.Void] =
+    skunk.sharp.where.Where(new TypedExpr[Boolean] {
       val render =
         TypedExpr.raw("(") |+| aStart.render |+|
           TypedExpr.raw(", ") |+| aEnd.render |+|
@@ -51,7 +51,7 @@ trait PgTime {
           TypedExpr.raw(", ") |+| bEnd.render |+|
           TypedExpr.raw(")")
       val codec = skunk.codec.all.bool
-    }
+    })
 
   // -------- Field extraction -------------------------------------------------------------------
 

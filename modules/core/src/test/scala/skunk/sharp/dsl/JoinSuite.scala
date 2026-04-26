@@ -65,7 +65,7 @@ class JoinSuite extends munit.FunSuite {
 
   test("LEFT JOIN — right-side columns decode as Option in .select") {
     // r.posts.title has type TypedColumn[Option[String], true] here, so the compiled query returns Option[String].
-    val _: CompiledQuery[Option[String]] = users
+    val _: CompiledQuery[?, Option[String]] = users
       .leftJoin(posts)
       .on(r => r.users.id ==== r.posts.user_id)
       .select(r => r.posts.title)
@@ -141,7 +141,7 @@ class JoinSuite extends munit.FunSuite {
 
   test("three-table mixed INNER + LEFT — right-most cols flip to Option") {
     // The compile-time type of the last projection is Option[String] because tags was left-joined.
-    val q: CompiledQuery[(String, String, Option[String])] = users
+    val q: CompiledQuery[?, (String, String, Option[String])] = users
       .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
       .leftJoin(tags).on(r => r.posts.id ==== r.tags.post_id)
       .select(r => (r.users.email, r.posts.title, r.tags.name))
@@ -185,7 +185,7 @@ class JoinSuite extends munit.FunSuite {
 
   test("RIGHT JOIN renders RIGHT JOIN; left-side cols decode as Option in .select") {
     // r.users.email is TypedColumn[Option[String], true] because `users` was null-padded by the RIGHT join.
-    val q: CompiledQuery[(Option[String], String)] = users
+    val q: CompiledQuery[?, (Option[String], String)] = users
       .rightJoin(posts)
       .on(r => r.users.id ==== r.posts.user_id)
       .select(r => (r.users.email, r.posts.title))
@@ -212,7 +212,7 @@ class JoinSuite extends munit.FunSuite {
   // ---- FULL OUTER JOIN ------------------------------------------------------------------------
 
   test("FULL JOIN renders FULL OUTER JOIN; both sides decode as Option") {
-    val q: CompiledQuery[(Option[String], Option[String])] = users
+    val q: CompiledQuery[?, (Option[String], Option[String])] = users
       .fullJoin(posts)
       .on(r => r.users.id ==== r.posts.user_id)
       .select(r => (r.users.email, r.posts.title))
@@ -227,7 +227,7 @@ class JoinSuite extends munit.FunSuite {
   // ---- Mixed chains: earlier-source nullability flips on later outer joins --------------------
 
   test("INNER then RIGHT — the original INNER's cols flip to Option when RIGHT is applied") {
-    val q: CompiledQuery[(Option[String], Option[String], String)] = users
+    val q: CompiledQuery[?, (Option[String], Option[String], String)] = users
       .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
       .rightJoin(tags).on(r => r.posts.id ==== r.tags.post_id)
       .select(r => (r.users.email, r.posts.title, r.tags.name))
@@ -274,7 +274,7 @@ class JoinSuite extends munit.FunSuite {
   }
 
   test("LEFT JOIN LATERAL — lateral cols decode as Option when the inner produces zero rows") {
-    val q: CompiledQuery[(String, Option[String])] = users
+    val q: CompiledQuery[?, (String, Option[String])] = users
       .leftJoinLateral(u => posts.select.where(p => p.user_id ==== u.id).limit(1).alias("top"))
       .on(_ => lit(true))
       .select(r => (r.users.email, r.top.title))
@@ -379,7 +379,7 @@ class JoinSuite extends munit.FunSuite {
     // Option[Option[_]] for posts — NullableCol is idempotent on already-nullable columns. In the inner ON of the
     // FULL JOIN, posts's cols are already Option (from LEFT) and tags's are still declared (non-null), so we use
     // raw comparisons there by round-tripping through literals that match both sides at the bare types.
-    val q: CompiledQuery[(Option[String], Option[String], Option[String])] = users
+    val q: CompiledQuery[?, (Option[String], Option[String], Option[String])] = users
       .leftJoin(posts).on(r => r.users.id ==== r.posts.user_id)
       .fullJoin(tags).on(_ => lit(true))
       .select(r => (r.users.email, r.posts.title, r.tags.name))

@@ -88,18 +88,62 @@ object TypedExpr {
     case x                              => s"${x.toString}::float8"
   }
 
-  /** Construct a raw, parameterless SQL fragment — used internally to emit identifiers, keywords, operator symbols. */
-  def raw(sql: String): AppliedFragment = {
-    val frag: Fragment[Void] = Fragment(List(Left(sql)), Void.codec, Origin.unknown)
-    frag(Void)
-  }
+  /**
+   * Build an `AppliedFragment` from a SQL string.
+   *
+   * Compile-time-constant arguments — `raw("(")`, `raw(" || ")`, `raw("array_append(")`, … — intern through a
+   * process-wide table at first call and return the same shared `AppliedFragment` instance forever after, so
+   * the DSL allocates each constant exactly once. The intent: the *only* places in a compiled query that
+   * allocate fresh `AppliedFragment`s per call are the ones whose SQL is genuinely dynamic — `whereRaw` /
+   * `havingRaw` payloads, runtime-built alias / kind / type-name interpolations.
+   *
+   * Runtime-built strings (computed via `s"…"` against variables) skip the intern table and allocate fresh,
+   * so the cache stays bounded by the source-code string set rather than user input.
+   */
+  inline def raw(inline sql: String): AppliedFragment =
+    ${ skunk.sharp.internal.RawMacro.impl('sql) }
 
-  /** Join a non-empty list of applied fragments with `sep` between them (e.g. " AND "). */
+  /**
+   * Join a non-empty list of applied fragments with `sep` between them (e.g. " AND ").
+   *
+   * Fast path: when every input AF has only `Left(str)` parts (no `$N` placeholders), collapse the whole
+   * list into a single `AppliedFragment` whose `Fragment` has one `Left(joined-string)` part and a `Void`
+   * encoder. This skips the per-call `|+|` chain — list-of-lists merges and product-encoder allocation —
+   * for projection/group-by/returning lists where every entry is a column reference, alias, or numeric
+   * literal. Falls back to the `|+|` chain when any entry is parameterised.
+   */
   def joined(parts: List[AppliedFragment], sep: String): AppliedFragment =
     parts match {
-      case Nil          => AppliedFragment.empty
-      case head :: tail => tail.foldLeft(head)((acc, p) => acc |+| raw(sep) |+| p)
+      case Nil         => AppliedFragment.empty
+      case head :: Nil => head
+      case head :: tail if parts.forall(isStaticAf) =>
+        val sb = new StringBuilder
+        sb ++= staticString(head)
+        tail.foreach { p =>
+          sb ++= sep
+          sb ++= staticString(p)
+        }
+        val str = sb.result()
+        val frag: Fragment[Void] = Fragment(List(Left(str)), Void.codec, Origin.unknown)
+        frag(Void)
+      case head :: tail =>
+        // Allocate the separator once, reuse it in every |+|. Go through `intern` directly because we can't
+        // call the inline `raw` macro from the same source file as its definition.
+        val sepAf = skunk.sharp.internal.RawConstants.intern(sep)
+        tail.foldLeft(head)((acc, p) => acc |+| sepAf |+| p)
     }
+
+  private def isStaticAf(af: AppliedFragment): Boolean =
+    af.fragment.parts.forall(_.isLeft)
+
+  private def staticString(af: AppliedFragment): String = {
+    val sb = new StringBuilder
+    af.fragment.parts.foreach {
+      case Left(s)  => sb ++= s
+      case Right(_) => // unreachable when isStaticAf is true
+    }
+    sb.result()
+  }
 
 }
 
@@ -117,7 +161,7 @@ extension [T](expr: TypedExpr[T]) {
 
   def cast[U](using pf: PgTypeFor[U]): TypedExpr[U] = {
     val castName = skunk.sharp.pg.PgTypes.castName(skunk.sharp.pg.PgTypes.typeOf(pf.codec))
-    TypedExpr(expr.render |+| TypedExpr.raw(s"::$castName"), pf.codec)
+    TypedExpr(expr.render |+| skunk.sharp.internal.RawConstants.rawDynamic(s"::$castName"), pf.codec)
   }
 
   /**
@@ -130,7 +174,7 @@ extension [T](expr: TypedExpr[T]) {
    * error for misuse.
    */
   def as[N <: String & Singleton](name: N): AliasedExpr[T, N] = {
-    val rendered = expr.render |+| TypedExpr.raw(s""" AS "$name"""")
+    val rendered = expr.render |+| skunk.sharp.internal.RawConstants.rawDynamic(s""" AS "$name"""")
     val c        = expr.codec
     new AliasedExpr[T, N] {
       val aliasName = name
