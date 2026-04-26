@@ -27,6 +27,13 @@ The user explicitly chose to pause pg/functions/* (which is mechanical "thread A
 - `q.asExpr[T, Args]` returns `TypedExpr[T, Args]` — inner subquery args thread into the outer expression.
 - `QueryTemplate.fromApplied` / `CommandTemplate.fromApplied` are bridge helpers for code paths still emitting `AppliedFragment` (SetOpQuery, Values).
 
+### 1b. Small mechanical files — DONE in commit `[next+1]`
+
+- `dsl/ProjCols.scala` — `AliasedExpr[t, n]` → `AliasedExpr[t, n, ?]`. `consAliased` given gains an `A` parameter.
+- `dsl/package.scala` — `TypedExpr[T]` alias → `TypedExpr[T, Args]`. `AliasedExpr` aliased with 3 params. Re-exports `Param`. `lit` / `param` return `TypedExpr[T, Void]`. `caseWhen` lambda generic over branches' Args.
+- `dsl/CaseExpr.scala` — `CaseWhen[T]` carries `(TypedExpr[Boolean, ?], TypedExpr[T, ?])` branches. `.when` / `.otherwise` accept any branch Args. The combined CASE expression's Args is widened to `?` (typed-args threading through CASE branches is roadmap). `renderCaseWhen` rebuilt to walk branches and concat parts + product encoders directly (no `.render`).
+- `dsl/SetOpQuery.scala` — `.compile` returns `QueryTemplate[Void, R]` via `QueryTemplate.fromApplied`. `.union` / `.unionAll` / `.intersect` / `.intersectAll` / `.except` / `.exceptAll` accept `AsSubquery[Q, R, A]` (3-param). The internal `append` materialises the right via `ev.fragment(right)` and binds `Void` to produce an `AppliedFragment` for the closure chain. **Constraint**: works when right's `Args = Void`; broader typed-args threading requires `SetOpQuery` itself to carry an Args parameter (roadmap).
+
 ### 2. dsl/Insert.scala (user-agreed design — projection then values)
 Replace today's `users.insert(namedTuple)` with two-stage:
 ```scala

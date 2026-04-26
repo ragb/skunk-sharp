@@ -17,7 +17,7 @@ import skunk.sharp.{AliasedExpr, Column, TypedColumn}
 type ProjCols[Proj <: Tuple] <: Tuple = Proj match {
   case EmptyTuple                    => EmptyTuple
   case TypedColumn[t, nu, n] *: rest => Column[t, n, nu, EmptyTuple] *: ProjCols[rest]
-  case AliasedExpr[t, n] *: rest     => Column[t, n, false, EmptyTuple] *: ProjCols[rest]
+  case AliasedExpr[t, n, ?] *: rest  => Column[t, n, false, EmptyTuple] *: ProjCols[rest]
 }
 
 /**
@@ -41,9 +41,9 @@ object AllNamedProj {
   ): AllNamedProj[TypedColumn[T, Nu, N] *: Rest] =
     new AllNamedProj[TypedColumn[T, Nu, N] *: Rest] {}
 
-  given consAliased[T, N <: String & Singleton, Rest <: Tuple](using
+  given consAliased[T, N <: String & Singleton, A, Rest <: Tuple](using
     rest: AllNamedProj[Rest]
-  ): AllNamedProj[AliasedExpr[T, N] *: Rest] =
-    new AllNamedProj[AliasedExpr[T, N] *: Rest] {}
+  ): AllNamedProj[AliasedExpr[T, N, A] *: Rest] =
+    new AllNamedProj[AliasedExpr[T, N, A] *: Rest] {}
 
 }

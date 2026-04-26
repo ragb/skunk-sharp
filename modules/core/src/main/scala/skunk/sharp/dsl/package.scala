@@ -38,10 +38,14 @@ package object dsl {
   val ColumnAttr: skunk.sharp.ColumnAttr.type = skunk.sharp.ColumnAttr
   type ColumnAttr = skunk.sharp.ColumnAttr
 
-  type TypedExpr[T] = skunk.sharp.TypedExpr[T]
+  type TypedExpr[T, Args] = skunk.sharp.TypedExpr[T, Args]
   val TypedExpr: skunk.sharp.TypedExpr.type = skunk.sharp.TypedExpr
 
-  type AliasedExpr[T, N <: String & Singleton] = skunk.sharp.AliasedExpr[T, N]
+  type AliasedExpr[T, N <: String & Singleton, Args] = skunk.sharp.AliasedExpr[T, N, Args]
+
+  /** Re-export the [[skunk.sharp.Param]] entry point for `Param[T]` deferred-parameter declarations. */
+  type Param[T] = skunk.sharp.Param[T]
+  val Param: skunk.sharp.Param.type = skunk.sharp.Param
 
   // Extension methods on TypedExpr[T] (cast, as). Exported here so callers that only pull `skunk.sharp.dsl.*` still
   // see them.
@@ -153,9 +157,15 @@ package object dsl {
   //
   // `inline v: T` on `lit` forwards the compile-time constant through to the macro in
   // [[skunk.sharp.TypedExpr.lit]].
-  inline def lit[T](inline v: T)(using pf: PgTypeFor[T]): skunk.sharp.TypedExpr[T] = skunk.sharp.TypedExpr.lit(v)
+  inline def lit[T](inline v: T)(using pf: PgTypeFor[T]): skunk.sharp.TypedExpr[T, skunk.Void] =
+    skunk.sharp.TypedExpr.lit(v)
 
-  def param[T](v: T)(using pf: PgTypeFor[T]): skunk.sharp.TypedExpr[T] = skunk.sharp.TypedExpr.parameterised(v)
+  /**
+   * Bake a runtime value as a Void-args fragment. Equivalent to today's captured-args path; supplied for the
+   * dynamic-context migration cases. For static-template re-binding prefer [[Param]] (which carries `T` as Args).
+   */
+  def param[T](v: T)(using pf: PgTypeFor[T]): skunk.sharp.TypedExpr[T, skunk.Void] =
+    skunk.sharp.TypedExpr.parameterised(v)
 
   // ---- CASE expression ----
   //
@@ -168,7 +178,10 @@ package object dsl {
    * Start a `CASE`. Each branch has its own boolean predicate. The first branch's `branch: TypedExpr[T]` pins the
    * output type; later `.when`s must agree.
    */
-  def caseWhen[T](cond: skunk.sharp.TypedExpr[Boolean], branch: skunk.sharp.TypedExpr[T]): CaseWhen[T] =
+  def caseWhen[T, A1, A2](
+    cond: skunk.sharp.TypedExpr[Boolean, A1],
+    branch: skunk.sharp.TypedExpr[T, A2]
+  ): CaseWhen[T] =
     new CaseWhen[T](List((cond, branch)), branch.codec)
 
 }
