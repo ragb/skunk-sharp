@@ -1,8 +1,8 @@
 # Resume: Param migration (TypedExpr[T] → TypedExpr[T, Args])
 
 **Branch**: `param-placeholders` (off `macro-sql-assembly`)
-**Head**: HEAD-of-branch (Compiled.scala foundation)
-**Compiles**: NO. Foundation types changed; every consumer is broken until full migration lands.
+**Head**: `3703952` (pg/functions batch — core compiles)
+**Compiles**: `core/compile` ✅ clean. `core/Test/compile` ❌ 105 errors — tests still reference old API.
 **Plan**: see [`PARAM_MIGRATION.md`](PARAM_MIGRATION.md) for the full file-by-file checklist + design rationale.
 
 ## What's done (6 commits on the branch)
