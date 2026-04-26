@@ -4,7 +4,6 @@ import skunk.{Fragment, Void}
 import skunk.sharp.{Param, TypedExpr}
 import skunk.sharp.pg.PgTypeFor
 import skunk.sharp.where.Where
-import skunk.util.Origin
 
 /** Aggregate functions. Mixed into [[skunk.sharp.Pg]]. Args of input expression(s) propagate to the result. */
 trait PgAggregate {
@@ -41,8 +40,8 @@ trait PgAggregate {
   def max[T, A](expr: TypedExpr[T, A]): TypedExpr[T, A] = sameTypeFn("max", expr)
 
   /** `string_agg(expr, sep)` — sep is a runtime value baked via Param.bind. */
-  def stringAgg[T, A](expr: TypedExpr[T, A], sep: String)(using StrLike[T]): TypedExpr[String, A] = {
-    val sepFrag = Param.bind[String](sep)(using PgTypeFor.stringPgTypeFor).fragment
+  def stringAgg[T, A](expr: TypedExpr[T, A], sep: String)(using ev: StrLike[T], pfs: PgTypeFor[String]): TypedExpr[String, A] = {
+    val sepFrag = Param.bind[String](sep).fragment
     val inner   = TypedExpr.combineSep(expr.fragment, ", ", sepFrag)
     val frag    = TypedExpr.wrap("string_agg(", inner.asInstanceOf[Fragment[A]], ")")
     TypedExpr[String, A](frag, skunk.codec.all.text)

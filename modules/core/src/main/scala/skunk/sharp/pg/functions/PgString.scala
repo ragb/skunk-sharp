@@ -3,7 +3,6 @@ package skunk.sharp.pg.functions
 import skunk.{Fragment, Void}
 import skunk.sharp.{Param, PgFunction, TypedExpr}
 import skunk.sharp.pg.PgTypeFor
-import skunk.sharp.where.Where
 
 /** String functions. Mixed into [[skunk.sharp.Pg]]. Args of input expression(s) propagate to result. */
 trait PgString {
@@ -19,7 +18,7 @@ trait PgString {
   def initcap[T, A](e: TypedExpr[T, A])(using StrLike[T]): TypedExpr[T, A] = stringPreserveFn("initcap", e)
 
   /** `trim(chars FROM s)`. */
-  def trim[T, A](e: TypedExpr[T, A], chars: String)(using StrLike[T], pf: PgTypeFor[String]): TypedExpr[T, A] = {
+  def trim[T, A](e: TypedExpr[T, A], chars: String)(using ev: StrLike[T], pf: PgTypeFor[String]): TypedExpr[T, A] = {
     val charsFrag = Param.bind[String](chars).fragment
     val inner     = TypedExpr.combineSep(charsFrag, " FROM ", e.fragment).asInstanceOf[Fragment[A]]
     val frag      = TypedExpr.wrap("trim(", inner, ")")
@@ -27,7 +26,7 @@ trait PgString {
   }
 
   /** `replace(s, from, to)` with runtime String args (Param.bind). */
-  def replace[T, A](e: TypedExpr[T, A], from: String, to: String)(using StrLike[T], pf: PgTypeFor[String]): TypedExpr[T, A] = {
+  def replace[T, A](e: TypedExpr[T, A], from: String, to: String)(using ev: StrLike[T], pf: PgTypeFor[String]): TypedExpr[T, A] = {
     val fromFrag = Param.bind[String](from).fragment
     val toFrag   = Param.bind[String](to).fragment
     val s1       = TypedExpr.combineSep(e.fragment, ", ", fromFrag).asInstanceOf[Fragment[A]]
@@ -93,7 +92,7 @@ trait PgString {
 
   /** `regexp_replace(s, pattern, replacement)`. */
   def regexpReplace[T, A](e: TypedExpr[T, A], pattern: String, replacement: String)(using
-    StrLike[T], pf: PgTypeFor[String]
+    ev: StrLike[T], pf: PgTypeFor[String]
   ): TypedExpr[T, A] = {
     val pf1 = Param.bind[String](pattern).fragment
     val pf2 = Param.bind[String](replacement).fragment
@@ -105,7 +104,7 @@ trait PgString {
 
   /** `split_part(s, delim, field)`. */
   def splitPart[T, A](e: TypedExpr[T, A], delim: String, field: Int)(using
-    StrLike[T], pf: PgTypeFor[String]
+    ev: StrLike[T], pf: PgTypeFor[String]
   ): TypedExpr[T, A] = {
     val delimFrag = Param.bind[String](delim).fragment
     val s1        = TypedExpr.combineSep(e.fragment, ", ", delimFrag).asInstanceOf[Fragment[A]]
@@ -124,13 +123,13 @@ trait PgString {
 
   // ---- Fixed Int return -----------------------------------------------------------------------
 
-  def length[T, A](e: TypedExpr[T, A])(using StrLike[T], PgTypeFor[Lift[T, Int]]): TypedExpr[Lift[T, Int], A] =
+  def length[T, A](e: TypedExpr[T, A])(using ev: StrLike[T], pf: PgTypeFor[Lift[T, Int]]): TypedExpr[Lift[T, Int], A] =
     stringToIntFn("length", e)
 
-  def charLength[T, A](e: TypedExpr[T, A])(using StrLike[T], PgTypeFor[Lift[T, Int]]): TypedExpr[Lift[T, Int], A] =
+  def charLength[T, A](e: TypedExpr[T, A])(using ev: StrLike[T], pf: PgTypeFor[Lift[T, Int]]): TypedExpr[Lift[T, Int], A] =
     stringToIntFn("char_length", e)
 
-  def octetLength[T, A](e: TypedExpr[T, A])(using StrLike[T], PgTypeFor[Lift[T, Int]]): TypedExpr[Lift[T, Int], A] =
+  def octetLength[T, A](e: TypedExpr[T, A])(using ev: StrLike[T], pf: PgTypeFor[Lift[T, Int]]): TypedExpr[Lift[T, Int], A] =
     stringToIntFn("octet_length", e)
 
   /** `position(substr IN str)` — substr is runtime String; nullability tracked via Lift. */
@@ -148,7 +147,7 @@ trait PgString {
   // ---- Tag-preserving misc -------------------------------------------------------------------
 
   def translate[T, A](e: TypedExpr[T, A], from: String, to: String)(using
-    StrLike[T], pf: PgTypeFor[String]
+    ev: StrLike[T], pf: PgTypeFor[String]
   ): TypedExpr[T, A] = {
     val ff = Param.bind[String](from).fragment
     val tf = Param.bind[String](to).fragment
@@ -167,7 +166,7 @@ trait PgString {
   }
 
   def lpad[T, A](e: TypedExpr[T, A], n: Int, fill: String)(using
-    StrLike[T], pf: PgTypeFor[String]
+    ev: StrLike[T], pf: PgTypeFor[String]
   ): TypedExpr[T, A] = {
     val fillFrag = Param.bind[String](fill).fragment
     val s1 = Fragment[A](
@@ -187,7 +186,7 @@ trait PgString {
   }
 
   def rpad[T, A](e: TypedExpr[T, A], n: Int, fill: String)(using
-    StrLike[T], pf: PgTypeFor[String]
+    ev: StrLike[T], pf: PgTypeFor[String]
   ): TypedExpr[T, A] = {
     val fillFrag = Param.bind[String](fill).fragment
     val s1 = Fragment[A](
@@ -200,7 +199,7 @@ trait PgString {
 
   // ---- Fixed text return (NULL-propagating via Lift) ------------------------------------------
 
-  def md5[T, A](e: TypedExpr[T, A])(using StrLike[T], pf: PgTypeFor[Lift[T, String]]): TypedExpr[Lift[T, String], A] = {
+  def md5[T, A](e: TypedExpr[T, A])(using ev: StrLike[T], pf: PgTypeFor[Lift[T, String]]): TypedExpr[Lift[T, String], A] = {
     val frag = TypedExpr.wrap("md5(", e.fragment, ")")
     TypedExpr[Lift[T, String], A](frag, pf.codec)
   }
@@ -236,13 +235,13 @@ trait PgString {
 
   // ---- String -> Int -------------------------------------------------------------------------
 
-  def ascii[T, A](e: TypedExpr[T, A])(using StrLike[T], PgTypeFor[Lift[T, Int]]): TypedExpr[Lift[T, Int], A] =
+  def ascii[T, A](e: TypedExpr[T, A])(using ev: StrLike[T], pf: PgTypeFor[Lift[T, Int]]): TypedExpr[Lift[T, Int], A] =
     stringToIntFn("ascii", e)
 
   // ---- String -> BigDecimal ------------------------------------------------------------------
 
   def toNumber[T, A](e: TypedExpr[T, A], fmt: String)(using
-    StrLike[T], pf: PgTypeFor[Lift[T, BigDecimal]], pfs: PgTypeFor[String]
+    ev: StrLike[T], pf: PgTypeFor[Lift[T, BigDecimal]], pfs: PgTypeFor[String]
   ): TypedExpr[Lift[T, BigDecimal], A] = {
     val fmtFrag = Param.bind[String](fmt).fragment
     val s1      = TypedExpr.combineSep(e.fragment, ", ", fmtFrag).asInstanceOf[Fragment[A]]

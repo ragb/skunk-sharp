@@ -3,6 +3,7 @@ package skunk.sharp
 import skunk.{AppliedFragment, Codec, Encoder, Fragment, Void}
 import skunk.sharp.internal.RawConstants
 import skunk.sharp.pg.PgTypeFor
+import skunk.sharp.where.Where
 import skunk.util.Origin
 
 /**

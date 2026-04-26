@@ -1,6 +1,6 @@
 package skunk.sharp.ops
 
-import skunk.{Encoder, Fragment, Void}
+import skunk.{Fragment, Void}
 import skunk.sharp.{Param, TypedExpr}
 import skunk.sharp.pg.PgTypeFor
 import skunk.sharp.where.Where
@@ -242,11 +242,12 @@ object InRhs {
       }
     }
 
-  given subqueryIn[T, Q](using ev: skunk.sharp.dsl.AsSubquery[Q, T]): InRhs[T, Q] =
+  given subqueryIn[T, Q, A](using ev: skunk.sharp.dsl.AsSubquery[Q, T, A]): InRhs[T, Q] =
     new InRhs[T, Q] {
       def renderParens(q: Q): Fragment[Void] = {
-        val af = ev.render(q)()
-        val voidFrag = TypedExpr.liftAfToVoid(af)
+        val inner: Fragment[A] = ev.fragment(q)
+        // Bind the inner Args at Void — typed-args threading through `IN (subquery)` is roadmap.
+        val voidFrag = TypedExpr.liftAfToVoid(inner.apply(Void.asInstanceOf[A]))
         TypedExpr.wrap("(", voidFrag, ")")
       }
     }
@@ -268,16 +269,15 @@ extension [T, A](lhs: TypedExpr[T, A]) {
  * ANY / ALL quantifier over a subquery RHS. Renders as `<lhs> <op> ANY (<subquery>)` / `<lhs> <op> ALL
  * (<subquery>)`. The inner subquery's args are baked via contramap so result Args = LHS Args.
  */
-private def quantifiedRender[T, A, Q, ET](
+private def quantifiedRender[T, A, Q, ET, QA](
   lhs: TypedExpr[T, A],
   op: String,
   quant: String,
   q: Q
-)(using ev: skunk.sharp.dsl.AsSubquery[Q, ET]): Where[A] = {
-  val af       = ev.render(q)()
-  val voidFrag = TypedExpr.liftAfToVoid(af)
+)(using ev: skunk.sharp.dsl.AsSubquery[Q, ET, QA]): Where[A] = {
+  val inner: Fragment[QA] = ev.fragment(q)
+  val voidFrag = TypedExpr.liftAfToVoid(inner.apply(Void.asInstanceOf[QA]))
   val rhsFrag  = TypedExpr.wrap(s" $op $quant (", voidFrag, ")")
-  // Combine LHS with the wrapped RHS — the wrapped RHS already has the operator + paren prefix.
   val combinedParts = lhs.fragment.parts ++ rhsFrag.parts
   val frag: Fragment[A] = Fragment(combinedParts, lhs.fragment.encoder, Origin.unknown)
   Where(frag)
@@ -285,14 +285,14 @@ private def quantifiedRender[T, A, Q, ET](
 
 extension [T, A](lhs: TypedExpr[T, A])(using @unused ord: cats.Order[Stripped[T]]) {
 
-  def ltAny[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[A]  = quantifiedRender(lhs, "<",  "ANY", q)
-  def lteAny[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[A] = quantifiedRender(lhs, "<=", "ANY", q)
-  def gtAny[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[A]  = quantifiedRender(lhs, ">",  "ANY", q)
-  def gteAny[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[A] = quantifiedRender(lhs, ">=", "ANY", q)
+  def ltAny[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T], QA]): Where[A]  = quantifiedRender(lhs, "<",  "ANY", q)
+  def lteAny[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T], QA]): Where[A] = quantifiedRender(lhs, "<=", "ANY", q)
+  def gtAny[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T], QA]): Where[A]  = quantifiedRender(lhs, ">",  "ANY", q)
+  def gteAny[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T], QA]): Where[A] = quantifiedRender(lhs, ">=", "ANY", q)
 
-  def ltAll[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[A]  = quantifiedRender(lhs, "<",  "ALL", q)
-  def lteAll[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[A] = quantifiedRender(lhs, "<=", "ALL", q)
-  def gtAll[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[A]  = quantifiedRender(lhs, ">",  "ALL", q)
-  def gteAll[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[A] = quantifiedRender(lhs, ">=", "ALL", q)
+  def ltAll[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T], QA]): Where[A]  = quantifiedRender(lhs, "<",  "ALL", q)
+  def lteAll[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T], QA]): Where[A] = quantifiedRender(lhs, "<=", "ALL", q)
+  def gtAll[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T], QA]): Where[A]  = quantifiedRender(lhs, ">",  "ALL", q)
+  def gteAll[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T], QA]): Where[A] = quantifiedRender(lhs, ">=", "ALL", q)
 
 }

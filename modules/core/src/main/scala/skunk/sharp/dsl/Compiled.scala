@@ -114,7 +114,7 @@ extension [Args, R](q: QueryTemplate[Args, R]) {
     session.option(q.typedQuery)(args)
 
   /** Stream rows with back-pressure. `chunkSize` is the number of rows fetched per network round-trip. */
-  inline def stream[F[_]](session: Session[F], chunkSize: Int = 64)(args: Args): Stream[F, R] =
+  inline def stream[F[_]](session: Session[F], chunkSize: Int)(args: Args): Stream[F, R] =
     session.stream(q.typedQuery)(args, chunkSize)
 
   /** Open a cursor for manual row-by-row fetching. Resource-safe. */
@@ -141,7 +141,7 @@ extension [Args, R](q: QueryTemplate[Args, R]) {
    * A `Kleisli` whose container is `Stream[F, *]` — i.e., `Session[F] => Stream[F, R]`. Calling `.run(session)` gives a
    * plain `Stream[F, R]`, so multiple streams share a session without any natural-transformation boilerplate.
    */
-  def streamKF[F[_]](args: Args, chunkSize: Int = 64): Kleisli[Stream[F, *], Session[F], R] =
+  def streamKF[F[_]](args: Args, chunkSize: Int): Kleisli[Stream[F, *], Session[F], R] =
     Kleisli(s => stream[F](s, chunkSize)(args))
 
 }
@@ -150,13 +150,13 @@ extension [Args, R](q: QueryTemplate[Args, R]) {
 extension [R](q: QueryTemplate[Void, R]) {
 
   inline def run[F[_]](session: Session[F]): F[List[R]] =
-    session.execute(q.typedQuery)(Void)
+    session.execute(q.typedQuery)
 
   inline def unique[F[_]](session: Session[F]): F[R] =
-    session.unique(q.typedQuery)(Void)
+    session.unique(q.typedQuery)
 
   inline def option[F[_]](session: Session[F]): F[Option[R]] =
-    session.option(q.typedQuery)(Void)
+    session.option(q.typedQuery)
 
   inline def stream[F[_]](session: Session[F], chunkSize: Int = 64): Stream[F, R] =
     session.stream(q.typedQuery)(Void, chunkSize)
@@ -199,7 +199,7 @@ extension [Args](c: CommandTemplate[Args]) {
 extension (c: CommandTemplate[Void]) {
 
   inline def run[F[_]](session: Session[F]): F[Completion] =
-    session.execute(c.typedCommand)(Void)
+    session.execute(c.typedCommand)
 
   def af: AppliedFragment = c.fragment(Void)
 

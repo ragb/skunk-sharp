@@ -1,12 +1,10 @@
 package skunk.sharp.pg
 
-import skunk.codec.all as pg
 import skunk.sharp.TypedExpr
 import skunk.sharp.where.Where
 
 /**
- * Evidence that `R` is a Postgres range-shaped Scala type. Carries the element type `Elem` so that `containsElem` /
- * `rangeContainedByElem` can mention the element without an extra type parameter at the call site.
+ * Evidence that `R` is a Postgres range-shaped Scala type.
  */
 sealed trait IsRange[R] {
   type Elem
@@ -21,86 +19,49 @@ object IsRange {
 
 }
 
-/**
- * Range operators as extension methods on `TypedExpr[R]` where `IsRange[R]` holds.
- *
- * Operator mapping (mirrors Postgres):
- *   - `.contains(r)` → `a @> b` — left range contains every point of right range
- *   - `.containsElem(e)` → `a @> e` — left range contains element
- *   - `.containedBy(r)` → `a <@ b`
- *   - `.overlaps(r)` → `a && b`
- *   - `.strictlyLeft(r)` → `a << b` — every point in `a` is < every point in `b`
- *   - `.strictlyRight(r)` → `a >> b`
- *   - `.doesNotExtendRight(r)` → `a &< b` — `a` does not extend to the right of `b`
- *   - `.doesNotExtendLeft(r)` → `a &> b`
- *   - `.adjacent(r)` → `a -|- b`
- *   - `.rangeUnion(r)` → `a + b` — union (must be contiguous or overlapping)
- *   - `.rangeIntersect(r)` → `a * b`
- *   - `.rangeDiff(r)` → `a - b` — difference
- */
+/** Range operators as extension methods on `TypedExpr[R, X]` where `IsRange[R]` holds. Args from both arms propagate. */
 object RangeOps {
 
-  private def boolOp[R](op: String, l: TypedExpr[R], r: TypedExpr[R]): Where[skunk.Void] =
-    Where(new TypedExpr[Boolean] {
-      val render = l.render |+| TypedExpr.raw(s" $op ") |+| r.render
-      val codec  = pg.bool
-    })
+  private def boolOp[R, X, Y](op: String, l: TypedExpr[R, X], r: TypedExpr[R, Y]): Where[Where.Concat[X, Y]] = {
+    val frag = TypedExpr.combineSep(l.fragment, s" $op ", r.fragment)
+    Where(frag)
+  }
 
-  private def rangeOp[R](op: String, l: TypedExpr[R], r: TypedExpr[R]): TypedExpr[R] =
-    TypedExpr(l.render |+| TypedExpr.raw(s" $op ") |+| r.render, l.codec)
+  private def rangeOp[R, X, Y](op: String, l: TypedExpr[R, X], r: TypedExpr[R, Y]): TypedExpr[R, Where.Concat[X, Y]] = {
+    val frag = TypedExpr.combineSep(l.fragment, s" $op ", r.fragment)
+    TypedExpr[R, Where.Concat[X, Y]](frag, l.codec)
+  }
 
-  extension [R](lhs: TypedExpr[R])(using @annotation.unused ev: IsRange[R]) {
+  extension [R, X](lhs: TypedExpr[R, X])(using @annotation.unused ev: IsRange[R]) {
 
-    /** `a @> b` — left range contains every point in right range. */
-    def contains(rhs: TypedExpr[R]): Where[skunk.Void] = boolOp("@>", lhs, rhs)
+    def contains[Y](rhs: TypedExpr[R, Y]):           Where[Where.Concat[X, Y]] = boolOp("@>",  lhs, rhs)
+    def containedBy[Y](rhs: TypedExpr[R, Y]):        Where[Where.Concat[X, Y]] = boolOp("<@",  lhs, rhs)
+    def overlaps[Y](rhs: TypedExpr[R, Y]):           Where[Where.Concat[X, Y]] = boolOp("&&",  lhs, rhs)
+    def strictlyLeft[Y](rhs: TypedExpr[R, Y]):       Where[Where.Concat[X, Y]] = boolOp("<<",  lhs, rhs)
+    def strictlyRight[Y](rhs: TypedExpr[R, Y]):      Where[Where.Concat[X, Y]] = boolOp(">>",  lhs, rhs)
+    def doesNotExtendRight[Y](rhs: TypedExpr[R, Y]): Where[Where.Concat[X, Y]] = boolOp("&<",  lhs, rhs)
+    def doesNotExtendLeft[Y](rhs: TypedExpr[R, Y]):  Where[Where.Concat[X, Y]] = boolOp("&>",  lhs, rhs)
+    def adjacent[Y](rhs: TypedExpr[R, Y]):           Where[Where.Concat[X, Y]] = boolOp("-|-", lhs, rhs)
 
-    /** `a <@ b` — left range is contained by right range. */
-    def containedBy(rhs: TypedExpr[R]): Where[skunk.Void] = boolOp("<@", lhs, rhs)
-
-    /** `a && b` — ranges overlap (share at least one point). */
-    def overlaps(rhs: TypedExpr[R]): Where[skunk.Void] = boolOp("&&", lhs, rhs)
-
-    /** `a << b` — every point in left range is strictly less than every point in right range. */
-    def strictlyLeft(rhs: TypedExpr[R]): Where[skunk.Void] = boolOp("<<", lhs, rhs)
-
-    /** `a >> b` — every point in left range is strictly greater than every point in right range. */
-    def strictlyRight(rhs: TypedExpr[R]): Where[skunk.Void] = boolOp(">>", lhs, rhs)
-
-    /** `a &< b` — left range does not extend to the right of right range. */
-    def doesNotExtendRight(rhs: TypedExpr[R]): Where[skunk.Void] = boolOp("&<", lhs, rhs)
-
-    /** `a &> b` — left range does not extend to the left of right range. */
-    def doesNotExtendLeft(rhs: TypedExpr[R]): Where[skunk.Void] = boolOp("&>", lhs, rhs)
-
-    /** `a -|- b` — ranges are adjacent (no gap, no overlap). */
-    def adjacent(rhs: TypedExpr[R]): Where[skunk.Void] = boolOp("-|-", lhs, rhs)
-
-    /** `a + b` — range union (ranges must overlap or be adjacent). */
-    def rangeUnion(rhs: TypedExpr[R]): TypedExpr[R] = rangeOp("+", lhs, rhs)
-
-    /** `a * b` — range intersection. */
-    def rangeIntersect(rhs: TypedExpr[R]): TypedExpr[R] = rangeOp("*", lhs, rhs)
-
-    /** `a - b` — range difference. */
-    def rangeDiff(rhs: TypedExpr[R]): TypedExpr[R] = rangeOp("-", lhs, rhs)
+    def rangeUnion[Y](rhs: TypedExpr[R, Y]):     TypedExpr[R, Where.Concat[X, Y]] = rangeOp("+", lhs, rhs)
+    def rangeIntersect[Y](rhs: TypedExpr[R, Y]): TypedExpr[R, Where.Concat[X, Y]] = rangeOp("*", lhs, rhs)
+    def rangeDiff[Y](rhs: TypedExpr[R, Y]):      TypedExpr[R, Where.Concat[X, Y]] = rangeOp("-", lhs, rhs)
 
   }
 
-  extension [R, E](lhs: TypedExpr[R])(using @annotation.unused ev: IsRange.Aux[R, E]) {
+  extension [R, E, X](lhs: TypedExpr[R, X])(using @annotation.unused ev: IsRange.Aux[R, E]) {
 
     /** `a @> e` — range contains the given element. */
-    def containsElem(elem: TypedExpr[E]): Where[skunk.Void] =
-      Where(new TypedExpr[Boolean] {
-        val render = lhs.render |+| TypedExpr.raw(" @> ") |+| elem.render
-        val codec  = pg.bool
-      })
+    def containsElem[Y](elem: TypedExpr[E, Y]): Where[Where.Concat[X, Y]] = {
+      val frag = TypedExpr.combineSep(lhs.fragment, " @> ", elem.fragment)
+      Where(frag)
+    }
 
-    /** `e <@ a` — element is contained in this range. Sugar for `range.containsElem(elem)` read from the elem side. */
-    def elemContainedBy(elem: TypedExpr[E]): Where[skunk.Void] =
-      Where(new TypedExpr[Boolean] {
-        val render = elem.render |+| TypedExpr.raw(" <@ ") |+| lhs.render
-        val codec  = pg.bool
-      })
+    /** `e <@ a` — element is contained in this range. */
+    def elemContainedBy[Y](elem: TypedExpr[E, Y]): Where[Where.Concat[Y, X]] = {
+      val frag = TypedExpr.combineSep(elem.fragment, " <@ ", lhs.fragment)
+      Where(frag)
+    }
 
   }
 

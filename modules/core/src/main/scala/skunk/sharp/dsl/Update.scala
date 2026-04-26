@@ -1,6 +1,6 @@
 package skunk.sharp.dsl
 
-import skunk.{AppliedFragment, Codec, Encoder, Fragment, Void}
+import skunk.{AppliedFragment, Codec, Fragment, Void}
 import skunk.sharp.*
 import skunk.sharp.internal.{tupleCodec, CompileChecks, RawConstants}
 import skunk.sharp.pg.PgTypeFor

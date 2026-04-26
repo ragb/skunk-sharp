@@ -2,7 +2,7 @@ package skunk.sharp
 
 import skunk.{Fragment, Void}
 import skunk.sharp.pg.PgTypeFor
-import skunk.util.Origin
+
 
 /**
  * Typed constructors for Postgres functions and operators. Args of inputs propagate to the result expression

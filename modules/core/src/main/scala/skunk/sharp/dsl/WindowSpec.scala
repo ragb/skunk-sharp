@@ -1,14 +1,11 @@
 package skunk.sharp.dsl
 
-import skunk.AppliedFragment
+import skunk.Fragment
 import skunk.sharp.TypedExpr
+import skunk.util.Origin
 
 /**
  * One bound on a window frame — used in `.rowsBetween` / `.rangeBetween` / `.groupsBetween`.
- *
- * {{{
- *   WindowSpec.orderBy(u.createdAt.asc).rowsBetween(FrameBound.UnboundedPreceding, FrameBound.CurrentRow)
- * }}}
  */
 enum FrameBound:
   case UnboundedPreceding
@@ -25,27 +22,18 @@ private enum FrameMode(val keyword: String):
 /**
  * Builder for the content of an `OVER (…)` clause.
  *
- * Start from the [[WindowSpec]] companion factory methods (or [[WindowSpec.empty]]), then chain:
- *
- *   - `.partitionBy(expr, …)` — `PARTITION BY` key expressions.
- *   - `.orderBy(expr.asc, …)` — `ORDER BY` sort terms.
- *   - `.rowsBetween` / `.rangeBetween` / `.groupsBetween` — explicit frame bounds.
- *
- * Pass the result to `.over(spec)` on any [[TypedExpr]]:
- *
- * {{{
- *   Pg.rowNumber.over(WindowSpec.partitionBy(u.dept).orderBy(u.salary.desc))
- *   Pg.sum(u.amount).over(WindowSpec.orderBy(u.createdAt.asc).rowsBetween(FrameBound.UnboundedPreceding, FrameBound.CurrentRow))
- *   Pg.lag(u.age).over(WindowSpec.orderBy(u.age.asc))
- * }}}
+ * Args of partition / order expressions thread into the wrapping `over` extension's result Args via
+ * fragment encoder products. Currently surfaced as existential `?` on `over`'s output (per-arg threading
+ * roadmap; in the meantime, partition by `Param` works at runtime — encoder accumulates correctly — but
+ * the static Args type is widened).
  */
 final class WindowSpec private[sharp] (
-  private val partitionBys: List[TypedExpr[?]],
-  private val orderBys: List[OrderBy],
-  private val frameOpt: Option[(FrameMode, FrameBound, FrameBound)]
+  private[dsl] val partitionBys: List[TypedExpr[?, ?]],
+  private[dsl] val orderBys: List[OrderBy],
+  private[dsl] val frameOpt: Option[(FrameMode, FrameBound, FrameBound)]
 ) {
 
-  def partitionBy(exprs: TypedExpr[?]*): WindowSpec =
+  def partitionBy(exprs: TypedExpr[?, ?]*): WindowSpec =
     new WindowSpec(partitionBys ++ exprs, orderBys, frameOpt)
 
   def orderBy(obs: OrderBy*): WindowSpec =
@@ -60,17 +48,35 @@ final class WindowSpec private[sharp] (
   def groupsBetween(start: FrameBound, end: FrameBound): WindowSpec =
     new WindowSpec(partitionBys, orderBys, Some((FrameMode.Groups, start, end)))
 
-  /** Render the *interior* of the `OVER (…)` parens — called by the `.over` extension. */
-  private[sharp] def render: AppliedFragment = {
-    val parts = List.newBuilder[AppliedFragment]
-    if partitionBys.nonEmpty then
-      parts += TypedExpr.raw("PARTITION BY ") |+| TypedExpr.joined(partitionBys.map(_.render), ", ")
-    if orderBys.nonEmpty then
-      parts += TypedExpr.raw("ORDER BY ") |+| TypedExpr.joined(orderBys.map(_.af), ", ")
-    frameOpt.foreach { case (mode, start, end) =>
-      parts += TypedExpr.raw(s"${mode.keyword} BETWEEN ${renderBound(start)} AND ${renderBound(end)}")
+  /** Render the *interior* of the `OVER (…)` parens as a typed Fragment. */
+  private[sharp] def renderFragment: Fragment[?] = {
+    val sections = scala.collection.mutable.ListBuffer[Fragment[?]]()
+    if partitionBys.nonEmpty then {
+      val joined = SelectBuilder.joinFragments(partitionBys.map(_.fragment), ", ")
+      sections += joined.foldLeft[Fragment[?]](TypedExpr.voidFragment("PARTITION BY "))((acc, p) =>
+        joinTwo(acc, p)
+      )
     }
-    TypedExpr.joined(parts.result(), " ")
+    if orderBys.nonEmpty then {
+      val joined = SelectBuilder.joinFragments(orderBys.map(_.fragment), ", ")
+      sections += joined.foldLeft[Fragment[?]](TypedExpr.voidFragment("ORDER BY "))((acc, p) =>
+        joinTwo(acc, p)
+      )
+    }
+    frameOpt.foreach { case (mode, start, end) =>
+      sections += TypedExpr.voidFragment(s"${mode.keyword} BETWEEN ${renderBound(start)} AND ${renderBound(end)}")
+    }
+    sections.toList match {
+      case Nil          => TypedExpr.voidFragment("")
+      case head :: Nil  => head
+      case head :: tail => tail.foldLeft(head)((a, b) => joinTwo(joinTwo(a, TypedExpr.voidFragment(" ")), b))
+    }
+  }
+
+  private def joinTwo(a: Fragment[?], b: Fragment[?]): Fragment[?] = {
+    val parts = a.parts ++ b.parts
+    val enc   = SelectBuilder.combineEncoders(a.encoder, b.encoder)
+    Fragment(parts, enc, Origin.unknown).asInstanceOf[Fragment[?]]
   }
 
   private def renderBound(b: FrameBound): String = b match {
@@ -85,35 +91,25 @@ final class WindowSpec private[sharp] (
 
 object WindowSpec {
 
-  /** Empty spec — `OVER ()`. Useful for window functions that don't need partition or order. */
   val empty: WindowSpec = new WindowSpec(Nil, Nil, None)
 
-  /** Start a spec with `PARTITION BY`. */
-  def partitionBy(exprs: TypedExpr[?]*): WindowSpec = empty.partitionBy(exprs*)
-
-  /** Start a spec with `ORDER BY`. */
-  def orderBy(obs: OrderBy*): WindowSpec = empty.orderBy(obs*)
+  def partitionBy(exprs: TypedExpr[?, ?]*): WindowSpec = empty.partitionBy(exprs*)
+  def orderBy(obs: OrderBy*): WindowSpec               = empty.orderBy(obs*)
 
 }
 
-/**
- * Append `OVER (spec)` to any expression — the universal entry point for window functions.
- *
- * Works on both window-only functions (`Pg.rowNumber`, `Pg.rank`, …) and aggregate functions used in window position
- * (`Pg.sum(col)`, `Pg.count(col)`, …):
- *
- * {{{
- *   Pg.rowNumber.over(WindowSpec.orderBy(u.age.asc))
- *   Pg.sum(u.salary).over(WindowSpec.partitionBy(u.dept).orderBy(u.salary.asc))
- *   Pg.rowNumber.over()                                           // OVER () — no partition, no order
- * }}}
- */
-extension [T](expr: TypedExpr[T]) {
+/** Append `OVER (spec)` to any expression. */
+extension [T, A](expr: TypedExpr[T, A]) {
 
-  def over(spec: WindowSpec): TypedExpr[T] =
-    TypedExpr(expr.render |+| TypedExpr.raw(" OVER (") |+| spec.render |+| TypedExpr.raw(")"), expr.codec)
+  def over(spec: WindowSpec): TypedExpr[T, ?] = {
+    val inner = spec.renderFragment
+    val parts = expr.fragment.parts ++ List[Either[String, cats.data.State[Int, String]]](Left(" OVER (")) ++
+      inner.parts ++ List[Either[String, cats.data.State[Int, String]]](Left(")"))
+    val enc   = SelectBuilder.combineEncoders(expr.fragment.encoder, inner.encoder)
+    val frag  = Fragment(parts, enc, Origin.unknown).asInstanceOf[Fragment[Any]]
+    TypedExpr[T, Any](frag, expr.codec)
+  }
 
-  /** `OVER ()` — empty window spec. */
-  def over(): TypedExpr[T] = over(WindowSpec.empty)
+  def over(): TypedExpr[T, ?] = over(WindowSpec.empty)
 
 }
