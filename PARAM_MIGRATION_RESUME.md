@@ -1,42 +1,31 @@
 # Resume: Param migration (TypedExpr[T] → TypedExpr[T, Args])
 
 **Branch**: `param-placeholders` (off `macro-sql-assembly`)
-**Head**: `5c06bf4`
+**Head**: HEAD-of-branch (Compiled.scala foundation)
 **Compiles**: NO. Foundation types changed; every consumer is broken until full migration lands.
 **Plan**: see [`PARAM_MIGRATION.md`](PARAM_MIGRATION.md) for the full file-by-file checklist + design rationale.
 
-## What's done (5 commits on the branch)
+## What's done (6 commits on the branch)
 
 1. `e1de635` — migration plan doc
 2. `9896df4` — `TypedExpr[T, Args]` (typed `Fragment[Args]`, not AppliedFragment), `TypedColumn` extends `TypedExpr[T, Void]`, `Param[T] extends TypedExpr[T, T]`, `type Where[A] = TypedExpr[Boolean, A]`
 3. `6360d91` — `litMacro` returns `TypedExpr[T, Void]`, `ops/ExprOps.scala` rewritten with Args-threading + `Param.bind` shortcuts, **`internal/SqlMacros.scala` deleted**
 4. `c8ad8dd` — `PgFunction.{nullary,unary,binary,nary}` and `PgOperator.{infix,prefix,postfix}` thread Args, `pg/functions/Shared` helpers updated, `PgAggregate` migrated
 5. `5c06bf4` — `PgString` migrated
+6. **NEW**: `dsl/Compiled.scala` rewritten — `CompiledQuery` → `QueryTemplate`, `CompiledCommand` → `CommandTemplate`, args dropped from struct, execution methods take args at execute time (`q.run(s)(args)`), `Args = Void` overloads (`q.run(s)`), `AsSubquery[Q, T, Args]` (3-param) threading inner subquery args into outer composition, `.asExpr` returns `TypedExpr[T, Args]`. Bridge helper `QueryTemplate.fromApplied` and `CommandTemplate.fromApplied` for code paths still emitting `AppliedFragment` (SetOpQuery, Values).
 
 ## What's pending (next session — resume in this order)
 
 The user explicitly chose to pause pg/functions/* (which is mechanical "thread A through") and **resume with the dsl/* layer first** — that's where the user-visible API decisions surface.
 
-### 1. dsl/Compiled.scala (priority — sets the public surface)
-Rename `CompiledQuery[Args, R]` → `QueryTemplate[Args, R]` and `CompiledCommand[Args]` → `CommandTemplate[Args]`. Drop the `args: Args` field — fragment is the only carrier. Execution extensions take args at execute time:
-```scala
-extension [Args, R](q: QueryTemplate[Args, R])
-  def run(session)(args: Args): F[List[R]]
-  def unique(session)(args: Args): F[R]
-  def option(session)(args: Args): F[Option[R]]
-  def stream(session, chunkSize: Int = 64)(args: Args): Stream[F, R]
-  def cursor(session)(args: Args): Resource[F, Cursor[F, R]]
-  def prepared(session): F[PreparedQuery[F, Args, R]]
-  def typedQuery: skunk.Query[Args, R] = q.fragment.query(q.codec)
+### 1. dsl/Compiled.scala — DONE in commit `[next]`
 
-// Args = Void overload — no args at execute:
-extension [R](q: QueryTemplate[Void, R])
-  def run(session): F[List[R]]   // delegates with Void
-  // (and unique/option/stream/cursor)
-```
-- `.af` on QueryTemplate doesn't make sense without args — drop it. For dynamic embedding, the new path is `template.bind(args)` → AppliedFragment OR rework AsSubquery to thread Args (see point 2 below).
-- Same shape on CommandTemplate.
-- Update `AsSubquery[Q, T]` → `AsSubquery[Q, T, Args]` so subquery embedding threads inner args into outer composition.
+- `QueryTemplate[Args, R]` / `CommandTemplate[Args]` carry only `fragment` + `codec` (no captured args).
+- Execution extensions take `args: Args` at execute time. `Args = Void` overloads provide argless `q.run(session)` / `c.run(session)`.
+- `q.bind(args): AppliedFragment` for explicit pre-application; `q.af` available only on the `Args = Void` overload.
+- `AsSubquery[Q, T, Args]` is the new 3-param trait. Instances: `identity`, `fromProjected`, `fromSelectBuilder`, `fromSetOp` (Args = Void via `liftAfToVoid`), `fromValues` (Args = Void via `liftAfToVoid`).
+- `q.asExpr[T, Args]` returns `TypedExpr[T, Args]` — inner subquery args thread into the outer expression.
+- `QueryTemplate.fromApplied` / `CommandTemplate.fromApplied` are bridge helpers for code paths still emitting `AppliedFragment` (SetOpQuery, Values).
 
 ### 2. dsl/Insert.scala (user-agreed design — projection then values)
 Replace today's `users.insert(namedTuple)` with two-stage:
