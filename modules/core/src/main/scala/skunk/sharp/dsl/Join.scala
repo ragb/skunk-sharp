@@ -93,8 +93,10 @@ extension [Ss <: Tuple, WA, HA](sb: SelectBuilder[Ss, WA, HA])(using ev: IsSingl
   } = {
     val newAlias = a
     val cols = sb.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].head.effectiveCols.asInstanceOf[ev.Cols]
-    // Inner compile runs only when `fromFragmentWith` is invoked (during outer-query rendering).
-    val renderInner: () => AppliedFragment = () => sb.compile(using ev).af
+    // Inner compile runs only when `fromFragmentWith` is invoked (during outer-query rendering). Args of the
+    // inner are bound at Void at render time — typed-args threading through `.alias` is roadmap.
+    val renderInner: () => AppliedFragment = () =>
+      sb.compile(using ev).fragment.asInstanceOf[skunk.Fragment[skunk.Void]].apply(skunk.Void)
     new Relation[ev.Cols] {
       type Alias = A
       type Mode  = AliasMode.Explicit
@@ -157,7 +159,7 @@ extension [Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WA, HA, Row](
  * explicit `Option[_]` codec). Third shapes are rejected at compile time by [[AllNamedProj]]; the default arm here
  * throws only because pattern exhaustiveness on `TypedExpr[?]` is open.
  */
-private[sharp] def buildProjectedCols(projections: List[TypedExpr[?]]): Tuple = {
+private[sharp] def buildProjectedCols(projections: List[TypedExpr[?, ?]]): Tuple = {
   val cols = projections.map {
     case tc: TypedColumn[?, ?, ?] =>
       Column[Any, "x", Boolean, Tuple](
@@ -167,7 +169,7 @@ private[sharp] def buildProjectedCols(projections: List[TypedExpr[?]]): Tuple = 
         isNullable = tc.nullable.asInstanceOf[Boolean],
         attrs = Nil
       )
-    case ae: AliasedExpr[?, ?] =>
+    case ae: AliasedExpr[?, ?, ?] =>
       Column[Any, "x", Boolean, Tuple](
         name = ae.aliasName.asInstanceOf["x"],
         tpe = skunk.sharp.pg.PgTypes.typeOf(ae.codec.asInstanceOf[Codec[Any]]),
@@ -548,14 +550,13 @@ final class IncompleteJoin[
    * *original* cols — `ON` is evaluated before `NULL`-padding happens. Transitions to [[SelectBuilder]] with the
    * (possibly nullabilified) committed sources plus the pending source appended.
    */
-  def on(
-    f: OnView[Ss, CR0, AR] => skunk.sharp.TypedExpr[Boolean]
+  def on[A](
+    f: OnView[Ss, CR0, AR] => skunk.sharp.TypedExpr[Boolean, A]
   ): SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR]], skunk.Void, skunk.Void] = {
     val rawPred = f(buildOnView[Ss, CR0, AR](sources, pendingOriginalCols, pendingAlias))
-    val pred: Where[?] = rawPred match {
-      case w: Where[?] @unchecked => w
-      case other                  => Where(other)
-    }
+    // A `Where[A] = TypedExpr[Boolean, A]` already; this lift is identity. Kept for source compat with
+    // direct boolean-typed exprs from third-party operators.
+    val pred: Where[A] = rawPred
     val entry = new SourceEntry[RR, CR0, CR, AR](
       pendingRelation,
       pendingAlias,
