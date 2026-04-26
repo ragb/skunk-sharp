@@ -46,9 +46,16 @@ private inline def valOp[T](inline op: String, inline lhs: TypedExpr[T], rhs: St
 ): Where[Stripped[T]] =
   SqlMacros.infix[T, Stripped[T]](op, lhs, rhs)
 
-/** Infix comparison between two pre-built expressions. Used by the `====` / `!==` column-vs-column overloads. */
-private def exprOp[T](op: String, lhs: TypedExpr[T], rhs: TypedExpr[T]): Where[skunk.Void] =
-  Where.fromTypedExpr(PgOperator.infix[T, T, Boolean](op)(lhs, rhs))
+/**
+ * Infix comparison between two pre-built expressions. Used by the `====` / `!==` column-vs-column overloads.
+ * `inline` so the literal op string (`"="` / `"<>"`) splices into `TypedExpr.raw(" = ")` at the call site —
+ * the `raw` macro then interns the resulting compile-time-constant string and the comparison allocates no
+ * dynamic AppliedFragment per use.
+ */
+private inline def exprOp[T](inline op: String, lhs: TypedExpr[T], rhs: TypedExpr[T]): Where[skunk.Void] = {
+  val opAf = TypedExpr.raw(" " + op + " ")
+  Where.fromTypedExpr(TypedExpr(lhs.render |+| opAf |+| rhs.render, skunk.codec.all.bool))
+}
 
 /** Equality: `lhs = rhs`. */
 extension [T](inline lhs: TypedExpr[T])
@@ -89,8 +96,8 @@ extension [T](inline lhs: TypedExpr[T])
 extension [T](lhs: TypedExpr[T]) {
 
   /** Column-to-expression equality. RHS is another typed expression (column, function call, etc.). */
-  def ====(rhs: TypedExpr[T]): Where[skunk.Void]   = exprOp("=", lhs, rhs)
-  def `!==`(rhs: TypedExpr[T]): Where[skunk.Void]  = exprOp("<>", lhs, rhs)
+  inline def ====(rhs: TypedExpr[T]): Where[skunk.Void]   = exprOp("=", lhs, rhs)
+  inline def `!==`(rhs: TypedExpr[T]): Where[skunk.Void]  = exprOp("<>", lhs, rhs)
 }
 
 extension [T](inline lhs: TypedExpr[T])

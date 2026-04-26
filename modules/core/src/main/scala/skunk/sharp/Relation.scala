@@ -89,11 +89,16 @@ trait Relation[Cols <: Tuple] {
    * A `String` is taken (not `self.alias`) so re-aliasing wrappers can pass their own alias into the underlying's
    * kernel without cloning rendering logic. The no-argument [[fromFragment]] below specialises to `self.alias`.
    */
-  def fromFragmentWith(a: String): AppliedFragment = {
-    val qn = qualifiedName
-    if (a == name) TypedExpr.raw(qn)
-    else TypedExpr.raw(s"""$qn AS "$a"""")
-  }
+  def fromFragmentWith(a: String): AppliedFragment =
+    if (a == name) fromFragmentDefault
+    else TypedExpr.raw(s"""$qualifiedName AS "$a"""")
+
+  /**
+   * Cached `<qualifiedName>` AppliedFragment — reused on every compile that references this relation under
+   * its default alias (the typical `users.select` / `users.innerJoin(posts)` path). Initialises once per
+   * Relation instance and stays constant for its lifetime; aliased rewrites (`alias != name`) build fresh.
+   */
+  protected lazy val fromFragmentDefault: AppliedFragment = TypedExpr.raw(qualifiedName)
 
   /** Convenience: render using this relation's own carried alias. The SELECT compiler calls this on each source. */
   final def fromFragment: AppliedFragment = fromFragmentWith(currentAlias)
