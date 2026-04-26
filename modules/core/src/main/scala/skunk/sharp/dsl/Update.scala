@@ -150,12 +150,14 @@ final class UpdateReady[Cols <: Tuple, Name <: String & Singleton, SetArgs, WArg
 
   private def updateParts: List[BodyPart] = {
     val buf = scala.collection.mutable.ListBuffer[BodyPart](
-      TypedExpr.liftAfToVoid(table.updateSetHeader),
-      setFragment
+      Left(table.updateSetHeader),
+      // setFragment is a typed Fragment[?]; for the Param.bind-baked path it's Void-input emitting baked values.
+      // Apply at Void to lift to AppliedFragment so it sits cleanly on the Left (baked) side.
+      Left(setFragment.asInstanceOf[Fragment[Void]].apply(Void))
     )
     whereOpt.foreach { f =>
-      buf += TypedExpr.liftAfToVoid(RawConstants.WHERE)
-      buf += f
+      buf += Left(RawConstants.WHERE)
+      buf += Right(f)
     }
     buf.toList
   }
@@ -264,17 +266,17 @@ final class UpdateFromReady[
 
   private def updateFromParts: List[BodyPart] = {
     val buf = scala.collection.mutable.ListBuffer[BodyPart](
-      TypedExpr.liftAfToVoid(table.updateSetHeader),
-      setFragment
+      Left(table.updateSetHeader),
+      Left(setFragment.asInstanceOf[Fragment[Void]].apply(Void))
     )
     val fromEntries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].tail
     if (fromEntries.nonEmpty) {
-      buf += TypedExpr.voidFragment(" FROM ")
-      buf ++= SelectBuilder.joinFragments(fromEntries.map(e => TypedExpr.liftAfToVoid(aliasedFromEntry(e))), ", ")
+      buf += Left(TypedExpr.raw(" FROM "))
+      buf += Left(TypedExpr.joined(fromEntries.map(aliasedFromEntry), ", "))
     }
     whereOpt.foreach { f =>
-      buf += TypedExpr.liftAfToVoid(RawConstants.WHERE)
-      buf += f
+      buf += Left(RawConstants.WHERE)
+      buf += Right(f)
     }
     buf.toList
   }

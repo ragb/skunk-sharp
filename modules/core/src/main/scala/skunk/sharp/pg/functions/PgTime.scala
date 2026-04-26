@@ -19,18 +19,18 @@ trait PgTime {
   val localTime:        TypedExpr[LocalTime, Void]      = TypedExpr(TypedExpr.voidFragment("localtime"),         skunk.codec.all.time)
 
   /**
-   * `(aStart, aEnd) OVERLAPS (bStart, bEnd)`. Returns `Where[Any]` — the four inputs' Args are not threaded
-   * individually (variadic flavour). For typed Args propagation through OVERLAPS use the underlying
-   * `TypedExpr.combineSep` chain directly.
+   * `(aStart, aEnd) OVERLAPS (bStart, bEnd)`. The four inputs' Args thread via nested `Where.Concat` —
+   * collapses to `Void` when all inputs are Void (typical column-only use), or to a typed tuple when
+   * `Param[T]` arms are present.
    */
   def overlaps[T, A1, A2, A3, A4](
     aStart: TypedExpr[T, A1], aEnd: TypedExpr[T, A2], bStart: TypedExpr[T, A3], bEnd: TypedExpr[T, A4]
-  ): Where[Any] = {
-    val s1   = TypedExpr.combineSep(aStart.fragment, ", ", aEnd.fragment).asInstanceOf[Fragment[Any]]
-    val s2   = TypedExpr.combineSep(bStart.fragment, ", ", bEnd.fragment).asInstanceOf[Fragment[Any]]
-    val mid  = TypedExpr.combineSep(s1, ") OVERLAPS (", s2).asInstanceOf[Fragment[Any]]
+  ): Where[Where.Concat[Where.Concat[A1, A2], Where.Concat[A3, A4]]] = {
+    val s1   = TypedExpr.combineSep(aStart.fragment, ", ", aEnd.fragment)
+    val s2   = TypedExpr.combineSep(bStart.fragment, ", ", bEnd.fragment)
+    val mid  = TypedExpr.combineSep(s1, ") OVERLAPS (", s2)
     val frag = TypedExpr.wrap("(", mid, ")")
-    Where(frag.asInstanceOf[Fragment[Any]])
+    Where(frag)
   }
 
   // -------- Field extraction -------------------------------------------------------------------

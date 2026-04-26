@@ -146,17 +146,23 @@ extension [Args, R](q: QueryTemplate[Args, R]) {
 
 }
 
-/** Argless overloads for `Args = Void`-shaped templates — no `args` parameter at execute time. */
+/**
+ * Argless overloads for `Args = Void`-shaped templates — no `args` parameter at execute time. Routes through
+ * Skunk's extended-protocol execute (`session.execute(q)(Void)`) **not** the simple-protocol `execute(q)` —
+ * Void here means "encoder takes Void at execute" which may still emit baked values via `contramap` (e.g.
+ * INSERT with values baked via `Param.bind`). The simple protocol can't bind any params; the extended one
+ * does. The few truly-no-params cases pay one extra round trip but are still correct.
+ */
 extension [R](q: QueryTemplate[Void, R]) {
 
   inline def run[F[_]](session: Session[F]): F[List[R]] =
-    session.execute(q.typedQuery)
+    session.execute[Void, R](q.typedQuery)(Void)
 
   inline def unique[F[_]](session: Session[F]): F[R] =
-    session.unique(q.typedQuery)
+    session.unique[Void, R](q.typedQuery)(Void)
 
   inline def option[F[_]](session: Session[F]): F[Option[R]] =
-    session.option(q.typedQuery)
+    session.option[Void, R](q.typedQuery)(Void)
 
   inline def stream[F[_]](session: Session[F], chunkSize: Int = 64): Stream[F, R] =
     session.stream(q.typedQuery)(Void, chunkSize)
@@ -195,11 +201,11 @@ extension [Args](c: CommandTemplate[Args]) {
 
 }
 
-/** Argless command overloads for `Args = Void`. */
+/** Argless command overloads for `Args = Void`. Routes through extended protocol (see QueryTemplate Void). */
 extension (c: CommandTemplate[Void]) {
 
   inline def run[F[_]](session: Session[F]): F[Completion] =
-    session.execute(c.typedCommand)
+    session.execute[Void](c.typedCommand)(Void)
 
   def af: AppliedFragment = c.fragment(Void)
 

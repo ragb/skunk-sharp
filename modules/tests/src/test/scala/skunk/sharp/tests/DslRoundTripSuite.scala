@@ -110,10 +110,10 @@ class DslRoundTripSuite extends PgFixture {
           ).compile.run(s)
           // Compare deleted_at against ts: row with None-deleted_at must still surface as DISTINCT from ts,
           // whereas row with Some(ts) must NOT (same value = not distinct).
-          distinct <- users.select(u => u.email).where(u => u.deleted_at.isDistinctFrom(ts))
+          distinct <- users.select(u => u.email).where(u => u.deleted_at.isDistinctFrom(Some(ts)))
             .where(u => u.email.like("dist-%@x")).compile.run(s).map(_.toSet)
           _ = assertEquals(distinct, Set("dist-b@x"))
-          eqSafe <- users.select(u => u.email).where(u => u.deleted_at.isNotDistinctFrom(ts))
+          eqSafe <- users.select(u => u.email).where(u => u.deleted_at.isNotDistinctFrom(Some(ts)))
             .where(u => u.email.like("dist-%@x")).compile.run(s).map(_.toSet)
           _ = assertEquals(eqSafe, Set("dist-a@x"))
         } yield ()

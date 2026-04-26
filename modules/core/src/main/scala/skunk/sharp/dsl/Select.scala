@@ -344,39 +344,41 @@ final class SelectBuilder[Ss <: Tuple, WArgs, HArgs] private[sharp] (
   private def compileBodyParts(head: SourceEntry[?, ?, ?, ?]): List[SelectBuilder.BodyPart] = {
     val rel          = head.relation
     val selectPrefix = renderSelectPrefix(distinct, distinctOnOpt)
-    val headerParts  = scala.collection.mutable.ListBuffer[Fragment[?]](TypedExpr.liftAfToVoid(selectPrefix))
+    val headerParts  = scala.collection.mutable.ListBuffer[AppliedFragment](selectPrefix)
     val canCacheCols = (head.effectiveCols eq rel.columns) && (head.alias == rel.currentAlias)
     if (rel.hasFromClause) {
       if (canCacheCols) {
         rel.starProjFromAfOpt match {
-          case Some(af) => headerParts += TypedExpr.liftAfToVoid(af)
+          case Some(af) => headerParts += af
           case None =>
-            headerParts += TypedExpr.liftAfToVoid(rel.starProjAf)
-            headerParts += TypedExpr.liftAfToVoid(RawConstants.FROM)
-            headerParts += TypedExpr.liftAfToVoid(aliasedFromEntry(head))
+            headerParts += rel.starProjAf
+            headerParts += RawConstants.FROM
+            headerParts += aliasedFromEntry(head)
         }
       } else {
         val cols    = head.effectiveCols.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
         val projStr = cols.map(c => s""""${c.name}"""").mkString(", ")
-        headerParts += TypedExpr.voidFragment(s"$projStr FROM ")
-        headerParts += TypedExpr.liftAfToVoid(aliasedFromEntry(head))
+        headerParts += TypedExpr.raw(s"$projStr FROM ")
+        headerParts += aliasedFromEntry(head)
       }
     } else {
       if (canCacheCols) {
-        headerParts += TypedExpr.liftAfToVoid(rel.starProjAf)
+        headerParts += rel.starProjAf
       } else {
         val cols    = head.effectiveCols.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
         val projStr = cols.map(c => s""""${c.name}"""").mkString(", ")
-        headerParts += TypedExpr.voidFragment(projStr)
+        headerParts += TypedExpr.raw(projStr)
       }
     }
     val tail = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].tail
     tail.foreach { s =>
-      headerParts += TypedExpr.liftAfToVoid(if (s.isLateral) s.kind.lateralKeywordAf else s.kind.keywordAf)
-      headerParts += TypedExpr.liftAfToVoid(aliasedFromEntry(s))
+      headerParts += (if (s.isLateral) s.kind.lateralKeywordAf else s.kind.keywordAf)
+      headerParts += aliasedFromEntry(s)
       s.onPredOpt.foreach { p =>
-        headerParts += TypedExpr.liftAfToVoid(RawConstants.ON)
-        headerParts += p.fragment
+        headerParts += RawConstants.ON
+        // ON predicates are typed expressions; bind their Args at Void here to lift to AppliedFragment.
+        // Typed-args threading through ON predicates is roadmap.
+        headerParts += SelectBuilder.bindVoid(p.fragment)
       }
     }
     SelectBuilder.bodyPartsAround(
@@ -440,16 +442,21 @@ object SelectBuilder {
   }
 
   /**
-   * Body-part — just a `Fragment[?]`. Each part carries its own encoder (typed slots have a typed encoder; structural
-   * pieces have `Void.codec`). [[assemble]] product-combines them into the final `Fragment[Args]`.
+   * Body-part. `Left(af)` is a pre-applied `AppliedFragment` (its args are already baked — typically a
+   * structural piece like " WHERE ", a header, or a row of values applied via `Param.bind`). `Right(f)` is a
+   * typed `Fragment[A]` slot whose encoder takes a typed `A` at execute time (typically a WHERE/HAVING
+   * predicate built from `Param[T]`).
+   *
+   * Splitting baked from typed at this level lets [[assemble]] produce a final encoder that contramaps the
+   * user-claimed `Args` correctly: the baked side is contramapped to discard the user's input and emit its
+   * pre-known values; the typed side receives the user's `Args`. Products inside the same side stay
+   * type-aligned (typed-typed products yield nested tuples that match `Where.Concat` reductions).
    */
-  private[dsl] type BodyPart = Fragment[?]
+  private[dsl] type BodyPart = Either[AppliedFragment, Fragment[?]]
 
-  /**
-   * Build the body-parts list for a SELECT or projected SELECT in render order.
-   */
+  /** Build the body-parts list for a SELECT or projected SELECT in render order. */
   private[dsl] def bodyPartsAround(
-    headerParts: List[Fragment[?]],
+    headerParts: List[AppliedFragment],
     whereOpt:    Option[Fragment[?]],
     groupBys:    List[TypedExpr[?, ?]],
     havingOpt:   Option[Fragment[?]],
@@ -459,72 +466,91 @@ object SelectBuilder {
     lockingOpt:  Option[Locking]
   ): List[BodyPart] = {
     val buf = scala.collection.mutable.ListBuffer[BodyPart]()
-    headerParts.foreach(buf += _)
+    headerParts.foreach(af => buf += Left(af))
     whereOpt.foreach { f =>
-      buf += TypedExpr.liftAfToVoid(RawConstants.WHERE)
-      buf += f
+      buf += Left(RawConstants.WHERE)
+      buf += Right(f)
     }
     if (groupBys.nonEmpty) {
-      buf += TypedExpr.liftAfToVoid(RawConstants.GROUP_BY)
-      buf ++= joinFragments(groupBys.map(_.fragment), ", ")
+      buf += Left(RawConstants.GROUP_BY)
+      buf += Left(TypedExpr.joined(groupBys.map(e => bindVoid(e.fragment)), ", "))
     }
     havingOpt.foreach { f =>
-      buf += TypedExpr.liftAfToVoid(RawConstants.HAVING)
-      buf += f
+      buf += Left(RawConstants.HAVING)
+      buf += Right(f)
     }
     if (orderBys.nonEmpty) {
-      buf += TypedExpr.liftAfToVoid(RawConstants.ORDER_BY)
-      buf ++= joinFragments(orderBys.map(_.fragment), ", ")
+      buf += Left(RawConstants.ORDER_BY)
+      buf += Left(TypedExpr.joined(orderBys.map(o => bindVoid(o.fragment)), ", "))
     }
-    limitOpt.foreach(n => buf += TypedExpr.liftAfToVoid(RawConstants.limitAf(n)))
-    offsetOpt.foreach(n => buf += TypedExpr.liftAfToVoid(RawConstants.offsetAf(n)))
-    lockingOpt.foreach(l => buf += TypedExpr.voidFragment(" " + l.sql))
+    limitOpt.foreach(n => buf += Left(RawConstants.limitAf(n)))
+    offsetOpt.foreach(n => buf += Left(RawConstants.offsetAf(n)))
+    lockingOpt.foreach(l => buf += Left(TypedExpr.raw(" " + l.sql)))
     buf.toList
   }
 
-  /** Interleave `parts` with `Void`-fragment separators: `[p0, sep, p1, sep, …, pN]`. */
-  private[dsl] def joinFragments(parts: List[Fragment[?]], sep: String): List[Fragment[?]] =
-    parts match {
-      case Nil          => Nil
-      case head :: Nil  => head :: Nil
-      case head :: tail =>
-        val sepFrag: Fragment[?] = TypedExpr.voidFragment(sep)
-        val buf = scala.collection.mutable.ListBuffer[Fragment[?]](head)
-        tail.foreach { p =>
-          buf += sepFrag
-          buf += p
-        }
-        buf.toList
-    }
+  /**
+   * Bind a `Fragment[?]` at `Void` to obtain an `AppliedFragment`. For groupBys / orderBys / DISTINCT ON
+   * exprs that may carry typed Args (Param-bearing) — currently constrained to Void-args inputs (typed-args
+   * threading through these positions is roadmap).
+   */
+  private[dsl] def bindVoid(f: Fragment[?]): AppliedFragment =
+    f.asInstanceOf[Fragment[Void]].apply(Void)
 
   /**
-   * Glue body parts into a single `Fragment[Args]`. Walks parts in order, accumulating concatenated SQL parts and
-   * Void-aware product-combined encoder. The visible `Args` is the caller's claim; the runtime cast aligns the
-   * accumulated encoder shape against it.
+   * Glue body parts into a single `Fragment[Args]`. Splits walk into baked side (Left, AppliedFragment whose
+   * args are pre-applied) and typed side (Right, Fragment whose encoder takes user-supplied `Args` at execute
+   * time). Final encoder contramaps `Args` to a `(bakedArgs, userArgs)` pair so baked values flow without
+   * the user having to think about them.
    */
   private[dsl] def assemble[Args, R](
     bodyParts: List[BodyPart],
     ctes:      List[CteRelation[?, ?]],
     codec:     Codec[R]
   ): QueryTemplate[Args, R] = {
-    val ctePartsOpt: Option[Fragment[Void]] = renderWithPreamble(ctes).map(TypedExpr.liftAfToVoid)
+    val ctePreamble: Option[AppliedFragment] = renderWithPreamble(ctes)
 
     val partsBuf = scala.collection.mutable.ListBuffer[Either[String, cats.data.State[Int, String]]]()
-    var enc: Encoder[Any] = Void.codec.asInstanceOf[Encoder[Any]]
+    var preEnc:   Encoder[Any] = Void.codec.asInstanceOf[Encoder[Any]]
+    var preArgs:  Any          = Void
+    var typedEnc: Encoder[Any] = Void.codec.asInstanceOf[Encoder[Any]]
 
-    def addFragment(f: Fragment[?]): Unit = {
-      partsBuf ++= f.parts
-      val nextE = f.encoder.asInstanceOf[Encoder[Any]]
+    def addBaked(af: AppliedFragment): Unit = {
+      partsBuf ++= af.fragment.parts
+      val nextE = af.fragment.encoder.asInstanceOf[Encoder[Any]]
       if (!(nextE eq Void.codec)) {
-        if (enc eq Void.codec) enc = nextE
-        else                    enc = enc.product(nextE).asInstanceOf[Encoder[Any]]
+        if (preEnc eq Void.codec) {
+          preEnc  = nextE
+          preArgs = af.argument
+        } else {
+          preEnc  = preEnc.product(nextE).asInstanceOf[Encoder[Any]]
+          preArgs = (preArgs, af.argument)
+        }
       }
     }
 
-    ctePartsOpt.foreach(addFragment)
-    bodyParts.foreach(addFragment)
+    def addTyped(f: Fragment[?]): Unit = {
+      partsBuf ++= f.parts
+      val nextE = f.encoder.asInstanceOf[Encoder[Any]]
+      if (!(nextE eq Void.codec)) {
+        if (typedEnc eq Void.codec) typedEnc = nextE
+        else                         typedEnc = typedEnc.product(nextE).asInstanceOf[Encoder[Any]]
+      }
+    }
 
-    val frag: Fragment[Args] = Fragment(partsBuf.toList, enc, Origin.unknown).asInstanceOf[Fragment[Args]]
+    ctePreamble.foreach(addBaked)
+    bodyParts.foreach {
+      case Left(af) => addBaked(af)
+      case Right(f) => addTyped(f)
+    }
+
+    val combinedEnc: Encoder[Any] =
+      if ((preEnc eq Void.codec) && (typedEnc eq Void.codec)) Void.codec.asInstanceOf[Encoder[Any]]
+      else if (preEnc eq Void.codec)                         typedEnc
+      else if (typedEnc eq Void.codec)                       preEnc.contramap[Any](_ => preArgs)
+      else                                                    preEnc.product(typedEnc).contramap[Any](a => (preArgs, a))
+
+    val frag: Fragment[Args] = Fragment(partsBuf.toList, combinedEnc, Origin.unknown).asInstanceOf[Fragment[Args]]
     QueryTemplate.mk[Args, R](frag, codec)
   }
 
@@ -715,19 +741,20 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
   private def compileBodyParts(): List[SelectBuilder.BodyPart] = {
     val entries      = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
     val selectPrefix = renderSelectPrefix(distinct, distinctOnOpt)
-    val projParts    = SelectBuilder.joinFragments(projections.map(_.fragment), ", ")
-    val headerParts  = scala.collection.mutable.ListBuffer[Fragment[?]](TypedExpr.liftAfToVoid(selectPrefix))
-    headerParts ++= projParts
+    // Projection items may carry typed Args (Param-bearing); bind at Void here. Typed-args threading through
+    // SELECT projections is roadmap.
+    val projList     = TypedExpr.joined(projections.map(e => SelectBuilder.bindVoid(e.fragment)), ", ")
+    val headerParts  = scala.collection.mutable.ListBuffer[AppliedFragment](selectPrefix, projList)
     if (entries.nonEmpty && entries.head.relation.hasFromClause) {
       val head = entries.head
-      headerParts += TypedExpr.liftAfToVoid(RawConstants.FROM)
-      headerParts += TypedExpr.liftAfToVoid(aliasedFromEntry(head))
+      headerParts += RawConstants.FROM
+      headerParts += aliasedFromEntry(head)
       entries.tail.foreach { s =>
-        headerParts += TypedExpr.liftAfToVoid(if (s.isLateral) s.kind.lateralKeywordAf else s.kind.keywordAf)
-        headerParts += TypedExpr.liftAfToVoid(aliasedFromEntry(s))
+        headerParts += (if (s.isLateral) s.kind.lateralKeywordAf else s.kind.keywordAf)
+        headerParts += aliasedFromEntry(s)
         s.onPredOpt.foreach { p =>
-          headerParts += TypedExpr.liftAfToVoid(RawConstants.ON)
-          headerParts += p.fragment
+          headerParts += RawConstants.ON
+          headerParts += SelectBuilder.bindVoid(p.fragment)
         }
       }
     }

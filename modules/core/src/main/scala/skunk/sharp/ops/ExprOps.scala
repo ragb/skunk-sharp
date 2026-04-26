@@ -195,28 +195,28 @@ extension [T, A](lhs: TypedExpr[T, A]) {
 /** `lhs LIKE pattern` / `ILIKE` / `SIMILAR TO`. */
 extension [T, A](lhs: TypedExpr[T, A]) {
 
-  def like[B](pattern: TypedExpr[String, B])(using @unused ev: T <:< String): Where[Where.Concat[A, B]] =
+  def like[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
     opCombine(lhs, " LIKE ", pattern)
 
-  def like(pattern: String)(using @unused ev: T <:< String, pf: PgTypeFor[String]): Where[A] =
+  def like(pattern: String)(using @unused ev: Stripped[T] <:< String, pf: PgTypeFor[String]): Where[A] =
     like(Param.bind(pattern)).asInstanceOf[Where[A]]
 
-  def ilike[B](pattern: TypedExpr[String, B])(using @unused ev: T <:< String): Where[Where.Concat[A, B]] =
+  def ilike[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
     opCombine(lhs, " ILIKE ", pattern)
 
-  def ilike(pattern: String)(using @unused ev: T <:< String, pf: PgTypeFor[String]): Where[A] =
+  def ilike(pattern: String)(using @unused ev: Stripped[T] <:< String, pf: PgTypeFor[String]): Where[A] =
     ilike(Param.bind(pattern)).asInstanceOf[Where[A]]
 
-  def similarTo[B](pattern: TypedExpr[String, B])(using @unused ev: T <:< String): Where[Where.Concat[A, B]] =
+  def similarTo[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
     opCombine(lhs, " SIMILAR TO ", pattern)
 
-  def similarTo(pattern: String)(using @unused ev: T <:< String, pf: PgTypeFor[String]): Where[A] =
+  def similarTo(pattern: String)(using @unused ev: Stripped[T] <:< String, pf: PgTypeFor[String]): Where[A] =
     similarTo(Param.bind(pattern)).asInstanceOf[Where[A]]
 
-  def notSimilarTo[B](pattern: TypedExpr[String, B])(using @unused ev: T <:< String): Where[Where.Concat[A, B]] =
+  def notSimilarTo[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
     opCombine(lhs, " NOT SIMILAR TO ", pattern)
 
-  def notSimilarTo(pattern: String)(using @unused ev: T <:< String, pf: PgTypeFor[String]): Where[A] =
+  def notSimilarTo(pattern: String)(using @unused ev: Stripped[T] <:< String, pf: PgTypeFor[String]): Where[A] =
     notSimilarTo(Param.bind(pattern)).asInstanceOf[Where[A]]
 
 }

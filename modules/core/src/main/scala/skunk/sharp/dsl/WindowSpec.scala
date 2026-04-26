@@ -1,8 +1,7 @@
 package skunk.sharp.dsl
 
-import skunk.Fragment
+import skunk.{AppliedFragment, Fragment}
 import skunk.sharp.TypedExpr
-import skunk.util.Origin
 
 /**
  * One bound on a window frame — used in `.rowsBetween` / `.rangeBetween` / `.groupsBetween`.
@@ -48,35 +47,28 @@ final class WindowSpec private[sharp] (
   def groupsBetween(start: FrameBound, end: FrameBound): WindowSpec =
     new WindowSpec(partitionBys, orderBys, Some((FrameMode.Groups, start, end)))
 
-  /** Render the *interior* of the `OVER (…)` parens as a typed Fragment. */
-  private[sharp] def renderFragment: Fragment[?] = {
-    val sections = scala.collection.mutable.ListBuffer[Fragment[?]]()
+  /**
+   * Render the interior of `OVER (…)` as an `AppliedFragment`. PARTITION-BY / ORDER-BY items may carry
+   * typed Args (Param-bearing); bind at Void here. Typed-args threading through window specs is roadmap.
+   */
+  private[sharp] def renderFragment: AppliedFragment = {
+    val sections = scala.collection.mutable.ListBuffer[AppliedFragment]()
     if partitionBys.nonEmpty then {
-      val joined = SelectBuilder.joinFragments(partitionBys.map(_.fragment), ", ")
-      sections += joined.foldLeft[Fragment[?]](TypedExpr.voidFragment("PARTITION BY "))((acc, p) =>
-        joinTwo(acc, p)
-      )
+      val items = TypedExpr.joined(partitionBys.map(e => SelectBuilder.bindVoid(e.fragment)), ", ")
+      sections += (TypedExpr.raw("PARTITION BY ") |+| items)
     }
     if orderBys.nonEmpty then {
-      val joined = SelectBuilder.joinFragments(orderBys.map(_.fragment), ", ")
-      sections += joined.foldLeft[Fragment[?]](TypedExpr.voidFragment("ORDER BY "))((acc, p) =>
-        joinTwo(acc, p)
-      )
+      val items = TypedExpr.joined(orderBys.map(o => SelectBuilder.bindVoid(o.fragment)), ", ")
+      sections += (TypedExpr.raw("ORDER BY ") |+| items)
     }
     frameOpt.foreach { case (mode, start, end) =>
-      sections += TypedExpr.voidFragment(s"${mode.keyword} BETWEEN ${renderBound(start)} AND ${renderBound(end)}")
+      sections += TypedExpr.raw(s"${mode.keyword} BETWEEN ${renderBound(start)} AND ${renderBound(end)}")
     }
     sections.toList match {
-      case Nil          => TypedExpr.voidFragment("")
+      case Nil          => AppliedFragment.empty
       case head :: Nil  => head
-      case head :: tail => tail.foldLeft(head)((a, b) => joinTwo(joinTwo(a, TypedExpr.voidFragment(" ")), b))
+      case head :: tail => tail.foldLeft(head)((a, b) => a |+| TypedExpr.raw(" ") |+| b)
     }
-  }
-
-  private def joinTwo(a: Fragment[?], b: Fragment[?]): Fragment[?] = {
-    val parts = a.parts ++ b.parts
-    val enc   = SelectBuilder.combineEncoders(a.encoder, b.encoder)
-    Fragment(parts, enc, Origin.unknown).asInstanceOf[Fragment[?]]
   }
 
   private def renderBound(b: FrameBound): String = b match {
@@ -101,15 +93,15 @@ object WindowSpec {
 /** Append `OVER (spec)` to any expression. */
 extension [T, A](expr: TypedExpr[T, A]) {
 
-  def over(spec: WindowSpec): TypedExpr[T, ?] = {
-    val inner = spec.renderFragment
-    val parts = expr.fragment.parts ++ List[Either[String, cats.data.State[Int, String]]](Left(" OVER (")) ++
-      inner.parts ++ List[Either[String, cats.data.State[Int, String]]](Left(")"))
-    val enc   = SelectBuilder.combineEncoders(expr.fragment.encoder, inner.encoder)
-    val frag  = Fragment(parts, enc, Origin.unknown).asInstanceOf[Fragment[Any]]
-    TypedExpr[T, Any](frag, expr.codec)
+  def over(spec: WindowSpec): TypedExpr[T, A] = {
+    // The window spec's args are baked at Void inside renderFragment; lift to Fragment[Void] and combine
+    // with the LHS's typed Args.
+    val innerVoid = TypedExpr.liftAfToVoid(spec.renderFragment)
+    val withParens = TypedExpr.wrap(" OVER (", innerVoid, ")")
+    val combined  = TypedExpr.combine(expr.fragment, withParens).asInstanceOf[Fragment[A]]
+    TypedExpr[T, A](combined, expr.codec)
   }
 
-  def over(): TypedExpr[T, ?] = over(WindowSpec.empty)
+  def over(): TypedExpr[T, A] = over(WindowSpec.empty)
 
 }

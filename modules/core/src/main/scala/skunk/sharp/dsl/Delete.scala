@@ -80,10 +80,10 @@ final class DeleteReady[Cols <: Tuple, Name <: String & Singleton, Args] private
   }
 
   private def deleteParts: List[BodyPart] = {
-    val buf = scala.collection.mutable.ListBuffer[BodyPart](TypedExpr.liftAfToVoid(table.deleteFromHeader))
+    val buf = scala.collection.mutable.ListBuffer[BodyPart](Left(table.deleteFromHeader))
     whereOpt.foreach { f =>
-      buf += TypedExpr.liftAfToVoid(RawConstants.WHERE)
-      buf += f
+      buf += Left(RawConstants.WHERE)
+      buf += Right(f)
     }
     buf.toList
   }
@@ -129,8 +129,9 @@ private[dsl] object MutationAssembly {
     returning: List[TypedExpr[?, ?]],
     codec: Codec[R]
   ): QueryTemplate[Args, R] = {
-    val listParts = SelectBuilder.joinFragments(returning.map(_.fragment), ", ")
-    val parts: List[BodyPart] = base ++ List[BodyPart](TypedExpr.liftAfToVoid(RawConstants.RETURNING)) ++ listParts
+    // RETURNING projection items may carry typed Args; bind them at Void here. Roadmap.
+    val listAf = TypedExpr.joined(returning.map(e => SelectBuilder.bindVoid(e.fragment)), ", ")
+    val parts: List[BodyPart] = base ++ List[BodyPart](Left(RawConstants.RETURNING), Left(listAf))
     SelectBuilder.assemble[Args, R](parts, Nil, codec)
   }
 
@@ -193,15 +194,15 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
   def compile: CommandTemplate[Args] = MutationAssembly.command[Args](bodyParts)
 
   private def bodyParts: List[BodyPart] = {
-    val buf = scala.collection.mutable.ListBuffer[BodyPart](TypedExpr.liftAfToVoid(table.deleteFromHeader))
+    val buf = scala.collection.mutable.ListBuffer[BodyPart](Left(table.deleteFromHeader))
     val usingEntries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].tail
     if (usingEntries.nonEmpty) {
-      buf += TypedExpr.liftAfToVoid(RawConstants.USING)
-      buf ++= SelectBuilder.joinFragments(usingEntries.map(e => TypedExpr.liftAfToVoid(aliasedFromEntry(e))), ", ")
+      buf += Left(RawConstants.USING)
+      buf += Left(TypedExpr.joined(usingEntries.map(aliasedFromEntry), ", "))
     }
     whereOpt.foreach { f =>
-      buf += TypedExpr.liftAfToVoid(RawConstants.WHERE)
-      buf += f
+      buf += Left(RawConstants.WHERE)
+      buf += Right(f)
     }
     buf.toList
   }

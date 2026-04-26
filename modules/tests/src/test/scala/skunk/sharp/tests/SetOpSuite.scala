@@ -23,7 +23,7 @@ class SetOpSuite extends PgFixture {
    * collide on the `users.email` UNIQUE index. The returned `Fixture` bundles the insert command, the three ids, and a
    * tag-scoped age filter to isolate queries from other tests' rows.
    */
-  private case class Fixture(insert: CompiledCommand[?], old: UUID, mid: UUID, young: UUID, tag: String)
+  private case class Fixture(insert: CommandTemplate[skunk.Void], old: UUID, mid: UUID, young: UUID, tag: String)
 
   private def fixtureFor(tag: String): Fixture = {
     val old    = UUID.randomUUID

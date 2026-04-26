@@ -135,19 +135,21 @@ final class InsertCommand[Cols <: Tuple, Args] private[sharp] (
     }
 
   private def insertParts: List[BodyPart] = {
-    val buf = scala.collection.mutable.ListBuffer[BodyPart](TypedExpr.liftAfToVoid(headerAf))
+    val buf = scala.collection.mutable.ListBuffer[BodyPart](Left(headerAf))
     source match {
       case InsertSource.TypedRow(f) =>
-        buf += TypedExpr.liftAfToVoid(RawConstants.VALUES)
-        buf += f
+        // f's encoder bakes the values via contramap (Args = Void); apply to lift to AppliedFragment.
+        buf += Left(RawConstants.VALUES)
+        buf += Left(f.asInstanceOf[Fragment[Void]].apply(Void))
       case InsertSource.ManyRows(rows) =>
-        buf += TypedExpr.voidFragment("VALUES ")
-        buf += TypedExpr.liftAfToVoid(TypedExpr.joined(rows, ", "))
+        buf += Left(TypedExpr.raw("VALUES "))
+        buf += Left(TypedExpr.joined(rows, ", "))
       case InsertSource.FromQuery(frag) =>
-        buf += frag
+        // INSERT … SELECT — subquery may carry typed Args.
+        buf += Right(frag)
     }
     val cf = conflictFragment
-    if (cf ne AppliedFragment.empty) buf += TypedExpr.liftAfToVoid(cf)
+    if (cf ne AppliedFragment.empty) buf += Left(cf)
     buf.toList
   }
 
