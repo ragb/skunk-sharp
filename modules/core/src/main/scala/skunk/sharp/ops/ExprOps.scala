@@ -1,27 +1,33 @@
 package skunk.sharp.ops
 
-import skunk.sharp.{PgOperator, TypedExpr}
-import skunk.sharp.internal.SqlMacros
+import skunk.{Encoder, Fragment, Void}
+import skunk.sharp.{Param, TypedExpr}
 import skunk.sharp.pg.PgTypeFor
 import skunk.sharp.where.Where
+import skunk.util.Origin
 
 import scala.annotation.unused
 
 /**
- * The v0 expression-level operator set: `=, <>, <, <=, >, >=, IN, LIKE, IS NULL`. Every operator produces a
- * `Where[A]` — a typed predicate carrying its captured-parameter tuple as a visible type parameter. `Where[A]`
- * is itself a `TypedExpr[Boolean]`, so it slots wherever a boolean expression is valid in Postgres: WHERE
- * clauses, SELECT projections, HAVING, ORDER BY, function arguments, CASE WHEN predicates.
+ * The v0 expression-level operator set: `=, <>, <, <=, >, >=, BETWEEN, IN, LIKE, IS NULL`. Each operator produces
+ * a `Where[A]` (= `TypedExpr[Boolean, A]`) — a typed predicate carrying its parameter tuple as a visible Args
+ * type. Operators slot wherever a boolean expression is valid in Postgres: WHERE, HAVING, SELECT projections,
+ * ORDER BY, function arguments, CASE WHEN predicates.
  *
- * Operators are *extension methods* on `TypedExpr[T]` so third-party modules add new ones without touching core.
+ * Operators are *extension methods* on `TypedExpr[T, A]` so third-party modules add new ones without touching
+ * core.
+ *
+ * **RHS forms** for binary operators:
+ *
+ *   - `lhs === Param[T]` — deferred parameter, supplied at execute time. Args contributes `T`.
+ *   - `lhs === lit(v)` — compile-time literal, inline SQL. Args contributes `Void`.
+ *   - `lhs === otherExpr` — column-vs-expression / function-call result. Args from `otherExpr`.
+ *   - `lhs === runtimeValue` — runtime value baked via [[Param.bind]] into a Void-args fragment. Args = Void.
+ *     Convenient for ad-hoc queries; loses Skunk plan-cache benefits compared to the `Param[T]` form.
  *
  * **Nullable columns.** If a column is declared nullable, comparisons like `col === value` take the underlying
  * value type, not `Option[value]`. Trying to compare against `None` is a compile error — use `.isNull` /
  * `.isNotNull` instead. See [[Stripped]].
- *
- * **Args threading.** Each operator's result `Where[A]` carries the RHS's scalar type as `A`. Combinators on
- * `Where` (`&&`, `||`, `!`) pair their args (`Where[A] && Where[B]` is `Where[(A, B)]`), surfacing the full
- * captured-parameter tuple at the builder's `.compile` site as `CompiledQuery[Args, R]`.
  */
 
 /**
@@ -33,264 +39,260 @@ type Stripped[T] = T match {
   case _         => T
 }
 
-/**
- * Infix comparison with a runtime-parameterised RHS. All the value-on-the-right operators share this shape.
- *
- * `inline` + macro: when `lhs` is statically a `TypedColumn[_, _, N]`, the macro bakes `"<name>" <op> $1` as a
- * compile-time-constant `Fragment[S]` and applies `rhs` directly. For any other LHS shape, the macro renders
- * the LHS to AppliedFragment and uses `Encoder.contramap` to bake those args while still surfacing
- * `Where[Stripped[T]]` at the call site.
- */
-private inline def valOp[T](inline op: String, inline lhs: TypedExpr[T], rhs: Stripped[T])(using
-  pf: PgTypeFor[Stripped[T]]
-): Where[Stripped[T]] =
-  SqlMacros.infix[T, Stripped[T]](op, lhs, rhs)
-
-/**
- * Infix comparison between two pre-built expressions. Used by the `====` / `!==` column-vs-column overloads.
- * `inline` so the literal op string (`"="` / `"<>"`) splices into `TypedExpr.raw(" = ")` at the call site —
- * the `raw` macro then interns the resulting compile-time-constant string and the comparison allocates no
- * dynamic AppliedFragment per use.
- */
-private inline def exprOp[T](inline op: String, lhs: TypedExpr[T], rhs: TypedExpr[T]): Where[skunk.Void] = {
-  val opAf = TypedExpr.raw(" " + op + " ")
-  Where.fromTypedExpr(TypedExpr(lhs.render |+| opAf |+| rhs.render, skunk.codec.all.bool))
+/** Build a `Where[Concat[A, B]]` from `lhs <op> rhs`. Both arms are typed expressions; Args from each propagate. */
+private def opCombine[T, U, A, B](
+  lhs: TypedExpr[T, A],
+  opSql: String,
+  rhs: TypedExpr[U, B]
+): Where[Where.Concat[A, B]] = {
+  val frag = TypedExpr.combineSep(lhs.fragment, opSql, rhs.fragment)
+  Where(frag)
 }
 
 /** Equality: `lhs = rhs`. */
-extension [T](inline lhs: TypedExpr[T])
-  inline def ===(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where[Stripped[T]] = valOp("=", lhs, rhs)
+extension [T, A](lhs: TypedExpr[T, A]) {
 
-/** Inequality: `lhs <> rhs`. */
-extension [T](inline lhs: TypedExpr[T])
-  inline def !==(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where[Stripped[T]] = valOp("<>", lhs, rhs)
+  /** Equality with another typed expression / Param / literal. */
+  def ===[B](rhs: TypedExpr[Stripped[T], B]): Where[Where.Concat[A, B]] = opCombine(lhs, " = ", rhs)
 
-extension [T](inline lhs: TypedExpr[T])
-  inline def <(rhs: Stripped[T])(using
-    @unused ord: cats.Order[Stripped[T]],
-    pf: PgTypeFor[Stripped[T]]
-  ): Where[Stripped[T]] =
-    valOp("<", lhs, rhs)
+  /** Equality with a runtime value (bound as `$N` via [[Param.bind]]). */
+  def ===(rhs: Stripped[T])(using pf: PgTypeFor[Stripped[T]]): Where[A] =
+    opCombine(lhs, " = ", Param.bind(rhs)).asInstanceOf[Where[A]]
 
-extension [T](inline lhs: TypedExpr[T])
-  inline def <=(rhs: Stripped[T])(using
-    @unused ord: cats.Order[Stripped[T]],
-    pf: PgTypeFor[Stripped[T]]
-  ): Where[Stripped[T]] =
-    valOp("<=", lhs, rhs)
+  /** Inequality: `lhs <> rhs`. */
+  def !==[B](rhs: TypedExpr[Stripped[T], B]): Where[Where.Concat[A, B]] = opCombine(lhs, " <> ", rhs)
 
-extension [T](inline lhs: TypedExpr[T])
-  inline def >(rhs: Stripped[T])(using
-    @unused ord: cats.Order[Stripped[T]],
-    pf: PgTypeFor[Stripped[T]]
-  ): Where[Stripped[T]] =
-    valOp(">", lhs, rhs)
+  /** Inequality with a runtime value. */
+  def !==(rhs: Stripped[T])(using pf: PgTypeFor[Stripped[T]]): Where[A] =
+    opCombine(lhs, " <> ", Param.bind(rhs)).asInstanceOf[Where[A]]
 
-extension [T](inline lhs: TypedExpr[T])
-  inline def >=(rhs: Stripped[T])(using
-    @unused ord: cats.Order[Stripped[T]],
-    pf: PgTypeFor[Stripped[T]]
-  ): Where[Stripped[T]] =
-    valOp(">=", lhs, rhs)
+  /** `lhs < rhs`. */
+  def <[B](rhs: TypedExpr[Stripped[T], B])(using @unused ord: cats.Order[Stripped[T]]): Where[Where.Concat[A, B]] =
+    opCombine(lhs, " < ", rhs)
 
-extension [T](lhs: TypedExpr[T]) {
+  def <(rhs: Stripped[T])(using @unused ord: cats.Order[Stripped[T]], pf: PgTypeFor[Stripped[T]]): Where[A] =
+    opCombine(lhs, " < ", Param.bind(rhs)).asInstanceOf[Where[A]]
 
-  /** Column-to-expression equality. RHS is another typed expression (column, function call, etc.). */
-  inline def ====(rhs: TypedExpr[T]): Where[skunk.Void]   = exprOp("=", lhs, rhs)
-  inline def `!==`(rhs: TypedExpr[T]): Where[skunk.Void]  = exprOp("<>", lhs, rhs)
+  /** `lhs <= rhs`. */
+  def <=[B](rhs: TypedExpr[Stripped[T], B])(using @unused ord: cats.Order[Stripped[T]]): Where[Where.Concat[A, B]] =
+    opCombine(lhs, " <= ", rhs)
+
+  def <=(rhs: Stripped[T])(using @unused ord: cats.Order[Stripped[T]], pf: PgTypeFor[Stripped[T]]): Where[A] =
+    opCombine(lhs, " <= ", Param.bind(rhs)).asInstanceOf[Where[A]]
+
+  /** `lhs > rhs`. */
+  def >[B](rhs: TypedExpr[Stripped[T], B])(using @unused ord: cats.Order[Stripped[T]]): Where[Where.Concat[A, B]] =
+    opCombine(lhs, " > ", rhs)
+
+  def >(rhs: Stripped[T])(using @unused ord: cats.Order[Stripped[T]], pf: PgTypeFor[Stripped[T]]): Where[A] =
+    opCombine(lhs, " > ", Param.bind(rhs)).asInstanceOf[Where[A]]
+
+  /** `lhs >= rhs`. */
+  def >=[B](rhs: TypedExpr[Stripped[T], B])(using @unused ord: cats.Order[Stripped[T]]): Where[Where.Concat[A, B]] =
+    opCombine(lhs, " >= ", rhs)
+
+  def >=(rhs: Stripped[T])(using @unused ord: cats.Order[Stripped[T]], pf: PgTypeFor[Stripped[T]]): Where[A] =
+    opCombine(lhs, " >= ", Param.bind(rhs)).asInstanceOf[Where[A]]
+
 }
 
-extension [T](inline lhs: TypedExpr[T])
-  /** `lhs BETWEEN lo AND hi` — inclusive on both ends. */
-  inline def between(lo: Stripped[T], hi: Stripped[T])(using
-    @unused ord: cats.Order[Stripped[T]],
-    pf:          PgTypeFor[Stripped[T]]
-  ): Where[(Stripped[T], Stripped[T])] =
-    SqlMacros.infix2[T, Stripped[T]]("BETWEEN", "AND", lhs, lo, hi)
+/** Column-to-expression equality alias for source compat. Equivalent to `===` with TypedExpr RHS. */
+extension [T, A](lhs: TypedExpr[T, A]) {
 
-extension [T](inline lhs: TypedExpr[T])
-  /** `lhs NOT BETWEEN lo AND hi`. */
-  inline def notBetween(lo: Stripped[T], hi: Stripped[T])(using
-    @unused ord: cats.Order[Stripped[T]],
-    pf:          PgTypeFor[Stripped[T]]
-  ): Where[(Stripped[T], Stripped[T])] =
-    SqlMacros.infix2[T, Stripped[T]]("NOT BETWEEN", "AND", lhs, lo, hi)
+  /** Same as `===` with TypedExpr RHS — column-vs-column / column-vs-function-call. */
+  def ====[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] = opCombine(lhs, " = ", rhs)
 
-extension [T](inline lhs: TypedExpr[T])
-  /** `lhs BETWEEN SYMMETRIC lo AND hi` — Postgres form that auto-swaps `lo` and `hi` if `lo > hi`. */
-  inline def betweenSymmetric(lo: Stripped[T], hi: Stripped[T])(using
+}
+
+/** `lhs BETWEEN lo AND hi` family. */
+extension [T, A](lhs: TypedExpr[T, A]) {
+
+  def between[B, C](lo: TypedExpr[Stripped[T], B], hi: TypedExpr[Stripped[T], C])(using
+    @unused ord: cats.Order[Stripped[T]]
+  ): Where[Where.Concat[A, Where.Concat[B, C]]] = {
+    val rhs = TypedExpr.combineSep(lo.fragment, " AND ", hi.fragment)
+    opCombine(lhs, " BETWEEN ", TypedExpr[Stripped[T], Where.Concat[B, C]](rhs, lo.codec))
+  }
+
+  def between(lo: Stripped[T], hi: Stripped[T])(using
     @unused ord: cats.Order[Stripped[T]],
-    pf:          PgTypeFor[Stripped[T]]
-  ): Where[(Stripped[T], Stripped[T])] =
-    SqlMacros.infix2[T, Stripped[T]]("BETWEEN SYMMETRIC", "AND", lhs, lo, hi)
+    pf: PgTypeFor[Stripped[T]]
+  ): Where[A] =
+    between(Param.bind(lo), Param.bind(hi)).asInstanceOf[Where[A]]
+
+  def notBetween[B, C](lo: TypedExpr[Stripped[T], B], hi: TypedExpr[Stripped[T], C])(using
+    @unused ord: cats.Order[Stripped[T]]
+  ): Where[Where.Concat[A, Where.Concat[B, C]]] = {
+    val rhs = TypedExpr.combineSep(lo.fragment, " AND ", hi.fragment)
+    opCombine(lhs, " NOT BETWEEN ", TypedExpr[Stripped[T], Where.Concat[B, C]](rhs, lo.codec))
+  }
+
+  def notBetween(lo: Stripped[T], hi: Stripped[T])(using
+    @unused ord: cats.Order[Stripped[T]],
+    pf: PgTypeFor[Stripped[T]]
+  ): Where[A] =
+    notBetween(Param.bind(lo), Param.bind(hi)).asInstanceOf[Where[A]]
+
+  def betweenSymmetric[B, C](lo: TypedExpr[Stripped[T], B], hi: TypedExpr[Stripped[T], C])(using
+    @unused ord: cats.Order[Stripped[T]]
+  ): Where[Where.Concat[A, Where.Concat[B, C]]] = {
+    val rhs = TypedExpr.combineSep(lo.fragment, " AND ", hi.fragment)
+    opCombine(lhs, " BETWEEN SYMMETRIC ", TypedExpr[Stripped[T], Where.Concat[B, C]](rhs, lo.codec))
+  }
+
+  def betweenSymmetric(lo: Stripped[T], hi: Stripped[T])(using
+    @unused ord: cats.Order[Stripped[T]],
+    pf: PgTypeFor[Stripped[T]]
+  ): Where[A] =
+    betweenSymmetric(Param.bind(lo), Param.bind(hi)).asInstanceOf[Where[A]]
+
+}
+
+/** `lhs IS DISTINCT FROM rhs` / `lhs IS NOT DISTINCT FROM rhs` — NULL-safe (in)equality. */
+extension [T, A](lhs: TypedExpr[T, A]) {
+
+  def isDistinctFrom[B](rhs: TypedExpr[Stripped[T], B]): Where[Where.Concat[A, B]] =
+    opCombine(lhs, " IS DISTINCT FROM ", rhs)
+
+  def isDistinctFrom(rhs: Stripped[T])(using pf: PgTypeFor[Stripped[T]]): Where[A] =
+    isDistinctFrom(Param.bind(rhs)).asInstanceOf[Where[A]]
+
+  def isNotDistinctFrom[B](rhs: TypedExpr[Stripped[T], B]): Where[Where.Concat[A, B]] =
+    opCombine(lhs, " IS NOT DISTINCT FROM ", rhs)
+
+  def isNotDistinctFrom(rhs: Stripped[T])(using pf: PgTypeFor[Stripped[T]]): Where[A] =
+    isNotDistinctFrom(Param.bind(rhs)).asInstanceOf[Where[A]]
+
+  /** Source-compat aliases for the column-vs-column NULL-safe variants. */
+  def isDistinctFromExpr[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] =
+    opCombine(lhs, " IS DISTINCT FROM ", rhs)
+
+  def isNotDistinctFromExpr[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] =
+    opCombine(lhs, " IS NOT DISTINCT FROM ", rhs)
+
+}
+
+/** `lhs LIKE pattern` / `ILIKE` / `SIMILAR TO`. */
+extension [T, A](lhs: TypedExpr[T, A]) {
+
+  def like[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
+    opCombine(lhs, " LIKE ", pattern)
+
+  def like(pattern: String)(using @unused ev: Stripped[T] <:< String, pf: PgTypeFor[String]): Where[A] =
+    like(Param.bind(pattern)).asInstanceOf[Where[A]]
+
+  def ilike[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
+    opCombine(lhs, " ILIKE ", pattern)
+
+  def ilike(pattern: String)(using @unused ev: Stripped[T] <:< String, pf: PgTypeFor[String]): Where[A] =
+    ilike(Param.bind(pattern)).asInstanceOf[Where[A]]
+
+  def similarTo[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
+    opCombine(lhs, " SIMILAR TO ", pattern)
+
+  def similarTo(pattern: String)(using @unused ev: Stripped[T] <:< String, pf: PgTypeFor[String]): Where[A] =
+    similarTo(Param.bind(pattern)).asInstanceOf[Where[A]]
+
+  def notSimilarTo[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
+    opCombine(lhs, " NOT SIMILAR TO ", pattern)
+
+  def notSimilarTo(pattern: String)(using @unused ev: Stripped[T] <:< String, pf: PgTypeFor[String]): Where[A] =
+    notSimilarTo(Param.bind(pattern)).asInstanceOf[Where[A]]
+
+}
+
+/** `lhs IS NULL` / `IS NOT NULL` — compile-only on nullable columns. */
+extension [T, Null <: Boolean, N <: String & Singleton](inline lhs: skunk.sharp.TypedColumn[T, Null, N]) {
+
+  inline def isNull: Where[Void] = {
+    inline if scala.compiletime.constValue[Null] then ()
+    else scala.compiletime.error("`isNull` is only available on nullable columns (columns declared as `Option[_]`).")
+    val parts = lhs.fragment.parts ++ List[Either[String, cats.data.State[Int, String]]](Left(" IS NULL"))
+    val frag: Fragment[Void] = Fragment(parts, Void.codec, Origin.unknown)
+    Where(frag)
+  }
+
+  inline def isNotNull: Where[Void] = {
+    inline if scala.compiletime.constValue[Null] then ()
+    else scala.compiletime.error("`isNotNull` is only available on nullable columns (columns declared as `Option[_]`).")
+    val parts = lhs.fragment.parts ++ List[Either[String, cats.data.State[Int, String]]](Left(" IS NOT NULL"))
+    val frag: Fragment[Void] = Fragment(parts, Void.codec, Origin.unknown)
+    Where(frag)
+  }
+
+}
 
 /**
- * ANY / ALL quantifier over a subquery RHS. Renders as `<lhs> <op> ANY (<subquery>)` or `<lhs> <op> ALL
- * (<subquery>)`. The inner subquery's args are baked via contramap into the resulting `Where[Void]`'s encoder.
- */
-private def quantifiedRender[T, Q, ET](
-  lhs: TypedExpr[T],
-  op: String,
-  quant: String,
-  q: Q
-)(using ev: skunk.sharp.dsl.AsSubquery[Q, ET]): Where[skunk.Void] = {
-  val rendered = ev.render(q)()
-  val combined =
-    lhs.render |+|
-      TypedExpr.raw(s" $op $quant (") |+|
-      rendered |+|
-      TypedExpr.raw(")")
-  Where.fromTypedExpr(TypedExpr(combined, skunk.codec.all.bool))
-}
-
-extension [T](lhs: TypedExpr[T])(using @unused ord: cats.Order[Stripped[T]]) {
-
-  /** `lhs < ANY (subquery)`. */
-  def ltAny[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[skunk.Void] =
-    quantifiedRender[T, Q, Stripped[T]](lhs, "<", "ANY", q)
-
-  /** `lhs <= ANY (subquery)`. */
-  def lteAny[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[skunk.Void] =
-    quantifiedRender[T, Q, Stripped[T]](lhs, "<=", "ANY", q)
-
-  /** `lhs > ANY (subquery)`. */
-  def gtAny[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[skunk.Void] =
-    quantifiedRender[T, Q, Stripped[T]](lhs, ">", "ANY", q)
-
-  /** `lhs >= ANY (subquery)`. */
-  def gteAny[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[skunk.Void] =
-    quantifiedRender[T, Q, Stripped[T]](lhs, ">=", "ANY", q)
-
-  /** `lhs < ALL (subquery)`. */
-  def ltAll[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[skunk.Void] =
-    quantifiedRender[T, Q, Stripped[T]](lhs, "<", "ALL", q)
-
-  /** `lhs <= ALL (subquery)`. */
-  def lteAll[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[skunk.Void] =
-    quantifiedRender[T, Q, Stripped[T]](lhs, "<=", "ALL", q)
-
-  /** `lhs > ALL (subquery)`. */
-  def gtAll[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[skunk.Void] =
-    quantifiedRender[T, Q, Stripped[T]](lhs, ">", "ALL", q)
-
-  /** `lhs >= ALL (subquery)`. */
-  def gteAll[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[skunk.Void] =
-    quantifiedRender[T, Q, Stripped[T]](lhs, ">=", "ALL", q)
-
-}
-
-extension [T](inline lhs: TypedExpr[T])
-  /** `lhs IS DISTINCT FROM rhs` — NULL-safe inequality. */
-  inline def isDistinctFrom(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where[Stripped[T]] =
-    valOp("IS DISTINCT FROM", lhs, rhs)
-
-extension [T](inline lhs: TypedExpr[T])
-  /** `lhs IS NOT DISTINCT FROM rhs` — NULL-safe equality. */
-  inline def isNotDistinctFrom(rhs: Stripped[T])(using PgTypeFor[Stripped[T]]): Where[Stripped[T]] =
-    valOp("IS NOT DISTINCT FROM", lhs, rhs)
-
-extension [T](lhs: TypedExpr[T]) {
-
-  /** Expression-to-expression `IS DISTINCT FROM` — for column-vs-column / column-vs-function-call. */
-  def isDistinctFromExpr(rhs: TypedExpr[T]): Where[skunk.Void] =
-    Where.fromTypedExpr(PgOperator.infix[T, T, Boolean]("IS DISTINCT FROM")(lhs, rhs))
-
-  /** Expression-to-expression `IS NOT DISTINCT FROM`. */
-  def isNotDistinctFromExpr(rhs: TypedExpr[T]): Where[skunk.Void] =
-    Where.fromTypedExpr(PgOperator.infix[T, T, Boolean]("IS NOT DISTINCT FROM")(lhs, rhs))
-
-}
-
-/**
- * Evidence that `Rhs` can sit on the right-hand side of `lhs IN (...)`. Two givens:
- *
- *   - A `Reducible` container of values → renders as `(lit1, lit2, …)` with each value bound as a parameter.
- *   - A subquery → renders as `(<subquery>)`. Correlation is automatic when the subquery is built inside an
- *     outer `.where` lambda.
+ * `lhs IN (values...)` / `lhs IN (subquery)`. The RHS evidence builds a Void-args parenthesised fragment; the
+ * LHS's args propagate through.
  */
 sealed trait InRhs[T, Rhs] {
-  def renderParens(rhs: Rhs): skunk.AppliedFragment
+  def renderParens(rhs: Rhs): Fragment[Void]
 }
 
 object InRhs {
 
   given reducibleIn[T, F[_]](using R: cats.Reducible[F], pf: PgTypeFor[T]): InRhs[T, F[T]] =
     new InRhs[T, F[T]] {
-      def renderParens(values: F[T]): skunk.AppliedFragment = {
-        val literals = R.toNonEmptyList(values).toList.map(v => TypedExpr.parameterised(v).render)
-        TypedExpr.raw("(") |+| TypedExpr.joined(literals, ", ") |+| TypedExpr.raw(")")
+      def renderParens(values: F[T]): Fragment[Void] = {
+        val literals = R.toNonEmptyList(values).toList.map(v => Param.bind[T](v).fragment)
+        // Combine all literal fragments via combineSep with ", " separator; wrap in parens.
+        val joined = literals.reduceLeft((a, b) => TypedExpr.combineSep(a, ", ", b).asInstanceOf[Fragment[Void]])
+        TypedExpr.wrap("(", joined, ")")
       }
     }
 
   given subqueryIn[T, Q](using ev: skunk.sharp.dsl.AsSubquery[Q, T]): InRhs[T, Q] =
     new InRhs[T, Q] {
-      def renderParens(q: Q): skunk.AppliedFragment = {
-        val cq = ev.toCompiled(q)
-        TypedExpr.raw("(") |+| cq.af |+| TypedExpr.raw(")")
+      def renderParens(q: Q): Fragment[Void] = {
+        val af = ev.render(q)()
+        val voidFrag = TypedExpr.liftAfToVoid(af)
+        TypedExpr.wrap("(", voidFrag, ")")
       }
     }
 
 }
 
-extension [T](inline lhs: TypedExpr[T])
-  /**
-   * `lhs IN (...)`. Produces `Where[Void]` — the bound parameters from the literal list or subquery are baked
-   * into the AppliedFragment-level encoder via the lift through `Where.fromTypedExpr`.
-   */
-  inline def in[Rhs](rhs: Rhs)(using ev: InRhs[Stripped[T], Rhs]): Where[skunk.Void] =
-    Where.fromTypedExpr(
-      TypedExpr(
-        SqlMacros.prefix[T](lhs, "IN") |+| ev.renderParens(rhs),
-        skunk.codec.all.bool
-      )
-    )
+extension [T, A](lhs: TypedExpr[T, A]) {
 
-extension [T](inline lhs: TypedExpr[T])
-  /** `lhs LIKE pattern`. */
-  inline def like(pattern: String)(using
-    @unused ev: Stripped[T] <:< String,
-    pf: PgTypeFor[String]
-  ): Where[String] =
-    SqlMacros.infix[T, String]("LIKE", lhs, pattern)
-
-extension [T](inline lhs: TypedExpr[T])
-  /** `lhs ILIKE pattern` (case-insensitive). */
-  inline def ilike(pattern: String)(using
-    @unused ev: Stripped[T] <:< String,
-    pf: PgTypeFor[String]
-  ): Where[String] =
-    SqlMacros.infix[T, String]("ILIKE", lhs, pattern)
-
-extension [T](inline lhs: TypedExpr[T])
-  /** `lhs SIMILAR TO pattern` — Postgres's SQL-standard regex variant. */
-  inline def similarTo(pattern: String)(using
-    @unused ev: Stripped[T] <:< String,
-    pf: PgTypeFor[String]
-  ): Where[String] =
-    SqlMacros.infix[T, String]("SIMILAR TO", lhs, pattern)
-
-extension [T](inline lhs: TypedExpr[T])
-  /** `lhs NOT SIMILAR TO pattern`. */
-  inline def notSimilarTo(pattern: String)(using
-    @unused ev: Stripped[T] <:< String,
-    pf: PgTypeFor[String]
-  ): Where[String] =
-    SqlMacros.infix[T, String]("NOT SIMILAR TO", lhs, pattern)
-
-extension [T, Null <: Boolean, N <: String & Singleton](inline lhs: skunk.sharp.TypedColumn[T, Null, N]) {
-
-  /** `lhs IS NULL`. Compiles only for nullable columns. */
-  inline def isNull: Where[skunk.Void] = {
-    inline if scala.compiletime.constValue[Null] then ()
-    else scala.compiletime.error("`isNull` is only available on nullable columns (columns declared as `Option[_]`).")
-    SqlMacros.postfix[T](lhs, " IS NULL")
+  /** `lhs IN (...)`. RHS bound parameters are baked into the encoder; result Args = LHS Args. */
+  def in[Rhs](rhs: Rhs)(using ev: InRhs[Stripped[T], Rhs]): Where[A] = {
+    val rhsFrag = ev.renderParens(rhs)
+    val combined = TypedExpr.combineSep(lhs.fragment, " IN ", rhsFrag)
+    Where(combined.asInstanceOf[Fragment[A]])
   }
 
-  /** `lhs IS NOT NULL`. Compiles only for nullable columns. */
-  inline def isNotNull: Where[skunk.Void] = {
-    inline if scala.compiletime.constValue[Null] then ()
-    else scala.compiletime.error("`isNotNull` is only available on nullable columns (columns declared as `Option[_]`).")
-    SqlMacros.postfix[T](lhs, " IS NOT NULL")
-  }
+}
+
+/**
+ * ANY / ALL quantifier over a subquery RHS. Renders as `<lhs> <op> ANY (<subquery>)` / `<lhs> <op> ALL
+ * (<subquery>)`. The inner subquery's args are baked via contramap so result Args = LHS Args.
+ */
+private def quantifiedRender[T, A, Q, ET](
+  lhs: TypedExpr[T, A],
+  op: String,
+  quant: String,
+  q: Q
+)(using ev: skunk.sharp.dsl.AsSubquery[Q, ET]): Where[A] = {
+  val af       = ev.render(q)()
+  val voidFrag = TypedExpr.liftAfToVoid(af)
+  val rhsFrag  = TypedExpr.wrap(s" $op $quant (", voidFrag, ")")
+  // Combine LHS with the wrapped RHS — the wrapped RHS already has the operator + paren prefix.
+  val combinedParts = lhs.fragment.parts ++ rhsFrag.parts
+  val frag: Fragment[A] = Fragment(combinedParts, lhs.fragment.encoder, Origin.unknown)
+  Where(frag)
+}
+
+extension [T, A](lhs: TypedExpr[T, A])(using @unused ord: cats.Order[Stripped[T]]) {
+
+  def ltAny[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[A]  = quantifiedRender(lhs, "<",  "ANY", q)
+  def lteAny[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[A] = quantifiedRender(lhs, "<=", "ANY", q)
+  def gtAny[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[A]  = quantifiedRender(lhs, ">",  "ANY", q)
+  def gteAny[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[A] = quantifiedRender(lhs, ">=", "ANY", q)
+
+  def ltAll[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[A]  = quantifiedRender(lhs, "<",  "ALL", q)
+  def lteAll[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[A] = quantifiedRender(lhs, "<=", "ALL", q)
+  def gtAll[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[A]  = quantifiedRender(lhs, ">",  "ALL", q)
+  def gteAll[Q](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, Stripped[T]]): Where[A] = quantifiedRender(lhs, ">=", "ALL", q)
 
 }
