@@ -43,19 +43,16 @@ object PgFunction {
     }
 
   /**
-   * An n-argument function: `name(a, b, c, …)`. The Args type collapses to `?` because each input may carry
-   * different Args; the runtime fragment combines them all but the type-level concat is opaque.
+   * An n-argument function: `name(a, b, c, …)`. Args is `Void` — variadic builders treat every input as
+   * Void-args (Param.bind-baked or column refs); typed-Args threading through variadic functions is roadmap.
    */
-  def nary[R](name: String, args: TypedExpr[?, ?]*)(using pfr: PgTypeFor[R]): TypedExpr[R, ?] = {
+  def nary[R](name: String, args: TypedExpr[?, ?]*)(using pfr: PgTypeFor[R]): TypedExpr[R, Void] = {
     if (args.isEmpty) {
-      val frag = TypedExpr.voidFragment(s"$name()")
-      TypedExpr[R, Void](frag, pfr.codec)
+      TypedExpr[R, Void](TypedExpr.voidFragment(s"$name()"), pfr.codec)
     } else {
-      val inner = args.tail.foldLeft(args.head.fragment.asInstanceOf[Fragment[Any]]) { (acc, a) =>
-        TypedExpr.combineSep(acc, ", ", a.fragment).asInstanceOf[Fragment[Any]]
-      }
-      val frag = TypedExpr.wrap(s"$name(", inner, ")")
-      TypedExpr[R, Any](frag, pfr.codec)
+      val inner = TypedExpr.joinedVoid(", ", args.toList.map(_.fragment))
+      val frag  = TypedExpr.wrap(s"$name(", inner, ")")
+      TypedExpr[R, Void](frag, pfr.codec)
     }
   }
 

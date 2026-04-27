@@ -142,44 +142,62 @@ object TypedExpr {
   // ---- Fragment composition helpers --------------------------------------------------------------
 
   /**
-   * Pair two typed Fragments into a single one whose Args is `Where.Concat[A, B]` (Void-aware product). Used by
-   * operators / functions that combine input expressions and need to accumulate their Args.
+   * Pair two typed Fragments into a single one whose Args is `Where.Concat[A, B]`. The combined encoder
+   * always products both sub-encoders (so any baked values riding on either side flow through), then
+   * contramaps the user's `Concat[A, B]` input back into the `(A, B)` tuple the product consumes — see
+   * [[Where.Concat2]]. The `eq Void.codec` shortcuts skip the product when one side is the literal Void
+   * encoder (no params at all on that side).
    */
-  private[sharp] def combine[A, B](a: Fragment[A], b: Fragment[B]): Fragment[Where.Concat[A, B]] = {
-    val voidLeft  = a.encoder eq Void.codec
-    val voidRight = b.encoder eq Void.codec
-    if (voidLeft && voidRight) {
-      // Both Void — combined parts only, encoder stays Void.
-      val parts = a.parts ++ b.parts
-      Fragment(parts, Void.codec, Origin.unknown).asInstanceOf[Fragment[Where.Concat[A, B]]]
-    } else if (voidLeft) {
-      val parts = a.parts ++ b.parts
-      Fragment(parts, b.encoder, Origin.unknown).asInstanceOf[Fragment[Where.Concat[A, B]]]
-    } else if (voidRight) {
-      val parts = a.parts ++ b.parts
-      Fragment(parts, a.encoder, Origin.unknown).asInstanceOf[Fragment[Where.Concat[A, B]]]
-    } else {
-      val parts = a.parts ++ b.parts
-      val enc   = a.encoder.product(b.encoder)
-      Fragment(parts, enc, Origin.unknown).asInstanceOf[Fragment[Where.Concat[A, B]]]
-    }
+  private[sharp] def combine[A, B](
+    a: Fragment[A], b: Fragment[B]
+  )(using c2: Where.Concat2[A, B]): Fragment[Where.Concat[A, B]] = {
+    val parts = a.parts ++ b.parts
+    val enc   = combineEnc[A, B](a.encoder, b.encoder)
+    Fragment(parts, enc, Origin.unknown)
   }
 
   /**
    * Pair two typed Fragments inserting a static separator between them. Equivalent to
    * `combine(a, combine(separatorFragment, b))` but allocates fewer intermediate fragments.
    */
-  private[sharp] def combineSep[A, B](a: Fragment[A], sepSql: String, b: Fragment[B]): Fragment[Where.Concat[A, B]] = {
-    val voidLeft  = a.encoder eq Void.codec
-    val voidRight = b.encoder eq Void.codec
+  private[sharp] def combineSep[A, B](
+    a: Fragment[A], sepSql: String, b: Fragment[B]
+  )(using c2: Where.Concat2[A, B]): Fragment[Where.Concat[A, B]] = {
     val sepLeft: Either[String, cats.data.State[Int, String]] = Left(sepSql)
     val parts = a.parts ++ List(sepLeft) ++ b.parts
-    val enc =
-      if (voidLeft && voidRight) Void.codec.asInstanceOf[Encoder[Any]]
-      else if (voidLeft)         b.encoder.asInstanceOf[Encoder[Any]]
-      else if (voidRight)        a.encoder.asInstanceOf[Encoder[Any]]
-      else                       a.encoder.product(b.encoder).asInstanceOf[Encoder[Any]]
-    Fragment(parts, enc, Origin.unknown).asInstanceOf[Fragment[Where.Concat[A, B]]]
+    val enc   = combineEnc[A, B](a.encoder, b.encoder)
+    Fragment(parts, enc, Origin.unknown)
+  }
+
+  /**
+   * Variadic Void-aware combine. Treats every input as `Fragment[Void]` (whether structurally Void or
+   * Param.bind-baked Void), interleaves with `sep` between, returns `Fragment[Void]`. Used by variadic
+   * function builders (`Pg.concat`, `Pg.coalesce`, `Pg.greatest`, `Pg.makeDate`, …) where mixing typed
+   * `Param[T]` inputs is roadmap; for now everything must be Void-input on the inside.
+   */
+  private[sharp] def joinedVoid(sep: String, parts: List[Fragment[?]]): Fragment[Void] =
+    parts match {
+      case Nil          => voidFragment("")
+      case head :: Nil  => head.asInstanceOf[Fragment[Void]]
+      case head :: tail =>
+        tail.foldLeft(head.asInstanceOf[Fragment[Void]]) { (acc, p) =>
+          combineSep[Void, Void](acc, sep, p.asInstanceOf[Fragment[Void]])
+        }
+    }
+
+  /** Pair two encoders, contramapping `Concat[A, B]` → `(A, B)` per [[Where.Concat2]]. */
+  private[sharp] def combineEnc[A, B](
+    a: Encoder[A], b: Encoder[B]
+  )(using c2: Where.Concat2[A, B]): Encoder[Where.Concat[A, B]] = {
+    val voidLeft  = a eq Void.codec
+    val voidRight = b eq Void.codec
+    if (voidLeft && voidRight) Void.codec.asInstanceOf[Encoder[Where.Concat[A, B]]]
+    else if (voidLeft)         b.asInstanceOf[Encoder[Where.Concat[A, B]]]
+    else if (voidRight)        a.asInstanceOf[Encoder[Where.Concat[A, B]]]
+    else {
+      val productEnc: Encoder[(A, B)] = a.product(b)
+      productEnc.contramap[Where.Concat[A, B]](c2.project)
+    }
   }
 
   /** Wrap a typed Fragment with a literal prefix and suffix string (e.g. `"foo("`, `")"`). Args unchanged. */

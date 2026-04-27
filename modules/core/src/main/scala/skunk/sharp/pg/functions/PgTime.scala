@@ -69,30 +69,26 @@ trait PgTime {
 
   // -------- Construction -----------------------------------------------------------------------
 
-  def makeDate(year: TypedExpr[Int, ?], month: TypedExpr[Int, ?], day: TypedExpr[Int, ?]): TypedExpr[LocalDate, ?] = {
-    val s1   = TypedExpr.combineSep(year.fragment, ", ", month.fragment).asInstanceOf[Fragment[Any]]
-    val s2   = TypedExpr.combineSep(s1, ", ", day.fragment).asInstanceOf[Fragment[Any]]
-    val frag = TypedExpr.wrap("make_date(", s2, ")")
-    TypedExpr[LocalDate, Any](frag, skunk.codec.all.date)
+  def makeDate(year: TypedExpr[Int, ?], month: TypedExpr[Int, ?], day: TypedExpr[Int, ?]): TypedExpr[LocalDate, Void] = {
+    val joined = TypedExpr.joinedVoid(", ", List(year.fragment, month.fragment, day.fragment))
+    val frag   = TypedExpr.wrap("make_date(", joined, ")")
+    TypedExpr[LocalDate, Void](frag, skunk.codec.all.date)
   }
 
-  def makeTime(h: TypedExpr[Int, ?], m: TypedExpr[Int, ?], s: TypedExpr[Double, ?]): TypedExpr[LocalTime, ?] = {
-    val s1   = TypedExpr.combineSep(h.fragment, ", ", m.fragment).asInstanceOf[Fragment[Any]]
-    val s2   = TypedExpr.combineSep(s1, ", ", s.fragment).asInstanceOf[Fragment[Any]]
-    val frag = TypedExpr.wrap("make_time(", s2, ")")
-    TypedExpr[LocalTime, Any](frag, skunk.codec.all.time)
+  def makeTime(h: TypedExpr[Int, ?], m: TypedExpr[Int, ?], s: TypedExpr[Double, ?]): TypedExpr[LocalTime, Void] = {
+    val joined = TypedExpr.joinedVoid(", ", List(h.fragment, m.fragment, s.fragment))
+    val frag   = TypedExpr.wrap("make_time(", joined, ")")
+    TypedExpr[LocalTime, Void](frag, skunk.codec.all.time)
   }
 
   def makeTimestamp(
     year: TypedExpr[Int, ?], month: TypedExpr[Int, ?], day: TypedExpr[Int, ?],
     h: TypedExpr[Int, ?], m: TypedExpr[Int, ?], s: TypedExpr[Double, ?]
-  ): TypedExpr[LocalDateTime, ?] = {
-    val parts = List(year.fragment, month.fragment, day.fragment, h.fragment, m.fragment, s.fragment)
-    val joined = parts.tail.foldLeft(parts.head.asInstanceOf[Fragment[Any]]) { (acc, p) =>
-      TypedExpr.combineSep(acc, ", ", p).asInstanceOf[Fragment[Any]]
-    }
-    val frag = TypedExpr.wrap("make_timestamp(", joined, ")")
-    TypedExpr[LocalDateTime, Any](frag, skunk.codec.all.timestamp)
+  ): TypedExpr[LocalDateTime, Void] = {
+    val joined = TypedExpr.joinedVoid(", ",
+      List(year.fragment, month.fragment, day.fragment, h.fragment, m.fragment, s.fragment))
+    val frag   = TypedExpr.wrap("make_timestamp(", joined, ")")
+    TypedExpr[LocalDateTime, Void](frag, skunk.codec.all.timestamp)
   }
 
   // -------- Parsing ----------------------------------------------------------------------------

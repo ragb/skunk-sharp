@@ -218,19 +218,12 @@ trait PgString {
     TypedExpr[Lift[T, String], A](frag, pf.codec)
   }
 
-  /** `format(fmt, args*)` — collapses Args to `?` because variadic. */
-  def format(fmt: String, args: TypedExpr[?, ?]*)(using pf: PgTypeFor[String]): TypedExpr[String, ?] = {
+  /** `format(fmt, args*)` — variadic; Args = Void (all inputs treated as Void-args). */
+  def format(fmt: String, args: TypedExpr[?, ?]*)(using pf: PgTypeFor[String]): TypedExpr[String, Void] = {
     val fmtFrag = Param.bind[String](fmt).fragment
-    if (args.isEmpty) {
-      val frag = TypedExpr.wrap("format(", fmtFrag, ")")
-      TypedExpr[String, Void](frag, skunk.codec.all.text)
-    } else {
-      val joined = args.foldLeft(fmtFrag.asInstanceOf[Fragment[Any]]) { (acc, a) =>
-        TypedExpr.combineSep(acc, ", ", a.fragment).asInstanceOf[Fragment[Any]]
-      }
-      val frag = TypedExpr.wrap("format(", joined, ")")
-      TypedExpr[String, Any](frag, skunk.codec.all.text)
-    }
+    val joined  = TypedExpr.joinedVoid(", ", fmtFrag :: args.toList.map(_.fragment))
+    val frag    = TypedExpr.wrap("format(", joined, ")")
+    TypedExpr[String, Void](frag, skunk.codec.all.text)
   }
 
   // ---- String -> Int -------------------------------------------------------------------------

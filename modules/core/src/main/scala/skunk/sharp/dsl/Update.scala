@@ -122,7 +122,7 @@ final class UpdateWithSet[Cols <: Tuple, Name <: String & Singleton, SetArgs] pr
   }
 
   def whereRaw(af: AppliedFragment): UpdateReady[Cols, Name, SetArgs, ?] = {
-    val combined = SelectBuilder.andRawInto(None, af)
+    val combined = SelectBuilder.andRawInto[Void](None, af)
     new UpdateReady[Cols, Name, SetArgs, Any](table, setFragment, Some(combined))
   }
 
@@ -137,14 +137,16 @@ final class UpdateReady[Cols <: Tuple, Name <: String & Singleton, SetArgs, WArg
   private[sharp] val whereOpt: Option[Fragment[?]]
 ) {
 
-  def where[A](f: ColumnsView[Cols] => Where[A]): UpdateReady[Cols, Name, SetArgs, Where.Concat[WArgs, A]] = {
+  def where[A](f: ColumnsView[Cols] => Where[A])(using
+    c2: Where.Concat2[WArgs, A]
+  ): UpdateReady[Cols, Name, SetArgs, Where.Concat[WArgs, A]] = {
     val pred     = f(table.columnsView)
-    val combined = SelectBuilder.andInto(whereOpt, pred)
+    val combined = SelectBuilder.andInto[WArgs, A](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], pred)
     new UpdateReady[Cols, Name, SetArgs, Where.Concat[WArgs, A]](table, setFragment, Some(combined))
   }
 
-  def whereRaw(af: AppliedFragment): UpdateReady[Cols, Name, SetArgs, ?] = {
-    val combined = SelectBuilder.andRawInto(whereOpt, af)
+  def whereRaw(af: AppliedFragment)(using c2: Where.Concat2[WArgs, Void]): UpdateReady[Cols, Name, SetArgs, ?] = {
+    val combined = SelectBuilder.andRawInto[WArgs](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], af)
     new UpdateReady[Cols, Name, SetArgs, Any](table, setFragment, Some(combined))
   }
 
@@ -234,7 +236,7 @@ final class UpdateFromWithSet[Cols <: Tuple, Name <: String & Singleton, Ss <: T
   }
 
   def whereRaw(af: AppliedFragment): UpdateFromReady[Cols, Name, Ss, SetArgs, ?] = {
-    val combined = SelectBuilder.andRawInto(None, af)
+    val combined = SelectBuilder.andRawInto[Void](None, af)
     new UpdateFromReady[Cols, Name, Ss, SetArgs, Any](table, sources, setFragment, Some(combined))
   }
 
@@ -252,15 +254,17 @@ final class UpdateFromReady[
   private[sharp] val whereOpt: Option[Fragment[?]]
 ) {
 
-  def where[A](f: JoinedView[Ss] => Where[A]): UpdateFromReady[Cols, Name, Ss, SetArgs, Where.Concat[WArgs, A]] = {
+  def where[A](f: JoinedView[Ss] => Where[A])(using
+    c2: Where.Concat2[WArgs, A]
+  ): UpdateFromReady[Cols, Name, Ss, SetArgs, Where.Concat[WArgs, A]] = {
     val view = buildJoinedView(sources)
     val pred = f(view)
-    val combined = SelectBuilder.andInto(whereOpt, pred)
+    val combined = SelectBuilder.andInto[WArgs, A](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], pred)
     new UpdateFromReady[Cols, Name, Ss, SetArgs, Where.Concat[WArgs, A]](table, sources, setFragment, Some(combined))
   }
 
-  def whereRaw(af: AppliedFragment): UpdateFromReady[Cols, Name, Ss, SetArgs, ?] = {
-    val combined = SelectBuilder.andRawInto(whereOpt, af)
+  def whereRaw(af: AppliedFragment)(using c2: Where.Concat2[WArgs, Void]): UpdateFromReady[Cols, Name, Ss, SetArgs, ?] = {
+    val combined = SelectBuilder.andRawInto[WArgs](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], af)
     new UpdateFromReady[Cols, Name, Ss, SetArgs, Any](table, sources, setFragment, Some(combined))
   }
 

@@ -75,13 +75,12 @@ trait PgArray {
     TypedExpr[A, Where.Concat[X, Y]](frag, a.codec)
   }
 
-  def arrayReplace[A, E, X, Y, Z](a: TypedExpr[A, X], from: TypedExpr[E, Y], to: TypedExpr[E, Z])(using
+  def arrayReplace[A, E](a: TypedExpr[A, ?], from: TypedExpr[E, ?], to: TypedExpr[E, ?])(using
     @annotation.unused ev: IsArray.Aux[A, E]
-  ): TypedExpr[A, ?] = {
-    val s1   = TypedExpr.combineSep(a.fragment, ", ", from.fragment)
-    val s2   = TypedExpr.combineSep(s1, ", ", to.fragment)
-    val frag = TypedExpr.wrap("array_replace(", s2, ")").asInstanceOf[Fragment[Any]]
-    TypedExpr[A, Any](frag, a.codec)
+  ): TypedExpr[A, skunk.Void] = {
+    val joined = TypedExpr.joinedVoid(", ", List(a.fragment, from.fragment, to.fragment))
+    val frag   = TypedExpr.wrap("array_replace(", joined, ")")
+    TypedExpr[A, skunk.Void](frag, a.codec)
   }
 
   def arrayToString[A, X](a: TypedExpr[A, X], sep: String)(using

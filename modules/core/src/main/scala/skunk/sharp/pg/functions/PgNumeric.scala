@@ -103,13 +103,11 @@ trait PgNumeric {
   def cosh[T, A](e: TypedExpr[T, A])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double], A] = doubleFn("cosh", e)
   def tanh[T, A](e: TypedExpr[T, A])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double], A] = doubleFn("tanh", e)
 
-  /** Variadic same-type fn: `name(arg, arg, ...)`. Args collapses to `?`. */
-  private def naryPreserve[T](name: String, args: Seq[TypedExpr[T, ?]]): TypedExpr[T, ?] = {
-    val joined = args.tail.foldLeft(args.head.fragment.asInstanceOf[Fragment[Any]]) { (acc, a) =>
-      TypedExpr.combineSep(acc, ", ", a.fragment).asInstanceOf[Fragment[Any]]
-    }
-    val frag = TypedExpr.wrap(s"$name(", joined, ")")
-    TypedExpr[T, Any](frag, args.head.codec)
+  /** Variadic same-type fn: `name(arg, arg, ...)`. Args = Void (variadic — see [[TypedExpr.joinedVoid]]). */
+  private def naryPreserve[T](name: String, args: Seq[TypedExpr[T, ?]]): TypedExpr[T, Void] = {
+    val joined = TypedExpr.joinedVoid(", ", args.toList.map(_.fragment))
+    val frag   = TypedExpr.wrap(s"$name(", joined, ")")
+    TypedExpr[T, Void](frag, args.head.codec)
   }
 
 }

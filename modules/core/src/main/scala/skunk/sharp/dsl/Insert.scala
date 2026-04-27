@@ -100,16 +100,22 @@ object OnConflict {
 }
 
 /**
- * The source of rows for an INSERT. Either a typed row fragment (single or batch) or a deferred sub-query.
+ * The source of rows for an INSERT.
  */
 sealed trait InsertSource
 
 object InsertSource {
 
-  /** A single typed row fragment — `(<col-tuple-encoder-shape>)`. Encoder may carry typed Args or be Void-baked. */
+  /** A single baked-Void row fragment (values via [[Param.bind]]). Bound at Void at insertParts time. */
   final case class TypedRow(fragment: Fragment[?]) extends InsertSource
 
-  /** Many rows pre-applied: each row's args are baked. Combined SQL is `VALUES (…), (…)`. */
+  /**
+   * A single typed-Args row fragment — values are user-supplied at execute time via the typed `Args` slot.
+   * Goes through the `Right` (typed) side of [[SelectBuilder.assemble]] so the encoder threads.
+   */
+  final case class TypedRowParams(fragment: Fragment[?]) extends InsertSource
+
+  /** Many rows pre-applied. */
   final case class ManyRows(rows: List[AppliedFragment]) extends InsertSource
 
   /** `INSERT … SELECT` — the sub-query's typed fragment. */
@@ -138,14 +144,15 @@ final class InsertCommand[Cols <: Tuple, Args] private[sharp] (
     val buf = scala.collection.mutable.ListBuffer[BodyPart](Left(headerAf))
     source match {
       case InsertSource.TypedRow(f) =>
-        // f's encoder bakes the values via contramap (Args = Void); apply to lift to AppliedFragment.
         buf += Left(RawConstants.VALUES)
         buf += Left(f.asInstanceOf[Fragment[Void]].apply(Void))
+      case InsertSource.TypedRowParams(f) =>
+        buf += Left(RawConstants.VALUES)
+        buf += Right(f) // typed slot — encoder takes Args at execute
       case InsertSource.ManyRows(rows) =>
         buf += Left(TypedExpr.raw("VALUES "))
         buf += Left(TypedExpr.joined(rows, ", "))
       case InsertSource.FromQuery(frag) =>
-        // INSERT … SELECT — subquery may carry typed Args.
         buf += Right(frag)
     }
     val cf = conflictFragment
@@ -223,6 +230,24 @@ final class InsertCommand[Cols <: Tuple, Args] private[sharp] (
 }
 
 object InsertCommand {
+
+  /**
+   * Single-row insert from `Param[T]` placeholders — Args = the row tuple. The row encoder is built from
+   * each Param's codec; user supplies the tuple at execute time.
+   */
+  private[sharp] def buildSingleParams[Cols <: Tuple, Args](
+    table: Table[Cols, ?],
+    names: List[String],
+    params: List[Param[?]],
+    conflict: OnConflict
+  ): InsertCommand[Cols, Args] = {
+    val projected = lookupProjected(table, names)
+    // Build the row codec from the Params' own codecs (NOT the column's, in case they differ — typically same).
+    val perRow: Codec[Tuple] = tupleCodec(params.map(_.codec))
+    val rowEnc               = perRow.values
+    val frag: Fragment[Args] = Fragment(List(Right(rowEnc.sql)), rowEnc.asInstanceOf[Encoder[Args]], Origin.unknown)
+    new InsertCommand[Cols, Args](table, projected, InsertSource.TypedRowParams(frag), conflict)
+  }
 
   /** Build a single-row insert with values baked via Param.bind. Args = Void. */
   private[sharp] def buildSingleBaked[Cols <: Tuple](
@@ -313,4 +338,44 @@ final class OnConflictBuilder[Cols <: Tuple, Args] private[sharp] (
 /** INSERT entry point. */
 extension [Cols <: Tuple, Name <: String & Singleton](table: Table[Cols, Name]) {
   def insert: InsertBuilder[Cols] = new InsertBuilder[Cols](table)
+}
+
+/** Strip the `Param[_]` wrapper from each tuple element: `(Param[A], Param[B]) → (A, B)`. */
+type StripParams[T <: Tuple] <: Tuple = T match {
+  case EmptyTuple        => EmptyTuple
+  case Param[t] *: tail  => t *: StripParams[tail]
+}
+
+extension [Cols <: Tuple](b: InsertBuilder[Cols]) {
+
+  /**
+   * Typed-Args INSERT: every named-tuple field is a `Param[T]`, and the resulting `CommandTemplate`'s
+   * `Args` is the row tuple (`StripParams[…]`). Values are supplied at execute via `cmd.run(s)(args)`.
+   *
+   * {{{
+   *   val create: CommandTemplate[(UUID, String, Int)] =
+   *     users.insert.withParams((id = Param[UUID], email = Param[String], age = Param[Int])).compile
+   *   prep <- create.prepared(s)
+   *   _    <- prep.execute((uid, "x@y", 30))
+   * }}}
+   *
+   * Compile checks: every field name exists on `Cols` and every required (non-defaulted) column is covered.
+   * The runtime walk extracts each `Param[T]`'s codec to build the row encoder.
+   */
+  inline def withParams[R <: NamedTuple.AnyNamedTuple](
+    row: R
+  ): InsertCommand[Cols, StripParams[NamedTuple.DropNames[R]]] = {
+    CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[R]]
+    CompileChecks.requireCoversRequired[Cols, NamedTuple.Names[R]]
+    val names  = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
+    val params = row.asInstanceOf[Tuple].toList.map {
+      case p: Param[?] => p
+      case other       =>
+        throw new IllegalArgumentException(
+          s"skunk-sharp: .withParams expects every field to be a Param[T]; got: $other (${other.getClass.getName})"
+        )
+    }
+    InsertCommand.buildSingleParams[Cols, StripParams[NamedTuple.DropNames[R]]](b.table, names, params, OnConflict.None)
+  }
+
 }

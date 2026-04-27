@@ -26,7 +26,7 @@ final class DeleteBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
   }
 
   def whereRaw(af: AppliedFragment): DeleteReady[Cols, Name, ?] = {
-    val combined = SelectBuilder.andRawInto(None, af)
+    val combined = SelectBuilder.andRawInto[Void](None, af)
     new DeleteReady[Cols, Name, Any](table, Some(combined))
   }
 
@@ -68,14 +68,16 @@ final class DeleteReady[Cols <: Tuple, Name <: String & Singleton, Args] private
   private[sharp] val whereOpt: Option[Fragment[?]]
 ) {
 
-  def where[A](f: ColumnsView[Cols] => Where[A]): DeleteReady[Cols, Name, Where.Concat[Args, A]] = {
+  def where[A](f: ColumnsView[Cols] => Where[A])(using
+    c2: Where.Concat2[Args, A]
+  ): DeleteReady[Cols, Name, Where.Concat[Args, A]] = {
     val pred     = f(table.columnsView)
-    val combined = SelectBuilder.andInto(whereOpt, pred)
+    val combined = SelectBuilder.andInto[Args, A](whereOpt.asInstanceOf[Option[Fragment[Args]]], pred)
     new DeleteReady[Cols, Name, Where.Concat[Args, A]](table, Some(combined))
   }
 
-  def whereRaw(af: AppliedFragment): DeleteReady[Cols, Name, ?] = {
-    val combined = SelectBuilder.andRawInto(whereOpt, af)
+  def whereRaw(af: AppliedFragment)(using c2: Where.Concat2[Args, Void]): DeleteReady[Cols, Name, ?] = {
+    val combined = SelectBuilder.andRawInto[Args](whereOpt.asInstanceOf[Option[Fragment[Args]]], af)
     new DeleteReady[Cols, Name, Any](table, Some(combined))
   }
 
@@ -119,9 +121,13 @@ final class DeleteReady[Cols <: Tuple, Name <: String & Singleton, Args] private
  */
 private[dsl] object MutationAssembly {
 
+  /**
+   * Mutation builders have at most one typed slot (the WHERE). Pass `Void` as the second `Concat2` arm so
+   * `Concat[Args, Void]` reduces to `Args`.
+   */
   def command[Args](parts: List[BodyPart]): CommandTemplate[Args] = {
-    val tpl = SelectBuilder.assemble[Args, Void](parts, Nil, Void.codec)
-    CommandTemplate.mk[Args](tpl.fragment)
+    val tpl = SelectBuilder.assemble[Args, Void, Void](parts, Nil, Void.codec)
+    CommandTemplate.mk[Args](tpl.fragment.asInstanceOf[Fragment[Args]])
   }
 
   def withReturning[Args, R](
@@ -132,7 +138,7 @@ private[dsl] object MutationAssembly {
     // RETURNING projection items may carry typed Args; bind them at Void here. Roadmap.
     val listAf = TypedExpr.joined(returning.map(e => SelectBuilder.bindVoid(e.fragment)), ", ")
     val parts: List[BodyPart] = base ++ List[BodyPart](Left(RawConstants.RETURNING), Left(listAf))
-    SelectBuilder.assemble[Args, R](parts, Nil, codec)
+    SelectBuilder.assemble[Args, Void, R](parts, Nil, codec).asInstanceOf[QueryTemplate[Args, R]]
   }
 
 }
@@ -164,7 +170,7 @@ final class DeleteUsingBuilder[Cols <: Tuple, Name <: String & Singleton, Ss <: 
   }
 
   def whereRaw(af: AppliedFragment): DeleteUsingReady[Cols, Name, Ss, ?] = {
-    val combined = SelectBuilder.andRawInto(None, af)
+    val combined = SelectBuilder.andRawInto[Void](None, af)
     new DeleteUsingReady[Cols, Name, Ss, Any](table, sources, Some(combined))
   }
 
@@ -179,15 +185,17 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
   private[sharp] val whereOpt: Option[Fragment[?]]
 ) {
 
-  def where[A](f: JoinedView[Ss] => Where[A]): DeleteUsingReady[Cols, Name, Ss, Where.Concat[Args, A]] = {
+  def where[A](f: JoinedView[Ss] => Where[A])(using
+    c2: Where.Concat2[Args, A]
+  ): DeleteUsingReady[Cols, Name, Ss, Where.Concat[Args, A]] = {
     val view     = buildJoinedView(sources)
     val pred     = f(view)
-    val combined = SelectBuilder.andInto(whereOpt, pred)
+    val combined = SelectBuilder.andInto[Args, A](whereOpt.asInstanceOf[Option[Fragment[Args]]], pred)
     new DeleteUsingReady[Cols, Name, Ss, Where.Concat[Args, A]](table, sources, Some(combined))
   }
 
-  def whereRaw(af: AppliedFragment): DeleteUsingReady[Cols, Name, Ss, ?] = {
-    val combined = SelectBuilder.andRawInto(whereOpt, af)
+  def whereRaw(af: AppliedFragment)(using c2: Where.Concat2[Args, Void]): DeleteUsingReady[Cols, Name, Ss, ?] = {
+    val combined = SelectBuilder.andRawInto[Args](whereOpt.asInstanceOf[Option[Fragment[Args]]], af)
     new DeleteUsingReady[Cols, Name, Ss, Any](table, sources, Some(combined))
   }
 

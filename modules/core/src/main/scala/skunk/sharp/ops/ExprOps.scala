@@ -47,7 +47,7 @@ private def opCombine[T, U, A, B](
   lhs: TypedExpr[T, A],
   opSql: String,
   rhs: TypedExpr[U, B]
-): Where[Where.Concat[A, B]] = {
+)(using c2: Where.Concat2[A, B]): Where[Where.Concat[A, B]] = {
   val frag = TypedExpr.combineSep(lhs.fragment, opSql, rhs.fragment)
   Where(frag)
 }
@@ -128,7 +128,9 @@ extension [T, A](lhs: TypedExpr[T, A]) {
 extension [T, A](lhs: TypedExpr[T, A]) {
 
   def between[B, C](lo: TypedExpr[T, B], hi: TypedExpr[T, C])(using
-    @unused ord: cats.Order[T]
+    @unused ord: cats.Order[T],
+    c2_BC: Where.Concat2[B, C],
+    c2_AB: Where.Concat2[A, Where.Concat[B, C]]
   ): Where[Where.Concat[A, Where.Concat[B, C]]] = {
     val rhs = TypedExpr.combineSep(lo.fragment, " AND ", hi.fragment)
     opCombine(lhs, " BETWEEN ", TypedExpr[T, Where.Concat[B, C]](rhs, lo.codec))
@@ -141,7 +143,9 @@ extension [T, A](lhs: TypedExpr[T, A]) {
     between(Param.bind(lo), Param.bind(hi)).asInstanceOf[Where[A]]
 
   def notBetween[B, C](lo: TypedExpr[T, B], hi: TypedExpr[T, C])(using
-    @unused ord: cats.Order[T]
+    @unused ord: cats.Order[T],
+    c2_BC: Where.Concat2[B, C],
+    c2_AB: Where.Concat2[A, Where.Concat[B, C]]
   ): Where[Where.Concat[A, Where.Concat[B, C]]] = {
     val rhs = TypedExpr.combineSep(lo.fragment, " AND ", hi.fragment)
     opCombine(lhs, " NOT BETWEEN ", TypedExpr[T, Where.Concat[B, C]](rhs, lo.codec))
@@ -154,7 +158,9 @@ extension [T, A](lhs: TypedExpr[T, A]) {
     notBetween(Param.bind(lo), Param.bind(hi)).asInstanceOf[Where[A]]
 
   def betweenSymmetric[B, C](lo: TypedExpr[T, B], hi: TypedExpr[T, C])(using
-    @unused ord: cats.Order[T]
+    @unused ord: cats.Order[T],
+    c2_BC: Where.Concat2[B, C],
+    c2_AB: Where.Concat2[A, Where.Concat[B, C]]
   ): Where[Where.Concat[A, Where.Concat[B, C]]] = {
     val rhs = TypedExpr.combineSep(lo.fragment, " AND ", hi.fragment)
     opCombine(lhs, " BETWEEN SYMMETRIC ", TypedExpr[T, Where.Concat[B, C]](rhs, lo.codec))

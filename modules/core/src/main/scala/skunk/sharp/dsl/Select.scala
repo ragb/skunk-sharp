@@ -58,15 +58,19 @@ final class SelectBuilder[Ss <: Tuple, WArgs, HArgs] private[sharp] (
   private def view: SelectView[Ss] = buildSelectView[Ss](sources)
 
   /** AND in a typed predicate — `WArgs` extends via `Where.Concat`. */
-  def where[A](f: SelectView[Ss] => Where[A]): SelectBuilder[Ss, Where.Concat[WArgs, A], HArgs] = {
+  def where[A](f: SelectView[Ss] => Where[A])(using
+    c2: Where.Concat2[WArgs, A]
+  ): SelectBuilder[Ss, Where.Concat[WArgs, A], HArgs] = {
     val pred     = f(view)
-    val combined = SelectBuilder.andInto(whereOpt, pred)
+    val combined = SelectBuilder.andInto[WArgs, A](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], pred)
     cp[Where.Concat[WArgs, A], HArgs](whereOpt = Some(combined))
   }
 
   /** Escape hatch — widens `WArgs` to `?`. */
-  def whereRaw(af: AppliedFragment): SelectBuilder[Ss, ?, HArgs] = {
-    val combined = SelectBuilder.andRawInto(whereOpt, af)
+  def whereRaw(af: AppliedFragment)(using
+    c2: Where.Concat2[WArgs, Void]
+  ): SelectBuilder[Ss, ?, HArgs] = {
+    val combined = SelectBuilder.andRawInto[WArgs](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], af)
     cp[Any, HArgs](whereOpt = Some(combined))
   }
 
@@ -89,15 +93,19 @@ final class SelectBuilder[Ss <: Tuple, WArgs, HArgs] private[sharp] (
   }
 
   /** `HAVING <typed-predicate>`. */
-  def having[H](f: SelectView[Ss] => Where[H]): SelectBuilder[Ss, WArgs, Where.Concat[HArgs, H]] = {
+  def having[H](f: SelectView[Ss] => Where[H])(using
+    c2: Where.Concat2[HArgs, H]
+  ): SelectBuilder[Ss, WArgs, Where.Concat[HArgs, H]] = {
     val pred     = f(view)
-    val combined = SelectBuilder.andInto(havingOpt, pred)
+    val combined = SelectBuilder.andInto[HArgs, H](havingOpt.asInstanceOf[Option[Fragment[HArgs]]], pred)
     cp[WArgs, Where.Concat[HArgs, H]](havingOpt = Some(combined))
   }
 
   /** Escape hatch HAVING — widens `HArgs` to `?`. */
-  def havingRaw(af: AppliedFragment): SelectBuilder[Ss, WArgs, ?] = {
-    val combined = SelectBuilder.andRawInto(havingOpt, af)
+  def havingRaw(af: AppliedFragment)(using
+    c2: Where.Concat2[HArgs, Void]
+  ): SelectBuilder[Ss, WArgs, ?] = {
+    val combined = SelectBuilder.andRawInto[HArgs](havingOpt.asInstanceOf[Option[Fragment[HArgs]]], af)
     cp[WArgs, Any](havingOpt = Some(combined))
   }
 
@@ -318,23 +326,25 @@ final class SelectBuilder[Ss <: Tuple, WArgs, HArgs] private[sharp] (
   private[dsl] def compileFragment(using ev: IsSingleSource[Ss]): AppliedFragment = {
     val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
     val head    = entries.head
-    val tpl     = SelectBuilder.assemble[Void, NamedRowOf[ev.Cols]](
+    val tpl     = SelectBuilder.assemble[Void, Void, NamedRowOf[ev.Cols]](
       bodyParts = compileBodyParts(head),
       ctes      = Nil, // outer query owns the WITH preamble
       codec     = rowCodec(head.effectiveCols).asInstanceOf[Codec[NamedRowOf[ev.Cols]]]
     )
-    tpl.fragment.apply(Void)
+    tpl.fragment.asInstanceOf[Fragment[Void]].apply(Void)
   }
 
   /**
-   * Whole-row `.compile` — only on single-source builders. Returns `QueryTemplate[Args, Row]` where `Args`
-   * is `Where.Concat[WArgs, HArgs]`.
+   * Whole-row `.compile` — only on single-source builders. Returns `QueryTemplate[Concat[WArgs, HArgs], Row]`.
    */
-  def compile(using ev: IsSingleSource[Ss]): QueryTemplate[Where.Concat[WArgs, HArgs], NamedRowOf[ev.Cols]] = {
+  def compile(using
+    ev: IsSingleSource[Ss],
+    c2: Where.Concat2[WArgs, HArgs]
+  ): QueryTemplate[Where.Concat[WArgs, HArgs], NamedRowOf[ev.Cols]] = {
     val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
     val head    = entries.head
     val ctes    = collectCtesInOrder(entries)
-    SelectBuilder.assemble[Where.Concat[WArgs, HArgs], NamedRowOf[ev.Cols]](
+    SelectBuilder.assemble[WArgs, HArgs, NamedRowOf[ev.Cols]](
       bodyParts = compileBodyParts(head),
       ctes      = ctes,
       codec     = rowCodec(head.effectiveCols).asInstanceOf[Codec[NamedRowOf[ev.Cols]]]
@@ -399,10 +409,15 @@ object SelectBuilder {
 
   // ---- AND-into helpers (typed and raw) --------------------------------------------------------
 
-  /** AND a typed predicate into an existing slot. The output `Fragment[?]` carries the combined args via product. */
-  private[dsl] def andInto[A](slot: Option[Fragment[?]], pred: Where[A]): Fragment[?] =
+  /**
+   * AND a typed predicate into an existing typed slot. Uses [[Where.Concat2]] so the combined encoder's input
+   * shape matches `Concat[Slot, A]` rather than the raw Tuple2 the underlying product expects.
+   */
+  private[dsl] def andInto[Slot, A](
+    slot: Option[Fragment[Slot]], pred: Where[A]
+  )(using c2: Where.Concat2[Slot, A]): Fragment[Where.Concat[Slot, A]] =
     slot match {
-      case None    => pred.fragment
+      case None    => pred.fragment.asInstanceOf[Fragment[Where.Concat[Slot, A]]]
       case Some(f) =>
         val parts =
           RawConstants.OPEN_PAREN.fragment.parts ++
@@ -410,15 +425,17 @@ object SelectBuilder {
             RawConstants.AND.fragment.parts ++
             pred.fragment.parts ++
             RawConstants.CLOSE_PAREN.fragment.parts
-        val enc = combineEncoders(f.encoder, pred.fragment.encoder)
-        Fragment(parts, enc, Origin.unknown).asInstanceOf[Fragment[?]]
+        val enc = TypedExpr.combineEnc[Slot, A](f.encoder, pred.fragment.encoder)
+        Fragment(parts, enc, Origin.unknown)
     }
 
-  /** AND a pre-applied raw `AppliedFragment` into a slot — bakes its args via contramap. */
-  private[dsl] def andRawInto(slot: Option[Fragment[?]], af: AppliedFragment): Fragment[?] = {
+  /** AND a pre-applied raw `AppliedFragment` into a slot — bakes its args via contramap (treats raw as Void-args). */
+  private[dsl] def andRawInto[Slot](
+    slot: Option[Fragment[Slot]], af: AppliedFragment
+  )(using c2: Where.Concat2[Slot, Void]): Fragment[Where.Concat[Slot, Void]] = {
     val rawFrag: Fragment[Void] = TypedExpr.liftAfToVoid(af)
     slot match {
-      case None    => rawFrag
+      case None    => rawFrag.asInstanceOf[Fragment[Where.Concat[Slot, Void]]]
       case Some(f) =>
         val parts =
           RawConstants.OPEN_PAREN.fragment.parts ++
@@ -426,12 +443,12 @@ object SelectBuilder {
             RawConstants.AND.fragment.parts ++
             rawFrag.parts ++
             RawConstants.CLOSE_PAREN.fragment.parts
-        val enc = combineEncoders(f.encoder, rawFrag.encoder)
-        Fragment(parts, enc, Origin.unknown).asInstanceOf[Fragment[?]]
+        val enc = TypedExpr.combineEnc[Slot, Void](f.encoder, rawFrag.encoder)
+        Fragment(parts, enc, Origin.unknown)
     }
   }
 
-  /** Void-aware product of two encoders. Returns `Encoder[Any]`; caller casts at the Fragment construction site. */
+  /** Legacy alias — still used by some sites that haven't been updated. Falls through to product. */
   private[dsl] def combineEncoders(a: Encoder[?], b: Encoder[?]): Encoder[Any] = {
     val voidLeft  = a eq Void.codec
     val voidRight = b eq Void.codec
@@ -498,22 +515,24 @@ object SelectBuilder {
     f.asInstanceOf[Fragment[Void]].apply(Void)
 
   /**
-   * Glue body parts into a single `Fragment[Args]`. Splits walk into baked side (Left, AppliedFragment whose
-   * args are pre-applied) and typed side (Right, Fragment whose encoder takes user-supplied `Args` at execute
-   * time). Final encoder contramaps `Args` to a `(bakedArgs, userArgs)` pair so baked values flow without
-   * the user having to think about them.
+   * Glue body parts into a single `Fragment[Concat[A1, A2]]`. Splits walk into baked side (Left,
+   * AppliedFragment whose args are pre-applied) and typed side (Right, typed Fragment slots that take
+   * user-supplied args at execute time). At most TWO typed slots are expected (WHERE and HAVING for
+   * SELECT; WHERE for mutations). The two typed encoders' product is contramapped via
+   * [[Where.Concat2]] so the visible `Concat[A1, A2]` input shape matches what the encoder consumes.
+   * Baked args are similarly contramapped onto the front.
    */
-  private[dsl] def assemble[Args, R](
+  private[dsl] def assemble[A1, A2, R](
     bodyParts: List[BodyPart],
     ctes:      List[CteRelation[?, ?]],
     codec:     Codec[R]
-  ): QueryTemplate[Args, R] = {
+  )(using c2: Where.Concat2[A1, A2]): QueryTemplate[Where.Concat[A1, A2], R] = {
     val ctePreamble: Option[AppliedFragment] = renderWithPreamble(ctes)
 
     val partsBuf = scala.collection.mutable.ListBuffer[Either[String, cats.data.State[Int, String]]]()
-    var preEnc:   Encoder[Any] = Void.codec.asInstanceOf[Encoder[Any]]
-    var preArgs:  Any          = Void
-    var typedEnc: Encoder[Any] = Void.codec.asInstanceOf[Encoder[Any]]
+    var preEnc:   Encoder[Any]                   = Void.codec.asInstanceOf[Encoder[Any]]
+    var preArgs:  Any                            = Void
+    val typedEncs = scala.collection.mutable.ListBuffer[Encoder[Any]]()
 
     def addBaked(af: AppliedFragment): Unit = {
       partsBuf ++= af.fragment.parts
@@ -532,10 +551,7 @@ object SelectBuilder {
     def addTyped(f: Fragment[?]): Unit = {
       partsBuf ++= f.parts
       val nextE = f.encoder.asInstanceOf[Encoder[Any]]
-      if (!(nextE eq Void.codec)) {
-        if (typedEnc eq Void.codec) typedEnc = nextE
-        else                         typedEnc = typedEnc.product(nextE).asInstanceOf[Encoder[Any]]
-      }
+      if (!(nextE eq Void.codec)) typedEncs += nextE
     }
 
     ctePreamble.foreach(addBaked)
@@ -544,14 +560,38 @@ object SelectBuilder {
       case Right(f) => addTyped(f)
     }
 
-    val combinedEnc: Encoder[Any] =
-      if ((preEnc eq Void.codec) && (typedEnc eq Void.codec)) Void.codec.asInstanceOf[Encoder[Any]]
-      else if (preEnc eq Void.codec)                         typedEnc
-      else if (typedEnc eq Void.codec)                       preEnc.contramap[Any](_ => preArgs)
-      else                                                    preEnc.product(typedEnc).contramap[Any](a => (preArgs, a))
+    // Combine the (at most 2) typed encoders into a single Encoder[Concat[A1, A2]] using the Concat2
+    // typeclass to project the user's Concat[A1, A2] input into the (A1, A2) tuple the underlying product
+    // expects. Three sub-cases: no typed slots, one typed slot (Args = A1, A2 = Void), two typed slots.
+    val typedEnc: Encoder[Where.Concat[A1, A2]] = typedEncs.toList match {
+      case Nil =>
+        Void.codec.asInstanceOf[Encoder[Where.Concat[A1, A2]]]
+      case e :: Nil =>
+        // Single typed slot: A2 is Void, Concat[A1, Void] reduces to A1; encoder is Encoder[A1].
+        e.asInstanceOf[Encoder[Where.Concat[A1, A2]]]
+      case e1 :: e2 :: Nil =>
+        val productEnc: Encoder[(A1, A2)] =
+          e1.asInstanceOf[Encoder[A1]].product(e2.asInstanceOf[Encoder[A2]])
+        productEnc.contramap[Where.Concat[A1, A2]](c2.project)
+      case more =>
+        sys.error(s"skunk-sharp: assemble received ${more.size} typed slots; expected at most 2 (WHERE + HAVING)")
+    }
 
-    val frag: Fragment[Args] = Fragment(partsBuf.toList, combinedEnc, Origin.unknown).asInstanceOf[Fragment[Args]]
-    QueryTemplate.mk[Args, R](frag, codec)
+    val combinedEnc: Encoder[Where.Concat[A1, A2]] = {
+      val voidPre   = preEnc eq Void.codec
+      val voidTyped = typedEnc eq Void.codec
+      if (voidPre && voidTyped) Void.codec.asInstanceOf[Encoder[Where.Concat[A1, A2]]]
+      else if (voidPre)         typedEnc
+      else if (voidTyped)       preEnc.contramap[Where.Concat[A1, A2]](_ => preArgs)
+                                  .asInstanceOf[Encoder[Where.Concat[A1, A2]]]
+      else                       preEnc.product(typedEnc.asInstanceOf[Encoder[Any]])
+                                  .contramap[Where.Concat[A1, A2]](a => (preArgs, a))
+                                  .asInstanceOf[Encoder[Where.Concat[A1, A2]]]
+    }
+
+    val frag: Fragment[Where.Concat[A1, A2]] =
+      Fragment(partsBuf.toList, combinedEnc, Origin.unknown)
+    QueryTemplate.mk[Where.Concat[A1, A2], R](frag, codec)
   }
 
 }
@@ -604,15 +644,18 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
 
   private def view: SelectView[Ss] = buildSelectView[Ss](sources)
 
-  def where[A](f: SelectView[Ss] => Where[A])
-      : ProjectedSelect[Ss, Proj, Groups, Where.Concat[WArgs, A], HArgs, Row] = {
+  def where[A](f: SelectView[Ss] => Where[A])(using
+    c2: Where.Concat2[WArgs, A]
+  ): ProjectedSelect[Ss, Proj, Groups, Where.Concat[WArgs, A], HArgs, Row] = {
     val pred     = f(view)
-    val combined = SelectBuilder.andInto(whereOpt, pred)
+    val combined = SelectBuilder.andInto[WArgs, A](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], pred)
     cp[Where.Concat[WArgs, A], HArgs](whereOpt = Some(combined))
   }
 
-  def whereRaw(af: AppliedFragment): ProjectedSelect[Ss, Proj, Groups, ?, HArgs, Row] = {
-    val combined = SelectBuilder.andRawInto(whereOpt, af)
+  def whereRaw(af: AppliedFragment)(using
+    c2: Where.Concat2[WArgs, Void]
+  ): ProjectedSelect[Ss, Proj, Groups, ?, HArgs, Row] = {
+    val combined = SelectBuilder.andRawInto[WArgs](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], af)
     cp[Any, HArgs](whereOpt = Some(combined))
   }
 
@@ -647,15 +690,18 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
     )
   }
 
-  def having[H](f: SelectView[Ss] => Where[H])
-      : ProjectedSelect[Ss, Proj, Groups, WArgs, Where.Concat[HArgs, H], Row] = {
+  def having[H](f: SelectView[Ss] => Where[H])(using
+    c2: Where.Concat2[HArgs, H]
+  ): ProjectedSelect[Ss, Proj, Groups, WArgs, Where.Concat[HArgs, H], Row] = {
     val pred     = f(view)
-    val combined = SelectBuilder.andInto(havingOpt, pred)
+    val combined = SelectBuilder.andInto[HArgs, H](havingOpt.asInstanceOf[Option[Fragment[HArgs]]], pred)
     cp[WArgs, Where.Concat[HArgs, H]](havingOpt = Some(combined))
   }
 
-  def havingRaw(af: AppliedFragment): ProjectedSelect[Ss, Proj, Groups, WArgs, ?, Row] = {
-    val combined = SelectBuilder.andRawInto(havingOpt, af)
+  def havingRaw(af: AppliedFragment)(using
+    c2: Where.Concat2[HArgs, Void]
+  ): ProjectedSelect[Ss, Proj, Groups, WArgs, ?, Row] = {
+    val combined = SelectBuilder.andRawInto[HArgs](havingOpt.asInstanceOf[Option[Fragment[HArgs]]], af)
     cp[WArgs, Any](havingOpt = Some(combined))
   }
 
@@ -718,20 +764,23 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
    * (outer query's `assemble` owns the WITH). Constrained to Void-args inner queries.
    */
   private[dsl] def compileFragment(using @scala.annotation.unused ev: GroupCoverage[Proj, Groups]): AppliedFragment = {
-    val tpl = SelectBuilder.assemble[Void, Row](
+    val tpl = SelectBuilder.assemble[Void, Void, Row](
       bodyParts = compileBodyParts(),
       ctes      = Nil,
       codec     = codec
     )
-    tpl.fragment.apply(Void)
+    tpl.fragment.asInstanceOf[Fragment[Void]].apply(Void)
   }
 
   /** Compile into a [[QueryTemplate]]. Enforces [[GroupCoverage]]. */
-  def compile(using ev: GroupCoverage[Proj, Groups]): QueryTemplate[Where.Concat[WArgs, HArgs], Row] = {
+  def compile(using
+    ev: GroupCoverage[Proj, Groups],
+    c2: Where.Concat2[WArgs, HArgs]
+  ): QueryTemplate[Where.Concat[WArgs, HArgs], Row] = {
     val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
     val ctes    = collectCtesInOrder(entries)
     val parts   = compileBodyParts()
-    SelectBuilder.assemble[Where.Concat[WArgs, HArgs], Row](
+    SelectBuilder.assemble[WArgs, HArgs, Row](
       bodyParts = parts,
       ctes      = ctes,
       codec     = codec
