@@ -1,16 +1,64 @@
 # Resume: Param migration (TypedExpr[T] → TypedExpr[T, Args])
 
-**Branch**: `param-placeholders` (off `macro-sql-assembly`)
-**Head**: `100ebd8` — **migration complete, all tests pass**.
+**Branch**: `macro-sql-assembly` (param-placeholders has been merged in)
+**Head**: `e7c2f87` — pushed to remote.
 
 | module    | tests   | status |
 | --------- | ------- | ------ |
-| core      | 384/384 | ✅     |
+| core      | 397/397 | ✅     |
 | circe     | 10/10   | ✅     |
 | iron      | 4/4     | ✅     |
 | refined   | 5/5     | ✅     |
-| tests     | 158/158 | ✅ (Postgres testcontainers) |
-| **total** | **561/561** | ✅ |
+| tests     | 159/159 | ✅ (Postgres testcontainers) |
+| **total** | **575/575** | ✅ |
+
+## Post-merge follow-up work (commits `fb2fe1b` → `e7c2f87`)
+
+- `fb2fe1b` — threaded `Concat2` through `PgFunction.binary`, `PgOperator.infix`,
+  `ArrayOps`, `RangeOps` so third-party operators built on these factories
+  propagate typed Args correctly.
+- `21d25b9` — **UPDATE SET supports `Param[T]`**. `MutationAssembly.command` now
+  takes `[A1, A2]`. `UpdateBuilder.set` splits into single-SetAssignment (typed)
+  and tuple-form (Void) overloads, `setFragment` routes via `Right(typed)` in
+  `updateParts`. The known-broken `Fragment[Void].apply(Void)` cast is gone.
+- `ad10e67` — `ParamSuite` covers `Pg.mod` / `Pg.power` / range / array binary ops
+  with Param in WHERE position; encoder round-trip verified.
+- `7c92ffc` — **single-expression RETURNING threads `RetArgs`**. New
+  `SelectBuilder.assemble3[A1, A2, A3, R]` handles up to three typed slots in
+  render order. `MutationAssembly.withReturningTyped` routes a single returning
+  Fragment via `Right(typed)`. `.returning(f)` on Update/Delete/Insert returns
+  `QueryTemplate[Concat[Concat[A1,A2], A], T]`.
+- `e7c2f87` — example repositories ported to static `QueryTemplate` style. Both
+  `RoomRepository` and `BookingRepository` compile each fixed-shape query once at
+  object construction. `RoomRepository.patch` is the lone remaining captured-args
+  call — a documented limitation, not a missing feature.
+
+## Open gaps (priority order)
+
+1. **Multi-item RETURNING with typed Args** (`returningTuple`, `returningAll`).
+   The single-expression path is shipped; multi-item still binds individually at
+   Void via `bindVoid`. Two paths to land:
+   - Transparent-inline macro that walks the projection tuple and computes
+     combined Args via fold-Concat match types, routing each item independently.
+   - Or: explicit arity-overloaded `returning2[T1, A1, T2, A2](...)`,
+     `returning3[...]` up to ~5. Uglier API but contained.
+2. **SELECT projection threading**. Same shape as (1) — currently every projection
+   item is bound at Void. Adds a 7th type param `ProjArgs` to `ProjectedSelect`.
+3. **GROUP BY / ORDER BY / DISTINCT ON Param threading**. Less common in
+   practice; same combine-N-typed-fragments problem as (1).
+4. **Variadic builders** (`Pg.coalesce`, `concat`, `Pg.overlaps`, `CASE WHEN`,
+   `rangeCtor3`, `Pg.makeDate`, …). Currently all collapse to `Args = Void` via
+   `joinedVoid`. Reuse the same combiner from (1).
+5. **`UPDATE … FROM` / `DELETE … USING` typed Args from the USING/FROM source**.
+   Currently the inner relation is bound at Void.
+6. **Subquery `.alias` / CTE bodies with typed inner Args**. `SelectBuilder.alias`
+   binds `Void`; threading inner subquery's Args through `.alias` is roadmap.
+7. **CASE WHEN typed Args**. Branches' Args are widened to `?` today.
+
+The unifying engineering work for (1)-(4) is a single helper:
+`combineList[Combined](items: List[Fragment[?]], sep: String): Fragment[Combined]`
+plus a static fold-Concat match type for computing `Combined` from a heterogeneous
+tuple of TypedExprs. Done once, all four positions thread typed Args naturally.
 
 ## Headline result
 
