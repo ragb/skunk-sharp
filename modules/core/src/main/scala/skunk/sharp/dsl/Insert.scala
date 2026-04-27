@@ -160,10 +160,13 @@ final class InsertCommand[Cols <: Tuple, Args] private[sharp] (
     buf.toList
   }
 
-  def returning[T, A](f: ColumnsView[Cols] => TypedExpr[T, A]): QueryTemplate[Args, T] = {
+  def returning[T, A](f: ColumnsView[Cols] => TypedExpr[T, A])(using
+    c123: Where.Concat2[Where.Concat[Args, Void], A]
+  ): QueryTemplate[Where.Concat[Args, A], T] = {
     val view = table.columnsView
     val expr = f(view)
-    MutationAssembly.withReturning[Args, Void, T](insertParts, List(expr), expr.codec).asInstanceOf[QueryTemplate[Args, T]]
+    MutationAssembly.withReturningTyped[Args, Void, A, T](insertParts, expr.fragment, expr.codec)
+      .asInstanceOf[QueryTemplate[Where.Concat[Args, A], T]]
   }
 
   def returningTuple[T <: NonEmptyTuple](f: ColumnsView[Cols] => T): QueryTemplate[Args, ExprOutputs[T]] = {

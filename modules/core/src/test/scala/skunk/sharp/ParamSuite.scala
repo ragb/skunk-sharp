@@ -272,4 +272,47 @@ class ParamSuite extends munit.FunSuite {
     assertEquals(encoded, List("10", "3"))
   }
 
+  // -------- Param[T] in single-expression RETURNING ---------------------------
+
+  test("UPDATE … RETURNING column (Void RetArgs) collapses RetArgs cleanly") {
+    val q = users.update
+      .set(u => u.email := "fixed")
+      .where(u => u.id === Param[UUID])
+      .returning(u => u.email)
+    val _: QueryTemplate[UUID, String] = q
+  }
+
+  test("UPDATE SET Param + WHERE Param + RETURNING Param: Args = ((SetT, WhereT), RetT)") {
+    val q = users.update
+      .set(u => u.email := Param[String])
+      .where(u => u.id === Param[UUID])
+      .returning(u => Pg.power(u.age, Param[Double]))
+    val _: QueryTemplate[((String, UUID), Double), Double] = q
+  }
+
+  test("DELETE … RETURNING Param-bearing expr threads RetArgs after WArgs") {
+    val q = users.delete
+      .where(u => u.id === Param[UUID])
+      .returning(u => Pg.power(u.age, Param[Double]))
+    val _: QueryTemplate[(UUID, Double), Double] = q
+  }
+
+  test("INSERT.withParams(...).returning(Param-bearing expr) threads (rowArgs, retArgs)") {
+    val q = users.insert
+      .withParams((id = Param[UUID], email = Param[String], age = Param[Int]))
+      .returning(u => Pg.power(u.age, Param[Double]))
+    val _: QueryTemplate[((UUID, String, Int), Double), Double] = q
+  }
+
+  test("Encoder for UPDATE Param + WHERE Param + RETURNING Param binds in render order") {
+    val q = users.update
+      .set(u => u.email := Param[String])
+      .where(u => u.id === Param[UUID])
+      .returning(u => Pg.power(u.age, Param[Double]))
+    val uid     = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+    val af      = q.bind((("set@x", uid), 2.0))
+    val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
+    assertEquals(encoded, List("set@x", uid.toString, "2.0"))
+  }
+
 }

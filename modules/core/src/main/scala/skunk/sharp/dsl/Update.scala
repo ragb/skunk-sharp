@@ -175,10 +175,11 @@ final class UpdateReady[Cols <: Tuple, Name <: String & Singleton, SetArgs, WArg
     MutationAssembly.command[SetArgs, WArgs](updateParts)
 
   def returning[T, A](f: ColumnsView[Cols] => TypedExpr[T, A])(using
-    c2: Where.Concat2[SetArgs, WArgs]
-  ): QueryTemplate[Where.Concat[SetArgs, WArgs], T] = {
+    c12:  Where.Concat2[SetArgs, WArgs],
+    c123: Where.Concat2[Where.Concat[SetArgs, WArgs], A]
+  ): QueryTemplate[Where.Concat[Where.Concat[SetArgs, WArgs], A], T] = {
     val expr = f(table.columnsView)
-    MutationAssembly.withReturning[SetArgs, WArgs, T](updateParts, List(expr), expr.codec)
+    MutationAssembly.withReturningTyped[SetArgs, WArgs, A, T](updateParts, expr.fragment, expr.codec)
   }
 
   def returningTuple[T <: NonEmptyTuple](
@@ -304,10 +305,11 @@ final class UpdateFromReady[
     MutationAssembly.command[SetArgs, WArgs](updateFromParts)
 
   def returning[T, A](f: JoinedView[Ss] => TypedExpr[T, A])(using
-    c2: Where.Concat2[SetArgs, WArgs]
-  ): QueryTemplate[Where.Concat[SetArgs, WArgs], T] = {
+    c12:  Where.Concat2[SetArgs, WArgs],
+    c123: Where.Concat2[Where.Concat[SetArgs, WArgs], A]
+  ): QueryTemplate[Where.Concat[Where.Concat[SetArgs, WArgs], A], T] = {
     val expr = f(buildJoinedView(sources))
-    MutationAssembly.withReturning[SetArgs, WArgs, T](updateFromParts, List(expr), expr.codec)
+    MutationAssembly.withReturningTyped[SetArgs, WArgs, A, T](updateFromParts, expr.fragment, expr.codec)
   }
 
   def returningTuple[T <: NonEmptyTuple](

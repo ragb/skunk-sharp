@@ -529,7 +529,25 @@ object SelectBuilder {
     bodyParts: List[BodyPart],
     ctes:      List[CteRelation[?, ?]],
     codec:     Codec[R]
-  )(using c2: Where.Concat2[A1, A2]): QueryTemplate[Where.Concat[A1, A2], R] = {
+  )(using c2: Where.Concat2[A1, A2]): QueryTemplate[Where.Concat[A1, A2], R] =
+    assemble3[A1, A2, Void, R](bodyParts, ctes, codec).asInstanceOf[QueryTemplate[Where.Concat[A1, A2], R]]
+
+  /**
+   * Three-slot assemble. Render-order dispatch: the first typed (Right) part receives `A1`, the second
+   * `A2`, the third `A3`. Result Args is `Concat[Concat[A1, A2], A3]` — a left-fold reduction so each
+   * arm collapses Void independently.
+   *
+   * Used by SELECT (proj/where/having) and mutation+RETURNING (set/where/returning) shapes. For two-slot
+   * cases pass `Void` for `A3`; for one-slot cases pass `Void` for both.
+   */
+  private[dsl] def assemble3[A1, A2, A3, R](
+    bodyParts: List[BodyPart],
+    ctes:      List[CteRelation[?, ?]],
+    codec:     Codec[R]
+  )(using
+    c12:  Where.Concat2[A1, A2],
+    c123: Where.Concat2[Where.Concat[A1, A2], A3]
+  ): QueryTemplate[Where.Concat[Where.Concat[A1, A2], A3], R] = {
     val ctePreamble: Option[AppliedFragment] = renderWithPreamble(ctes)
 
     // Materialise the parts list with CTE preamble prepended.
@@ -542,16 +560,15 @@ object SelectBuilder {
         case Right(f) => f.parts
       }
 
-    // Count typed (Right) slots — at most 2 (WHERE + HAVING for SELECT; WHERE for mutations).
+    // Count typed (Right) slots in render order. Up to 3 — SELECT's proj/where/having or
+    // mutation+RETURNING's set/where/returning.
     val typedCount = allParts.count {
       case Right(f) if !(f.encoder eq Void.codec) => true
       case _                                       => false
     }
 
-    // Build a single Encoder[Concat[A1, A2]] that walks the parts list at encode time, dispatching each
-    // part to its own encoder with the appropriate input.
-    val finalEnc: Encoder[Where.Concat[A1, A2]] = new Encoder[Where.Concat[A1, A2]] {
-      // Aggregate types and SQL across all sub-encoders, in render order.
+    type Out = Where.Concat[Where.Concat[A1, A2], A3]
+    val finalEnc: Encoder[Out] = new Encoder[Out] {
       override val types: List[skunk.data.Type] =
         allParts.flatMap {
           case Left(af) => af.fragment.encoder.types
@@ -568,12 +585,20 @@ object SelectBuilder {
           }
         }
 
-      override def encode(args: Where.Concat[A1, A2]): List[Option[skunk.data.Encoded]] = {
-        // Project the user's Args into (A1, A2) for typed-slot dispatch.
-        val (a1, a2) =
-          if (typedCount == 0) (Void, Void)
-          else if (typedCount == 1) (args, Void)
-          else c2.project(args)
+      override def encode(args: Out): List[Option[skunk.data.Encoded]] = {
+        // Project the user's Args into (A1, A2, A3) for typed-slot dispatch.
+        val (a1, a2, a3) = typedCount match {
+          case 0 => (Void, Void, Void)
+          case 1 => (args, Void, Void)
+          case 2 =>
+            val (a12, _) = c123.project(args)
+            val (a, b)   = c12.project(a12.asInstanceOf[Where.Concat[A1, A2]])
+            (a, b, Void)
+          case _ =>
+            val (a12, c) = c123.project(args)
+            val (a, b)   = c12.project(a12.asInstanceOf[Where.Concat[A1, A2]])
+            (a, b, c)
+        }
 
         var typedIdx = 0
         allParts.flatMap {
@@ -583,7 +608,11 @@ object SelectBuilder {
             val enc = f.encoder.asInstanceOf[Encoder[Any]]
             if (enc eq Void.codec) Nil
             else {
-              val v = if (typedIdx == 0) a1 else a2
+              val v = typedIdx match {
+                case 0 => a1
+                case 1 => a2
+                case _ => a3
+              }
               typedIdx += 1
               enc.encode(v)
             }
@@ -591,9 +620,8 @@ object SelectBuilder {
       }
     }
 
-    val frag: Fragment[Where.Concat[A1, A2]] =
-      Fragment(sqlParts, finalEnc, Origin.unknown)
-    QueryTemplate.mk[Where.Concat[A1, A2], R](frag, codec)
+    val frag: Fragment[Out] = Fragment(sqlParts, finalEnc, Origin.unknown)
+    QueryTemplate.mk[Out, R](frag, codec)
   }
 
 }

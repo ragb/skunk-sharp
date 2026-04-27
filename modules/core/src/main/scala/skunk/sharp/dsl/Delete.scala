@@ -92,9 +92,12 @@ final class DeleteReady[Cols <: Tuple, Name <: String & Singleton, Args] private
 
   def compile: CommandTemplate[Args] = MutationAssembly.command[Args, Void](deleteParts).asInstanceOf[CommandTemplate[Args]]
 
-  def returning[T, A](f: ColumnsView[Cols] => TypedExpr[T, A]): QueryTemplate[Args, T] = {
+  def returning[T, A](f: ColumnsView[Cols] => TypedExpr[T, A])(using
+    c123: Where.Concat2[Where.Concat[Args, Void], A]
+  ): QueryTemplate[Where.Concat[Args, A], T] = {
     val expr = f(table.columnsView)
-    MutationAssembly.withReturning[Args, Void, T](deleteParts, List(expr), expr.codec).asInstanceOf[QueryTemplate[Args, T]]
+    MutationAssembly.withReturningTyped[Args, Void, A, T](deleteParts, expr.fragment, expr.codec)
+      .asInstanceOf[QueryTemplate[Where.Concat[Args, A], T]]
   }
 
   def returningTuple[T <: NonEmptyTuple](f: ColumnsView[Cols] => T): QueryTemplate[Args, ExprOutputs[T]] = {
@@ -137,10 +140,26 @@ private[dsl] object MutationAssembly {
     returning: List[TypedExpr[?, ?]],
     codec: Codec[R]
   )(using c2: Where.Concat2[A1, A2]): QueryTemplate[Where.Concat[A1, A2], R] = {
-    // RETURNING projection items may carry typed Args; bind them at Void here. Roadmap.
+    // Multi-item RETURNING — items individually bind at Void (typed-Args threading per item is roadmap).
     val listAf = TypedExpr.joined(returning.map(e => SelectBuilder.bindVoid(e.fragment)), ", ")
     val parts: List[BodyPart] = base ++ List[BodyPart](Left(RawConstants.RETURNING), Left(listAf))
     SelectBuilder.assemble[A1, A2, R](parts, Nil, codec)
+  }
+
+  /**
+   * Single-expression RETURNING that threads typed Args. The expression's `RetArgs` becomes the third
+   * typed slot at execute time, after SET/WHERE.
+   */
+  def withReturningTyped[A1, A2, RetArgs, R](
+    base: List[BodyPart],
+    returning: Fragment[RetArgs],
+    codec: Codec[R]
+  )(using
+    c12:  Where.Concat2[A1, A2],
+    c123: Where.Concat2[Where.Concat[A1, A2], RetArgs]
+  ): QueryTemplate[Where.Concat[Where.Concat[A1, A2], RetArgs], R] = {
+    val parts: List[BodyPart] = base ++ List[BodyPart](Left(RawConstants.RETURNING), Right(returning))
+    SelectBuilder.assemble3[A1, A2, RetArgs, R](parts, Nil, codec)
   }
 
 }
@@ -221,6 +240,7 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
     val expr = f(buildJoinedView(sources))
     MutationAssembly.withReturning[Args, Void, T](bodyParts, List(expr), expr.codec).asInstanceOf[QueryTemplate[Args, T]]
   }
+  // (DELETE … USING.returning keeps the multi-item path; threading typed RetArgs through USING is roadmap.)
 
   def returningTuple[T <: NonEmptyTuple](f: JoinedView[Ss] => T): QueryTemplate[Args, ExprOutputs[T]] = {
     val exprs = f(buildJoinedView(sources)).toList.asInstanceOf[List[TypedExpr[?, ?]]]
