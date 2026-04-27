@@ -300,13 +300,18 @@ private def quantifiedRender[T, A, Q, ET, QA](
   op: String,
   quant: String,
   q: Q
-)(using ev: skunk.sharp.dsl.AsSubquery[Q, ET, QA]): Where[A] = {
+)(using
+  ev: skunk.sharp.dsl.AsSubquery[Q, ET, QA],
+  c2: Where.Concat2[A, Void]
+): Where[A] = {
+  // The inner subquery's encoder may carry baked Param values (e.g. inner WHERE has `like(...)`). Apply to
+  // Void to bind any inner args, lift back to Fragment[Void] preserving the contramap-Void encoder, then
+  // wrap with `<op> ANY/ALL (...)` and combineSep with the outer LHS so both encoders fold into the result.
   val inner: Fragment[QA] = ev.fragment(q)
-  val voidFrag = TypedExpr.liftAfToVoid(inner.apply(Void.asInstanceOf[QA]))
-  val rhsFrag  = TypedExpr.wrap(s" $op $quant (", voidFrag, ")")
-  val combinedParts = lhs.fragment.parts ++ rhsFrag.parts
-  val frag: Fragment[A] = Fragment(combinedParts, lhs.fragment.encoder, Origin.unknown)
-  Where(frag)
+  val voidFrag            = TypedExpr.liftAfToVoid(inner.apply(Void.asInstanceOf[QA]))
+  val wrapped             = TypedExpr.wrap(s"$op $quant (", voidFrag, ")")
+  val combined            = TypedExpr.combineSep[A, Void](lhs.fragment, " ", wrapped)
+  Where(combined.asInstanceOf[Fragment[A]])
 }
 
 extension [T, A](lhs: TypedExpr[T, A])(using @unused ord: cats.Order[T]) {

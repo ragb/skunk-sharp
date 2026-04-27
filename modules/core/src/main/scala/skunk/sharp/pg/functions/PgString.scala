@@ -165,16 +165,13 @@ trait PgString {
     TypedExpr[T, A](frag, e.codec)
   }
 
-  def lpad[T, A](e: TypedExpr[T, A], n: Int, fill: String)(using
+  def lpad[T](e: TypedExpr[T, ?], n: Int, fill: String)(using
     ev: StrLike[T], pf: PgTypeFor[String]
-  ): TypedExpr[T, A] = {
+  ): TypedExpr[T, Void] = {
     val fillFrag = Param.bind[String](fill).fragment
-    val s1 = Fragment[A](
-      List[Either[String, cats.data.State[Int, String]]](Left("lpad(")) ++ e.fragment.parts ++
-        List[Either[String, cats.data.State[Int, String]]](Left(s", $n, ")) ++ fillFrag.parts ++
-        List[Either[String, cats.data.State[Int, String]]](Left(")")),
-      e.fragment.encoder, skunk.util.Origin.unknown)
-    TypedExpr[T, A](s1, e.codec)
+    val mid      = TypedExpr.joinedVoid(s", $n, ", List(e.fragment, fillFrag))
+    val frag     = TypedExpr.wrap("lpad(", mid, ")")
+    TypedExpr[T, Void](frag, e.codec)
   }
 
   def rpad[T, A](e: TypedExpr[T, A], n: Int)(using StrLike[T]): TypedExpr[T, A] = {
@@ -185,16 +182,13 @@ trait PgString {
     TypedExpr[T, A](frag, e.codec)
   }
 
-  def rpad[T, A](e: TypedExpr[T, A], n: Int, fill: String)(using
+  def rpad[T](e: TypedExpr[T, ?], n: Int, fill: String)(using
     ev: StrLike[T], pf: PgTypeFor[String]
-  ): TypedExpr[T, A] = {
+  ): TypedExpr[T, Void] = {
     val fillFrag = Param.bind[String](fill).fragment
-    val s1 = Fragment[A](
-      List[Either[String, cats.data.State[Int, String]]](Left("rpad(")) ++ e.fragment.parts ++
-        List[Either[String, cats.data.State[Int, String]]](Left(s", $n, ")) ++ fillFrag.parts ++
-        List[Either[String, cats.data.State[Int, String]]](Left(")")),
-      e.fragment.encoder, skunk.util.Origin.unknown)
-    TypedExpr[T, A](s1, e.codec)
+    val mid      = TypedExpr.joinedVoid(s", $n, ", List(e.fragment, fillFrag))
+    val frag     = TypedExpr.wrap("rpad(", mid, ")")
+    TypedExpr[T, Void](frag, e.codec)
   }
 
   // ---- Fixed text return (NULL-propagating via Lift) ------------------------------------------

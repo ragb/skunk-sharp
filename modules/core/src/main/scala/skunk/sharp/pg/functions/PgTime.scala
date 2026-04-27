@@ -19,17 +19,17 @@ trait PgTime {
   val localTime:        TypedExpr[LocalTime, Void]      = TypedExpr(TypedExpr.voidFragment("localtime"),         skunk.codec.all.time)
 
   /**
-   * `(aStart, aEnd) OVERLAPS (bStart, bEnd)`. The four inputs' Args thread via nested `Where.Concat` —
-   * collapses to `Void` when all inputs are Void (typical column-only use), or to a typed tuple when
-   * `Param[T]` arms are present.
+   * `(aStart, aEnd) OVERLAPS (bStart, bEnd)`. Args = Void — variadic-shape, joined via
+   * [[TypedExpr.joinedVoid]] for proper Void-Void contramap chain. Per-arm typed-Args is roadmap.
    */
-  def overlaps[T, A1, A2, A3, A4](
-    aStart: TypedExpr[T, A1], aEnd: TypedExpr[T, A2], bStart: TypedExpr[T, A3], bEnd: TypedExpr[T, A4]
-  ): Where[Where.Concat[Where.Concat[A1, A2], Where.Concat[A3, A4]]] = {
-    val s1   = TypedExpr.combineSep(aStart.fragment, ", ", aEnd.fragment)
-    val s2   = TypedExpr.combineSep(bStart.fragment, ", ", bEnd.fragment)
-    val mid  = TypedExpr.combineSep(s1, ") OVERLAPS (", s2)
-    val frag = TypedExpr.wrap("(", mid, ")")
+  def overlaps[T](
+    aStart: TypedExpr[T, ?], aEnd: TypedExpr[T, ?], bStart: TypedExpr[T, ?], bEnd: TypedExpr[T, ?]
+  ): Where[Void] = {
+    // Manually compose the SQL since separators differ (", " inside, ") OVERLAPS (" between pairs).
+    val a       = TypedExpr.joinedVoid(", ", List(aStart.fragment, aEnd.fragment))
+    val b       = TypedExpr.joinedVoid(", ", List(bStart.fragment, bEnd.fragment))
+    val withOp  = TypedExpr.joinedVoid(") OVERLAPS (", List(a, b))
+    val frag    = TypedExpr.wrap("(", withOp, ")")
     Where(frag)
   }
 

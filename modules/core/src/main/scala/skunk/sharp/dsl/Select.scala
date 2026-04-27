@@ -515,12 +515,15 @@ object SelectBuilder {
     f.asInstanceOf[Fragment[Void]].apply(Void)
 
   /**
-   * Glue body parts into a single `Fragment[Concat[A1, A2]]`. Splits walk into baked side (Left,
-   * AppliedFragment whose args are pre-applied) and typed side (Right, typed Fragment slots that take
-   * user-supplied args at execute time). At most TWO typed slots are expected (WHERE and HAVING for
-   * SELECT; WHERE for mutations). The two typed encoders' product is contramapped via
-   * [[Where.Concat2]] so the visible `Concat[A1, A2]` input shape matches what the encoder consumes.
-   * Baked args are similarly contramapped onto the front.
+   * Glue body parts into a single `Fragment[Concat[A1, A2]]`. Crucially, the final encoder preserves SQL
+   * render order — Postgres binds positionally, so the encoded values must come out in the exact `$N`
+   * order they appear in the SQL. Mixing baked (Left) and typed (Right) parts and emitting bakeds-first
+   * would mis-align with the `$N` slots when typed parts appear inside / between bakeds (e.g. WHERE
+   * before ORDER BY where ORDER BY has a Param.bind-bearing CASE WHEN).
+   *
+   * Solution: a custom encoder that walks the parts list at execute time. Each `Left(af)` contributes
+   * its baked `af.argument` through `af.encoder`; each `Right(f)` contributes the user's `Args` (projected
+   * via [[Where.Concat2]]) through `f.encoder`. SQL render order ↔ encode order, regardless of mix.
    */
   private[dsl] def assemble[A1, A2, R](
     bodyParts: List[BodyPart],
@@ -529,68 +532,67 @@ object SelectBuilder {
   )(using c2: Where.Concat2[A1, A2]): QueryTemplate[Where.Concat[A1, A2], R] = {
     val ctePreamble: Option[AppliedFragment] = renderWithPreamble(ctes)
 
-    val partsBuf = scala.collection.mutable.ListBuffer[Either[String, cats.data.State[Int, String]]]()
-    var preEnc:   Encoder[Any]                   = Void.codec.asInstanceOf[Encoder[Any]]
-    var preArgs:  Any                            = Void
-    val typedEncs = scala.collection.mutable.ListBuffer[Encoder[Any]]()
+    // Materialise the parts list with CTE preamble prepended.
+    val allParts: List[BodyPart] = ctePreamble.toList.map(Left(_)) ++ bodyParts
 
-    def addBaked(af: AppliedFragment): Unit = {
-      partsBuf ++= af.fragment.parts
-      val nextE = af.fragment.encoder.asInstanceOf[Encoder[Any]]
-      if (!(nextE eq Void.codec)) {
-        if (preEnc eq Void.codec) {
-          preEnc  = nextE
-          preArgs = af.argument
-        } else {
-          preEnc  = preEnc.product(nextE).asInstanceOf[Encoder[Any]]
-          preArgs = (preArgs, af.argument)
+    // Concatenate SQL parts in render order.
+    val sqlParts: List[Either[String, cats.data.State[Int, String]]] =
+      allParts.flatMap {
+        case Left(af) => af.fragment.parts
+        case Right(f) => f.parts
+      }
+
+    // Count typed (Right) slots — at most 2 (WHERE + HAVING for SELECT; WHERE for mutations).
+    val typedCount = allParts.count {
+      case Right(f) if !(f.encoder eq Void.codec) => true
+      case _                                       => false
+    }
+
+    // Build a single Encoder[Concat[A1, A2]] that walks the parts list at encode time, dispatching each
+    // part to its own encoder with the appropriate input.
+    val finalEnc: Encoder[Where.Concat[A1, A2]] = new Encoder[Where.Concat[A1, A2]] {
+      // Aggregate types and SQL across all sub-encoders, in render order.
+      override val types: List[skunk.data.Type] =
+        allParts.flatMap {
+          case Left(af) => af.fragment.encoder.types
+          case Right(f) => f.encoder.types
+        }
+      override val sql: cats.data.State[Int, String] =
+        cats.data.State { (n0: Int) =>
+          allParts.foldLeft((n0, "")) { case ((n, acc), part) =>
+            val (n1, s) = part match {
+              case Left(af) => af.fragment.encoder.sql.run(n).value
+              case Right(f) => f.encoder.sql.run(n).value
+            }
+            (n1, acc + s)
+          }
+        }
+
+      override def encode(args: Where.Concat[A1, A2]): List[Option[skunk.data.Encoded]] = {
+        // Project the user's Args into (A1, A2) for typed-slot dispatch.
+        val (a1, a2) =
+          if (typedCount == 0) (Void, Void)
+          else if (typedCount == 1) (args, Void)
+          else c2.project(args)
+
+        var typedIdx = 0
+        allParts.flatMap {
+          case Left(af) =>
+            af.fragment.encoder.asInstanceOf[Encoder[Any]].encode(af.argument)
+          case Right(f) =>
+            val enc = f.encoder.asInstanceOf[Encoder[Any]]
+            if (enc eq Void.codec) Nil
+            else {
+              val v = if (typedIdx == 0) a1 else a2
+              typedIdx += 1
+              enc.encode(v)
+            }
         }
       }
     }
 
-    def addTyped(f: Fragment[?]): Unit = {
-      partsBuf ++= f.parts
-      val nextE = f.encoder.asInstanceOf[Encoder[Any]]
-      if (!(nextE eq Void.codec)) typedEncs += nextE
-    }
-
-    ctePreamble.foreach(addBaked)
-    bodyParts.foreach {
-      case Left(af) => addBaked(af)
-      case Right(f) => addTyped(f)
-    }
-
-    // Combine the (at most 2) typed encoders into a single Encoder[Concat[A1, A2]] using the Concat2
-    // typeclass to project the user's Concat[A1, A2] input into the (A1, A2) tuple the underlying product
-    // expects. Three sub-cases: no typed slots, one typed slot (Args = A1, A2 = Void), two typed slots.
-    val typedEnc: Encoder[Where.Concat[A1, A2]] = typedEncs.toList match {
-      case Nil =>
-        Void.codec.asInstanceOf[Encoder[Where.Concat[A1, A2]]]
-      case e :: Nil =>
-        // Single typed slot: A2 is Void, Concat[A1, Void] reduces to A1; encoder is Encoder[A1].
-        e.asInstanceOf[Encoder[Where.Concat[A1, A2]]]
-      case e1 :: e2 :: Nil =>
-        val productEnc: Encoder[(A1, A2)] =
-          e1.asInstanceOf[Encoder[A1]].product(e2.asInstanceOf[Encoder[A2]])
-        productEnc.contramap[Where.Concat[A1, A2]](c2.project)
-      case more =>
-        sys.error(s"skunk-sharp: assemble received ${more.size} typed slots; expected at most 2 (WHERE + HAVING)")
-    }
-
-    val combinedEnc: Encoder[Where.Concat[A1, A2]] = {
-      val voidPre   = preEnc eq Void.codec
-      val voidTyped = typedEnc eq Void.codec
-      if (voidPre && voidTyped) Void.codec.asInstanceOf[Encoder[Where.Concat[A1, A2]]]
-      else if (voidPre)         typedEnc
-      else if (voidTyped)       preEnc.contramap[Where.Concat[A1, A2]](_ => preArgs)
-                                  .asInstanceOf[Encoder[Where.Concat[A1, A2]]]
-      else                       preEnc.product(typedEnc.asInstanceOf[Encoder[Any]])
-                                  .contramap[Where.Concat[A1, A2]](a => (preArgs, a))
-                                  .asInstanceOf[Encoder[Where.Concat[A1, A2]]]
-    }
-
     val frag: Fragment[Where.Concat[A1, A2]] =
-      Fragment(partsBuf.toList, combinedEnc, Origin.unknown)
+      Fragment(sqlParts, finalEnc, Origin.unknown)
     QueryTemplate.mk[Where.Concat[A1, A2], R](frag, codec)
   }
 

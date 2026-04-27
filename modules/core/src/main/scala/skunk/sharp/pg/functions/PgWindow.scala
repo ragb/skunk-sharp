@@ -30,12 +30,14 @@ trait PgWindow {
     TypedExpr[Option[T], A](frag, expr.codec.opt)
   }
 
-  def lag[T, A](expr: TypedExpr[T, A], offset: Int, default: T)(using pf: PgTypeFor[T]): TypedExpr[T, A] = {
+  def lag[T](expr: TypedExpr[T, ?], offset: Int, default: T)(using pf: PgTypeFor[T]): TypedExpr[T, Void] = {
+    // expr's encoder + Param.bind(default)'s encoder must combine via joinedVoid so the default's bound
+    // value flows through. Previously the encoder was just the column's Void.codec — Postgres saw `$1` in
+    // the SQL but no encoder slot for it.
     val defFrag = Param.bind[T](default).fragment
-    val parts   = e2parts("lag(", expr.fragment, s", $offset, ") ++ defFrag.parts ++
-      List[Either[String, cats.data.State[Int, String]]](Left(")"))
-    val frag    = Fragment[A](parts, expr.fragment.encoder, skunk.util.Origin.unknown)
-    TypedExpr[T, A](frag, expr.codec)
+    val mid     = TypedExpr.joinedVoid(s", $offset, ", List(expr.fragment, defFrag))
+    val frag    = TypedExpr.wrap("lag(", mid, ")")
+    TypedExpr[T, Void](frag, expr.codec)
   }
 
   def lead[T, A](expr: TypedExpr[T, A]): TypedExpr[Option[T], A] =
@@ -47,12 +49,11 @@ trait PgWindow {
     TypedExpr[Option[T], A](frag, expr.codec.opt)
   }
 
-  def lead[T, A](expr: TypedExpr[T, A], offset: Int, default: T)(using pf: PgTypeFor[T]): TypedExpr[T, A] = {
+  def lead[T](expr: TypedExpr[T, ?], offset: Int, default: T)(using pf: PgTypeFor[T]): TypedExpr[T, Void] = {
     val defFrag = Param.bind[T](default).fragment
-    val parts   = e2parts("lead(", expr.fragment, s", $offset, ") ++ defFrag.parts ++
-      List[Either[String, cats.data.State[Int, String]]](Left(")"))
-    val frag    = Fragment[A](parts, expr.fragment.encoder, skunk.util.Origin.unknown)
-    TypedExpr[T, A](frag, expr.codec)
+    val mid     = TypedExpr.joinedVoid(s", $offset, ", List(expr.fragment, defFrag))
+    val frag    = TypedExpr.wrap("lead(", mid, ")")
+    TypedExpr[T, Void](frag, expr.codec)
   }
 
   // ---- Value functions --------------------------------------------------------------------------
