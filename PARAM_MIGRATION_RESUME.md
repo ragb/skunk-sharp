@@ -1,12 +1,69 @@
 # Resume: Param migration (TypedExpr[T] → TypedExpr[T, Args])
 
 **Branch**: `param-placeholders` (off `macro-sql-assembly`)
-**Head**: `81c703b` (all 363 core tests pass)
-**Compiles**: `core/compile` ✅. `core/Test/compile` ✅. `core/test` ✅ 363/363 pass.
+**Head**: `100ebd8` — **migration complete, all tests pass**.
 
-Integration tests (`tests/test`) and the iron module (`iron/compile`) have not been
-migrated — they still reference the old `TypedExpr[T]` / `.render` / `CompiledQuery`
-surface and will need the same patterns applied.
+| module    | tests   | status |
+| --------- | ------- | ------ |
+| core      | 384/384 | ✅     |
+| circe     | 10/10   | ✅     |
+| iron      | 4/4     | ✅     |
+| refined   | 5/5     | ✅     |
+| tests     | 158/158 | ✅ (Postgres testcontainers) |
+| **total** | **561/561** | ✅ |
+
+## Headline result
+
+`Param[T]` works as a typed-template placeholder on every static-query position that matters:
+
+```scala
+val byId: QueryTemplate[UUID, NamedRow] =
+  users.select.where(u => u.id === Param[UUID]).compile
+
+prep <- byId.prepared(session)
+user <- prep.unique(realUuid)
+```
+
+Verified on SELECT WHERE / HAVING (single + chained), JOINed SELECT WHERE,
+UPDATE WHERE, DELETE WHERE, DELETE … RETURNING, and `INSERT.withParams` — see
+`modules/core/src/test/scala/skunk/sharp/ParamSuite.scala`.
+
+## Key design pieces
+
+- **`Where.Concat2[A, B]`** — typeclass with `bothVoid` / `leftVoid` / `rightVoid` /
+  `default` instances. Generic version of skunk's `Fragment.~> / <~`. Threaded
+  through `combineSep` / `combine` / `opCombine` / `between` / `quantifiedRender`
+  so summon happens where A and B are concrete and the right contramap is picked.
+- **`assemble` rewrite** — custom `Encoder[Concat[A1, A2]]` that walks the body-parts
+  list at encode time, dispatching `Left(af)` to its baked argument and `Right(f)` to
+  the user's typed Args. Preserves SQL render order in the encoded value list, which
+  matters because Postgres binds positionally.
+- **`TypedExpr.joinedVoid`** — variadic helper for `Pg.concat`, `Pg.coalesce`,
+  `Pg.makeDate`, `Pg.overlaps`, `Pg.lag(default)`, `Pg.lpad/rpad(fill)`,
+  `PgJsonb.jsonbSet/jsonbInsert`, `PgRange.rangeCtor3`, CASE WHEN — anywhere you
+  combine N fragments at Void-Void in one shot.
+- **`InsertCommand.withParams`** — typed-Args INSERT. `(id = Param[UUID], email =
+  Param[String], age = Param[Int])` → `CommandTemplate[(UUID, String, Int)]` via the
+  `StripParams` match type that unwraps each `Param[T]` to `T`.
+
+## Known limitations (carried forward from migration design)
+
+- **`Stripped[T]` not used in operator overloads.** Match types in overloaded
+  extension parameter positions break Scala 3 overload resolution. Trade-off:
+  nullable-column value-RHS comparisons need `Some(value)` / `None` (rare in
+  practice; `.isNull` / `.isNotNull` is the right tool for SQL NULL semantics).
+- **UPDATE SET RHS `:= Param[T]` is unsafe.** `.set` forces SetArgs = Void and
+  the encoder still expects T at execute. Use baked values (`:= "x"`) for SET.
+  Re-add typed Param[T] in SET when per-row Args reduction lands.
+- **CTE bodies / SetOp / Values / `.alias` subqueries / window OVER specs / `select`
+  projections / ORDER BY exprs / DISTINCT ON / RETURNING items / ON CONFLICT DO
+  UPDATE / ON predicates** — Args bound at Void via `bindVoid` at materialisation.
+  Encoder still threads bound values correctly (proven by integration tests passing),
+  but the user-visible `Args` doesn't surface typed Params from these positions.
+  Per-position typed-Args is roadmap.
+- **Variadic CASE WHEN / Pg.overlaps / Pg.makeDate / etc.** all collapse Args to
+  `Void`. Mixing typed `Param[T]` inside variadic builders works at runtime (encoder
+  still emits) but the result's typed Args slot is `Void`.
 **Plan**: see [`PARAM_MIGRATION.md`](PARAM_MIGRATION.md) for the full file-by-file checklist + design rationale.
 
 ## What's done (6 commits on the branch)
