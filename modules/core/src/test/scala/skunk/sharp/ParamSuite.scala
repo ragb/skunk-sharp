@@ -167,13 +167,57 @@ class ParamSuite extends munit.FunSuite {
     assertEquals(encoded, List(uid.toString, "x@y", "30"))
   }
 
-  test("UPDATE SET: SetArgs = Void — use baked values / Param.bind, NOT Param[T]") {
-    // KNOWN LIMITATION: `.set(... := Param[T])` is unsafe — `.set` forces SetArgs = Void, dropping the
-    // Param's type, and the SET fragment's encoder still expects a T at execute time. Routing Void
-    // through it ClassCastException's at the codec. Use baked values (Param.bind path) for SET.
-    // Re-add Param[T] in SET when per-row Args reduction lands.
+  // -------- UPDATE SET with Param[T] ------------------------------------------
+
+  test("UPDATE SET: single Param[T] threads typed Args through SET, no WHERE") {
+    val cmd = users.update.set(u => u.email := Param[String]).updateAll.compile
+    val _: CommandTemplate[String] = cmd
+    assertEquals(cmd.fragment.sql.trim, """UPDATE "users" SET "email" = $1""")
+  }
+
+  test("UPDATE SET + WHERE: SET Param + WHERE Param compose to (SetT, WhereT)") {
+    val cmd = users.update
+      .set(u => u.email := Param[String])
+      .where(u => u.id === Param[UUID])
+      .compile
+    val _: CommandTemplate[(String, UUID)] = cmd
+    assert(cmd.fragment.sql.contains(""""email" = $1"""), cmd.fragment.sql)
+    assert(cmd.fragment.sql.contains(""""id" = $2"""), cmd.fragment.sql)
+  }
+
+  test("UPDATE SET: encoder binds (set, where) values in SQL render order") {
+    val cmd = users.update
+      .set(u => u.email := Param[String])
+      .where(u => u.id === Param[UUID])
+      .compile
+    val uid     = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+    val af      = cmd.bind(("new@x", uid))
+    val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
+    assertEquals(encoded, List("new@x", uid.toString))
+  }
+
+  test("UPDATE SET baked + WHERE Param: SetArgs collapses to Void, Args = WHERE only") {
     val cmd = users.update.set(u => u.email := "fixed").where(u => u.id === Param[UUID]).compile
     val _: CommandTemplate[UUID] = cmd
+    assert(cmd.fragment.sql.contains(""""id" = $2"""), cmd.fragment.sql)
+  }
+
+  test("UPDATE SET Param + WHERE baked: SetArgs preserved, WArgs = Void") {
+    val cmd = users.update.set(u => u.age := Param[Int]).where(u => u.email === "x@y").compile
+    val _: CommandTemplate[Int] = cmd
+  }
+
+  test("UPDATE SET via & combinator: typed Args flows across both assignments") {
+    val cmd = users.update
+      .set(u => (u.email := Param[String]) & (u.age := Param[Int]))
+      .updateAll
+      .compile
+    val _: CommandTemplate[(String, Int)] = cmd
+  }
+
+  test("UPDATE SET tuple form: SetArgs widens to Void (use & for typed-Args)") {
+    val cmd = users.update.set(u => (u.email := "x", u.age := 30)).updateAll.compile
+    val _: CommandTemplate[Void] = cmd
   }
 
 }

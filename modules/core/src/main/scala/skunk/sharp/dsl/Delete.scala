@@ -90,17 +90,17 @@ final class DeleteReady[Cols <: Tuple, Name <: String & Singleton, Args] private
     buf.toList
   }
 
-  def compile: CommandTemplate[Args] = MutationAssembly.command[Args](deleteParts)
+  def compile: CommandTemplate[Args] = MutationAssembly.command[Args, Void](deleteParts).asInstanceOf[CommandTemplate[Args]]
 
   def returning[T, A](f: ColumnsView[Cols] => TypedExpr[T, A]): QueryTemplate[Args, T] = {
     val expr = f(table.columnsView)
-    MutationAssembly.withReturning[Args, T](deleteParts, List(expr), expr.codec)
+    MutationAssembly.withReturning[Args, Void, T](deleteParts, List(expr), expr.codec).asInstanceOf[QueryTemplate[Args, T]]
   }
 
   def returningTuple[T <: NonEmptyTuple](f: ColumnsView[Cols] => T): QueryTemplate[Args, ExprOutputs[T]] = {
     val exprs = f(table.columnsView).toList.asInstanceOf[List[TypedExpr[?, ?]]]
     val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
-    MutationAssembly.withReturning[Args, ExprOutputs[T]](deleteParts, exprs, codec)
+    MutationAssembly.withReturning[Args, Void, ExprOutputs[T]](deleteParts, exprs, codec).asInstanceOf[QueryTemplate[Args, ExprOutputs[T]]]
   }
 
   def returningAll: QueryTemplate[Args, NamedRowOf[Cols]] = {
@@ -109,7 +109,7 @@ final class DeleteReady[Cols <: Tuple, Name <: String & Singleton, Args] private
         TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
       )
     val codec = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
-    MutationAssembly.withReturning[Args, NamedRowOf[Cols]](deleteParts, exprs, codec)
+    MutationAssembly.withReturning[Args, Void, NamedRowOf[Cols]](deleteParts, exprs, codec).asInstanceOf[QueryTemplate[Args, NamedRowOf[Cols]]]
   }
 
 }
@@ -122,23 +122,25 @@ final class DeleteReady[Cols <: Tuple, Name <: String & Singleton, Args] private
 private[dsl] object MutationAssembly {
 
   /**
-   * Mutation builders have at most one typed slot (the WHERE). Pass `Void` as the second `Concat2` arm so
-   * `Concat[Args, Void]` reduces to `Args`.
+   * Mutation builders carry at most two typed slots in render order — for UPDATE that's `SET` then `WHERE`;
+   * INSERT and DELETE collapse to one (or zero). Callers pass the two slot args as `[A1, A2]` and
+   * `command` returns a `CommandTemplate[Concat[A1, A2]]`. When a slot is unused, pass `Void` for it; the
+   * `Concat2` priority chain keeps the typeclass resolvable.
    */
-  def command[Args](parts: List[BodyPart]): CommandTemplate[Args] = {
-    val tpl = SelectBuilder.assemble[Args, Void, Void](parts, Nil, Void.codec)
-    CommandTemplate.mk[Args](tpl.fragment.asInstanceOf[Fragment[Args]])
+  def command[A1, A2](parts: List[BodyPart])(using c2: Where.Concat2[A1, A2]): CommandTemplate[Where.Concat[A1, A2]] = {
+    val tpl = SelectBuilder.assemble[A1, A2, Void](parts, Nil, Void.codec)
+    CommandTemplate.mk[Where.Concat[A1, A2]](tpl.fragment.asInstanceOf[Fragment[Where.Concat[A1, A2]]])
   }
 
-  def withReturning[Args, R](
+  def withReturning[A1, A2, R](
     base: List[BodyPart],
     returning: List[TypedExpr[?, ?]],
     codec: Codec[R]
-  ): QueryTemplate[Args, R] = {
+  )(using c2: Where.Concat2[A1, A2]): QueryTemplate[Where.Concat[A1, A2], R] = {
     // RETURNING projection items may carry typed Args; bind them at Void here. Roadmap.
     val listAf = TypedExpr.joined(returning.map(e => SelectBuilder.bindVoid(e.fragment)), ", ")
     val parts: List[BodyPart] = base ++ List[BodyPart](Left(RawConstants.RETURNING), Left(listAf))
-    SelectBuilder.assemble[Args, Void, R](parts, Nil, codec).asInstanceOf[QueryTemplate[Args, R]]
+    SelectBuilder.assemble[A1, A2, R](parts, Nil, codec)
   }
 
 }
@@ -199,7 +201,7 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
     new DeleteUsingReady[Cols, Name, Ss, Any](table, sources, Some(combined))
   }
 
-  def compile: CommandTemplate[Args] = MutationAssembly.command[Args](bodyParts)
+  def compile: CommandTemplate[Args] = MutationAssembly.command[Args, Void](bodyParts).asInstanceOf[CommandTemplate[Args]]
 
   private def bodyParts: List[BodyPart] = {
     val buf = scala.collection.mutable.ListBuffer[BodyPart](Left(table.deleteFromHeader))
@@ -217,13 +219,13 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
 
   def returning[T, A](f: JoinedView[Ss] => TypedExpr[T, A]): QueryTemplate[Args, T] = {
     val expr = f(buildJoinedView(sources))
-    MutationAssembly.withReturning[Args, T](bodyParts, List(expr), expr.codec)
+    MutationAssembly.withReturning[Args, Void, T](bodyParts, List(expr), expr.codec).asInstanceOf[QueryTemplate[Args, T]]
   }
 
   def returningTuple[T <: NonEmptyTuple](f: JoinedView[Ss] => T): QueryTemplate[Args, ExprOutputs[T]] = {
     val exprs = f(buildJoinedView(sources)).toList.asInstanceOf[List[TypedExpr[?, ?]]]
     val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
-    MutationAssembly.withReturning[Args, ExprOutputs[T]](bodyParts, exprs, codec)
+    MutationAssembly.withReturning[Args, Void, ExprOutputs[T]](bodyParts, exprs, codec).asInstanceOf[QueryTemplate[Args, ExprOutputs[T]]]
   }
 
   def returningAll: QueryTemplate[Args, NamedRowOf[Cols]] = {
@@ -232,7 +234,7 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
         TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
       )
     val codec = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
-    MutationAssembly.withReturning[Args, NamedRowOf[Cols]](bodyParts, exprs, codec)
+    MutationAssembly.withReturning[Args, Void, NamedRowOf[Cols]](bodyParts, exprs, codec).asInstanceOf[QueryTemplate[Args, NamedRowOf[Cols]]]
   }
 
 }

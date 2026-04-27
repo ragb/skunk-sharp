@@ -129,7 +129,7 @@ final class InsertCommand[Cols <: Tuple, Args] private[sharp] (
   private[sharp] val conflict: OnConflict
 ) {
 
-  def compile: CommandTemplate[Args] = MutationAssembly.command[Args](insertParts)
+  def compile: CommandTemplate[Args] = MutationAssembly.command[Args, Void](insertParts).asInstanceOf[CommandTemplate[Args]]
 
   // ---- Body parts ---------------------------------------------------------------
 
@@ -163,14 +163,14 @@ final class InsertCommand[Cols <: Tuple, Args] private[sharp] (
   def returning[T, A](f: ColumnsView[Cols] => TypedExpr[T, A]): QueryTemplate[Args, T] = {
     val view = table.columnsView
     val expr = f(view)
-    MutationAssembly.withReturning[Args, T](insertParts, List(expr), expr.codec)
+    MutationAssembly.withReturning[Args, Void, T](insertParts, List(expr), expr.codec).asInstanceOf[QueryTemplate[Args, T]]
   }
 
   def returningTuple[T <: NonEmptyTuple](f: ColumnsView[Cols] => T): QueryTemplate[Args, ExprOutputs[T]] = {
     val view  = table.columnsView
     val exprs = f(view).toList.asInstanceOf[List[TypedExpr[?, ?]]]
     val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
-    MutationAssembly.withReturning[Args, ExprOutputs[T]](insertParts, exprs, codec)
+    MutationAssembly.withReturning[Args, Void, ExprOutputs[T]](insertParts, exprs, codec).asInstanceOf[QueryTemplate[Args, ExprOutputs[T]]]
   }
 
   def returningAll: QueryTemplate[Args, NamedRowOf[Cols]] = {
@@ -179,7 +179,7 @@ final class InsertCommand[Cols <: Tuple, Args] private[sharp] (
         TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
       )
     val codec = rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
-    MutationAssembly.withReturning[Args, NamedRowOf[Cols]](insertParts, exprs, codec)
+    MutationAssembly.withReturning[Args, Void, NamedRowOf[Cols]](insertParts, exprs, codec).asInstanceOf[QueryTemplate[Args, NamedRowOf[Cols]]]
   }
 
   // ---- ON CONFLICT ----

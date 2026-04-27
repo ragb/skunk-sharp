@@ -26,18 +26,24 @@ final class UpdateBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
 ) {
 
   /**
-   * `SET <col := value>` / `SET (<col := v>, ...)`. **SetArgs is fixed to `Void`**: the underlying typed
-   * Fragment encoder still composes whatever args the assignments contribute (typed Param chained with
-   * value-baked assignments works at runtime), but the static `SetArgs` slot stays `Void` so it doesn't
-   * collide with `WArgs` in `Where.Concat[SetArgs, WArgs]` reduction. Threading typed Args through SET
-   * lands when we ship the per-row Args reduction typeclass.
+   * `SET <col := value>` — single-assignment form. `SetArgs` propagates from the assignment's `Args`,
+   * so `c.email := Param[String]` produces `UpdateWithSet[..., String]` and the value is supplied at
+   * execute time. `c.email := "literal"` produces `UpdateWithSet[..., Void]` (value-baked).
    */
-  def set(f: ColumnsView[Cols] => SetAssignment[?, ?] | Tuple): UpdateWithSet[Cols, Name, Void] = {
-    val view = table.columnsView
-    val raw = f(view) match {
-      case sa: SetAssignment[?, ?] => List(sa)
-      case t: Tuple                => t.toList.asInstanceOf[List[SetAssignment[?, ?]]]
-    }
+  def set[A](f: ColumnsView[Cols] => SetAssignment[?, A]): UpdateWithSet[Cols, Name, A] = {
+    val sa = f(table.columnsView)
+    new UpdateWithSet[Cols, Name, A](table, sa.fragment)
+  }
+
+  /**
+   * `SET (<col := v>, ...)` — tuple form for multiple assignments. `SetArgs` is fixed to `Void`: the
+   * underlying typed Fragment encoder still composes whatever args the assignments contribute, but the
+   * static `SetArgs` slot stays `Void`. For typed-Args across multiple SET items, use the `&` infix
+   * combinator (`c.email := Param[String] & c.age := Param[Int]`) which threads `Concat[A1, A2]`.
+   */
+  @scala.annotation.targetName("setTuple")
+  def set(f: ColumnsView[Cols] => Tuple): UpdateWithSet[Cols, Name, Void] = {
+    val raw      = f(table.columnsView).toList.asInstanceOf[List[SetAssignment[?, ?]]]
     val combined = SetAssignment.combineAll(raw)
     new UpdateWithSet[Cols, Name, Void](table, combined)
   }
@@ -151,11 +157,12 @@ final class UpdateReady[Cols <: Tuple, Name <: String & Singleton, SetArgs, WArg
   }
 
   private def updateParts: List[BodyPart] = {
+    // setFragment is the typed SET-RHS chain; route to Right so its encoder threads SetArgs at execute time.
+    // Value-baked assignments carry a Void-input encoder (contramapped to bake the value via Param.bind),
+    // which the assemble walker handles uniformly with typed Param[T]-bearing assignments.
     val buf = scala.collection.mutable.ListBuffer[BodyPart](
       Left(table.updateSetHeader),
-      // setFragment is a typed Fragment[?]; for the Param.bind-baked path it's Void-input emitting baked values.
-      // Apply at Void to lift to AppliedFragment so it sits cleanly on the Left (baked) side.
-      Left(setFragment.asInstanceOf[Fragment[Void]].apply(Void))
+      Right(setFragment)
     )
     whereOpt.foreach { f =>
       buf += Left(RawConstants.WHERE)
@@ -164,29 +171,33 @@ final class UpdateReady[Cols <: Tuple, Name <: String & Singleton, SetArgs, WArg
     buf.toList
   }
 
-  def compile: CommandTemplate[Where.Concat[SetArgs, WArgs]] =
-    MutationAssembly.command[Where.Concat[SetArgs, WArgs]](updateParts)
+  def compile(using c2: Where.Concat2[SetArgs, WArgs]): CommandTemplate[Where.Concat[SetArgs, WArgs]] =
+    MutationAssembly.command[SetArgs, WArgs](updateParts)
 
-  def returning[T, A](f: ColumnsView[Cols] => TypedExpr[T, A]): QueryTemplate[Where.Concat[SetArgs, WArgs], T] = {
+  def returning[T, A](f: ColumnsView[Cols] => TypedExpr[T, A])(using
+    c2: Where.Concat2[SetArgs, WArgs]
+  ): QueryTemplate[Where.Concat[SetArgs, WArgs], T] = {
     val expr = f(table.columnsView)
-    MutationAssembly.withReturning[Where.Concat[SetArgs, WArgs], T](updateParts, List(expr), expr.codec)
+    MutationAssembly.withReturning[SetArgs, WArgs, T](updateParts, List(expr), expr.codec)
   }
 
   def returningTuple[T <: NonEmptyTuple](
     f: ColumnsView[Cols] => T
-  ): QueryTemplate[Where.Concat[SetArgs, WArgs], ExprOutputs[T]] = {
+  )(using c2: Where.Concat2[SetArgs, WArgs]): QueryTemplate[Where.Concat[SetArgs, WArgs], ExprOutputs[T]] = {
     val exprs = f(table.columnsView).toList.asInstanceOf[List[TypedExpr[?, ?]]]
     val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
-    MutationAssembly.withReturning[Where.Concat[SetArgs, WArgs], ExprOutputs[T]](updateParts, exprs, codec)
+    MutationAssembly.withReturning[SetArgs, WArgs, ExprOutputs[T]](updateParts, exprs, codec)
   }
 
-  def returningAll: QueryTemplate[Where.Concat[SetArgs, WArgs], NamedRowOf[Cols]] = {
+  def returningAll(using
+    c2: Where.Concat2[SetArgs, WArgs]
+  ): QueryTemplate[Where.Concat[SetArgs, WArgs], NamedRowOf[Cols]] = {
     val exprs =
       table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
         TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
       )
     val codec = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
-    MutationAssembly.withReturning[Where.Concat[SetArgs, WArgs], NamedRowOf[Cols]](updateParts, exprs, codec)
+    MutationAssembly.withReturning[SetArgs, WArgs, NamedRowOf[Cols]](updateParts, exprs, codec)
   }
 
 }
@@ -211,12 +222,16 @@ final class UpdateFromBuilder[Cols <: Tuple, Name <: String & Singleton, Ss <: T
     )
   }
 
-  def set(f: JoinedView[Ss] => SetAssignment[?, ?] | Tuple): UpdateFromWithSet[Cols, Name, Ss, Void] = {
-    val view = buildJoinedView(sources)
-    val raw = f(view) match {
-      case sa: SetAssignment[?, ?] => List(sa)
-      case t: Tuple                => t.toList.asInstanceOf[List[SetAssignment[?, ?]]]
-    }
+  /** Single SET assignment — `SetArgs` propagates from the RHS expression's `Args`. */
+  def set[A](f: JoinedView[Ss] => SetAssignment[?, A]): UpdateFromWithSet[Cols, Name, Ss, A] = {
+    val sa = f(buildJoinedView(sources))
+    new UpdateFromWithSet[Cols, Name, Ss, A](table, sources, sa.fragment)
+  }
+
+  /** Tuple-form SET — `SetArgs` widens to `Void`. Use `&` for typed-Args across multiple items. */
+  @scala.annotation.targetName("setTuple")
+  def set(f: JoinedView[Ss] => Tuple): UpdateFromWithSet[Cols, Name, Ss, Void] = {
+    val raw      = f(buildJoinedView(sources)).toList.asInstanceOf[List[SetAssignment[?, ?]]]
     val combined = SetAssignment.combineAll(raw)
     new UpdateFromWithSet[Cols, Name, Ss, Void](table, sources, combined)
   }
@@ -271,7 +286,7 @@ final class UpdateFromReady[
   private def updateFromParts: List[BodyPart] = {
     val buf = scala.collection.mutable.ListBuffer[BodyPart](
       Left(table.updateSetHeader),
-      Left(setFragment.asInstanceOf[Fragment[Void]].apply(Void))
+      Right(setFragment)
     )
     val fromEntries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].tail
     if (fromEntries.nonEmpty) {
@@ -285,29 +300,33 @@ final class UpdateFromReady[
     buf.toList
   }
 
-  def compile: CommandTemplate[Where.Concat[SetArgs, WArgs]] =
-    MutationAssembly.command[Where.Concat[SetArgs, WArgs]](updateFromParts)
+  def compile(using c2: Where.Concat2[SetArgs, WArgs]): CommandTemplate[Where.Concat[SetArgs, WArgs]] =
+    MutationAssembly.command[SetArgs, WArgs](updateFromParts)
 
-  def returning[T, A](f: JoinedView[Ss] => TypedExpr[T, A]): QueryTemplate[Where.Concat[SetArgs, WArgs], T] = {
+  def returning[T, A](f: JoinedView[Ss] => TypedExpr[T, A])(using
+    c2: Where.Concat2[SetArgs, WArgs]
+  ): QueryTemplate[Where.Concat[SetArgs, WArgs], T] = {
     val expr = f(buildJoinedView(sources))
-    MutationAssembly.withReturning[Where.Concat[SetArgs, WArgs], T](updateFromParts, List(expr), expr.codec)
+    MutationAssembly.withReturning[SetArgs, WArgs, T](updateFromParts, List(expr), expr.codec)
   }
 
   def returningTuple[T <: NonEmptyTuple](
     f: JoinedView[Ss] => T
-  ): QueryTemplate[Where.Concat[SetArgs, WArgs], ExprOutputs[T]] = {
+  )(using c2: Where.Concat2[SetArgs, WArgs]): QueryTemplate[Where.Concat[SetArgs, WArgs], ExprOutputs[T]] = {
     val exprs = f(buildJoinedView(sources)).toList.asInstanceOf[List[TypedExpr[?, ?]]]
     val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
-    MutationAssembly.withReturning[Where.Concat[SetArgs, WArgs], ExprOutputs[T]](updateFromParts, exprs, codec)
+    MutationAssembly.withReturning[SetArgs, WArgs, ExprOutputs[T]](updateFromParts, exprs, codec)
   }
 
-  def returningAll: QueryTemplate[Where.Concat[SetArgs, WArgs], NamedRowOf[Cols]] = {
+  def returningAll(using
+    c2: Where.Concat2[SetArgs, WArgs]
+  ): QueryTemplate[Where.Concat[SetArgs, WArgs], NamedRowOf[Cols]] = {
     val exprs =
       table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
         TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
       )
     val codec = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
-    MutationAssembly.withReturning[Where.Concat[SetArgs, WArgs], NamedRowOf[Cols]](updateFromParts, exprs, codec)
+    MutationAssembly.withReturning[SetArgs, WArgs, NamedRowOf[Cols]](updateFromParts, exprs, codec)
   }
 
 }
