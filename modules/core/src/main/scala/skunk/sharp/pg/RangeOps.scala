@@ -22,43 +22,47 @@ object IsRange {
 /** Range operators as extension methods on `TypedExpr[R, X]` where `IsRange[R]` holds. Args from both arms propagate. */
 object RangeOps {
 
-  private def boolOp[R, X, Y](op: String, l: TypedExpr[R, X], r: TypedExpr[R, Y]): Where[Where.Concat[X, Y]] = {
+  private def boolOp[R, X, Y](op: String, l: TypedExpr[R, X], r: TypedExpr[R, Y])(using
+    c2: Where.Concat2[X, Y]
+  ): Where[Where.Concat[X, Y]] = {
     val frag = TypedExpr.combineSep(l.fragment, s" $op ", r.fragment)
     Where(frag)
   }
 
-  private def rangeOp[R, X, Y](op: String, l: TypedExpr[R, X], r: TypedExpr[R, Y]): TypedExpr[R, Where.Concat[X, Y]] = {
+  private def rangeOp[R, X, Y](op: String, l: TypedExpr[R, X], r: TypedExpr[R, Y])(using
+    c2: Where.Concat2[X, Y]
+  ): TypedExpr[R, Where.Concat[X, Y]] = {
     val frag = TypedExpr.combineSep(l.fragment, s" $op ", r.fragment)
     TypedExpr[R, Where.Concat[X, Y]](frag, l.codec)
   }
 
   extension [R, X](lhs: TypedExpr[R, X])(using @annotation.unused ev: IsRange[R]) {
 
-    def contains[Y](rhs: TypedExpr[R, Y]):           Where[Where.Concat[X, Y]] = boolOp("@>",  lhs, rhs)
-    def containedBy[Y](rhs: TypedExpr[R, Y]):        Where[Where.Concat[X, Y]] = boolOp("<@",  lhs, rhs)
-    def overlaps[Y](rhs: TypedExpr[R, Y]):           Where[Where.Concat[X, Y]] = boolOp("&&",  lhs, rhs)
-    def strictlyLeft[Y](rhs: TypedExpr[R, Y]):       Where[Where.Concat[X, Y]] = boolOp("<<",  lhs, rhs)
-    def strictlyRight[Y](rhs: TypedExpr[R, Y]):      Where[Where.Concat[X, Y]] = boolOp(">>",  lhs, rhs)
-    def doesNotExtendRight[Y](rhs: TypedExpr[R, Y]): Where[Where.Concat[X, Y]] = boolOp("&<",  lhs, rhs)
-    def doesNotExtendLeft[Y](rhs: TypedExpr[R, Y]):  Where[Where.Concat[X, Y]] = boolOp("&>",  lhs, rhs)
-    def adjacent[Y](rhs: TypedExpr[R, Y]):           Where[Where.Concat[X, Y]] = boolOp("-|-", lhs, rhs)
+    def contains[Y](rhs: TypedExpr[R, Y])(using Where.Concat2[X, Y]):           Where[Where.Concat[X, Y]] = boolOp("@>",  lhs, rhs)
+    def containedBy[Y](rhs: TypedExpr[R, Y])(using Where.Concat2[X, Y]):        Where[Where.Concat[X, Y]] = boolOp("<@",  lhs, rhs)
+    def overlaps[Y](rhs: TypedExpr[R, Y])(using Where.Concat2[X, Y]):           Where[Where.Concat[X, Y]] = boolOp("&&",  lhs, rhs)
+    def strictlyLeft[Y](rhs: TypedExpr[R, Y])(using Where.Concat2[X, Y]):       Where[Where.Concat[X, Y]] = boolOp("<<",  lhs, rhs)
+    def strictlyRight[Y](rhs: TypedExpr[R, Y])(using Where.Concat2[X, Y]):      Where[Where.Concat[X, Y]] = boolOp(">>",  lhs, rhs)
+    def doesNotExtendRight[Y](rhs: TypedExpr[R, Y])(using Where.Concat2[X, Y]): Where[Where.Concat[X, Y]] = boolOp("&<",  lhs, rhs)
+    def doesNotExtendLeft[Y](rhs: TypedExpr[R, Y])(using Where.Concat2[X, Y]):  Where[Where.Concat[X, Y]] = boolOp("&>",  lhs, rhs)
+    def adjacent[Y](rhs: TypedExpr[R, Y])(using Where.Concat2[X, Y]):           Where[Where.Concat[X, Y]] = boolOp("-|-", lhs, rhs)
 
-    def rangeUnion[Y](rhs: TypedExpr[R, Y]):     TypedExpr[R, Where.Concat[X, Y]] = rangeOp("+", lhs, rhs)
-    def rangeIntersect[Y](rhs: TypedExpr[R, Y]): TypedExpr[R, Where.Concat[X, Y]] = rangeOp("*", lhs, rhs)
-    def rangeDiff[Y](rhs: TypedExpr[R, Y]):      TypedExpr[R, Where.Concat[X, Y]] = rangeOp("-", lhs, rhs)
+    def rangeUnion[Y](rhs: TypedExpr[R, Y])(using Where.Concat2[X, Y]):     TypedExpr[R, Where.Concat[X, Y]] = rangeOp("+", lhs, rhs)
+    def rangeIntersect[Y](rhs: TypedExpr[R, Y])(using Where.Concat2[X, Y]): TypedExpr[R, Where.Concat[X, Y]] = rangeOp("*", lhs, rhs)
+    def rangeDiff[Y](rhs: TypedExpr[R, Y])(using Where.Concat2[X, Y]):      TypedExpr[R, Where.Concat[X, Y]] = rangeOp("-", lhs, rhs)
 
   }
 
   extension [R, E, X](lhs: TypedExpr[R, X])(using @annotation.unused ev: IsRange.Aux[R, E]) {
 
     /** `a @> e` — range contains the given element. */
-    def containsElem[Y](elem: TypedExpr[E, Y]): Where[Where.Concat[X, Y]] = {
+    def containsElem[Y](elem: TypedExpr[E, Y])(using Where.Concat2[X, Y]): Where[Where.Concat[X, Y]] = {
       val frag = TypedExpr.combineSep(lhs.fragment, " @> ", elem.fragment)
       Where(frag)
     }
 
     /** `e <@ a` — element is contained in this range. */
-    def elemContainedBy[Y](elem: TypedExpr[E, Y]): Where[Where.Concat[Y, X]] = {
+    def elemContainedBy[Y](elem: TypedExpr[E, Y])(using Where.Concat2[Y, X]): Where[Where.Concat[Y, X]] = {
       val frag = TypedExpr.combineSep(elem.fragment, " <@ ", lhs.fragment)
       Where(frag)
     }

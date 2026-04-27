@@ -34,7 +34,8 @@ object PgFunction {
 
   /** A two-argument function: `name(a, b)`. Args = `Concat[X, Y]`. */
   def binary[A, B, R, X, Y](name: String)(using
-    pfr: PgTypeFor[R]
+    pfr: PgTypeFor[R],
+    c2:  where.Where.Concat2[X, Y]
   ): (TypedExpr[A, X], TypedExpr[B, Y]) => TypedExpr[R, where.Where.Concat[X, Y]] =
     (a, b) => {
       val inner = TypedExpr.combineSep(a.fragment, ", ", b.fragment)
@@ -66,7 +67,8 @@ object PgOperator {
 
   /** An infix binary operator: `a op b`. Result Args = `Concat[X, Y]`. */
   def infix[A, B, R, X, Y](op: String)(using
-    pfr: PgTypeFor[R]
+    pfr: PgTypeFor[R],
+    c2:  where.Where.Concat2[X, Y]
   ): (TypedExpr[A, X], TypedExpr[B, Y]) => TypedExpr[R, where.Where.Concat[X, Y]] =
     (a, b) => {
       val frag = TypedExpr.combineSep(a.fragment, s" $op ", b.fragment)
