@@ -1,20 +1,30 @@
 package skunk.sharp
 
+import skunk.data.Arr
 import skunk.sharp.dsl.*
+import skunk.sharp.dsl.given
+import skunk.sharp.pg.ArrayOps.*
+import skunk.sharp.pg.RangeOps.*
+import skunk.sharp.pg.tags.PgRange
 import skunk.Void
 
+import java.time.LocalDate
 import java.util.UUID
 
 object ParamSuite {
   case class User(id: UUID, email: String, age: Int)
   case class Post(id: UUID, user_id: UUID, title: String)
+  case class Booking(id: UUID, period: PgRange[LocalDate])
+  case class Tagged(id: UUID, tags: Arr[String])
 }
 
 class ParamSuite extends munit.FunSuite {
-  import ParamSuite.{User, Post}
+  import ParamSuite.{User, Post, Booking, Tagged}
 
-  private val users = Table.of[User]("users")
-  private val posts = Table.of[Post]("posts")
+  private val users    = Table.of[User]("users")
+  private val posts    = Table.of[Post]("posts")
+  private val bookings = Table.of[Booking]("bookings")
+  private val tagged   = Table.of[Tagged]("tagged")
 
   // -------- SELECT WHERE -------------------------------------------------------
 
@@ -218,6 +228,48 @@ class ParamSuite extends munit.FunSuite {
   test("UPDATE SET tuple form: SetArgs widens to Void (use & for typed-Args)") {
     val cmd = users.update.set(u => (u.email := "x", u.age := 30)).updateAll.compile
     val _: CommandTemplate[Void] = cmd
+  }
+
+  // -------- Param[T] in binary functions / operators / range / array ----------
+  //
+  // Threading typed Args through projection-position expressions is a separate roadmap item — projections
+  // currently bind their fragments at Void. These tests exercise binary builders in WHERE / HAVING / ON
+  // positions where Args threads end-to-end through `where(_ => Where[A])`.
+
+  test("Pg.mod with Param in WHERE: comparing a column to mod(Param, Param) threads (Int, Int)") {
+    val q = users.select(_.id).where(u => u.age === Pg.mod(Param[Int], Param[Int])).compile
+    val _: QueryTemplate[(Int, Int), ?] = q
+    assert(q.fragment.sql.contains("mod("), q.fragment.sql)
+  }
+
+  test("Pg.power with Param in WHERE: power(col, Param) compared to Param[Double] threads (Double, Double)") {
+    val q = users.select(_.id).where(u => Pg.power(u.age, Param[Double]) === Param[Double]).compile
+    val _: QueryTemplate[(Double, Double), ?] = q
+  }
+
+  test("RangeOps.contains: col @> Param[PgRange[LocalDate]] — Args = PgRange[LocalDate]") {
+    val q = bookings.select(_.id).where(b => b.period.contains(Param[PgRange[LocalDate]])).compile
+    val _: QueryTemplate[PgRange[LocalDate], ?] = q
+    assert(q.fragment.sql.contains("@>"), q.fragment.sql)
+  }
+
+  test("ArrayOps.contains: arrCol @> Param[Arr[String]] — Args = Arr[String]") {
+    val q = tagged.select(_.id).where(t => t.tags.contains(Param[Arr[String]])).compile
+    val _: QueryTemplate[Arr[String], ?] = q
+    assert(q.fragment.sql.contains("@>"), q.fragment.sql)
+  }
+
+  test("ArrayOps.elemOf: Param[String] = ANY(arrCol) — Args = String") {
+    val q = tagged.select(_.id).where(t => Param[String].elemOf(t.tags)).compile
+    val _: QueryTemplate[String, ?] = q
+    assert(q.fragment.sql.contains("ANY("), q.fragment.sql)
+  }
+
+  test("Encoder for Pg.mod(Param, Param) in WHERE supplies both values at execute") {
+    val q       = users.select(_.id).where(u => u.age === Pg.mod(Param[Int], Param[Int])).compile
+    val af      = q.bind((10, 3))
+    val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
+    assertEquals(encoded, List("10", "3"))
   }
 
 }
