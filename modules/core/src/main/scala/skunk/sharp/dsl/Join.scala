@@ -136,8 +136,7 @@ extension [Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WA, HA, Row](
   } = {
     val newAlias                           = a
     val cols                               = buildProjectedCols(ps.projections).asInstanceOf[ProjCols[Proj]]
-    val renderInner: () => AppliedFragment = () =>
-      ps.compile(using gc).fragment.asInstanceOf[skunk.Fragment[skunk.Void]].apply(skunk.Void)
+    val renderInner: () => AppliedFragment = () => ps.compileFragment(using gc)
     new Relation[ProjCols[Proj]] {
       type Alias = A
       type Mode  = AliasMode.Explicit
