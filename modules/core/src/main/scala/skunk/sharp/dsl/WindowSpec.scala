@@ -28,14 +28,14 @@ private enum FrameMode(val keyword: String):
  */
 final class WindowSpec private[sharp] (
   private[dsl] val partitionBys: List[TypedExpr[?, ?]],
-  private[dsl] val orderBys: List[OrderBy],
+  private[dsl] val orderBys: List[OrderBy[?]],
   private[dsl] val frameOpt: Option[(FrameMode, FrameBound, FrameBound)]
 ) {
 
   def partitionBy(exprs: TypedExpr[?, ?]*): WindowSpec =
     new WindowSpec(partitionBys ++ exprs, orderBys, frameOpt)
 
-  def orderBy(obs: OrderBy*): WindowSpec =
+  def orderBy(obs: OrderBy[?]*): WindowSpec =
     new WindowSpec(partitionBys, orderBys ++ obs, frameOpt)
 
   def rowsBetween(start: FrameBound, end: FrameBound): WindowSpec =
@@ -86,7 +86,7 @@ object WindowSpec {
   val empty: WindowSpec = new WindowSpec(Nil, Nil, None)
 
   def partitionBy(exprs: TypedExpr[?, ?]*): WindowSpec = empty.partitionBy(exprs*)
-  def orderBy(obs: OrderBy*): WindowSpec               = empty.orderBy(obs*)
+  def orderBy(obs: OrderBy[?]*): WindowSpec               = empty.orderBy(obs*)
 
 }
 

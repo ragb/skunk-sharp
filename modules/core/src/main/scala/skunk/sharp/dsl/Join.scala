@@ -130,8 +130,8 @@ extension [Ss <: Tuple, WA, HA](sb: SelectBuilder[Ss, WA, HA])(using
  * there's still only one user-visible `.compile` on the whole tree. `GroupCoverage` is summoned here so the inner
  * rendering is as valid as a standalone `.compile` would be.
  */
-extension [Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DA <: Tuple, WA, HA, Row](
-  ps: ProjectedSelect[Ss, Proj, Groups, DA, WA, HA, Row]
+extension [Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DA <: Tuple, OA <: Tuple, WA, HA, Row](
+  ps: ProjectedSelect[Ss, Proj, Groups, DA, OA, WA, HA, Row]
 )(using gc: GroupCoverage[Proj, Groups], @scala.annotation.unused np: AllNamedProj[Proj]) {
 
   def alias[A <: String & Singleton](a: A): Relation[ProjCols[Proj]] {

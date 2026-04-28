@@ -519,4 +519,46 @@ class ParamSuite extends munit.FunSuite {
     assertEquals(encoded, List("11", "2.0", uid.toString, "7"))
   }
 
+  // -------- ORDER BY: typed Args threading -----------------------------------
+
+  test("SELECT … orderBy(column.desc) collapses OArgs to Void") {
+    val q = users.select(u => u.email).orderBy(u => u.age.desc).compile
+    val _: QueryTemplate[Void, String] = q
+  }
+
+  test("SELECT … orderBy(Param-bearing expr.desc) threads OArgs") {
+    val q = users
+      .select(u => u.email)
+      .orderBy(u => Pg.mod(u.age, Param[Int]).desc)
+      .compile
+    val _: QueryTemplate[Int, String] = q
+  }
+
+  test("Full 6-slot composition: DIST + PROJ + WHERE + GROUP + ORDER all Param-bearing") {
+    val q = users
+      .select(u => Pg.power(u.age, Param[Double]))
+      .distinctOn(u => Pg.mod(u.age, Param[Int]))
+      .where(u => u.id === Param[UUID])
+      .groupBy(u => Pg.mod(u.age, Param[Int]))
+      .orderBy(u => Pg.mod(u.age, Param[Int]).asc)
+      .compile
+    // Args = (((((Int, Double), UUID), Int), Void), Int)
+    //         DARGS, PA       , WA  , GA , HA  , OA
+    val _: QueryTemplate[((((Int, Double), UUID), Int), Int), Double] = q
+  }
+
+  test("Encoder for full 6-slot composition binds in render order (DIST→PROJ→WHERE→GROUP→ORDER)") {
+    val q = users
+      .select(u => Pg.power(u.age, Param[Double]))
+      .distinctOn(u => Pg.mod(u.age, Param[Int]))
+      .where(u => u.id === Param[UUID])
+      .groupBy(u => Pg.mod(u.age, Param[Int]))
+      .orderBy(u => Pg.mod(u.age, Param[Int]).asc)
+      .compile
+    val uid     = UUID.fromString("aaaaaaaa-1111-2222-3333-444444444444")
+    val af      = q.bind((((((11, 2.0), uid), 7), 13)))
+    val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
+    assertEquals(encoded, List("11", "2.0", uid.toString, "7", "13"))
+  }
+
 }

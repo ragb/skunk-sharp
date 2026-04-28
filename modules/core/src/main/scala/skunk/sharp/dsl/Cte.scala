@@ -80,9 +80,9 @@ def cte[Ss <: Tuple, WA, HA, N <: String & Singleton](
  *   totals.innerJoin(users).on(r => r.totals.user_id ==== r.users.id).select(r => (r.users.email, r.totals.total)).compile
  * }}}
  */
-def cte[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DA <: Tuple, WA, HA, Row, N <: String & Singleton](
+def cte[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DA <: Tuple, OA <: Tuple, WA, HA, Row, N <: String & Singleton](
   name: N,
-  query: ProjectedSelect[Ss, Proj, Groups, DA, WA, HA, Row]
+  query: ProjectedSelect[Ss, Proj, Groups, DA, OA, WA, HA, Row]
 )(using
   gc: GroupCoverage[Proj, Groups],
   @scala.annotation.unused np: AllNamedProj[Proj]

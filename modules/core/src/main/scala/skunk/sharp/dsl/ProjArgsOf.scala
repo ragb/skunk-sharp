@@ -96,4 +96,14 @@ trait ProjArgsOfLowPrio {
       def project(c: A): List[Any] = List(c)
     }
 
+  /**
+   * Leaf case for `OrderBy[A]` (`expr.asc` / `.desc` / `.nullsFirst` / `.nullsLast` wrappers). Same
+   * shape as the [[typedExpr]] leaf: `Out = A`.
+   */
+  given orderByLeaf[A]: (ProjArgsOf[skunk.sharp.dsl.OrderBy[A]] { type Out = A }) =
+    new ProjArgsOf[skunk.sharp.dsl.OrderBy[A]] {
+      type Out = A
+      def project(c: A): List[Any] = List(c)
+    }
+
 }
