@@ -1,18 +1,33 @@
 # Resume: Param migration (TypedExpr[T] → TypedExpr[T, Args])
 
 **Branch**: `macro-sql-assembly`
-**Head**: `ea30376` — pushed to remote.
+**Head**: `c154ee9` — pushed to remote.
 
 | module    | tests   | status |
 | --------- | ------- | ------ |
-| core      | 426/426 | ✅     |
+| core      | 432/432 | ✅     |
 | circe     | 10/10   | ✅     |
 | iron      | 4/4     | ✅     |
 | refined   | 5/5     | ✅     |
 | tests     | 159/159 | ✅ (Postgres testcontainers) |
-| **total** | **604/604** | ✅ |
+| **total** | **610/610** | ✅ |
 
-## Latest session (commits `90160ed` → `ea30376`)
+## Latest session (commits `90160ed` → `c154ee9`)
+
+- `c154ee9` — **Variadic-typed `Pg.coalesce` / `Pg.concat`** thread
+  typed Args at arity 1, 2, 3; variadic fallback at `Args = Void` for
+  N > 3. Combined Args is left-folded `Concat` to match assembleN.
+  Same pattern can be ported to `Pg.greatest`, `Pg.least`,
+  `Pg.makeDate`, `Pg.overlaps`, `Pg.lpad/rpad` (with fill),
+  `Pg.lag/lead` (with default), CASE WHEN, jsonb mutators (`jsonbSet`,
+  `jsonbInsert`), `rangeCtor3` — those remain at `Args = Void`.
+
+  ```scala
+  users.select(u => Pg.coalesce(Param[String], u.email, Param[String]))
+       .where(u => u.id === Param[UUID])
+       .compile
+    // : QueryTemplate[((String, String), UUID), String]
+  ```
 
 - `ea30376` — **ORDER BY threads typed `OArgs`** (6-slot
   `ProjectedSelect.compile`). `OrderBy[A]` is now parametric — `.asc /
@@ -225,13 +240,14 @@ other means.
    Refactor: add `Groups` to `SelectBuilder`'s class type params (38
    refs); make `SelectBuilder.groupBy` transparent-inline so the type
    threads through `.select`.
-2. **Variadic builders** with typed Args (`Pg.coalesce`, `concat`,
-   `Pg.overlaps`, `CASE WHEN`, `rangeCtor3`, `Pg.makeDate`, lag/lead with
-   default, lpad/rpad with fill, …). Currently all collapse to
-   `Args = Void` via `joinedVoid`. Per `NEXT_SESSION.md`: ship arity
-   overloads up to ~N=5 that take a tuple of TypedExprs and thread
-   `FoldConcat[CollectArgs[T]]` via combineList; keep variadic
-   `TypedExpr[T, Void]` fallback for N>5.
+2. **Remaining variadic builders** with typed Args. `Pg.coalesce` and
+   `Pg.concat` shipped (`c154ee9`) at arity 1/2/3 + Void fallback;
+   port the same arity-overload pattern to `Pg.greatest`, `Pg.least`,
+   `Pg.makeDate` / `makeTime` / `makeTimestamp`, `Pg.overlaps`,
+   `Pg.lpad` / `rpad` (with fill), `Pg.lag` / `lead` (with default),
+   `rangeCtor3`, `jsonbSet` / `jsonbInsert`. Each gets 3 typed
+   overloads + the existing variadic `Args = Void` fallback. `CASE
+   WHEN` is similar but threads through branch + ELSE arms.
 3. **`UPDATE … FROM` / `DELETE … USING` typed Args from the USING/FROM
    source**. Currently the inner relation is bound at Void.
 4. **Subquery `.alias` / CTE bodies with typed inner Args**.
