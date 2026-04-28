@@ -170,6 +170,61 @@ object TypedExpr {
   }
 
   /**
+   * Combine N typed `Fragment`s into one whose `Args` is the caller-claimed `Combined`. The encoder walks
+   * `items` in render order: each item's encoder consumes one entry from `projector(args)` (or `Nil` for
+   * Void-encoder items, which contribute nothing at execute). `parts` are interleaved with `sep`.
+   *
+   * Used by variadic builders, RETURNING tuples, SELECT projections, GROUP BY / ORDER BY / DISTINCT ON
+   * lists — anywhere N typed slots need to fold into one. The caller supplies a `projector` that matches
+   * `Combined` to the per-item args list (typically derived from a [[Where.FoldConcatN]] instance whose
+   * `Combined = FoldConcat[CollectArgs[T]]`).
+   *
+   * `Void`-encoder items still occupy a position in `projector(args)`; the walker checks `eq Void.codec`
+   * and emits no encoded output for them — keeps index alignment simple.
+   */
+  private[sharp] def combineList[Combined](
+    items:     List[Fragment[?]],
+    sep:       String,
+    projector: Combined => List[Any]
+  ): Fragment[Combined] = {
+    if (items.isEmpty) voidFragment("").asInstanceOf[Fragment[Combined]]
+    else {
+      val sepLeft: Either[String, cats.data.State[Int, String]] = Left(sep)
+      val parts: List[Either[String, cats.data.State[Int, String]]] =
+        items.zipWithIndex.flatMap { case (f, i) =>
+          if (i == 0) f.parts
+          else sepLeft :: f.parts
+        }
+      val enc: Encoder[Combined] = new Encoder[Combined] {
+        override val types: List[skunk.data.Type] = items.flatMap(_.encoder.types)
+
+        override val sql: cats.data.State[Int, String] =
+          cats.data.State { (n0: Int) =>
+            items.zipWithIndex.foldLeft((n0, "")) { case ((n, acc), (f, i)) =>
+              val (n1, s) = f.encoder.sql.run(n).value
+              val sepStr  = if (i == 0) "" else sep
+              (n1, acc + sepStr + s)
+            }
+          }
+
+        override def encode(args: Combined): List[Option[skunk.data.Encoded]] = {
+          val values = projector(args)
+          if (values.size != items.size)
+            throw new IllegalStateException(
+              s"skunk-sharp: combineList projector arity mismatch — got ${values.size}, expected ${items.size}"
+            )
+          items.zip(values).flatMap { case (f, v) =>
+            val e = f.encoder.asInstanceOf[Encoder[Any]]
+            if (e eq Void.codec) Nil
+            else e.encode(v)
+          }
+        }
+      }
+      Fragment(parts, enc, Origin.unknown)
+    }
+  }
+
+  /**
    * Variadic Void-aware combine. Treats every input as `Fragment[Void]` (whether structurally Void or
    * Param.bind-baked Void), interleaves with `sep` between, returns `Fragment[Void]`. Used by variadic
    * function builders (`Pg.concat`, `Pg.coalesce`, `Pg.greatest`, `Pg.makeDate`, …) where mixing typed

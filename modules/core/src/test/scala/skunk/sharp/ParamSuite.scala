@@ -315,4 +315,77 @@ class ParamSuite extends munit.FunSuite {
     assertEquals(encoded, List("set@x", uid.toString, "2.0"))
   }
 
+  // -------- Multi-item RETURNING with Param[T] threading ----------------------
+
+  test("DELETE … RETURNING tuple of all-column refs: RetArgs collapses to Void") {
+    val q = users.delete
+      .where(u => u.id === Param[UUID])
+      .returningTuple(u => (u.id, u.email))
+    val _: QueryTemplate[UUID, (UUID, String)] = q
+  }
+
+  test("DELETE … RETURNING tuple with one Param: RetArgs threads single") {
+    val q = users.delete
+      .where(u => u.id === Param[UUID])
+      .returningTuple(u => (u.id, Pg.power(u.age, Param[Double])))
+    val _: QueryTemplate[(UUID, Double), (UUID, Double)] = q
+  }
+
+  test("DELETE … RETURNING tuple with two Params: RetArgs threads tuple") {
+    val q = users.delete
+      .where(u => u.id === Param[UUID])
+      .returningTuple(u => (Pg.power(u.age, Param[Double]), Pg.mod(u.age, Param[Int])))
+    // RETURNING items combine right-fold via Concat so RetArgs = (Double, Int);
+    // outer Concat with WArgs gives (UUID, (Double, Int)).
+    val _: QueryTemplate[(UUID, (Double, Int)), (Double, Int)] = q
+  }
+
+  test("UPDATE … RETURNING tuple with Params: ((SetT, WhereT), RetArgs) shape") {
+    val q = users.update
+      .set(u => u.email := Param[String])
+      .where(u => u.id === Param[UUID])
+      .returningTuple(u => (u.id, Pg.power(u.age, Param[Double])))
+    val _: QueryTemplate[((String, UUID), Double), (UUID, Double)] = q
+  }
+
+  test("INSERT.withParams + returningTuple with Param: row Args + ret Args compose") {
+    val q = users.insert
+      .withParams((id = Param[UUID], email = Param[String], age = Param[Int]))
+      .returningTuple(u => (u.id, Pg.power(u.age, Param[Double])))
+    val _: QueryTemplate[((UUID, String, Int), Double), (UUID, Double)] = q
+  }
+
+  test("returningAll still produces QueryTemplate[WArgs, NamedRow]") {
+    val q = users.delete
+      .where(u => u.id === Param[UUID])
+      .returningAll
+    val _: QueryTemplate[UUID, ?] = q
+  }
+
+  test("Encoder for DELETE … RETURNING (col, Param) binds where + ret values in render order") {
+    val q = users.delete
+      .where(u => u.age >= Param[Int])
+      .returningTuple(u => (u.id, Pg.power(u.age, Param[Double])))
+    val af      = q.bind((30, 2.0))
+    val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
+    assertEquals(encoded, List("30", "2.0"))
+  }
+
+  test("Encoder for multi-item RETURNING with two Params binds both") {
+    val q = users.delete
+      .where(u => u.id === Param[UUID])
+      .returningTuple(u => (Pg.power(u.age, Param[Double]), Pg.mod(u.age, Param[Int])))
+    val uid     = UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc")
+    val af      = q.bind((uid, (2.0, 7)))
+    val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
+    assertEquals(encoded, List(uid.toString, "2.0", "7"))
+  }
+
+  test("SQL render for multi-item RETURNING places items comma-separated") {
+    val q = users.delete
+      .where(u => u.id === Param[UUID])
+      .returningTuple(u => (u.id, u.email))
+    assert(q.fragment.sql.contains("""RETURNING "id", "email""""), q.fragment.sql)
+  }
+
 }

@@ -5,6 +5,7 @@ import skunk.sharp.*
 import skunk.sharp.internal.{tupleCodec, CompileChecks, RawConstants}
 import skunk.sharp.pg.PgTypeFor
 import skunk.sharp.where.Where
+import skunk.sharp.where.Where.{FoldConcat, FoldConcatN}
 import skunk.util.Origin
 
 import scala.NamedTuple
@@ -184,21 +185,31 @@ final class UpdateReady[Cols <: Tuple, Name <: String & Singleton, SetArgs, WArg
 
   def returningTuple[T <: NonEmptyTuple](
     f: ColumnsView[Cols] => T
-  )(using c2: Where.Concat2[SetArgs, WArgs]): QueryTemplate[Where.Concat[SetArgs, WArgs], ExprOutputs[T]] = {
-    val exprs = f(table.columnsView).toList.asInstanceOf[List[TypedExpr[?, ?]]]
-    val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
-    MutationAssembly.withReturning[SetArgs, WArgs, ExprOutputs[T]](updateParts, exprs, codec)
+  )(using
+    fc:   FoldConcatN[CollectArgs[T]],
+    c12:  Where.Concat2[SetArgs, WArgs],
+    c123: Where.Concat2[Where.Concat[SetArgs, WArgs], FoldConcat[CollectArgs[T]]]
+  ): QueryTemplate[Where.Concat[Where.Concat[SetArgs, WArgs], FoldConcat[CollectArgs[T]]], ExprOutputs[T]] = {
+    val exprs    = f(table.columnsView).toList.asInstanceOf[List[TypedExpr[?, ?]]]
+    val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
+    val combined = TypedExpr.combineList[FoldConcat[CollectArgs[T]]](exprs.map(_.fragment), ", ", fc.project)
+    MutationAssembly.withReturningTyped[SetArgs, WArgs, FoldConcat[CollectArgs[T]], ExprOutputs[T]](
+      updateParts, combined, codec
+    )
   }
 
   def returningAll(using
-    c2: Where.Concat2[SetArgs, WArgs]
+    c12:  Where.Concat2[SetArgs, WArgs],
+    c123: Where.Concat2[Where.Concat[SetArgs, WArgs], Void]
   ): QueryTemplate[Where.Concat[SetArgs, WArgs], NamedRowOf[Cols]] = {
     val exprs =
       table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
         TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
       )
-    val codec = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
-    MutationAssembly.withReturning[SetArgs, WArgs, NamedRowOf[Cols]](updateParts, exprs, codec)
+    val codec    = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
+    val combined = TypedExpr.combineList[Void](exprs.map(_.fragment), ", ", _ => List.fill(exprs.size)(Void))
+    MutationAssembly.withReturningTyped[SetArgs, WArgs, Void, NamedRowOf[Cols]](updateParts, combined, codec)
+      .asInstanceOf[QueryTemplate[Where.Concat[SetArgs, WArgs], NamedRowOf[Cols]]]
   }
 
 }
@@ -314,21 +325,31 @@ final class UpdateFromReady[
 
   def returningTuple[T <: NonEmptyTuple](
     f: JoinedView[Ss] => T
-  )(using c2: Where.Concat2[SetArgs, WArgs]): QueryTemplate[Where.Concat[SetArgs, WArgs], ExprOutputs[T]] = {
-    val exprs = f(buildJoinedView(sources)).toList.asInstanceOf[List[TypedExpr[?, ?]]]
-    val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
-    MutationAssembly.withReturning[SetArgs, WArgs, ExprOutputs[T]](updateFromParts, exprs, codec)
+  )(using
+    fc:   FoldConcatN[CollectArgs[T]],
+    c12:  Where.Concat2[SetArgs, WArgs],
+    c123: Where.Concat2[Where.Concat[SetArgs, WArgs], FoldConcat[CollectArgs[T]]]
+  ): QueryTemplate[Where.Concat[Where.Concat[SetArgs, WArgs], FoldConcat[CollectArgs[T]]], ExprOutputs[T]] = {
+    val exprs    = f(buildJoinedView(sources)).toList.asInstanceOf[List[TypedExpr[?, ?]]]
+    val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
+    val combined = TypedExpr.combineList[FoldConcat[CollectArgs[T]]](exprs.map(_.fragment), ", ", fc.project)
+    MutationAssembly.withReturningTyped[SetArgs, WArgs, FoldConcat[CollectArgs[T]], ExprOutputs[T]](
+      updateFromParts, combined, codec
+    )
   }
 
   def returningAll(using
-    c2: Where.Concat2[SetArgs, WArgs]
+    c12:  Where.Concat2[SetArgs, WArgs],
+    c123: Where.Concat2[Where.Concat[SetArgs, WArgs], Void]
   ): QueryTemplate[Where.Concat[SetArgs, WArgs], NamedRowOf[Cols]] = {
     val exprs =
       table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
         TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
       )
-    val codec = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
-    MutationAssembly.withReturning[SetArgs, WArgs, NamedRowOf[Cols]](updateFromParts, exprs, codec)
+    val codec    = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
+    val combined = TypedExpr.combineList[Void](exprs.map(_.fragment), ", ", _ => List.fill(exprs.size)(Void))
+    MutationAssembly.withReturningTyped[SetArgs, WArgs, Void, NamedRowOf[Cols]](updateFromParts, combined, codec)
+      .asInstanceOf[QueryTemplate[Where.Concat[SetArgs, WArgs], NamedRowOf[Cols]]]
   }
 
 }

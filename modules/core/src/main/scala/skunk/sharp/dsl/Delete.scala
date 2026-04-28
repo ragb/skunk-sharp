@@ -4,6 +4,7 @@ import skunk.{AppliedFragment, Codec, Fragment, Void}
 import skunk.sharp.*
 import skunk.sharp.internal.{tupleCodec, RawConstants}
 import skunk.sharp.where.Where
+import skunk.sharp.where.Where.{FoldConcat, FoldConcatN}
 
 /**
  * DELETE builder — compile-time staged so you can't accidentally run a `DELETE FROM …` with no WHERE.
@@ -93,26 +94,35 @@ final class DeleteReady[Cols <: Tuple, Name <: String & Singleton, Args] private
   def compile: CommandTemplate[Args] = MutationAssembly.command[Args, Void](deleteParts).asInstanceOf[CommandTemplate[Args]]
 
   def returning[T, A](f: ColumnsView[Cols] => TypedExpr[T, A])(using
-    c123: Where.Concat2[Where.Concat[Args, Void], A]
+    c2: Where.Concat2[Args, A]
   ): QueryTemplate[Where.Concat[Args, A], T] = {
     val expr = f(table.columnsView)
-    MutationAssembly.withReturningTyped[Args, Void, A, T](deleteParts, expr.fragment, expr.codec)
-      .asInstanceOf[QueryTemplate[Where.Concat[Args, A], T]]
+    MutationAssembly.withReturningTyped2[Args, A, T](deleteParts, expr.fragment, expr.codec)
   }
 
-  def returningTuple[T <: NonEmptyTuple](f: ColumnsView[Cols] => T): QueryTemplate[Args, ExprOutputs[T]] = {
-    val exprs = f(table.columnsView).toList.asInstanceOf[List[TypedExpr[?, ?]]]
-    val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
-    MutationAssembly.withReturning[Args, Void, ExprOutputs[T]](deleteParts, exprs, codec).asInstanceOf[QueryTemplate[Args, ExprOutputs[T]]]
+  def returningTuple[T <: NonEmptyTuple](f: ColumnsView[Cols] => T)(using
+    fc: FoldConcatN[CollectArgs[T]],
+    c2: Where.Concat2[Args, FoldConcat[CollectArgs[T]]]
+  ): QueryTemplate[Where.Concat[Args, FoldConcat[CollectArgs[T]]], ExprOutputs[T]] = {
+    val exprs    = f(table.columnsView).toList.asInstanceOf[List[TypedExpr[?, ?]]]
+    val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
+    val combined = TypedExpr.combineList[FoldConcat[CollectArgs[T]]](exprs.map(_.fragment), ", ", fc.project)
+    MutationAssembly.withReturningTyped2[Args, FoldConcat[CollectArgs[T]], ExprOutputs[T]](
+      deleteParts, combined, codec
+    )
   }
 
-  def returningAll: QueryTemplate[Args, NamedRowOf[Cols]] = {
+  def returningAll(using
+    c2: Where.Concat2[Args, Void]
+  ): QueryTemplate[Args, NamedRowOf[Cols]] = {
     val exprs =
       table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
         TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
       )
-    val codec = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
-    MutationAssembly.withReturning[Args, Void, NamedRowOf[Cols]](deleteParts, exprs, codec).asInstanceOf[QueryTemplate[Args, NamedRowOf[Cols]]]
+    val codec    = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
+    val combined = TypedExpr.combineList[Void](exprs.map(_.fragment), ", ", _ => List.fill(exprs.size)(Void))
+    MutationAssembly.withReturningTyped2[Args, Void, NamedRowOf[Cols]](deleteParts, combined, codec)
+      .asInstanceOf[QueryTemplate[Args, NamedRowOf[Cols]]]
   }
 
 }
@@ -135,20 +145,10 @@ private[dsl] object MutationAssembly {
     CommandTemplate.mk[Where.Concat[A1, A2]](tpl.fragment.asInstanceOf[Fragment[Where.Concat[A1, A2]]])
   }
 
-  def withReturning[A1, A2, R](
-    base: List[BodyPart],
-    returning: List[TypedExpr[?, ?]],
-    codec: Codec[R]
-  )(using c2: Where.Concat2[A1, A2]): QueryTemplate[Where.Concat[A1, A2], R] = {
-    // Multi-item RETURNING — items individually bind at Void (typed-Args threading per item is roadmap).
-    val listAf = TypedExpr.joined(returning.map(e => SelectBuilder.bindVoid(e.fragment)), ", ")
-    val parts: List[BodyPart] = base ++ List[BodyPart](Left(RawConstants.RETURNING), Left(listAf))
-    SelectBuilder.assemble[A1, A2, R](parts, Nil, codec)
-  }
-
   /**
-   * Single-expression RETURNING that threads typed Args. The expression's `RetArgs` becomes the third
-   * typed slot at execute time, after SET/WHERE.
+   * Three-slot RETURNING that threads typed Args — used by UPDATE (SET + WHERE + RETURNING). The single
+   * Fragment's `RetArgs` becomes the third typed slot at execute time, after SET/WHERE. Multi-item
+   * callers combine their items via [[TypedExpr.combineList]] before calling.
    */
   def withReturningTyped[A1, A2, RetArgs, R](
     base: List[BodyPart],
@@ -160,6 +160,19 @@ private[dsl] object MutationAssembly {
   ): QueryTemplate[Where.Concat[Where.Concat[A1, A2], RetArgs], R] = {
     val parts: List[BodyPart] = base ++ List[BodyPart](Left(RawConstants.RETURNING), Right(returning))
     SelectBuilder.assemble3[A1, A2, RetArgs, R](parts, Nil, codec)
+  }
+
+  /**
+   * Two-slot RETURNING — used by DELETE (WHERE + RETURNING) and INSERT (VALUES + RETURNING). The
+   * walker maps Right slot 0 → A1 and Right slot 1 → A2 in render order.
+   */
+  def withReturningTyped2[A1, RetArgs, R](
+    base: List[BodyPart],
+    returning: Fragment[RetArgs],
+    codec: Codec[R]
+  )(using c2: Where.Concat2[A1, RetArgs]): QueryTemplate[Where.Concat[A1, RetArgs], R] = {
+    val parts: List[BodyPart] = base ++ List[BodyPart](Left(RawConstants.RETURNING), Right(returning))
+    SelectBuilder.assemble[A1, RetArgs, R](parts, Nil, codec)
   }
 
 }
@@ -236,25 +249,36 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
     buf.toList
   }
 
-  def returning[T, A](f: JoinedView[Ss] => TypedExpr[T, A]): QueryTemplate[Args, T] = {
+  def returning[T, A](f: JoinedView[Ss] => TypedExpr[T, A])(using
+    c2: Where.Concat2[Args, A]
+  ): QueryTemplate[Where.Concat[Args, A], T] = {
     val expr = f(buildJoinedView(sources))
-    MutationAssembly.withReturning[Args, Void, T](bodyParts, List(expr), expr.codec).asInstanceOf[QueryTemplate[Args, T]]
-  }
-  // (DELETE … USING.returning keeps the multi-item path; threading typed RetArgs through USING is roadmap.)
-
-  def returningTuple[T <: NonEmptyTuple](f: JoinedView[Ss] => T): QueryTemplate[Args, ExprOutputs[T]] = {
-    val exprs = f(buildJoinedView(sources)).toList.asInstanceOf[List[TypedExpr[?, ?]]]
-    val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
-    MutationAssembly.withReturning[Args, Void, ExprOutputs[T]](bodyParts, exprs, codec).asInstanceOf[QueryTemplate[Args, ExprOutputs[T]]]
+    MutationAssembly.withReturningTyped2[Args, A, T](bodyParts, expr.fragment, expr.codec)
   }
 
-  def returningAll: QueryTemplate[Args, NamedRowOf[Cols]] = {
+  def returningTuple[T <: NonEmptyTuple](f: JoinedView[Ss] => T)(using
+    fc: FoldConcatN[CollectArgs[T]],
+    c2: Where.Concat2[Args, FoldConcat[CollectArgs[T]]]
+  ): QueryTemplate[Where.Concat[Args, FoldConcat[CollectArgs[T]]], ExprOutputs[T]] = {
+    val exprs    = f(buildJoinedView(sources)).toList.asInstanceOf[List[TypedExpr[?, ?]]]
+    val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
+    val combined = TypedExpr.combineList[FoldConcat[CollectArgs[T]]](exprs.map(_.fragment), ", ", fc.project)
+    MutationAssembly.withReturningTyped2[Args, FoldConcat[CollectArgs[T]], ExprOutputs[T]](
+      bodyParts, combined, codec
+    )
+  }
+
+  def returningAll(using
+    c2: Where.Concat2[Args, Void]
+  ): QueryTemplate[Args, NamedRowOf[Cols]] = {
     val exprs =
       table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
         TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
       )
-    val codec = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
-    MutationAssembly.withReturning[Args, Void, NamedRowOf[Cols]](bodyParts, exprs, codec).asInstanceOf[QueryTemplate[Args, NamedRowOf[Cols]]]
+    val codec    = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
+    val combined = TypedExpr.combineList[Void](exprs.map(_.fragment), ", ", _ => List.fill(exprs.size)(Void))
+    MutationAssembly.withReturningTyped2[Args, Void, NamedRowOf[Cols]](bodyParts, combined, codec)
+      .asInstanceOf[QueryTemplate[Args, NamedRowOf[Cols]]]
   }
 
 }

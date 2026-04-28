@@ -533,12 +533,15 @@ object SelectBuilder {
     assemble3[A1, A2, Void, R](bodyParts, ctes, codec).asInstanceOf[QueryTemplate[Where.Concat[A1, A2], R]]
 
   /**
-   * Three-slot assemble. Render-order dispatch: the first typed (Right) part receives `A1`, the second
-   * `A2`, the third `A3`. Result Args is `Concat[Concat[A1, A2], A3]` — a left-fold reduction so each
-   * arm collapses Void independently.
+   * Three-slot assemble. Render-order dispatch: the n-th non-Void typed (Right) part receives the n-th
+   * of `(A1, A2, A3)`. Void-encoder Right slots are skipped (emit nothing, don't advance the typed
+   * index). For shapes whose typed slots may not align with `(A1, A2, A3)` because of internal Void
+   * arms (e.g. DELETE which has [WHERE, RETURNING] — only two slots, neither in the A2 position), use
+   * the two-slot [[assemble]] wrapper or [[MutationAssembly.withReturningTyped2]] instead, ensuring
+   * positions match.
    *
-   * Used by SELECT (proj/where/having) and mutation+RETURNING (set/where/returning) shapes. For two-slot
-   * cases pass `Void` for `A3`; for one-slot cases pass `Void` for both.
+   * Used by SELECT (proj/where/having) and mutation+RETURNING (UPDATE: SET + WHERE + RETURNING). For
+   * one- or two-slot cases pass `Void` for the unused trailing positions.
    */
   private[dsl] def assemble3[A1, A2, A3, R](
     bodyParts: List[BodyPart],
@@ -1024,6 +1027,16 @@ final case class Locking(mode: LockMode, waitPolicy: WaitPolicy = WaitPolicy.Wai
 type ExprOutputs[T <: Tuple] <: Tuple = T match {
   case EmptyTuple              => EmptyTuple
   case TypedExpr[t, ?] *: tail => t *: ExprOutputs[tail]
+}
+
+/**
+ * Dual of [[ExprOutputs]] — extracts the per-item `Args` slot from a tuple of `TypedExpr`s. A column
+ * reference contributes `Void`; a `Param[T]` contributes `T`. Combined with [[Where.FoldConcat]] this
+ * gives the result Args for variadic / multi-item DSL positions.
+ */
+type CollectArgs[T <: Tuple] <: Tuple = T match {
+  case EmptyTuple              => EmptyTuple
+  case TypedExpr[?, a] *: tail => a *: CollectArgs[tail]
 }
 
 type ProjResult[X] = X match {

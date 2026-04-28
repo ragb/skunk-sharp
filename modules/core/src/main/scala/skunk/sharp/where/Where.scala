@@ -75,6 +75,49 @@ object Where {
   }
 
   /**
+   * Right-fold of [[Concat]] over a tuple of Args types. Drops `Void` slots cleanly so
+   * `FoldConcat[(Void, Int, Void, String)] = (Int, String)`. Used by variadic builders / projection lists /
+   * RETURNING tuples to combine N typed-Args slots into one.
+   */
+  type FoldConcat[T <: Tuple] = T match {
+    case EmptyTuple        => Void
+    case h *: EmptyTuple   => h
+    case h *: t            => Concat[h, FoldConcat[t]]
+  }
+
+  /**
+   * Project a `FoldConcat[T]` value back into a heterogeneous list of per-slot values, in tuple order — one
+   * entry per slot of `T`, including `Void` placeholders for slots whose Args is `Void`. Resolved at the call
+   * site via the priority chain below; each step uses the underlying [[Concat2]] instance to peel off one
+   * slot at a time.
+   */
+  trait FoldConcatN[T <: Tuple] {
+    def project(c: FoldConcat[T]): List[Any]
+  }
+
+  object FoldConcatN {
+
+    given empty: FoldConcatN[EmptyTuple] = new FoldConcatN[EmptyTuple] {
+      def project(c: FoldConcat[EmptyTuple]): List[Any] = Nil
+    }
+
+    given single[H]: FoldConcatN[H *: EmptyTuple] = new FoldConcatN[H *: EmptyTuple] {
+      def project(c: FoldConcat[H *: EmptyTuple]): List[Any] = List(c)
+    }
+
+    given cons[H, T <: NonEmptyTuple](using
+      c2:   Concat2[H, FoldConcat[T]],
+      rest: FoldConcatN[T]
+    ): FoldConcatN[H *: T] = new FoldConcatN[H *: T] {
+      def project(c: FoldConcat[H *: T]): List[Any] = {
+        val (h, t) = c2.project(c.asInstanceOf[Concat[H, FoldConcat[T]]])
+        h :: rest.project(t)
+      }
+    }
+
+  }
+
+  /**
    * Pair two encoders into one whose input shape matches `Concat[A, B]`. Always products both sub-encoders
    * (so any baked values riding on either side flow through), then contramaps the user's `Concat[A, B]` input
    * back into the `(A, B)` tuple the product actually consumes.
