@@ -1,7 +1,7 @@
 # Resume: Param migration (TypedExpr[T] → TypedExpr[T, Args])
 
 **Branch**: `macro-sql-assembly`
-**Head**: `99d0b6f` — pushed to remote.
+**Head**: `a33b068` — pushed to remote.
 
 | module    | tests   | status |
 | --------- | ------- | ------ |
@@ -12,7 +12,33 @@
 | tests     | 159/159 | ✅ (Postgres testcontainers) |
 | **total** | **592/592** | ✅ |
 
-## Latest session (commits `90160ed` → `99d0b6f`)
+## Latest session (commits `90160ed` → `a33b068`)
+
+- `a33b068` — **`assemble3` walker fix: always-increment typedIdx; thread
+  evidences explicitly.** The previous walker counted only non-Void Right
+  slots, which silently dropped the third value when an intermediate slot
+  had a Void encoder (e.g. UPDATE SET=value-baked + WHERE Param +
+  RETURNING Param dispatched RETURNING's value to a2 instead of a3).
+  Worked around in earlier shapes by routing DELETE/INSERT through
+  `withReturningTyped2` (2-slot); now fixed at the root, which is the
+  prerequisite for adding a 4th typed slot (GROUP BY / ORDER BY /
+  DISTINCT ON typed Args). Walker now treats every Right slot as a
+  positional slot regardless of encoder Void-ness; project the user's
+  Args into (a1, a2, a3) once via the supplied Concat2 evidences and
+  dispatch by slot index.
+
+  Evidence threading is the ergonomic catch: at abstract type parameters,
+  Scala summons `default` over an in-scope param, so explicit
+  `(using ...)` threading is needed across the chain. Updated:
+  - `assemble` hand-builds rightVoid for c123 and passes c2 + c123 down
+    to assemble3 explicitly.
+  - `SelectBuilder.compile`, `MutationAssembly.command/withReturningTyped/
+    withReturningTyped2`, `ProjectedSelect.compile` all pass evidences
+    explicitly to their assemble callee.
+  - `.alias` extension on `SelectBuilder` takes `c2` in its using clause
+    and threads it through the renderInner closure (the closure was
+    capturing `default` and crashing at execute time).
+  - `AsSubquery.fromSelectBuilder` takes `c2` similarly.
 
 - `99d0b6f` — **SELECT projections thread typed `ProjArgs`**.
   `ProjectedSelect.compile` now requires a `ProjArgsOf.Aux[Proj, ProjArgs]`
@@ -104,12 +130,22 @@ other means.
 
 ## Open gaps (priority order)
 
-1. **GROUP BY / ORDER BY / DISTINCT ON Param threading**. Currently each
-   item is bound at Void via `bindVoid` in `compileBodyParts`. Same shape
-   as multi-item RETURNING + SELECT projections — needs combineList +
-   typed-args slot routed via `Right(combined)` through `assemble3` /
-   `assemble5`. For named-tuple inputs use the same `erasedValue`
-   dispatch trick as `select`. Should be a straight port now.
+1. **GROUP BY / ORDER BY / DISTINCT ON Param threading**. Walker fix
+   (`a33b068`) lays the groundwork — slot indices are now stable across
+   internal Void slots, so adding a 4th typed slot is well-defined. Plan:
+   - Add `GArgs` as a class type param to both `SelectBuilder`
+     (extending its current `[Ss, WArgs, HArgs]` to
+     `[Ss, WArgs, GArgs, HArgs]`) and `ProjectedSelect` (analogous).
+   - Make `groupBy` a `transparent inline def` that uses `erasedValue`
+     dispatch on the projection shape (same trick as `select`) and
+     summons `ProjArgsOf` to compute the typed Args extension.
+   - For SELECT (3 typed slots: WHERE/GROUP/HAVING) reuse `assemble3`.
+     For ProjectedSelect (4 typed slots: PROJ/WHERE/GROUP/HAVING) add
+     `assemble4` — same walker pattern, one more `Concat2` evidence in
+     the using clause.
+   - 38 references to `SelectBuilder[…]` and 38 to `ProjectedSelect[…]`
+     to update; mostly mechanical with sed but Cte / Join / AsSubquery
+     all touch the param arity.
 2. **Variadic builders** with typed Args (`Pg.coalesce`, `concat`,
    `Pg.overlaps`, `CASE WHEN`, `rangeCtor3`, `Pg.makeDate`, lag/lead with
    default, lpad/rpad with fill, …). Currently all collapse to
