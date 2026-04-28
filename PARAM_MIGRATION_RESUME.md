@@ -1,18 +1,46 @@
 # Resume: Param migration (TypedExpr[T] → TypedExpr[T, Args])
 
 **Branch**: `macro-sql-assembly`
-**Head**: `7a8c61c` — pushed to remote.
+**Head**: `2015e69` — pushed to remote.
 
 | module    | tests   | status |
 | --------- | ------- | ------ |
-| core      | 418/418 | ✅     |
+| core      | 422/422 | ✅     |
 | circe     | 10/10   | ✅     |
 | iron      | 4/4     | ✅     |
 | refined   | 5/5     | ✅     |
 | tests     | 159/159 | ✅ (Postgres testcontainers) |
-| **total** | **596/596** | ✅ |
+| **total** | **600/600** | ✅ |
 
-## Latest session (commits `90160ed` → `7a8c61c`)
+## Latest session (commits `90160ed` → `2015e69`)
+
+- `2015e69` — **DISTINCT ON threads typed `DArgs`** (5-slot
+  `ProjectedSelect.compile`). `ProjectedSelect` carries a new
+  `DistinctOn <: Tuple` class type param (default `EmptyTuple`);
+  `.distinctOn(...)` is `transparent inline` extending DistinctOn via
+  `NormProj[D]`. compile takes `[DArgs, ProjArgs, GArgs]` method
+  type params, summons `ProjArgsOf` for all three of `Proj` /
+  `Groups` / `DistinctOn`, and routes through a new `assemble5` that
+  dispatches Right slots positionally to `(a1..a5)`.
+
+  Render order: `[DIST=0, PROJ=1, WHERE=2, GROUP=3, HAVING=4]`. Each
+  typed slot is always emitted as a Right; absent clauses use
+  `emptyVoidSlot` placeholders. The DISTINCT ON keyword + close-paren
+  are emitted only when distinctOnOpt is set; otherwise the SELECT
+  prefix collapses to plain `SELECT` / `SELECT DISTINCT`. Final Args:
+  `Concat[Concat[Concat[Concat[DArgs, ProjArgs], WArgs], GArgs], HArgs]`.
+
+  ```scala
+  users.select(u => Pg.power(u.age, Param[Double]))
+       .distinctOn(u => Pg.mod(u.age, Param[Int]))
+       .where(u => u.id === Param[UUID])
+       .groupBy(u => Pg.mod(u.age, Param[Int]))
+       .compile
+    // : QueryTemplate[(((Int, Double), UUID), Int), Double]
+  ```
+
+  ParamSuite: 4 new tests (column-ref distinctOn collapses, Param
+  threading, full 5-slot composition, encoder render-order check).
 
 - `7a8c61c` — **GROUP BY threads typed `GArgs`** in
   `ProjectedSelect.compile`. Param-bearing items in GROUP BY now thread
@@ -160,20 +188,14 @@ other means.
 
 ## Open gaps (priority order)
 
-1. **ORDER BY / DISTINCT ON Param threading**. GROUP BY shipped in
-   `7a8c61c`. Remaining positions are render-order before/after the
-   already-threaded slots:
-   - **DISTINCT ON** (in SELECT prefix, before PROJ): items are
-     `TypedExpr[?, ?]` — same shape as PROJ / GROUP. Add a 5th typed
-     slot via `assemble5`; `ProjectedSelect.compile` summons
-     `ProjArgsOf[DistinctOn]` analogous to Proj / Groups.
-   - **ORDER BY** (after HAVING, before LIMIT): items are `OrderBy`
-     wrappers around `Fragment[?]`. To thread typed Args we'd need
-     `OrderBy` to carry its `A` (or extract from the Fragment), then a
-     6th slot via `assemble6`. Slightly more involved than DISTINCT ON
-     because of the wrapper.
-   - Same `erasedValue` dispatch on the lambda shape if named tuples
-     should be supported in these positions (rare in practice).
+1. **ORDER BY Param threading**. DISTINCT ON shipped in `2015e69`;
+   ORDER BY is the remaining slot before LIMIT. Items are `OrderBy`
+   wrappers around `Fragment[?]` — to thread typed Args we'd need
+   `OrderBy[A]` parametrization (or extract A from the Fragment) plus
+   a 6th slot via `assemble6`. Slightly more involved than DISTINCT ON
+   because of the wrapper. The runtime fallback pattern (size-check
+   plus Void-fill) and the `transparent inline` orderBy are the same
+   shapes used by groupBy / distinctOn.
 2. **`SelectBuilder.groupBy` doesn't track `Groups` type-level**.
    When the user does `SelectBuilder.groupBy → .select`, the
    ProjectedSelect inherits the runtime `groupBys` list but `Groups`
