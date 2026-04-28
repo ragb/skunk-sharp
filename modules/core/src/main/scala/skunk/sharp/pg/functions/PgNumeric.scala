@@ -37,14 +37,14 @@ trait PgNumeric {
     TypedExpr[T, Where.Concat[AA, BA]](frag, a.codec)
   }
 
-  /** `greatest(a, b, …)` — variadic; Args collapses to `?`. */
-  def greatest[T](args: TypedExpr[T, ?]*): TypedExpr[T, ?] = {
+  /** `greatest(a, b, …)` — variadic; Args collapses to `Void` (variadic typed-Args is roadmap). */
+  def greatest[T](args: TypedExpr[T, ?]*): TypedExpr[T, Void] = {
     require(args.nonEmpty, "greatest() needs at least one argument")
     naryPreserve("greatest", args)
   }
 
-  /** `least(a, b, …)` — smallest of the arguments. */
-  def least[T](args: TypedExpr[T, ?]*): TypedExpr[T, ?] = {
+  /** `least(a, b, …)` — smallest of the arguments. Args = `Void`. */
+  def least[T](args: TypedExpr[T, ?]*): TypedExpr[T, Void] = {
     require(args.nonEmpty, "least() needs at least one argument")
     naryPreserve("least", args)
   }

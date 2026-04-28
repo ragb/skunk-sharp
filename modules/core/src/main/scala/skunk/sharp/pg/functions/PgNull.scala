@@ -12,9 +12,9 @@ trait PgNull {
   def nullOf[T](using pf: PgTypeFor[T]): TypedExpr[Option[T], Void] =
     TypedExpr(TypedExpr.voidFragment("NULL"), pf.codec.opt)
 
-  /** `coalesce(a, b, c, …)` — first non-null argument. */
-  def coalesce[T](args: TypedExpr[T, ?]*)(using pfr: PgTypeFor[T]): TypedExpr[T, ?] =
-    PgFunction.nary[T]("coalesce", args*)
+  /** `coalesce(a, b, c, …)` — first non-null argument. Args = `Void` (variadic typed-Args is roadmap). */
+  def coalesce[T](args: TypedExpr[T, ?]*)(using pfr: PgTypeFor[T]): TypedExpr[T, Void] =
+    PgFunction.nary[T]("coalesce", args*).asInstanceOf[TypedExpr[T, Void]]
 
   /**
    * `nullif(a, b)` — returns NULL if `a = b`, else `a`. `b` is a runtime value baked via [[Param.bind]];

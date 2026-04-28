@@ -171,16 +171,13 @@ object TypedExpr {
 
   /**
    * Combine N typed `Fragment`s into one whose `Args` is the caller-claimed `Combined`. The encoder walks
-   * `items` in render order: each item's encoder consumes one entry from `projector(args)` (or `Nil` for
-   * Void-encoder items, which contribute nothing at execute). `parts` are interleaved with `sep`.
+   * `items` in render order: each non-`Void`-encoder item consumes one entry from `projector(args)`;
+   * Void-encoder items emit nothing. `parts` are interleaved with `sep`.
    *
    * Used by variadic builders, RETURNING tuples, SELECT projections, GROUP BY / ORDER BY / DISTINCT ON
-   * lists — anywhere N typed slots need to fold into one. The caller supplies a `projector` that matches
-   * `Combined` to the per-item args list (typically derived from a [[Where.FoldConcatN]] instance whose
-   * `Combined = FoldConcat[CollectArgs[T]]`).
-   *
-   * `Void`-encoder items still occupy a position in `projector(args)`; the walker checks `eq Void.codec`
-   * and emits no encoded output for them — keeps index alignment simple.
+   * lists — anywhere N typed slots need to fold into one. The caller supplies a `projector` matching
+   * `Combined` to the per-item values list; typically derived from a [[Where.FoldConcatN]] instance
+   * whose `Combined = FoldConcat[CollectArgs[T]]`.
    */
   private[sharp] def combineList[Combined](
     items:     List[Fragment[?]],

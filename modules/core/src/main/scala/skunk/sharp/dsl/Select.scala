@@ -824,7 +824,7 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
     val entries      = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
     val selectPrefix = renderSelectPrefix(distinct, distinctOnOpt)
     // Projection items may carry typed Args (Param-bearing); bind at Void here. Typed-args threading through
-    // SELECT projections is roadmap.
+    // SELECT projections is roadmap (blocked on named-tuple match-type reduction in Scala 3.8).
     val projList     = TypedExpr.joined(projections.map(e => SelectBuilder.bindVoid(e.fragment)), ", ")
     val headerParts  = scala.collection.mutable.ListBuffer[AppliedFragment](selectPrefix, projList)
     if (entries.nonEmpty && entries.head.relation.hasFromClause) {

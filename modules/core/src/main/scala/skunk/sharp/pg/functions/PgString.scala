@@ -117,9 +117,9 @@ trait PgString {
     TypedExpr[T, A](frag, e.codec)
   }
 
-  /** `concat(a, b, c, …)` — Args type collapses to `?` since each arg may carry different Args. */
-  def concat(args: TypedExpr[String, ?]*): TypedExpr[String, ?] =
-    PgFunction.nary[String]("concat", args*)
+  /** `concat(a, b, c, …)` — Args = `Void` (variadic typed-Args is roadmap). */
+  def concat(args: TypedExpr[String, ?]*): TypedExpr[String, Void] =
+    PgFunction.nary[String]("concat", args*).asInstanceOf[TypedExpr[String, Void]]
 
   // ---- Fixed Int return -----------------------------------------------------------------------
 
