@@ -479,4 +479,44 @@ class ParamSuite extends munit.FunSuite {
     assertEquals(encoded, List("1.5", uid.toString, "7"))
   }
 
+  // -------- DISTINCT ON: typed Args threading --------------------------------
+
+  test("SELECT DISTINCT ON column ref collapses DArgs to Void") {
+    val q = users.select(u => u.email).distinctOn(u => u.email).compile
+    val _: QueryTemplate[Void, String] = q
+  }
+
+  test("SELECT DISTINCT ON Param-bearing expr threads DArgs ahead of PROJ") {
+    val q = users
+      .select(u => u.email)
+      .distinctOn(u => Pg.mod(u.age, Param[Int]))
+      .compile
+    val _: QueryTemplate[Int, String] = q
+  }
+
+  test("DISTINCT-Param + proj-Param + WHERE-Param + GROUP-Param: full 5-slot composition") {
+    val q = users
+      .select(u => Pg.power(u.age, Param[Double]))
+      .distinctOn(u => Pg.mod(u.age, Param[Int]))
+      .where(u => u.id === Param[UUID])
+      .groupBy(u => Pg.mod(u.age, Param[Int]))
+      .compile
+    // Args = Concat[Concat[Concat[Concat[DArgs=Int, ProjArgs=Double], WArgs=UUID], GArgs=Int], HArgs=Void]
+    //      = (((Int, Double), UUID), Int)
+    val _: QueryTemplate[(((Int, Double), UUID), Int), Double] = q
+  }
+
+  test("Encoder for full 5-slot composition binds in render order (DIST → PROJ → WHERE → GROUP)") {
+    val q = users
+      .select(u => Pg.power(u.age, Param[Double]))
+      .distinctOn(u => Pg.mod(u.age, Param[Int]))
+      .where(u => u.id === Param[UUID])
+      .groupBy(u => Pg.mod(u.age, Param[Int]))
+      .compile
+    val uid     = UUID.fromString("ffffffff-ffff-ffff-ffff-ffffffffffff")
+    val af      = q.bind(((((11, 2.0), uid), 7)))
+    val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
+    assertEquals(encoded, List("11", "2.0", uid.toString, "7"))
+  }
+
 }

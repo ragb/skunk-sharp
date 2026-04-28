@@ -296,7 +296,7 @@ final class SelectBuilder[Ss <: Tuple, WArgs, HArgs] private[sharp] (
     inline scala.compiletime.erasedValue[X] match {
       case _: TypedExpr[?, ?] =>
         val expr = f(v).asInstanceOf[TypedExpr[?, ?]]
-        new ProjectedSelect[Ss, X *: EmptyTuple, EmptyTuple, WArgs, HArgs, ProjResult[X]](
+        new ProjectedSelect[Ss, X *: EmptyTuple, EmptyTuple, EmptyTuple, WArgs, HArgs, ProjResult[X]](
           sources,
           distinct,
           List(expr),
@@ -322,6 +322,7 @@ final class SelectBuilder[Ss <: Tuple, WArgs, HArgs] private[sharp] (
           Ss,
           scala.NamedTuple.DropNames[X & scala.NamedTuple.AnyNamedTuple],
           EmptyTuple,
+          EmptyTuple,
           WArgs,
           HArgs,
           scala.NamedTuple.NamedTuple[
@@ -346,7 +347,7 @@ final class SelectBuilder[Ss <: Tuple, WArgs, HArgs] private[sharp] (
         val tup   = f(v).asInstanceOf[NonEmptyTuple]
         val exprs = tup.toList.asInstanceOf[List[TypedExpr[?, ?]]]
         val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[X & Tuple]]]
-        new ProjectedSelect[Ss, X & Tuple, EmptyTuple, WArgs, HArgs, ExprOutputs[X & Tuple]](
+        new ProjectedSelect[Ss, X & Tuple, EmptyTuple, EmptyTuple, WArgs, HArgs, ExprOutputs[X & Tuple]](
           sources,
           distinct,
           exprs,
@@ -682,6 +683,78 @@ object SelectBuilder {
   }
 
   /**
+   * Five-slot assemble — adds one more typed position before A1. Used by `ProjectedSelect.compile`
+   * once DISTINCT ON threads typed `DArgs` ahead of the projection (slots `[DArgs, ProjArgs, WArgs,
+   * GArgs, HArgs]`).
+   */
+  private[dsl] def assemble5[A1, A2, A3, A4, A5, R](
+    bodyParts: List[BodyPart],
+    ctes:      List[CteRelation[?, ?]],
+    codec:     Codec[R]
+  )(using
+    c12:    Where.Concat2[A1, A2],
+    c123:   Where.Concat2[Where.Concat[A1, A2], A3],
+    c1234:  Where.Concat2[Where.Concat[Where.Concat[A1, A2], A3], A4],
+    c12345: Where.Concat2[Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4], A5]
+  ): QueryTemplate[Where.Concat[Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4], A5], R] = {
+    val ctePreamble: Option[AppliedFragment] = renderWithPreamble(ctes)
+    val allParts: List[BodyPart] = ctePreamble.toList.map(Left(_)) ++ bodyParts
+
+    val sqlParts: List[Either[String, cats.data.State[Int, String]]] =
+      allParts.flatMap {
+        case Left(af) => af.fragment.parts
+        case Right(f) => f.parts
+      }
+
+    type Out = Where.Concat[Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4], A5]
+    val finalEnc: Encoder[Out] = new Encoder[Out] {
+      override val types: List[skunk.data.Type] =
+        allParts.flatMap {
+          case Left(af) => af.fragment.encoder.types
+          case Right(f) => f.encoder.types
+        }
+      override val sql: cats.data.State[Int, String] =
+        cats.data.State { (n0: Int) =>
+          allParts.foldLeft((n0, "")) { case ((n, acc), part) =>
+            val (n1, s) = part match {
+              case Left(af) => af.fragment.encoder.sql.run(n).value
+              case Right(f) => f.encoder.sql.run(n).value
+            }
+            (n1, acc + s)
+          }
+        }
+
+      override def encode(args: Out): List[Option[skunk.data.Encoded]] = {
+        val (a1234, a5v) = c12345.project(args)
+        val (a123, a4v)  = c1234.project(a1234.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4]])
+        val (a12, a3v)   = c123.project(a123.asInstanceOf[Where.Concat[Where.Concat[A1, A2], A3]])
+        val (a1v, a2v)   = c12.project(a12.asInstanceOf[Where.Concat[A1, A2]])
+
+        var typedIdx = 0
+        allParts.flatMap {
+          case Left(af) =>
+            af.fragment.encoder.asInstanceOf[Encoder[Any]].encode(af.argument)
+          case Right(f) =>
+            val enc = f.encoder.asInstanceOf[Encoder[Any]]
+            val v = typedIdx match {
+              case 0 => a1v
+              case 1 => a2v
+              case 2 => a3v
+              case 3 => a4v
+              case _ => a5v
+            }
+            typedIdx += 1
+            if (enc eq Void.codec) Nil
+            else enc.encode(v)
+        }
+      }
+    }
+
+    val frag: Fragment[Out] = Fragment(sqlParts, finalEnc, Origin.unknown)
+    QueryTemplate.mk[Out, R](frag, codec)
+  }
+
+  /**
    * Four-slot assemble — same pattern as [[assemble3]] but with one more typed position. Used by
    * `ProjectedSelect.compile` once GROUP BY threads typed `GArgs` between WHERE and HAVING (slots
    * `[ProjArgs, WArgs, GArgs, HArgs]`). The walker dispatches Right slots positionally to
@@ -756,7 +829,7 @@ object SelectBuilder {
 /**
  * A SELECT with an explicit projection list — rows have shape `Row` instead of the relation's default named tuple.
  */
-final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, HArgs, Row](
+final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DistinctOn <: Tuple, WArgs, HArgs, Row](
   private[sharp] val sources: Ss,
   private[sharp] val distinct: Boolean,
   private[sharp] val projections: List[TypedExpr[?, ?]],
@@ -783,8 +856,8 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
     offsetOpt: Option[Int] = offsetOpt,
     lockingOpt: Option[Locking] = lockingOpt,
     distinctOnOpt: Option[List[TypedExpr[?, ?]]] = distinctOnOpt
-  ): ProjectedSelect[Ss, Proj, Groups, W, H, Row] =
-    new ProjectedSelect[Ss, Proj, Groups, W, H, Row](
+  ): ProjectedSelect[Ss, Proj, Groups, DistinctOn, W, H, Row] =
+    new ProjectedSelect[Ss, Proj, Groups, DistinctOn, W, H, Row](
       sources,
       distinct,
       projections,
@@ -803,7 +876,7 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
 
   def where[A](f: SelectView[Ss] => Where[A])(using
     c2: Where.Concat2[WArgs, A]
-  ): ProjectedSelect[Ss, Proj, Groups, Where.Concat[WArgs, A], HArgs, Row] = {
+  ): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Where.Concat[WArgs, A], HArgs, Row] = {
     val pred     = f(view)
     val combined = SelectBuilder.andInto[WArgs, A](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], pred)
     cp[Where.Concat[WArgs, A], HArgs](whereOpt = Some(combined))
@@ -811,12 +884,12 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
 
   def whereRaw(af: AppliedFragment)(using
     c2: Where.Concat2[WArgs, Void]
-  ): ProjectedSelect[Ss, Proj, Groups, ?, HArgs, Row] = {
+  ): ProjectedSelect[Ss, Proj, Groups, DistinctOn, ?, HArgs, Row] = {
     val combined = SelectBuilder.andRawInto[WArgs](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], af)
     cp[Any, HArgs](whereOpt = Some(combined))
   }
 
-  def orderBy(f: SelectView[Ss] => OrderBy | Tuple): ProjectedSelect[Ss, Proj, Groups, WArgs, HArgs, Row] = {
+  def orderBy(f: SelectView[Ss] => OrderBy | Tuple): ProjectedSelect[Ss, Proj, Groups, DistinctOn, WArgs, HArgs, Row] = {
     val fresh = f(view) match {
       case ob: OrderBy => List(ob)
       case t: Tuple    => t.toList.asInstanceOf[List[OrderBy]]
@@ -825,13 +898,13 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
   }
 
   transparent inline def groupBy[G](inline f: SelectView[Ss] => G)
-    : ProjectedSelect[Ss, Proj, Tuple.Concat[Groups, NormProj[G]], WArgs, HArgs, Row] = {
+    : ProjectedSelect[Ss, Proj, Tuple.Concat[Groups, NormProj[G]], DistinctOn, WArgs, HArgs, Row] = {
     val v     = view
     val fresh = f(v) match {
       case e: TypedExpr[?, ?] => List(e)
       case t: Tuple           => t.toList.asInstanceOf[List[TypedExpr[?, ?]]]
     }
-    new ProjectedSelect[Ss, Proj, Tuple.Concat[Groups, NormProj[G]], WArgs, HArgs, Row](
+    new ProjectedSelect[Ss, Proj, Tuple.Concat[Groups, NormProj[G]], DistinctOn, WArgs, HArgs, Row](
       sources,
       distinct,
       projections,
@@ -849,7 +922,7 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
 
   def having[H](f: SelectView[Ss] => Where[H])(using
     c2: Where.Concat2[HArgs, H]
-  ): ProjectedSelect[Ss, Proj, Groups, WArgs, Where.Concat[HArgs, H], Row] = {
+  ): ProjectedSelect[Ss, Proj, Groups, DistinctOn, WArgs, Where.Concat[HArgs, H], Row] = {
     val pred     = f(view)
     val combined = SelectBuilder.andInto[HArgs, H](havingOpt.asInstanceOf[Option[Fragment[HArgs]]], pred)
     cp[WArgs, Where.Concat[HArgs, H]](havingOpt = Some(combined))
@@ -857,50 +930,69 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
 
   def havingRaw(af: AppliedFragment)(using
     c2: Where.Concat2[HArgs, Void]
-  ): ProjectedSelect[Ss, Proj, Groups, WArgs, ?, Row] = {
+  ): ProjectedSelect[Ss, Proj, Groups, DistinctOn, WArgs, ?, Row] = {
     val combined = SelectBuilder.andRawInto[HArgs](havingOpt.asInstanceOf[Option[Fragment[HArgs]]], af)
     cp[WArgs, Any](havingOpt = Some(combined))
   }
 
-  def limit(n: Int): ProjectedSelect[Ss, Proj, Groups, WArgs, HArgs, Row]  = cp[WArgs, HArgs](limitOpt = Some(n))
-  def offset(n: Int): ProjectedSelect[Ss, Proj, Groups, WArgs, HArgs, Row] = cp[WArgs, HArgs](offsetOpt = Some(n))
+  def limit(n: Int): ProjectedSelect[Ss, Proj, Groups, DistinctOn, WArgs, HArgs, Row]  = cp[WArgs, HArgs](limitOpt = Some(n))
+  def offset(n: Int): ProjectedSelect[Ss, Proj, Groups, DistinctOn, WArgs, HArgs, Row] = cp[WArgs, HArgs](offsetOpt = Some(n))
 
-  def distinctRows: ProjectedSelect[Ss, Proj, Groups, WArgs, HArgs, Row] = cp[WArgs, HArgs](distinct = true)
+  def distinctRows: ProjectedSelect[Ss, Proj, Groups, DistinctOn, WArgs, HArgs, Row] = cp[WArgs, HArgs](distinct = true)
 
-  def distinctOn(f: SelectView[Ss] => TypedExpr[?, ?] | Tuple)
-      : ProjectedSelect[Ss, Proj, Groups, WArgs, HArgs, Row] = {
-    val exprs = f(view) match {
+  /**
+   * `DISTINCT ON (e1, e2, …)` projection. Items can be Param-bearing — at `.compile` time the
+   * static `DistinctOn` type is folded by [[ProjArgsOf]] into a `DArgs` slot threaded ahead of the
+   * projection list in render order.
+   */
+  transparent inline def distinctOn[D](inline f: SelectView[Ss] => D)
+    : ProjectedSelect[Ss, Proj, Groups, NormProj[D], WArgs, HArgs, Row] = {
+    val v     = view
+    val exprs = f(v) match {
       case e: TypedExpr[?, ?] => List(e)
       case t: Tuple           => t.toList.asInstanceOf[List[TypedExpr[?, ?]]]
     }
-    cp[WArgs, HArgs](distinctOnOpt = Some(exprs))
+    new ProjectedSelect[Ss, Proj, Groups, NormProj[D], WArgs, HArgs, Row](
+      sources,
+      distinct,
+      projections,
+      codec,
+      whereOpt,
+      groupBys,
+      havingOpt,
+      orderBys,
+      limitOpt,
+      offsetOpt,
+      lockingOpt,
+      Some(exprs)
+    )
   }
 
-  def forUpdate(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, WArgs, HArgs, Row] =
+  def forUpdate(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, DistinctOn, WArgs, HArgs, Row] =
     cp[WArgs, HArgs](lockingOpt = Some(Locking(LockMode.ForUpdate)))
 
-  def forNoKeyUpdate(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, WArgs, HArgs, Row] =
+  def forNoKeyUpdate(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, DistinctOn, WArgs, HArgs, Row] =
     cp[WArgs, HArgs](lockingOpt = Some(Locking(LockMode.ForNoKeyUpdate)))
 
-  def forShare(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, WArgs, HArgs, Row] =
+  def forShare(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, DistinctOn, WArgs, HArgs, Row] =
     cp[WArgs, HArgs](lockingOpt = Some(Locking(LockMode.ForShare)))
 
-  def forKeyShare(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, WArgs, HArgs, Row] =
+  def forKeyShare(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, DistinctOn, WArgs, HArgs, Row] =
     cp[WArgs, HArgs](lockingOpt = Some(Locking(LockMode.ForKeyShare)))
 
-  def skipLocked(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, WArgs, HArgs, Row] =
+  def skipLocked(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, DistinctOn, WArgs, HArgs, Row] =
     cp[WArgs, HArgs](lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.SkipLocked)))
 
-  def noWait(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, WArgs, HArgs, Row] =
+  def noWait(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, DistinctOn, WArgs, HArgs, Row] =
     cp[WArgs, HArgs](lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.NoWait)))
 
   def to[T <: Product](using
     m: scala.deriving.Mirror.ProductOf[T] { type MirroredElemTypes = Row & Tuple }
-  ): ProjectedSelect[Ss, Proj, Groups, WArgs, HArgs, T] = {
+  ): ProjectedSelect[Ss, Proj, Groups, DistinctOn, WArgs, HArgs, T] = {
     val newCodec: Codec[T] = codec.imap[T](r => m.fromProduct(r.asInstanceOf[Product]))(t =>
       Tuple.fromProductTyped[T](t)(using m).asInstanceOf[Row]
     )
-    new ProjectedSelect[Ss, Proj, Groups, WArgs, HArgs, T](
+    new ProjectedSelect[Ss, Proj, Groups, DistinctOn, WArgs, HArgs, T](
       sources,
       distinct,
       projections,
@@ -922,10 +1014,12 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
    * = HArgs = Void`); typed-args threading through CTE / `.alias` is roadmap.
    */
   private[dsl] def compileFragment(using @scala.annotation.unused ev: GroupCoverage[Proj, Groups]): AppliedFragment = {
+    val distinctSize = distinctOnOpt.fold(0)(_.size)
+    val voidDistProjector: Any => List[Any]  = _ => List.fill(distinctSize)(Void)
     val voidProjProjector: Any => List[Any]  = _ => List.fill(projections.size)(Void)
     val voidGroupProjector: Any => List[Any] = _ => List.fill(groupBys.size)(Void)
-    val tpl = SelectBuilder.assemble4[Void, Void, Void, Void, Row](
-      bodyParts = compileBodyParts(voidProjProjector, voidGroupProjector),
+    val tpl = SelectBuilder.assemble5[Void, Void, Void, Void, Void, Row](
+      bodyParts = compileBodyParts(voidDistProjector, voidProjProjector, voidGroupProjector),
       ctes      = Nil,
       codec     = codec
     )
@@ -934,32 +1028,42 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
 
   /**
    * Compile into a [[QueryTemplate]]. Enforces [[GroupCoverage]] and threads typed `Args` from
-   * Param-bearing items in **four** logical positions in render order:
+   * Param-bearing items in **five** logical positions in render order:
    *
+   *   - `DArgs`    — `DISTINCT ON` items (computed via [[ProjArgsOf]] over `DistinctOn`).
    *   - `ProjArgs` — projection items (computed via [[ProjArgsOf]] over `Proj`).
    *   - `WArgs`    — WHERE clause.
    *   - `GArgs`    — GROUP BY items (computed via [[ProjArgsOf]] over `Groups`).
    *   - `HArgs`    — HAVING clause.
    *
-   * Final `Args = Concat[Concat[Concat[ProjArgs, WArgs], GArgs], HArgs]`, with `Void` slots collapsed
-   * by [[Where.Concat]].
+   * Final `Args = Concat[Concat[Concat[Concat[DArgs, ProjArgs], WArgs], GArgs], HArgs]`, with `Void`
+   * slots collapsed by [[Where.Concat]].
    */
-  def compile[ProjArgs, GArgs](using
-    ev:    GroupCoverage[Proj, Groups],
-    pa:    ProjArgsOf.Aux[Proj, ProjArgs],
-    g:     ProjArgsOf.Aux[Groups, GArgs],
-    c12:   Where.Concat2[ProjArgs, WArgs],
-    c123:  Where.Concat2[Where.Concat[ProjArgs, WArgs], GArgs],
-    c1234: Where.Concat2[Where.Concat[Where.Concat[ProjArgs, WArgs], GArgs], HArgs]
-  ): QueryTemplate[Where.Concat[Where.Concat[Where.Concat[ProjArgs, WArgs], GArgs], HArgs], Row] = {
+  def compile[DArgs, ProjArgs, GArgs](using
+    ev:     GroupCoverage[Proj, Groups],
+    d:      ProjArgsOf.Aux[DistinctOn, DArgs],
+    pa:     ProjArgsOf.Aux[Proj, ProjArgs],
+    g:      ProjArgsOf.Aux[Groups, GArgs],
+    c12:    Where.Concat2[DArgs, ProjArgs],
+    c123:   Where.Concat2[Where.Concat[DArgs, ProjArgs], WArgs],
+    c1234:  Where.Concat2[Where.Concat[Where.Concat[DArgs, ProjArgs], WArgs], GArgs],
+    c12345: Where.Concat2[Where.Concat[Where.Concat[Where.Concat[DArgs, ProjArgs], WArgs], GArgs], HArgs]
+  ): QueryTemplate[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DArgs, ProjArgs], WArgs], GArgs], HArgs], Row] = {
     val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
     val ctes    = collectCtesInOrder(entries)
-    // Runtime fallback for `Groups` mismatch: if the user took the SelectBuilder.groupBy → .select
-    // path, ProjectedSelect's static `Groups` is `EmptyTuple` but `groupBys` (runtime) is non-empty.
-    // The typeclass-derived projector returns Nil in that case; size-check and fall back to a
-    // Void-fill so the slot's items each get Void (encoder's Void.codec skips them anyway).
+    // Runtime fallback: if the user took the SelectBuilder.groupBy → .select path,
+    // ProjectedSelect's static `Groups` is `EmptyTuple` but `groupBys` (runtime) is non-empty. Same
+    // for projections / distinctOnOpt if some upstream path bypasses the typed builders. Size-check
+    // and fall back to a Void-fill so the slot's items each get Void (encoder's Void.codec skips
+    // them anyway).
+    val rawDistProjector  = d.project.asInstanceOf[Any => List[Any]]
     val rawProjProjector  = pa.project.asInstanceOf[Any => List[Any]]
     val rawGroupProjector = g.project.asInstanceOf[Any => List[Any]]
+    val distinctSize      = distinctOnOpt.fold(0)(_.size)
+    val distProjector: Any => List[Any] = a => {
+      val xs = rawDistProjector(a)
+      if (xs.size == distinctSize) xs else List.fill(distinctSize)(Void)
+    }
     val projProjector: Any => List[Any] = a => {
       val xs = rawProjProjector(a)
       if (xs.size == projections.size) xs else List.fill(projections.size)(Void)
@@ -968,31 +1072,42 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
       val xs = rawGroupProjector(a)
       if (xs.size == groupBys.size) xs else List.fill(groupBys.size)(Void)
     }
-    val parts = compileBodyParts(projProjector, groupProjector)
-    SelectBuilder.assemble4[ProjArgs, WArgs, GArgs, HArgs, Row](
+    val parts = compileBodyParts(distProjector, projProjector, groupProjector)
+    SelectBuilder.assemble5[DArgs, ProjArgs, WArgs, GArgs, HArgs, Row](
       bodyParts = parts,
       ctes      = ctes,
       codec     = codec
-    )(using c12, c123, c1234)
+    )(using c12, c123, c1234, c12345)
   }
 
   /**
-   * Build body parts with stable slot indices: `[PROJ=0, WHERE=1, GROUP=2, HAVING=3]`. WHERE and
-   * HAVING get a Void-encoder placeholder Right when their respective `Opt` is empty so the slot
-   * indices stay aligned with `(A1, A2, A3, A4)` in [[SelectBuilder.assemble4]]. GROUP also emits a
-   * Void placeholder when there are no GROUP BY items — the SELECT prefix and `GROUP BY` keyword
-   * are conditionally emitted, but the typed slot is always there.
+   * Build body parts with stable slot indices: `[DIST=0, PROJ=1, WHERE=2, GROUP=3, HAVING=4]`.
+   * Each typed slot is always emitted as a Right — when the corresponding clause is absent,
+   * the slot uses an `emptyVoidSlot` placeholder so positions stay aligned with `(A1..A5)` in
+   * [[SelectBuilder.assemble5]].
    */
   private def compileBodyParts(
+    distProjector:  Any => List[Any],
     projProjector:  Any => List[Any],
     groupProjector: Any => List[Any]
   ): List[SelectBuilder.BodyPart] = {
     val entries      = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
-    val selectPrefix = renderSelectPrefix(distinct, distinctOnOpt)
     val combinedProj = TypedExpr.combineList[Any](projections.map(_.fragment), ", ", projProjector)
     val buf          = scala.collection.mutable.ListBuffer[BodyPart]()
-    buf += Left(selectPrefix)
-    buf += Right(combinedProj) // slot 0 = PROJ
+    // slot 0 = DISTINCT ON — when distinctOnOpt is None, emit `SELECT ` (or `SELECT DISTINCT `) +
+    // a placeholder Right with empty content. When set, emit `SELECT DISTINCT ON (` + combined
+    // items + `) `.
+    distinctOnOpt match {
+      case Some(exprs) =>
+        val combinedDist = TypedExpr.combineList[Any](exprs.map(_.fragment), ", ", distProjector)
+        buf += Left(RawConstants.SELECT_DISTINCT_ON)
+        buf += Right(combinedDist)
+        buf += Left(RawConstants.CLOSE_PAREN_SPACE)
+      case None =>
+        buf += Left(if (distinct) RawConstants.SELECT_DISTINCT else RawConstants.SELECT)
+        buf += Right(SelectBuilder.emptyVoidSlot)
+    }
+    buf += Right(combinedProj) // slot 1 = PROJ
     if (entries.nonEmpty && entries.head.relation.hasFromClause) {
       val head        = entries.head
       val headerParts = scala.collection.mutable.ListBuffer[AppliedFragment](RawConstants.FROM, aliasedFromEntry(head))
@@ -1006,7 +1121,7 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
       }
       headerParts.foreach(af => buf += Left(af))
     }
-    // slot 1 = WHERE — placeholder when no WHERE clause keeps slot index stable.
+    // slot 2 = WHERE
     whereOpt match {
       case Some(f) =>
         buf += Left(RawConstants.WHERE)
@@ -1014,8 +1129,7 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
       case None =>
         buf += Right(SelectBuilder.emptyVoidSlot)
     }
-    // slot 2 = GROUP BY — emits the keyword + combined items via the GroupArgs projector. Empty
-    // groupBys still emit a placeholder Right slot.
+    // slot 3 = GROUP BY
     if (groupBys.nonEmpty) {
       val combinedGrp = TypedExpr.combineList[Any](groupBys.map(_.fragment), ", ", groupProjector)
       buf += Left(RawConstants.GROUP_BY)
@@ -1023,7 +1137,7 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
     } else {
       buf += Right(SelectBuilder.emptyVoidSlot)
     }
-    // slot 3 = HAVING — placeholder when absent.
+    // slot 4 = HAVING
     havingOpt match {
       case Some(f) =>
         buf += Left(RawConstants.HAVING)
@@ -1077,8 +1191,8 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
 /** `empty.select(…)` — FROM-less SELECT. */
 extension (rel: skunk.sharp.empty.type) {
 
-  def select[T, A](e: TypedExpr[T, A]): ProjectedSelect[EmptyTuple, TypedExpr[T, A] *: EmptyTuple, EmptyTuple, Void, Void, T] =
-    new ProjectedSelect[EmptyTuple, TypedExpr[T, A] *: EmptyTuple, EmptyTuple, Void, Void, T](
+  def select[T, A](e: TypedExpr[T, A]): ProjectedSelect[EmptyTuple, TypedExpr[T, A] *: EmptyTuple, EmptyTuple, EmptyTuple, Void, Void, T] =
+    new ProjectedSelect[EmptyTuple, TypedExpr[T, A] *: EmptyTuple, EmptyTuple, EmptyTuple, Void, Void, T](
       EmptyTuple,
       false,
       List(e),
@@ -1092,10 +1206,10 @@ extension (rel: skunk.sharp.empty.type) {
       None
     )
 
-  def select[X <: NonEmptyTuple](t: X): ProjectedSelect[EmptyTuple, X, EmptyTuple, Void, Void, ExprOutputs[X]] = {
+  def select[X <: NonEmptyTuple](t: X): ProjectedSelect[EmptyTuple, X, EmptyTuple, EmptyTuple, Void, Void, ExprOutputs[X]] = {
     val exprs = t.toList.asInstanceOf[List[TypedExpr[?, ?]]]
     val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[X]]]
-    new ProjectedSelect[EmptyTuple, X, EmptyTuple, Void, Void, ExprOutputs[X]](
+    new ProjectedSelect[EmptyTuple, X, EmptyTuple, EmptyTuple, Void, Void, ExprOutputs[X]](
       EmptyTuple,
       false,
       exprs,
@@ -1116,7 +1230,7 @@ extension (rel: skunk.sharp.empty.type) {
     inline scala.compiletime.erasedValue[X] match {
       case _: TypedExpr[?, ?] =>
         val expr = f(v).asInstanceOf[TypedExpr[?, ?]]
-        new ProjectedSelect[EmptyTuple, X *: EmptyTuple, EmptyTuple, Void, Void, ProjResult[X]](
+        new ProjectedSelect[EmptyTuple, X *: EmptyTuple, EmptyTuple, EmptyTuple, Void, Void, ProjResult[X]](
           EmptyTuple,
           false,
           List(expr),
@@ -1141,6 +1255,7 @@ extension (rel: skunk.sharp.empty.type) {
           EmptyTuple,
           scala.NamedTuple.DropNames[X & scala.NamedTuple.AnyNamedTuple],
           EmptyTuple,
+          EmptyTuple,
           Void,
           Void,
           scala.NamedTuple.NamedTuple[
@@ -1164,7 +1279,7 @@ extension (rel: skunk.sharp.empty.type) {
         val tup   = f(v).asInstanceOf[NonEmptyTuple]
         val exprs = tup.toList.asInstanceOf[List[TypedExpr[?, ?]]]
         val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[X & Tuple]]]
-        new ProjectedSelect[EmptyTuple, X & Tuple, EmptyTuple, Void, Void, ExprOutputs[X & Tuple]](
+        new ProjectedSelect[EmptyTuple, X & Tuple, EmptyTuple, EmptyTuple, Void, Void, ExprOutputs[X & Tuple]](
           EmptyTuple,
           false,
           exprs,
