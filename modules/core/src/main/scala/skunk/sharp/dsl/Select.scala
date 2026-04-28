@@ -275,12 +275,28 @@ final class SelectBuilder[Ss <: Tuple, WArgs, HArgs] private[sharp] (
 
   // ---- Projection -------------------------------------------------------------------------------
 
-  transparent inline def select[X](inline f: SelectView[Ss] => X)
-    : ProjectedSelect[Ss, NormProj[X], EmptyTuple, WArgs, HArgs, ProjResult[X]] = {
+  /**
+   * SELECT projection. Dispatches at compile time on the user's projection shape via
+   * `compiletime.erasedValue`:
+   *
+   *   - **single `TypedExpr`** (`u => u.email` or `u => Pg.power(u.age, Param[Double])`): `Proj` becomes
+   *     `X *: EmptyTuple`, `Row` is the expression's value type.
+   *   - **named tuple** (`u => (email = u.email, age = u.age)`): `Proj` is the underlying value tuple
+   *     (via [[scala.NamedTuple.DropNames]]), `Row` is the named tuple of the projected values.
+   *   - **plain tuple** (`u => (u.id, u.email)`): `Proj` is `X & Tuple`, `Row` is `ExprOutputs[X]`.
+   *
+   * `erasedValue` lets us discriminate `NamedTuple` vs regular `Tuple` vs single `TypedExpr` cleanly —
+   * the equivalent match-type discriminator hits Scala 3.8's NamedTuple-vs-Tuple disjointness blocker.
+   *
+   * `Proj` becomes a concrete type per branch, so `compile()`'s `ProjArgsOf[Proj]` summon resolves and
+   * Param-bearing projections thread their Args into the QueryTemplate's user-visible `Args`.
+   */
+  transparent inline def select[X](inline f: SelectView[Ss] => X) = {
     val v = view
-    f(v) match {
-      case expr: TypedExpr[?, ?] =>
-        new ProjectedSelect[Ss, NormProj[X], EmptyTuple, WArgs, HArgs, ProjResult[X]](
+    inline scala.compiletime.erasedValue[X] match {
+      case _: TypedExpr[?, ?] =>
+        val expr = f(v).asInstanceOf[TypedExpr[?, ?]]
+        new ProjectedSelect[Ss, X *: EmptyTuple, EmptyTuple, WArgs, HArgs, ProjResult[X]](
           sources,
           distinct,
           List(expr),
@@ -294,10 +310,43 @@ final class SelectBuilder[Ss <: Tuple, WArgs, HArgs] private[sharp] (
           lockingOpt,
           distinctOnOpt
         )
-      case tup: NonEmptyTuple =>
+      case _: scala.NamedTuple.AnyNamedTuple =>
+        val tup   = f(v).asInstanceOf[Product]
+        val exprs = tup.productIterator.toList.asInstanceOf[List[TypedExpr[?, ?]]]
+        val codec = tupleCodec(exprs.map(_.codec))
+          .asInstanceOf[Codec[scala.NamedTuple.NamedTuple[
+            scala.NamedTuple.Names[X & scala.NamedTuple.AnyNamedTuple],
+            ExprOutputs[scala.NamedTuple.DropNames[X & scala.NamedTuple.AnyNamedTuple]]
+          ]]]
+        new ProjectedSelect[
+          Ss,
+          scala.NamedTuple.DropNames[X & scala.NamedTuple.AnyNamedTuple],
+          EmptyTuple,
+          WArgs,
+          HArgs,
+          scala.NamedTuple.NamedTuple[
+            scala.NamedTuple.Names[X & scala.NamedTuple.AnyNamedTuple],
+            ExprOutputs[scala.NamedTuple.DropNames[X & scala.NamedTuple.AnyNamedTuple]]
+          ]
+        ](
+          sources,
+          distinct,
+          exprs,
+          codec,
+          whereOpt,
+          groupBys,
+          havingOpt,
+          orderBys,
+          limitOpt,
+          offsetOpt,
+          lockingOpt,
+          distinctOnOpt
+        )
+      case _: NonEmptyTuple =>
+        val tup   = f(v).asInstanceOf[NonEmptyTuple]
         val exprs = tup.toList.asInstanceOf[List[TypedExpr[?, ?]]]
-        val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ProjResult[X]]]
-        new ProjectedSelect[Ss, NormProj[X], EmptyTuple, WArgs, HArgs, ProjResult[X]](
+        val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[X & Tuple]]]
+        new ProjectedSelect[Ss, X & Tuple, EmptyTuple, WArgs, HArgs, ExprOutputs[X & Tuple]](
           sources,
           distinct,
           exprs,
@@ -314,8 +363,7 @@ final class SelectBuilder[Ss <: Tuple, WArgs, HArgs] private[sharp] (
     }
   }
 
-  transparent inline def apply[X](inline f: SelectView[Ss] => X)
-    : ProjectedSelect[Ss, NormProj[X], EmptyTuple, WArgs, HArgs, ProjResult[X]] = select[X](f)
+  transparent inline def apply[X](inline f: SelectView[Ss] => X) = select[X](f)
 
   /**
    * Bridge for [[Cte]] / `SelectBuilder.alias` that still need an `AppliedFragment`. Renders the SELECT body
@@ -794,44 +842,54 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
 
   /**
    * Bridge for [[Cte]] / `.alias` paths still on AppliedFragment. Renders the body without CTE preamble
-   * (outer query's `assemble` owns the WITH). Constrained to Void-args inner queries.
+   * (outer query's `assemble` owns the WITH). Constrained to Void-args inner queries (`ProjArgs = WArgs
+   * = HArgs = Void`); typed-args threading through CTE / `.alias` is roadmap.
    */
   private[dsl] def compileFragment(using @scala.annotation.unused ev: GroupCoverage[Proj, Groups]): AppliedFragment = {
-    val tpl = SelectBuilder.assemble[Void, Void, Row](
-      bodyParts = compileBodyParts(),
+    val voidProjector: Any => List[Any] = _ => List.fill(projections.size)(Void)
+    val tpl = SelectBuilder.assemble3[Void, Void, Void, Row](
+      bodyParts = compileBodyParts(voidProjector),
       ctes      = Nil,
       codec     = codec
     )
     tpl.fragment.asInstanceOf[Fragment[Void]].apply(Void)
   }
 
-  /** Compile into a [[QueryTemplate]]. Enforces [[GroupCoverage]]. */
-  def compile(using
-    ev: GroupCoverage[Proj, Groups],
-    c2: Where.Concat2[WArgs, HArgs]
-  ): QueryTemplate[Where.Concat[WArgs, HArgs], Row] = {
+  /**
+   * Compile into a [[QueryTemplate]]. Enforces [[GroupCoverage]] and threads `ProjArgs` (Param-bearing
+   * projection items' Args) into the final Args slot, ahead of WHERE and HAVING. `ProjArgs` is
+   * computed via the [[ProjArgsOf]] typeclass — its priority-chain given resolution disambiguates
+   * `NamedTuple` / regular `Tuple` / single `TypedExpr` cases that match types can't reduce on
+   * Scala 3.8.
+   */
+  def compile[ProjArgs](using
+    ev:   GroupCoverage[Proj, Groups],
+    pa:   ProjArgsOf.Aux[Proj, ProjArgs],
+    c12:  Where.Concat2[ProjArgs, WArgs],
+    c123: Where.Concat2[Where.Concat[ProjArgs, WArgs], HArgs]
+  ): QueryTemplate[Where.Concat[Where.Concat[ProjArgs, WArgs], HArgs], Row] = {
     val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
     val ctes    = collectCtesInOrder(entries)
-    val parts   = compileBodyParts()
-    SelectBuilder.assemble[WArgs, HArgs, Row](
+    val parts   = compileBodyParts(pa.project.asInstanceOf[Any => List[Any]])
+    SelectBuilder.assemble3[ProjArgs, WArgs, HArgs, Row](
       bodyParts = parts,
       ctes      = ctes,
       codec     = codec
     )
   }
 
-  private def compileBodyParts(): List[SelectBuilder.BodyPart] = {
+  private def compileBodyParts(projector: Any => List[Any]): List[SelectBuilder.BodyPart] = {
     val entries      = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
     val selectPrefix = renderSelectPrefix(distinct, distinctOnOpt)
-    // Projection items may carry typed Args (Param-bearing); bind at Void here. Typed-args threading
-    // through SELECT projections is roadmap (the [[ProjArgsOf]] typeclass exists as the runtime
-    // primitive — wiring blocked on `NormProj` reducing through Scala 3.8 named-tuple opaqueness).
-    val projList     = TypedExpr.joined(projections.map(e => SelectBuilder.bindVoid(e.fragment)), ", ")
-    val headerParts  = scala.collection.mutable.ListBuffer[AppliedFragment](selectPrefix, projList)
+    // Projection list — combine items into one typed Right slot. The ProjArgsOf-supplied projector
+    // dispatches the user's ProjArgs value into per-item values at execute time.
+    val combinedProj = TypedExpr.combineList[Any](projections.map(_.fragment), ", ", projector)
+    val buf          = scala.collection.mutable.ListBuffer[BodyPart]()
+    buf += Left(selectPrefix)
+    buf += Right(combinedProj)
     if (entries.nonEmpty && entries.head.relation.hasFromClause) {
-      val head = entries.head
-      headerParts += RawConstants.FROM
-      headerParts += aliasedFromEntry(head)
+      val head        = entries.head
+      val headerParts = scala.collection.mutable.ListBuffer[AppliedFragment](RawConstants.FROM, aliasedFromEntry(head))
       entries.tail.foreach { s =>
         headerParts += (if (s.isLateral) s.kind.lateralKeywordAf else s.kind.keywordAf)
         headerParts += aliasedFromEntry(s)
@@ -840,17 +898,28 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
           headerParts += SelectBuilder.bindVoid(p.fragment)
         }
       }
+      headerParts.foreach(af => buf += Left(af))
     }
-    SelectBuilder.bodyPartsAround(
-      headerParts.toList,
-      whereOpt,
-      groupBys,
-      havingOpt,
-      orderBys,
-      limitOpt,
-      offsetOpt,
-      lockingOpt
-    )
+    whereOpt.foreach { f =>
+      buf += Left(RawConstants.WHERE)
+      buf += Right(f)
+    }
+    if (groupBys.nonEmpty) {
+      buf += Left(RawConstants.GROUP_BY)
+      buf += Left(TypedExpr.joined(groupBys.map(e => SelectBuilder.bindVoid(e.fragment)), ", "))
+    }
+    havingOpt.foreach { f =>
+      buf += Left(RawConstants.HAVING)
+      buf += Right(f)
+    }
+    if (orderBys.nonEmpty) {
+      buf += Left(RawConstants.ORDER_BY)
+      buf += Left(TypedExpr.joined(orderBys.map(o => SelectBuilder.bindVoid(o.fragment)), ", "))
+    }
+    limitOpt.foreach(n => buf += Left(RawConstants.limitAf(n)))
+    offsetOpt.foreach(n => buf += Left(RawConstants.offsetAf(n)))
+    lockingOpt.foreach(l => buf += Left(TypedExpr.raw(" " + l.sql)))
+    buf.toList
   }
 
 }
@@ -922,12 +991,13 @@ extension (rel: skunk.sharp.empty.type) {
     )
   }
 
-  transparent inline def select[X](inline f: ColumnsView[EmptyTuple] => X)
-    : ProjectedSelect[EmptyTuple, NormProj[X], EmptyTuple, Void, Void, ProjResult[X]] = {
+  /** Same erasedValue dispatch as the table-bound `select`; sources is `EmptyTuple` (FROM-less). */
+  transparent inline def select[X](inline f: ColumnsView[EmptyTuple] => X) = {
     val v = ColumnsView(EmptyTuple)
-    f(v) match {
-      case expr: TypedExpr[?, ?] =>
-        new ProjectedSelect[EmptyTuple, NormProj[X], EmptyTuple, Void, Void, ProjResult[X]](
+    inline scala.compiletime.erasedValue[X] match {
+      case _: TypedExpr[?, ?] =>
+        val expr = f(v).asInstanceOf[TypedExpr[?, ?]]
+        new ProjectedSelect[EmptyTuple, X *: EmptyTuple, EmptyTuple, Void, Void, ProjResult[X]](
           EmptyTuple,
           false,
           List(expr),
@@ -940,10 +1010,42 @@ extension (rel: skunk.sharp.empty.type) {
           None,
           None
         )
-      case tup: NonEmptyTuple =>
+      case _: scala.NamedTuple.AnyNamedTuple =>
+        val tup   = f(v).asInstanceOf[Product]
+        val exprs = tup.productIterator.toList.asInstanceOf[List[TypedExpr[?, ?]]]
+        val codec = tupleCodec(exprs.map(_.codec))
+          .asInstanceOf[Codec[scala.NamedTuple.NamedTuple[
+            scala.NamedTuple.Names[X & scala.NamedTuple.AnyNamedTuple],
+            ExprOutputs[scala.NamedTuple.DropNames[X & scala.NamedTuple.AnyNamedTuple]]
+          ]]]
+        new ProjectedSelect[
+          EmptyTuple,
+          scala.NamedTuple.DropNames[X & scala.NamedTuple.AnyNamedTuple],
+          EmptyTuple,
+          Void,
+          Void,
+          scala.NamedTuple.NamedTuple[
+            scala.NamedTuple.Names[X & scala.NamedTuple.AnyNamedTuple],
+            ExprOutputs[scala.NamedTuple.DropNames[X & scala.NamedTuple.AnyNamedTuple]]
+          ]
+        ](
+          EmptyTuple,
+          false,
+          exprs,
+          codec,
+          None,
+          Nil,
+          None,
+          Nil,
+          None,
+          None,
+          None
+        )
+      case _: NonEmptyTuple =>
+        val tup   = f(v).asInstanceOf[NonEmptyTuple]
         val exprs = tup.toList.asInstanceOf[List[TypedExpr[?, ?]]]
-        val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ProjResult[X]]]
-        new ProjectedSelect[EmptyTuple, NormProj[X], EmptyTuple, Void, Void, ProjResult[X]](
+        val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[X & Tuple]]]
+        new ProjectedSelect[EmptyTuple, X & Tuple, EmptyTuple, Void, Void, ExprOutputs[X & Tuple]](
           EmptyTuple,
           false,
           exprs,

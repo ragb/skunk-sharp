@@ -388,4 +388,59 @@ class ParamSuite extends munit.FunSuite {
     assert(q.fragment.sql.contains("""RETURNING "id", "email""""), q.fragment.sql)
   }
 
+  // -------- SELECT projection: typed Args threading --------------------------
+
+  test("SELECT projection: plain tuple of column refs collapses ProjArgs to Void") {
+    val q = users.select(u => (u.id, u.email)).compile
+    val _: QueryTemplate[Void, ?] = q
+  }
+
+  test("SELECT projection: single column ref collapses ProjArgs to Void") {
+    val q = users.select(u => u.email).compile
+    val _: QueryTemplate[Void, String] = q
+  }
+
+  test("SELECT projection: single Param-bearing expr threads ProjArgs") {
+    val q = users.select(u => Pg.power(u.age, Param[Double])).compile
+    val _: QueryTemplate[Double, Double] = q
+  }
+
+  test("SELECT projection: tuple with one Param threads single ProjArgs") {
+    val q = users.select(u => (u.id, Pg.power(u.age, Param[Double]))).compile
+    val _: QueryTemplate[Double, (UUID, Double)] = q
+  }
+
+  test("SELECT projection: tuple with two Params threads (D1, D2)") {
+    val q = users
+      .select(u => (Pg.power(u.age, Param[Double]), Pg.mod(u.age, Param[Int])))
+      .compile
+    val _: QueryTemplate[(Double, Int), (Double, Int)] = q
+  }
+
+  test("SELECT projection: named tuple (no Param) compiles cleanly") {
+    val q = users.select(u => (email = u.email, age = u.age)).compile
+    val _: QueryTemplate[Void, ?] = q
+    // SQL render is unchanged from plain tuple
+    assert(q.fragment.sql.contains(""""email", "age""""), q.fragment.sql)
+  }
+
+  test("SELECT projection + WHERE: ProjArgs + WArgs compose") {
+    val q = users
+      .select(u => Pg.power(u.age, Param[Double]))
+      .where(u => u.id === Param[UUID])
+      .compile
+    val _: QueryTemplate[(Double, UUID), Double] = q
+  }
+
+  test("Encoder for SELECT proj-Param + WHERE-Param binds in render order") {
+    val q = users
+      .select(u => Pg.power(u.age, Param[Double]))
+      .where(u => u.id === Param[UUID])
+      .compile
+    val uid     = UUID.fromString("dddddddd-dddd-dddd-dddd-dddddddddddd")
+    val af      = q.bind((2.5, uid))
+    val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
+    assertEquals(encoded, List("2.5", uid.toString))
+  }
+
 }

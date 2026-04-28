@@ -30,6 +30,8 @@ import skunk.sharp.where.Where
  */
 trait ProjArgsOf[-T] {
   type Out
+
+  /** Project an `Out` value into a flat list of per-item values, in tuple/render order. */
   def project(c: Out): List[Any]
 }
 

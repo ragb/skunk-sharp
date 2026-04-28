@@ -242,13 +242,16 @@ object AsSubquery {
       def fragment(q: QueryTemplate[Args, T]): Fragment[Args] = q.fragment
     }
 
-  given fromProjected[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WA, HA, T](using
-    ev: skunk.sharp.GroupCoverage[Proj, Groups]
-  ): AsSubquery[ProjectedSelect[Ss, Proj, Groups, WA, HA, T], T, Where.Concat[WA, HA]] =
-    new AsSubquery[ProjectedSelect[Ss, Proj, Groups, WA, HA, T], T, Where.Concat[WA, HA]] {
+  given fromProjected[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, PA, WA, HA, T](using
+    ev:   skunk.sharp.GroupCoverage[Proj, Groups],
+    pa:   skunk.sharp.dsl.ProjArgsOf.Aux[Proj, PA],
+    c12:  Where.Concat2[PA, WA],
+    c123: Where.Concat2[Where.Concat[PA, WA], HA]
+  ): AsSubquery[ProjectedSelect[Ss, Proj, Groups, WA, HA, T], T, Where.Concat[Where.Concat[PA, WA], HA]] =
+    new AsSubquery[ProjectedSelect[Ss, Proj, Groups, WA, HA, T], T, Where.Concat[Where.Concat[PA, WA], HA]] {
       def codec(q: ProjectedSelect[Ss, Proj, Groups, WA, HA, T]): Codec[T] = q.codec
-      def fragment(q: ProjectedSelect[Ss, Proj, Groups, WA, HA, T]): Fragment[Where.Concat[WA, HA]] =
-        q.compile(using ev).fragment
+      def fragment(q: ProjectedSelect[Ss, Proj, Groups, WA, HA, T]): Fragment[Where.Concat[Where.Concat[PA, WA], HA]] =
+        q.compile[PA](using ev, pa, c12, c123).fragment
     }
 
   /**
