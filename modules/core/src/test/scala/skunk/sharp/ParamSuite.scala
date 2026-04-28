@@ -443,4 +443,40 @@ class ParamSuite extends munit.FunSuite {
     assertEquals(encoded, List("2.5", uid.toString))
   }
 
+  // -------- GROUP BY: typed Args threading -----------------------------------
+
+  test("SELECT … groupBy(non-Param column) collapses GArgs to Void") {
+    val q = users.select(u => (u.age, Pg.countAll)).groupBy(u => u.age).compile
+    val _: QueryTemplate[Void, ?] = q
+  }
+
+  test("SELECT … groupBy(Param-bearing expr) threads GArgs into Args slot") {
+    val q = users
+      .select(_ => Pg.countAll)
+      .groupBy(u => Pg.mod(u.age, Param[Int]))
+      .compile
+    val _: QueryTemplate[Int, Long] = q
+  }
+
+  test("SELECT proj-Param + WHERE-Param + GROUP-Param: full 4-slot composition") {
+    val q = users
+      .select(u => Pg.power(u.age, Param[Double]))
+      .where(u => u.id === Param[UUID])
+      .groupBy(u => Pg.mod(u.age, Param[Int]))
+      .compile
+    val _: QueryTemplate[((Double, UUID), Int), Double] = q
+  }
+
+  test("Encoder for proj-Param + WHERE-Param + GROUP-Param binds in render order") {
+    val q = users
+      .select(u => Pg.power(u.age, Param[Double]))
+      .where(u => u.id === Param[UUID])
+      .groupBy(u => Pg.mod(u.age, Param[Int]))
+      .compile
+    val uid     = UUID.fromString("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
+    val af      = q.bind(((1.5, uid), 7))
+    val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
+    assertEquals(encoded, List("1.5", uid.toString, "7"))
+  }
+
 }

@@ -363,7 +363,10 @@ final class SelectBuilder[Ss <: Tuple, WArgs, HArgs] private[sharp] (
     }
   }
 
-  transparent inline def apply[X](inline f: SelectView[Ss] => X) = select[X](f)
+  /** Same as [[select]]; supports `users.select(u => …)` syntax via apply. */
+  transparent inline def apply[X](
+    @scala.annotation.unused inline f: SelectView[Ss] => X
+  ) = select[X](f)
 
   /**
    * Bridge for [[Cte]] / `SelectBuilder.alias` that still need an `AppliedFragment`. Renders the SELECT body
@@ -563,6 +566,13 @@ object SelectBuilder {
     f.asInstanceOf[Fragment[Void]].apply(Void)
 
   /**
+   * Empty `Fragment[Void]` placeholder. Used as a Right slot filler when a typed position (WHERE /
+   * GROUP BY / HAVING) is absent — keeps the assemble walker's slot index stable so subsequent
+   * positions land on the correct A_i. Renders no SQL and emits no encoded value.
+   */
+  private[dsl] val emptyVoidSlot: Fragment[Void] = TypedExpr.voidFragment("")
+
+  /**
    * Glue body parts into a single `Fragment[Concat[A1, A2]]`. Crucially, the final encoder preserves SQL
    * render order — Postgres binds positionally, so the encoded values must come out in the exact `$N`
    * order they appear in the SQL. Mixing baked (Left) and typed (Right) parts and emitting bakeds-first
@@ -659,6 +669,76 @@ object SelectBuilder {
               case 0 => a1v
               case 1 => a2v
               case _ => a3v
+            }
+            typedIdx += 1
+            if (enc eq Void.codec) Nil
+            else enc.encode(v)
+        }
+      }
+    }
+
+    val frag: Fragment[Out] = Fragment(sqlParts, finalEnc, Origin.unknown)
+    QueryTemplate.mk[Out, R](frag, codec)
+  }
+
+  /**
+   * Four-slot assemble — same pattern as [[assemble3]] but with one more typed position. Used by
+   * `ProjectedSelect.compile` once GROUP BY threads typed `GArgs` between WHERE and HAVING (slots
+   * `[ProjArgs, WArgs, GArgs, HArgs]`). The walker dispatches Right slots positionally to
+   * `(a1, a2, a3, a4)`.
+   */
+  private[dsl] def assemble4[A1, A2, A3, A4, R](
+    bodyParts: List[BodyPart],
+    ctes:      List[CteRelation[?, ?]],
+    codec:     Codec[R]
+  )(using
+    c12:   Where.Concat2[A1, A2],
+    c123:  Where.Concat2[Where.Concat[A1, A2], A3],
+    c1234: Where.Concat2[Where.Concat[Where.Concat[A1, A2], A3], A4]
+  ): QueryTemplate[Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4], R] = {
+    val ctePreamble: Option[AppliedFragment] = renderWithPreamble(ctes)
+    val allParts: List[BodyPart] = ctePreamble.toList.map(Left(_)) ++ bodyParts
+
+    val sqlParts: List[Either[String, cats.data.State[Int, String]]] =
+      allParts.flatMap {
+        case Left(af) => af.fragment.parts
+        case Right(f) => f.parts
+      }
+
+    type Out = Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4]
+    val finalEnc: Encoder[Out] = new Encoder[Out] {
+      override val types: List[skunk.data.Type] =
+        allParts.flatMap {
+          case Left(af) => af.fragment.encoder.types
+          case Right(f) => f.encoder.types
+        }
+      override val sql: cats.data.State[Int, String] =
+        cats.data.State { (n0: Int) =>
+          allParts.foldLeft((n0, "")) { case ((n, acc), part) =>
+            val (n1, s) = part match {
+              case Left(af) => af.fragment.encoder.sql.run(n).value
+              case Right(f) => f.encoder.sql.run(n).value
+            }
+            (n1, acc + s)
+          }
+        }
+
+      override def encode(args: Out): List[Option[skunk.data.Encoded]] = {
+        val (a123, a4v) = c1234.project(args)
+        val (a12, a3v)  = c123.project(a123.asInstanceOf[Where.Concat[Where.Concat[A1, A2], A3]])
+        val (a1v, a2v)  = c12.project(a12.asInstanceOf[Where.Concat[A1, A2]])
+
+        var typedIdx = 0
+        allParts.flatMap {
+          case Left(af) =>
+            af.fragment.encoder.asInstanceOf[Encoder[Any]].encode(af.argument)
+          case Right(f) =>
+            val enc = f.encoder.asInstanceOf[Encoder[Any]]
+            val v = typedIdx match {
+              case 0 => a1v
+              case 1 => a2v
+              case 2 => a3v
+              case _ => a4v
             }
             typedIdx += 1
             if (enc eq Void.codec) Nil
@@ -842,9 +922,10 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
    * = HArgs = Void`); typed-args threading through CTE / `.alias` is roadmap.
    */
   private[dsl] def compileFragment(using @scala.annotation.unused ev: GroupCoverage[Proj, Groups]): AppliedFragment = {
-    val voidProjector: Any => List[Any] = _ => List.fill(projections.size)(Void)
-    val tpl = SelectBuilder.assemble3[Void, Void, Void, Row](
-      bodyParts = compileBodyParts(voidProjector),
+    val voidProjProjector: Any => List[Any]  = _ => List.fill(projections.size)(Void)
+    val voidGroupProjector: Any => List[Any] = _ => List.fill(groupBys.size)(Void)
+    val tpl = SelectBuilder.assemble4[Void, Void, Void, Void, Row](
+      bodyParts = compileBodyParts(voidProjProjector, voidGroupProjector),
       ctes      = Nil,
       codec     = codec
     )
@@ -852,37 +933,66 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
   }
 
   /**
-   * Compile into a [[QueryTemplate]]. Enforces [[GroupCoverage]] and threads `ProjArgs` (Param-bearing
-   * projection items' Args) into the final Args slot, ahead of WHERE and HAVING. `ProjArgs` is
-   * computed via the [[ProjArgsOf]] typeclass — its priority-chain given resolution disambiguates
-   * `NamedTuple` / regular `Tuple` / single `TypedExpr` cases that match types can't reduce on
-   * Scala 3.8.
+   * Compile into a [[QueryTemplate]]. Enforces [[GroupCoverage]] and threads typed `Args` from
+   * Param-bearing items in **four** logical positions in render order:
+   *
+   *   - `ProjArgs` — projection items (computed via [[ProjArgsOf]] over `Proj`).
+   *   - `WArgs`    — WHERE clause.
+   *   - `GArgs`    — GROUP BY items (computed via [[ProjArgsOf]] over `Groups`).
+   *   - `HArgs`    — HAVING clause.
+   *
+   * Final `Args = Concat[Concat[Concat[ProjArgs, WArgs], GArgs], HArgs]`, with `Void` slots collapsed
+   * by [[Where.Concat]].
    */
-  def compile[ProjArgs](using
-    ev:   GroupCoverage[Proj, Groups],
-    pa:   ProjArgsOf.Aux[Proj, ProjArgs],
-    c12:  Where.Concat2[ProjArgs, WArgs],
-    c123: Where.Concat2[Where.Concat[ProjArgs, WArgs], HArgs]
-  ): QueryTemplate[Where.Concat[Where.Concat[ProjArgs, WArgs], HArgs], Row] = {
+  def compile[ProjArgs, GArgs](using
+    ev:    GroupCoverage[Proj, Groups],
+    pa:    ProjArgsOf.Aux[Proj, ProjArgs],
+    g:     ProjArgsOf.Aux[Groups, GArgs],
+    c12:   Where.Concat2[ProjArgs, WArgs],
+    c123:  Where.Concat2[Where.Concat[ProjArgs, WArgs], GArgs],
+    c1234: Where.Concat2[Where.Concat[Where.Concat[ProjArgs, WArgs], GArgs], HArgs]
+  ): QueryTemplate[Where.Concat[Where.Concat[Where.Concat[ProjArgs, WArgs], GArgs], HArgs], Row] = {
     val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
     val ctes    = collectCtesInOrder(entries)
-    val parts   = compileBodyParts(pa.project.asInstanceOf[Any => List[Any]])
-    SelectBuilder.assemble3[ProjArgs, WArgs, HArgs, Row](
+    // Runtime fallback for `Groups` mismatch: if the user took the SelectBuilder.groupBy → .select
+    // path, ProjectedSelect's static `Groups` is `EmptyTuple` but `groupBys` (runtime) is non-empty.
+    // The typeclass-derived projector returns Nil in that case; size-check and fall back to a
+    // Void-fill so the slot's items each get Void (encoder's Void.codec skips them anyway).
+    val rawProjProjector  = pa.project.asInstanceOf[Any => List[Any]]
+    val rawGroupProjector = g.project.asInstanceOf[Any => List[Any]]
+    val projProjector: Any => List[Any] = a => {
+      val xs = rawProjProjector(a)
+      if (xs.size == projections.size) xs else List.fill(projections.size)(Void)
+    }
+    val groupProjector: Any => List[Any] = a => {
+      val xs = rawGroupProjector(a)
+      if (xs.size == groupBys.size) xs else List.fill(groupBys.size)(Void)
+    }
+    val parts = compileBodyParts(projProjector, groupProjector)
+    SelectBuilder.assemble4[ProjArgs, WArgs, GArgs, HArgs, Row](
       bodyParts = parts,
       ctes      = ctes,
       codec     = codec
-    )(using c12, c123)
+    )(using c12, c123, c1234)
   }
 
-  private def compileBodyParts(projector: Any => List[Any]): List[SelectBuilder.BodyPart] = {
+  /**
+   * Build body parts with stable slot indices: `[PROJ=0, WHERE=1, GROUP=2, HAVING=3]`. WHERE and
+   * HAVING get a Void-encoder placeholder Right when their respective `Opt` is empty so the slot
+   * indices stay aligned with `(A1, A2, A3, A4)` in [[SelectBuilder.assemble4]]. GROUP also emits a
+   * Void placeholder when there are no GROUP BY items — the SELECT prefix and `GROUP BY` keyword
+   * are conditionally emitted, but the typed slot is always there.
+   */
+  private def compileBodyParts(
+    projProjector:  Any => List[Any],
+    groupProjector: Any => List[Any]
+  ): List[SelectBuilder.BodyPart] = {
     val entries      = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
     val selectPrefix = renderSelectPrefix(distinct, distinctOnOpt)
-    // Projection list — combine items into one typed Right slot. The ProjArgsOf-supplied projector
-    // dispatches the user's ProjArgs value into per-item values at execute time.
-    val combinedProj = TypedExpr.combineList[Any](projections.map(_.fragment), ", ", projector)
+    val combinedProj = TypedExpr.combineList[Any](projections.map(_.fragment), ", ", projProjector)
     val buf          = scala.collection.mutable.ListBuffer[BodyPart]()
     buf += Left(selectPrefix)
-    buf += Right(combinedProj)
+    buf += Right(combinedProj) // slot 0 = PROJ
     if (entries.nonEmpty && entries.head.relation.hasFromClause) {
       val head        = entries.head
       val headerParts = scala.collection.mutable.ListBuffer[AppliedFragment](RawConstants.FROM, aliasedFromEntry(head))
@@ -896,17 +1006,30 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
       }
       headerParts.foreach(af => buf += Left(af))
     }
-    whereOpt.foreach { f =>
-      buf += Left(RawConstants.WHERE)
-      buf += Right(f)
+    // slot 1 = WHERE — placeholder when no WHERE clause keeps slot index stable.
+    whereOpt match {
+      case Some(f) =>
+        buf += Left(RawConstants.WHERE)
+        buf += Right(f)
+      case None =>
+        buf += Right(SelectBuilder.emptyVoidSlot)
     }
+    // slot 2 = GROUP BY — emits the keyword + combined items via the GroupArgs projector. Empty
+    // groupBys still emit a placeholder Right slot.
     if (groupBys.nonEmpty) {
+      val combinedGrp = TypedExpr.combineList[Any](groupBys.map(_.fragment), ", ", groupProjector)
       buf += Left(RawConstants.GROUP_BY)
-      buf += Left(TypedExpr.joined(groupBys.map(e => SelectBuilder.bindVoid(e.fragment)), ", "))
+      buf += Right(combinedGrp)
+    } else {
+      buf += Right(SelectBuilder.emptyVoidSlot)
     }
-    havingOpt.foreach { f =>
-      buf += Left(RawConstants.HAVING)
-      buf += Right(f)
+    // slot 3 = HAVING — placeholder when absent.
+    havingOpt match {
+      case Some(f) =>
+        buf += Left(RawConstants.HAVING)
+        buf += Right(f)
+      case None =>
+        buf += Right(SelectBuilder.emptyVoidSlot)
     }
     if (orderBys.nonEmpty) {
       buf += Left(RawConstants.ORDER_BY)
