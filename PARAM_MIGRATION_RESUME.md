@@ -1,16 +1,68 @@
 # Resume: Param migration (TypedExpr[T] → TypedExpr[T, Args])
 
-**Branch**: `macro-sql-assembly` (param-placeholders has been merged in)
-**Head**: `e7c2f87` — pushed to remote.
+**Branch**: `macro-sql-assembly`
+**Head**: `46bd9fb` — pushed to remote.
 
 | module    | tests   | status |
 | --------- | ------- | ------ |
-| core      | 397/397 | ✅     |
+| core      | 406/406 | ✅     |
 | circe     | 10/10   | ✅     |
 | iron      | 4/4     | ✅     |
 | refined   | 5/5     | ✅     |
 | tests     | 159/159 | ✅ (Postgres testcontainers) |
-| **total** | **575/575** | ✅ |
+| **total** | **584/584** | ✅ |
+
+## Latest session (commits `90160ed` → `46bd9fb`)
+
+- `90160ed` — **Multi-item RETURNING threads typed `RetArgs`** via the new
+  `TypedExpr.combineList[Combined]` primitive + `Where.FoldConcat[T]` /
+  `FoldConcatN[T]` typeclasses + `CollectArgs[T]` match type. The same
+  primitive is the building block for the remaining roadmap positions
+  (SELECT projections, GROUP BY/ORDER BY/DISTINCT ON, variadic builders).
+  - `returningTuple` on Update / Delete / Insert / DeleteUsing /
+    UpdateFromReady combines items into a single typed `Fragment`,
+    threading `FoldConcat[CollectArgs[T]]` as the RetArgs slot.
+  - `returningAll` builds a Void-Args combined fragment of column refs.
+  - New `MutationAssembly.withReturningTyped2[A1, RetArgs, R]` (DELETE /
+    INSERT, two-slot: WHERE/VALUES + RETURNING). Splits cleanly from
+    UPDATE's three-slot `withReturningTyped` so the slot positions in
+    `assemble3` align with the (A1, A2, A3) type params — the prior
+    DELETE+RETURNING path had a latent walker bug at typedCount=2.
+  - 8 new ParamSuite tests covering Param-bearing multi-item RETURNING
+    (encoder round-trips and static type assertions).
+- `46bd9fb` — **Variadic builder return types** (`Pg.greatest`,
+  `Pg.least`, `Pg.coalesce`, `Pg.concat`) tightened from `TypedExpr[T, ?]`
+  to `TypedExpr[T, Void]`. Matches their actual runtime shape (collapsed
+  via `joinedVoid`) and lets them slot cleanly into `CollectArgs[T]`
+  reductions used by RETURNING. Variadic typed-Args for these is roadmap
+  (needs arity-overload + tuple-input redesign).
+
+**Step 4 (SELECT projections — typed `ProjArgs` threading):** prototyped
+and reverted. Adding `ProjArgs` to `ProjectedSelect` requires
+`Where.FoldConcat[CollectArgs[NormProj[X]]]` to reduce statically at the
+user's `compile()` call site. For NAMED-tuple projections
+(`users.select(u => (email = u.email, age = u.age))`) Scala 3.8 cannot
+show the named tuple disjoint from `NamedTuple[?, vs]` in match types
+(opaque-type disjointness), so the reduction gets stuck and the user-
+visible `Args` becomes a non-reducible match-type expression that breaks
+`.af` / `.run`. Plain-tuple projections and single-TypedExpr projections
+work fine — but breaking the named-tuple form is too costly. Path forward:
+either (a) replace `NormProj` / `CollectArgs` with a typeclass priority
+chain that disambiguates NamedTuple vs Tuple at given-resolution time,
+or (b) compute the projector via `transparent inline` + `erasedValue`
+inside `select`, dispatching by structural shape. Both deferred to a
+follow-up.
+
+**Combined-list runtime auto-projector experiment (reverted):** tried
+replacing `FoldConcatN.project` with a runtime auto-projector inside
+`combineList` that walks encoder Void-ness to peel values from `Combined`.
+Functionally correct for runtime dispatch and would have eliminated the
+typeclass evidence requirement. Reverted because the static
+type-reduction issue (named-tuple `NormProj`) was orthogonal to the
+auto-projector — keeping `FoldConcatN` preserves the explicit, type-
+driven path that's easier to reason about. The auto-projector remains a
+viable design choice if/when the named-tuple reduction is solved by
+other means.
 
 ## Post-merge follow-up work (commits `fb2fe1b` → `e7c2f87`)
 
@@ -35,30 +87,36 @@
 
 ## Open gaps (priority order)
 
-1. **Multi-item RETURNING with typed Args** (`returningTuple`, `returningAll`).
-   The single-expression path is shipped; multi-item still binds individually at
-   Void via `bindVoid`. Two paths to land:
-   - Transparent-inline macro that walks the projection tuple and computes
-     combined Args via fold-Concat match types, routing each item independently.
-   - Or: explicit arity-overloaded `returning2[T1, A1, T2, A2](...)`,
-     `returning3[...]` up to ~5. Uglier API but contained.
-2. **SELECT projection threading**. Same shape as (1) — currently every projection
-   item is bound at Void. Adds a 7th type param `ProjArgs` to `ProjectedSelect`.
-3. **GROUP BY / ORDER BY / DISTINCT ON Param threading**. Less common in
-   practice; same combine-N-typed-fragments problem as (1).
-4. **Variadic builders** (`Pg.coalesce`, `concat`, `Pg.overlaps`, `CASE WHEN`,
-   `rangeCtor3`, `Pg.makeDate`, …). Currently all collapse to `Args = Void` via
-   `joinedVoid`. Reuse the same combiner from (1).
-5. **`UPDATE … FROM` / `DELETE … USING` typed Args from the USING/FROM source**.
-   Currently the inner relation is bound at Void.
-6. **Subquery `.alias` / CTE bodies with typed inner Args**. `SelectBuilder.alias`
-   binds `Void`; threading inner subquery's Args through `.alias` is roadmap.
-7. **CASE WHEN typed Args**. Branches' Args are widened to `?` today.
+1. **SELECT projection threading** (`ProjArgs` on `ProjectedSelect`).
+   Prototyped and reverted in this session — blocked by Scala 3.8 match-
+   type reduction on named tuples (see "Latest session" above). Two paths
+   forward: typeclass-priority disambiguation of NamedTuple vs Tuple, or
+   `transparent inline` + `erasedValue` dispatch in `select`.
+2. **GROUP BY / ORDER BY / DISTINCT ON Param threading**. Currently each
+   item is bound at Void via `bindVoid` in `compileBodyParts`. Same shape
+   as (1) — needs combineList + fold-Concat. For typed plain-tuple inputs
+   should work today; named-tuple inputs would hit the same blocker.
+3. **Variadic builders** with typed Args (`Pg.coalesce`, `concat`,
+   `Pg.overlaps`, `CASE WHEN`, `rangeCtor3`, `Pg.makeDate`, lag/lead with
+   default, lpad/rpad with fill, …). Currently all collapse to
+   `Args = Void` via `joinedVoid`. Per `NEXT_SESSION.md`: ship arity
+   overloads up to ~N=5 that take a tuple of TypedExprs and thread
+   `FoldConcat[CollectArgs[T]]` via combineList; keep variadic
+   `TypedExpr[T, Void]` fallback for N>5.
+4. **`UPDATE … FROM` / `DELETE … USING` typed Args from the USING/FROM
+   source**. Currently the inner relation is bound at Void.
+5. **Subquery `.alias` / CTE bodies with typed inner Args**.
+   `SelectBuilder.alias` binds `Void`; threading inner subquery's Args
+   through `.alias` is roadmap.
+6. **CASE WHEN typed Args**. Branches' Args are widened to `?` today.
 
-The unifying engineering work for (1)-(4) is a single helper:
-`combineList[Combined](items: List[Fragment[?]], sep: String): Fragment[Combined]`
-plus a static fold-Concat match type for computing `Combined` from a heterogeneous
-tuple of TypedExprs. Done once, all four positions thread typed Args naturally.
+The unifying engineering work for (1)-(3) is the now-shipped helper
+`TypedExpr.combineList[Combined](items, sep, projector): Fragment[Combined]`
+plus the static fold-Concat machinery (`Where.FoldConcat[T]`,
+`Where.FoldConcatN[T]`, `CollectArgs[T]`) for computing `Combined` from
+a heterogeneous tuple of TypedExprs. Done once for RETURNING; reuse for
+the remaining positions once the named-tuple match-type blocker is
+resolved.
 
 ## Headline result
 
@@ -109,9 +167,14 @@ UPDATE WHERE, DELETE WHERE, DELETE … RETURNING, and `INSERT.withParams` — se
   Encoder still threads bound values correctly (proven by integration tests passing),
   but the user-visible `Args` doesn't surface typed Params from these positions.
   Per-position typed-Args is roadmap.
-- **Variadic CASE WHEN / Pg.overlaps / Pg.makeDate / etc.** all collapse Args to
-  `Void`. Mixing typed `Param[T]` inside variadic builders works at runtime (encoder
-  still emits) but the result's typed Args slot is `Void`.
+- **Variadic CASE WHEN / Pg.overlaps / Pg.makeDate / Pg.greatest / Pg.least /
+  Pg.coalesce / Pg.concat / etc.** all collapse Args to `Void`. Mixing typed
+  `Param[T]` inside variadic builders works at runtime (encoder still emits)
+  but the result's typed Args slot is `Void`.
+- **Multi-item RETURNING with named tuples** is unsupported — only plain
+  tuple projections (`returningTuple(u => (u.id, u.email))`) thread typed
+  RetArgs. Named tuples in the RETURNING projection lambda would hit the
+  Scala 3.8 NamedTuple-vs-Tuple match-type blocker.
 **Plan**: see [`PARAM_MIGRATION.md`](PARAM_MIGRATION.md) for the full file-by-file checklist + design rationale.
 
 ## What's done (6 commits on the branch)
