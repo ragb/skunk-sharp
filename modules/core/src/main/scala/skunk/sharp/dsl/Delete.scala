@@ -141,7 +141,7 @@ private[dsl] object MutationAssembly {
    * `Concat2` priority chain keeps the typeclass resolvable.
    */
   def command[A1, A2](parts: List[BodyPart])(using c2: Where.Concat2[A1, A2]): CommandTemplate[Where.Concat[A1, A2]] = {
-    val tpl = SelectBuilder.assemble[A1, A2, Void](parts, Nil, Void.codec)
+    val tpl = SelectBuilder.assemble[A1, A2, Void](parts, Nil, Void.codec)(using c2)
     CommandTemplate.mk[Where.Concat[A1, A2]](tpl.fragment.asInstanceOf[Fragment[Where.Concat[A1, A2]]])
   }
 
@@ -159,7 +159,7 @@ private[dsl] object MutationAssembly {
     c123: Where.Concat2[Where.Concat[A1, A2], RetArgs]
   ): QueryTemplate[Where.Concat[Where.Concat[A1, A2], RetArgs], R] = {
     val parts: List[BodyPart] = base ++ List[BodyPart](Left(RawConstants.RETURNING), Right(returning))
-    SelectBuilder.assemble3[A1, A2, RetArgs, R](parts, Nil, codec)
+    SelectBuilder.assemble3[A1, A2, RetArgs, R](parts, Nil, codec)(using c12, c123)
   }
 
   /**
@@ -172,7 +172,7 @@ private[dsl] object MutationAssembly {
     codec: Codec[R]
   )(using c2: Where.Concat2[A1, RetArgs]): QueryTemplate[Where.Concat[A1, RetArgs], R] = {
     val parts: List[BodyPart] = base ++ List[BodyPart](Left(RawConstants.RETURNING), Right(returning))
-    SelectBuilder.assemble[A1, RetArgs, R](parts, Nil, codec)
+    SelectBuilder.assemble[A1, RetArgs, R](parts, Nil, codec)(using c2)
   }
 
 }

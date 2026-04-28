@@ -396,7 +396,7 @@ final class SelectBuilder[Ss <: Tuple, WArgs, HArgs] private[sharp] (
       bodyParts = compileBodyParts(head),
       ctes      = ctes,
       codec     = rowCodec(head.effectiveCols).asInstanceOf[Codec[NamedRowOf[ev.Cols]]]
-    )
+    )(using c2)
   }
 
   private def compileBodyParts(head: SourceEntry[?, ?, ?, ?]): List[SelectBuilder.BodyPart] = {
@@ -577,19 +577,29 @@ object SelectBuilder {
     bodyParts: List[BodyPart],
     ctes:      List[CteRelation[?, ?]],
     codec:     Codec[R]
-  )(using c2: Where.Concat2[A1, A2]): QueryTemplate[Where.Concat[A1, A2], R] =
-    assemble3[A1, A2, Void, R](bodyParts, ctes, codec).asInstanceOf[QueryTemplate[Where.Concat[A1, A2], R]]
+  )(using c2: Where.Concat2[A1, A2]): QueryTemplate[Where.Concat[A1, A2], R] = {
+    // Explicitly thread c2 and a hand-built rightVoid for c123 down to assemble3 — at abstract A1/A2
+    // (which is what assemble's body sees), Scala's implicit search picks `default` over the passed-in
+    // c2, which then crashes at runtime trying to cast Void to a Tuple2. Passing both evidences
+    // explicitly via `using c2, c123` bypasses the search and uses what we know is correct.
+    val c123: Where.Concat2[Where.Concat[A1, A2], Void] = new Where.Concat2[Where.Concat[A1, A2], Void] {
+      def project(c: Where.Concat[Where.Concat[A1, A2], Void]): (Where.Concat[A1, A2], Void) =
+        (c.asInstanceOf[Where.Concat[A1, A2]], Void)
+    }
+    assemble3[A1, A2, Void, R](bodyParts, ctes, codec)(using c2, c123)
+      .asInstanceOf[QueryTemplate[Where.Concat[A1, A2], R]]
+  }
 
   /**
-   * Three-slot assemble. Render-order dispatch: the n-th non-Void typed (Right) part receives the n-th
-   * of `(A1, A2, A3)`. Void-encoder Right slots are skipped (emit nothing, don't advance the typed
-   * index). For shapes whose typed slots may not align with `(A1, A2, A3)` because of internal Void
-   * arms (e.g. DELETE which has [WHERE, RETURNING] — only two slots, neither in the A2 position), use
-   * the two-slot [[assemble]] wrapper or [[MutationAssembly.withReturningTyped2]] instead, ensuring
-   * positions match.
+   * Three-slot assemble. Render-order dispatch: each `Right(f)` part is at a *positional* slot in the
+   * order it appears among Right parts — the i-th Right slot maps to the i-th of `(A1, A2, A3)`. Void-
+   * encoder Right slots still occupy a position (and contribute no encoded value) so the position
+   * mapping stays stable when, e.g., UPDATE SET is value-baked but WHERE / RETURNING carry typed Args.
    *
    * Used by SELECT (proj/where/having) and mutation+RETURNING (UPDATE: SET + WHERE + RETURNING). For
-   * one- or two-slot cases pass `Void` for the unused trailing positions.
+   * one- or two-slot cases pass `Void` for the unused trailing positions and emit fewer Right slots —
+   * the walker's slot index matches the user's `(A1, A2, A3)` mapping by virtue of the call site
+   * emitting Right slots in `(A1, A2, A3)` order.
    */
   private[dsl] def assemble3[A1, A2, A3, R](
     bodyParts: List[BodyPart],
@@ -611,13 +621,6 @@ object SelectBuilder {
         case Right(f) => f.parts
       }
 
-    // Count typed (Right) slots in render order. Up to 3 — SELECT's proj/where/having or
-    // mutation+RETURNING's set/where/returning.
-    val typedCount = allParts.count {
-      case Right(f) if !(f.encoder eq Void.codec) => true
-      case _                                       => false
-    }
-
     type Out = Where.Concat[Where.Concat[A1, A2], A3]
     val finalEnc: Encoder[Out] = new Encoder[Out] {
       override val types: List[skunk.data.Type] =
@@ -637,19 +640,14 @@ object SelectBuilder {
         }
 
       override def encode(args: Out): List[Option[skunk.data.Encoded]] = {
-        // Project the user's Args into (A1, A2, A3) for typed-slot dispatch.
-        val (a1, a2, a3) = typedCount match {
-          case 0 => (Void, Void, Void)
-          case 1 => (args, Void, Void)
-          case 2 =>
-            val (a12, _) = c123.project(args)
-            val (a, b)   = c12.project(a12.asInstanceOf[Where.Concat[A1, A2]])
-            (a, b, Void)
-          case _ =>
-            val (a12, c) = c123.project(args)
-            val (a, b)   = c12.project(a12.asInstanceOf[Where.Concat[A1, A2]])
-            (a, b, c)
-        }
+        // Project the user's Args into (A1, A2, A3) once via the supplied [[Where.Concat2]] evidences.
+        // The walker dispatches each Right slot to a1/a2/a3 by its **positional index** among Right
+        // slots — ALWAYS incremented, even for Void-encoder Right slots — so the index stays stable
+        // when intermediate slots are baked-Void (e.g. UPDATE SET=value-baked + WHERE Param +
+        // RETURNING Param: SET is a Right at idx 0 with Void encoder, WHERE at idx 1, RETURNING at
+        // idx 2; positions correctly map to A1=Void / A2=WArgs / A3=RetArgs).
+        val (a12, a3v) = c123.project(args)
+        val (a1v, a2v) = c12.project(a12.asInstanceOf[Where.Concat[A1, A2]])
 
         var typedIdx = 0
         allParts.flatMap {
@@ -657,16 +655,14 @@ object SelectBuilder {
             af.fragment.encoder.asInstanceOf[Encoder[Any]].encode(af.argument)
           case Right(f) =>
             val enc = f.encoder.asInstanceOf[Encoder[Any]]
-            if (enc eq Void.codec) Nil
-            else {
-              val v = typedIdx match {
-                case 0 => a1
-                case 1 => a2
-                case _ => a3
-              }
-              typedIdx += 1
-              enc.encode(v)
+            val v = typedIdx match {
+              case 0 => a1v
+              case 1 => a2v
+              case _ => a3v
             }
+            typedIdx += 1
+            if (enc eq Void.codec) Nil
+            else enc.encode(v)
         }
       }
     }
@@ -875,7 +871,7 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, WArgs, 
       bodyParts = parts,
       ctes      = ctes,
       codec     = codec
-    )
+    )(using c12, c123)
   }
 
   private def compileBodyParts(projector: Any => List[Any]): List[SelectBuilder.BodyPart] = {

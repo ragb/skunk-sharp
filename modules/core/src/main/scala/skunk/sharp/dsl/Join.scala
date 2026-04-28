@@ -85,7 +85,10 @@ extension [Cols <: Tuple](r: Relation[Cols]) {
  * set-op results need a little more `Cols`-metadata threading; `.asExpr` (scalar-subquery-as-expression) covers the
  * common cases in the meantime.
  */
-extension [Ss <: Tuple, WA, HA](sb: SelectBuilder[Ss, WA, HA])(using ev: IsSingleSource[Ss]) {
+extension [Ss <: Tuple, WA, HA](sb: SelectBuilder[Ss, WA, HA])(using
+  ev: IsSingleSource[Ss],
+  c2: Where.Concat2[WA, HA]
+) {
 
   def alias[A <: String & Singleton](a: A): Relation[ev.Cols] {
     type Alias = A
@@ -93,10 +96,11 @@ extension [Ss <: Tuple, WA, HA](sb: SelectBuilder[Ss, WA, HA])(using ev: IsSingl
   } = {
     val newAlias = a
     val cols = sb.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].head.effectiveCols.asInstanceOf[ev.Cols]
-    // Inner compile runs only when `fromFragmentWith` is invoked (during outer-query rendering). Args of the
-    // inner are bound at Void at render time — typed-args threading through `.alias` is roadmap.
+    // Capture c2 at the outer site (concrete WA/HA) and pass it through to compile inside the
+    // closure — otherwise the thunk is compiled at abstract WA/HA and Scala picks `default` for
+    // c2, which crashes at runtime trying to project a Void-args fragment.
     val renderInner: () => AppliedFragment = () =>
-      sb.compile(using ev).fragment.asInstanceOf[skunk.Fragment[skunk.Void]].apply(skunk.Void)
+      sb.compile(using ev, c2).fragment.asInstanceOf[skunk.Fragment[skunk.Void]].apply(skunk.Void)
     new Relation[ev.Cols] {
       type Alias = A
       type Mode  = AliasMode.Explicit

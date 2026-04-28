@@ -259,6 +259,7 @@ object AsSubquery {
    */
   given fromSelectBuilder[Ss <: Tuple, WA, HA, C <: Tuple, R](using
     ev: IsSingleSource.Aux[Ss, C],
+    c2: Where.Concat2[WA, HA],
     eq: R =:= skunk.sharp.NamedRowOf[C]
   ): AsSubquery[SelectBuilder[Ss, WA, HA], R, Where.Concat[WA, HA]] =
     new AsSubquery[SelectBuilder[Ss, WA, HA], R, Where.Concat[WA, HA]] {
@@ -267,7 +268,7 @@ object AsSubquery {
         skunk.sharp.internal.rowCodec(entries.head.effectiveCols).asInstanceOf[Codec[R]]
       }
       def fragment(b: SelectBuilder[Ss, WA, HA]): Fragment[Where.Concat[WA, HA]] =
-        b.compile(using ev).fragment.asInstanceOf[Fragment[Where.Concat[WA, HA]]]
+        b.compile(using ev, c2).fragment.asInstanceOf[Fragment[Where.Concat[WA, HA]]]
     }
 
   given fromSetOp[T]: AsSubquery[SetOpQuery[T], T, Void] =
