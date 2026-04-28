@@ -1,18 +1,47 @@
 # Resume: Param migration (TypedExpr[T] → TypedExpr[T, Args])
 
 **Branch**: `macro-sql-assembly`
-**Head**: `2015e69` — pushed to remote.
+**Head**: `ea30376` — pushed to remote.
 
 | module    | tests   | status |
 | --------- | ------- | ------ |
-| core      | 422/422 | ✅     |
+| core      | 426/426 | ✅     |
 | circe     | 10/10   | ✅     |
 | iron      | 4/4     | ✅     |
 | refined   | 5/5     | ✅     |
 | tests     | 159/159 | ✅ (Postgres testcontainers) |
-| **total** | **600/600** | ✅ |
+| **total** | **604/604** | ✅ |
 
-## Latest session (commits `90160ed` → `2015e69`)
+## Latest session (commits `90160ed` → `ea30376`)
+
+- `ea30376` — **ORDER BY threads typed `OArgs`** (6-slot
+  `ProjectedSelect.compile`). `OrderBy[A]` is now parametric — `.asc /
+  .desc / .nullsFirst / .nullsLast` preserve A, so a Param-bearing
+  order key (`Pg.mod(u.age, Param[Int]).desc`) carries `Int` through to
+  the final QueryTemplate Args slot. ProjectedSelect adds `Orders <:
+  Tuple` (default `EmptyTuple`); `.orderBy(...)` is `transparent inline`
+  extending Orders via `Tuple.Concat[Orders, NormProj[O]]`. compile
+  takes `[DArgs, ProjArgs, GArgs, OArgs]`, summons `ProjArgsOf` for all
+  four of `Proj` / `Groups` / `DistinctOn` / `Orders`, and routes
+  through `assemble6`.
+
+  Render order: `[DIST=0, PROJ=1, WHERE=2, GROUP=3, HAVING=4,
+  ORDER=5]`. Final Args:
+  `Concat[Concat[Concat[Concat[Concat[DArgs, ProjArgs], WArgs], GArgs], HArgs], OArgs]`.
+
+  ```scala
+  users.select(u => Pg.power(u.age, Param[Double]))
+       .distinctOn(u => Pg.mod(u.age, Param[Int]))
+       .where(u => u.id === Param[UUID])
+       .groupBy(u => Pg.mod(u.age, Param[Int]))
+       .orderBy(u => Pg.mod(u.age, Param[Int]).asc)
+       .compile
+    // : QueryTemplate[((((Int, Double), UUID), Int), Int), Double]
+  ```
+
+  ParamSuite: 4 new tests covering column-ref orderBy collapse,
+  Param-bearing orderBy threading, full 6-slot composition, encoder
+  render-order check.
 
 - `2015e69` — **DISTINCT ON threads typed `DArgs`** (5-slot
   `ProjectedSelect.compile`). `ProjectedSelect` carries a new
@@ -188,15 +217,7 @@ other means.
 
 ## Open gaps (priority order)
 
-1. **ORDER BY Param threading**. DISTINCT ON shipped in `2015e69`;
-   ORDER BY is the remaining slot before LIMIT. Items are `OrderBy`
-   wrappers around `Fragment[?]` — to thread typed Args we'd need
-   `OrderBy[A]` parametrization (or extract A from the Fragment) plus
-   a 6th slot via `assemble6`. Slightly more involved than DISTINCT ON
-   because of the wrapper. The runtime fallback pattern (size-check
-   plus Void-fill) and the `transparent inline` orderBy are the same
-   shapes used by groupBy / distinctOn.
-2. **`SelectBuilder.groupBy` doesn't track `Groups` type-level**.
+1. **`SelectBuilder.groupBy` doesn't track `Groups` type-level**.
    When the user does `SelectBuilder.groupBy → .select`, the
    ProjectedSelect inherits the runtime `groupBys` list but `Groups`
    resets to `EmptyTuple`. Compile() handles this with a runtime size
@@ -204,19 +225,19 @@ other means.
    Refactor: add `Groups` to `SelectBuilder`'s class type params (38
    refs); make `SelectBuilder.groupBy` transparent-inline so the type
    threads through `.select`.
-3. **Variadic builders** with typed Args (`Pg.coalesce`, `concat`,
+2. **Variadic builders** with typed Args (`Pg.coalesce`, `concat`,
    `Pg.overlaps`, `CASE WHEN`, `rangeCtor3`, `Pg.makeDate`, lag/lead with
    default, lpad/rpad with fill, …). Currently all collapse to
    `Args = Void` via `joinedVoid`. Per `NEXT_SESSION.md`: ship arity
    overloads up to ~N=5 that take a tuple of TypedExprs and thread
    `FoldConcat[CollectArgs[T]]` via combineList; keep variadic
    `TypedExpr[T, Void]` fallback for N>5.
-4. **`UPDATE … FROM` / `DELETE … USING` typed Args from the USING/FROM
+3. **`UPDATE … FROM` / `DELETE … USING` typed Args from the USING/FROM
    source**. Currently the inner relation is bound at Void.
-5. **Subquery `.alias` / CTE bodies with typed inner Args**.
+4. **Subquery `.alias` / CTE bodies with typed inner Args**.
    `SelectBuilder.alias` and `compileFragment` bind `Void`; threading
    inner subquery's Args through `.alias` / CTE is roadmap.
-6. **CASE WHEN typed Args**. Branches' Args are widened to `?` today.
+5. **CASE WHEN typed Args**. Branches' Args are widened to `?` today.
 
 The unifying engineering work is the now-shipped helper
 `TypedExpr.combineList[Combined](items, sep, projector): Fragment[Combined]`
