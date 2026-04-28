@@ -1,18 +1,51 @@
 # Resume: Param migration (TypedExpr[T] → TypedExpr[T, Args])
 
 **Branch**: `macro-sql-assembly`
-**Head**: `46bd9fb` — pushed to remote.
+**Head**: `99d0b6f` — pushed to remote.
 
 | module    | tests   | status |
 | --------- | ------- | ------ |
-| core      | 406/406 | ✅     |
+| core      | 414/414 | ✅     |
 | circe     | 10/10   | ✅     |
 | iron      | 4/4     | ✅     |
 | refined   | 5/5     | ✅     |
 | tests     | 159/159 | ✅ (Postgres testcontainers) |
-| **total** | **584/584** | ✅ |
+| **total** | **592/592** | ✅ |
 
-## Latest session (commits `90160ed` → `46bd9fb`)
+## Latest session (commits `90160ed` → `99d0b6f`)
+
+- `99d0b6f` — **SELECT projections thread typed `ProjArgs`**.
+  `ProjectedSelect.compile` now requires a `ProjArgsOf.Aux[Proj, ProjArgs]`
+  evidence; Param-bearing projection items thread their `Args` into the
+  final `QueryTemplate` Args slot ahead of WHERE and HAVING. The blocker
+  (Scala 3.8 NamedTuple-vs-Tuple match-type disjointness) is dodged by
+  rewriting `select` (table-bound + `empty.select`) as a
+  `transparent inline def` that dispatches on the projection shape via
+  `compiletime.erasedValue`:
+  - **single TypedExpr** — `Proj = X *: EmptyTuple`, `Row = X`'s value type.
+  - **named tuple**     — `Proj = NamedTuple.DropNames[X]`,
+    `Row = NamedTuple[Names[X], ExprOutputs[Drop[X]]]`.
+  - **plain tuple**     — `Proj = X & Tuple`, `Row = ExprOutputs[X]`.
+
+  Each branch sets `Proj` to a concrete type, so `ProjArgsOf[Proj]`
+  summons cleanly at the user's `.compile` call site (regardless of
+  whether X was a named tuple).
+
+  ```scala
+  users.select(u => (u.id, Pg.power(u.age, Param[Double])))
+       .where(u => u.id === Param[UUID])
+       .compile
+    // : QueryTemplate[((Double, UUID)), (UUID, Double)]
+  ```
+
+  ParamSuite: 8 new tests — single TypedExpr / plain tuple / named tuple
+  projections (with and without Param), encoder round-trip on the
+  `Pg.power(Param) + WHERE Param` mixed shape.
+
+- `56a3d28` — Add `ProjArgsOf` typeclass: foundation infrastructure for
+  the above. Contravariant in T (so `TypedColumn` resolves via the
+  `TypedExpr` leaf given). Priority chain: `NamedTuple` → `EmptyTuple` →
+  `H *: EmptyTuple` (single-item) → multi-item cons → `TypedExpr` leaf.
 
 - `90160ed` — **Multi-item RETURNING threads typed `RetArgs`** via the new
   `TypedExpr.combineList[Combined]` primitive + `Where.FoldConcat[T]` /
@@ -36,22 +69,6 @@
   via `joinedVoid`) and lets them slot cleanly into `CollectArgs[T]`
   reductions used by RETURNING. Variadic typed-Args for these is roadmap
   (needs arity-overload + tuple-input redesign).
-
-**Step 4 (SELECT projections — typed `ProjArgs` threading):** prototyped
-and reverted. Adding `ProjArgs` to `ProjectedSelect` requires
-`Where.FoldConcat[CollectArgs[NormProj[X]]]` to reduce statically at the
-user's `compile()` call site. For NAMED-tuple projections
-(`users.select(u => (email = u.email, age = u.age))`) Scala 3.8 cannot
-show the named tuple disjoint from `NamedTuple[?, vs]` in match types
-(opaque-type disjointness), so the reduction gets stuck and the user-
-visible `Args` becomes a non-reducible match-type expression that breaks
-`.af` / `.run`. Plain-tuple projections and single-TypedExpr projections
-work fine — but breaking the named-tuple form is too costly. Path forward:
-either (a) replace `NormProj` / `CollectArgs` with a typeclass priority
-chain that disambiguates NamedTuple vs Tuple at given-resolution time,
-or (b) compute the projector via `transparent inline` + `erasedValue`
-inside `select`, dispatching by structural shape. Both deferred to a
-follow-up.
 
 **Combined-list runtime auto-projector experiment (reverted):** tried
 replacing `FoldConcatN.project` with a runtime auto-projector inside
@@ -87,36 +104,32 @@ other means.
 
 ## Open gaps (priority order)
 
-1. **SELECT projection threading** (`ProjArgs` on `ProjectedSelect`).
-   Prototyped and reverted in this session — blocked by Scala 3.8 match-
-   type reduction on named tuples (see "Latest session" above). Two paths
-   forward: typeclass-priority disambiguation of NamedTuple vs Tuple, or
-   `transparent inline` + `erasedValue` dispatch in `select`.
-2. **GROUP BY / ORDER BY / DISTINCT ON Param threading**. Currently each
+1. **GROUP BY / ORDER BY / DISTINCT ON Param threading**. Currently each
    item is bound at Void via `bindVoid` in `compileBodyParts`. Same shape
-   as (1) — needs combineList + fold-Concat. For typed plain-tuple inputs
-   should work today; named-tuple inputs would hit the same blocker.
-3. **Variadic builders** with typed Args (`Pg.coalesce`, `concat`,
+   as multi-item RETURNING + SELECT projections — needs combineList +
+   typed-args slot routed via `Right(combined)` through `assemble3` /
+   `assemble5`. For named-tuple inputs use the same `erasedValue`
+   dispatch trick as `select`. Should be a straight port now.
+2. **Variadic builders** with typed Args (`Pg.coalesce`, `concat`,
    `Pg.overlaps`, `CASE WHEN`, `rangeCtor3`, `Pg.makeDate`, lag/lead with
    default, lpad/rpad with fill, …). Currently all collapse to
    `Args = Void` via `joinedVoid`. Per `NEXT_SESSION.md`: ship arity
    overloads up to ~N=5 that take a tuple of TypedExprs and thread
    `FoldConcat[CollectArgs[T]]` via combineList; keep variadic
    `TypedExpr[T, Void]` fallback for N>5.
-4. **`UPDATE … FROM` / `DELETE … USING` typed Args from the USING/FROM
+3. **`UPDATE … FROM` / `DELETE … USING` typed Args from the USING/FROM
    source**. Currently the inner relation is bound at Void.
-5. **Subquery `.alias` / CTE bodies with typed inner Args**.
-   `SelectBuilder.alias` binds `Void`; threading inner subquery's Args
-   through `.alias` is roadmap.
-6. **CASE WHEN typed Args**. Branches' Args are widened to `?` today.
+4. **Subquery `.alias` / CTE bodies with typed inner Args**.
+   `SelectBuilder.alias` and `compileFragment` bind `Void`; threading
+   inner subquery's Args through `.alias` / CTE is roadmap.
+5. **CASE WHEN typed Args**. Branches' Args are widened to `?` today.
 
-The unifying engineering work for (1)-(3) is the now-shipped helper
+The unifying engineering work is the now-shipped helper
 `TypedExpr.combineList[Combined](items, sep, projector): Fragment[Combined]`
 plus the static fold-Concat machinery (`Where.FoldConcat[T]`,
-`Where.FoldConcatN[T]`, `CollectArgs[T]`) for computing `Combined` from
-a heterogeneous tuple of TypedExprs. Done once for RETURNING; reuse for
-the remaining positions once the named-tuple match-type blocker is
-resolved.
+`Where.FoldConcatN[T]`, `CollectArgs[T]`) AND the `ProjArgsOf` typeclass
+(for shapes that can't reduce as match types — named tuples). Done for
+RETURNING and SELECT projections; reuse for the remaining positions.
 
 ## Headline result
 
@@ -174,7 +187,9 @@ UPDATE WHERE, DELETE WHERE, DELETE … RETURNING, and `INSERT.withParams` — se
 - **Multi-item RETURNING with named tuples** is unsupported — only plain
   tuple projections (`returningTuple(u => (u.id, u.email))`) thread typed
   RetArgs. Named tuples in the RETURNING projection lambda would hit the
-  Scala 3.8 NamedTuple-vs-Tuple match-type blocker.
+  Scala 3.8 NamedTuple-vs-Tuple match-type blocker. (SELECT projections
+  use `erasedValue` dispatch to dodge this — the same trick can be ported
+  to RETURNING when needed.)
 **Plan**: see [`PARAM_MIGRATION.md`](PARAM_MIGRATION.md) for the full file-by-file checklist + design rationale.
 
 ## What's done (6 commits on the branch)
