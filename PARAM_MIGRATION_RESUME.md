@@ -1,18 +1,48 @@
 # Resume: Param migration (TypedExpr[T] → TypedExpr[T, Args])
 
 **Branch**: `macro-sql-assembly`
-**Head**: `a33b068` — pushed to remote.
+**Head**: `7a8c61c` — pushed to remote.
 
 | module    | tests   | status |
 | --------- | ------- | ------ |
-| core      | 414/414 | ✅     |
+| core      | 418/418 | ✅     |
 | circe     | 10/10   | ✅     |
 | iron      | 4/4     | ✅     |
 | refined   | 5/5     | ✅     |
 | tests     | 159/159 | ✅ (Postgres testcontainers) |
-| **total** | **592/592** | ✅ |
+| **total** | **596/596** | ✅ |
 
-## Latest session (commits `90160ed` → `a33b068`)
+## Latest session (commits `90160ed` → `7a8c61c`)
+
+- `7a8c61c` — **GROUP BY threads typed `GArgs`** in
+  `ProjectedSelect.compile`. Param-bearing items in GROUP BY now thread
+  their `Args` into the QueryTemplate Args slot alongside the existing
+  PROJ / WHERE / HAVING positions. Final Args:
+  `Concat[Concat[Concat[ProjArgs, WArgs], GArgs], HArgs]`.
+
+  ```scala
+  users.select(u => Pg.power(u.age, Param[Double]))
+       .where(u => u.id === Param[UUID])
+       .groupBy(u => Pg.mod(u.age, Param[Int]))
+       .compile
+    // : QueryTemplate[((Double, UUID), Int), Double]
+  ```
+
+  Implementation: new `assemble4[A1, A2, A3, A4, R]` (same pattern as
+  `assemble3` plus one more slot); `ProjectedSelect.compile` now takes
+  `[ProjArgs, GArgs]` as method type params and summons `ProjArgsOf`
+  for both `Proj` and `Groups`. `compileBodyParts` emits stable slot
+  indices `[PROJ=0, WHERE=1, GROUP=2, HAVING=3]`, with
+  `emptyVoidSlot` placeholders when WHERE / GROUP / HAVING are absent
+  so the slot positions stay aligned.
+
+  Runtime fallback for the `SelectBuilder.groupBy → .select` path:
+  ProjectedSelect's static `Groups` is `EmptyTuple` while runtime
+  `groupBys` carries items, so the typeclass projector returns `Nil`;
+  size-check and fall back to a Void-fill so the slot's items each get
+  Void (encoder skips them anyway). Same fallback for the projection
+  list. ParamSuite: 4 new tests covering single-Param GROUP BY,
+  GROUP BY collapse, full 4-slot composition, encoder round-trip.
 
 - `a33b068` — **`assemble3` walker fix: always-increment typedIdx; thread
   evidences explicitly.** The previous walker counted only non-Void Right
@@ -130,35 +160,41 @@ other means.
 
 ## Open gaps (priority order)
 
-1. **GROUP BY / ORDER BY / DISTINCT ON Param threading**. Walker fix
-   (`a33b068`) lays the groundwork — slot indices are now stable across
-   internal Void slots, so adding a 4th typed slot is well-defined. Plan:
-   - Add `GArgs` as a class type param to both `SelectBuilder`
-     (extending its current `[Ss, WArgs, HArgs]` to
-     `[Ss, WArgs, GArgs, HArgs]`) and `ProjectedSelect` (analogous).
-   - Make `groupBy` a `transparent inline def` that uses `erasedValue`
-     dispatch on the projection shape (same trick as `select`) and
-     summons `ProjArgsOf` to compute the typed Args extension.
-   - For SELECT (3 typed slots: WHERE/GROUP/HAVING) reuse `assemble3`.
-     For ProjectedSelect (4 typed slots: PROJ/WHERE/GROUP/HAVING) add
-     `assemble4` — same walker pattern, one more `Concat2` evidence in
-     the using clause.
-   - 38 references to `SelectBuilder[…]` and 38 to `ProjectedSelect[…]`
-     to update; mostly mechanical with sed but Cte / Join / AsSubquery
-     all touch the param arity.
-2. **Variadic builders** with typed Args (`Pg.coalesce`, `concat`,
+1. **ORDER BY / DISTINCT ON Param threading**. GROUP BY shipped in
+   `7a8c61c`. Remaining positions are render-order before/after the
+   already-threaded slots:
+   - **DISTINCT ON** (in SELECT prefix, before PROJ): items are
+     `TypedExpr[?, ?]` — same shape as PROJ / GROUP. Add a 5th typed
+     slot via `assemble5`; `ProjectedSelect.compile` summons
+     `ProjArgsOf[DistinctOn]` analogous to Proj / Groups.
+   - **ORDER BY** (after HAVING, before LIMIT): items are `OrderBy`
+     wrappers around `Fragment[?]`. To thread typed Args we'd need
+     `OrderBy` to carry its `A` (or extract from the Fragment), then a
+     6th slot via `assemble6`. Slightly more involved than DISTINCT ON
+     because of the wrapper.
+   - Same `erasedValue` dispatch on the lambda shape if named tuples
+     should be supported in these positions (rare in practice).
+2. **`SelectBuilder.groupBy` doesn't track `Groups` type-level**.
+   When the user does `SelectBuilder.groupBy → .select`, the
+   ProjectedSelect inherits the runtime `groupBys` list but `Groups`
+   resets to `EmptyTuple`. Compile() handles this with a runtime size
+   fallback (Void-fill); typed Args from such a path don't surface.
+   Refactor: add `Groups` to `SelectBuilder`'s class type params (38
+   refs); make `SelectBuilder.groupBy` transparent-inline so the type
+   threads through `.select`.
+3. **Variadic builders** with typed Args (`Pg.coalesce`, `concat`,
    `Pg.overlaps`, `CASE WHEN`, `rangeCtor3`, `Pg.makeDate`, lag/lead with
    default, lpad/rpad with fill, …). Currently all collapse to
    `Args = Void` via `joinedVoid`. Per `NEXT_SESSION.md`: ship arity
    overloads up to ~N=5 that take a tuple of TypedExprs and thread
    `FoldConcat[CollectArgs[T]]` via combineList; keep variadic
    `TypedExpr[T, Void]` fallback for N>5.
-3. **`UPDATE … FROM` / `DELETE … USING` typed Args from the USING/FROM
+4. **`UPDATE … FROM` / `DELETE … USING` typed Args from the USING/FROM
    source**. Currently the inner relation is bound at Void.
-4. **Subquery `.alias` / CTE bodies with typed inner Args**.
+5. **Subquery `.alias` / CTE bodies with typed inner Args**.
    `SelectBuilder.alias` and `compileFragment` bind `Void`; threading
    inner subquery's Args through `.alias` / CTE is roadmap.
-5. **CASE WHEN typed Args**. Branches' Args are widened to `?` today.
+6. **CASE WHEN typed Args**. Branches' Args are widened to `?` today.
 
 The unifying engineering work is the now-shipped helper
 `TypedExpr.combineList[Combined](items, sep, projector): Fragment[Combined]`
