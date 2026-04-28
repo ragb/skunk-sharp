@@ -3,6 +3,7 @@ package skunk.sharp.pg.functions
 import skunk.{Fragment, Void}
 import skunk.sharp.{Param, PgFunction, TypedExpr}
 import skunk.sharp.pg.PgTypeFor
+import skunk.sharp.where.Where
 
 /** String functions. Mixed into [[skunk.sharp.Pg]]. Args of input expression(s) propagate to result. */
 trait PgString {
@@ -117,7 +118,43 @@ trait PgString {
     TypedExpr[T, A](frag, e.codec)
   }
 
-  /** `concat(a, b, c, …)` — Args = `Void` (variadic typed-Args is roadmap). */
+  /** `concat(a)` — single arg; Args propagates from `a`. */
+  def concat[A1](a: TypedExpr[String, A1]): TypedExpr[String, A1] = {
+    val frag = TypedExpr.wrap("concat(", a.fragment, ")")
+    TypedExpr[String, A1](frag, skunk.codec.all.text)
+  }
+
+  /** `concat(a, b)` — Args = `Concat[A1, A2]`. */
+  def concat[A1, A2](a: TypedExpr[String, A1], b: TypedExpr[String, A2])(using
+    c2: Where.Concat2[A1, A2]
+  ): TypedExpr[String, Where.Concat[A1, A2]] = {
+    val inner = TypedExpr.combineSep(a.fragment, ", ", b.fragment)
+    val frag  = TypedExpr.wrap("concat(", inner, ")")
+    TypedExpr[String, Where.Concat[A1, A2]](frag, skunk.codec.all.text)
+  }
+
+  /** `concat(a, b, c)` — Args = `Concat[Concat[A1, A2], A3]` (left-fold). */
+  def concat[A1, A2, A3](
+    a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3]
+  )(using
+    c12:  Where.Concat2[A1, A2],
+    c123: Where.Concat2[Where.Concat[A1, A2], A3]
+  ): TypedExpr[String, Where.Concat[Where.Concat[A1, A2], A3]] = {
+    val projector: Where.Concat[Where.Concat[A1, A2], A3] => List[Any] = combined => {
+      val (a12, a3v) = c123.project(combined)
+      val (a1v, a2v) = c12.project(a12.asInstanceOf[Where.Concat[A1, A2]])
+      List(a1v, a2v, a3v)
+    }
+    val combined = TypedExpr.combineList[Where.Concat[Where.Concat[A1, A2], A3]](
+      List(a.fragment, b.fragment, c.fragment),
+      ", ",
+      projector
+    )
+    val frag = TypedExpr.wrap("concat(", combined, ")")
+    TypedExpr[String, Where.Concat[Where.Concat[A1, A2], A3]](frag, skunk.codec.all.text)
+  }
+
+  /** `concat(a, b, c, d, …)` — variadic fallback for arity > 3; Args = `Void`. */
   def concat(args: TypedExpr[String, ?]*): TypedExpr[String, Void] =
     PgFunction.nary[String]("concat", args*).asInstanceOf[TypedExpr[String, Void]]
 

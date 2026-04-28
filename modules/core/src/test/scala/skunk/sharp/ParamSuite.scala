@@ -561,4 +561,43 @@ class ParamSuite extends munit.FunSuite {
     assertEquals(encoded, List("11", "2.0", uid.toString, "7", "13"))
   }
 
+  // -------- Variadic-typed: Pg.coalesce / Pg.concat ---------------------------
+
+  test("Pg.coalesce(col) preserves Args = Void for column ref") {
+    val q = users.select(u => Pg.coalesce(u.email)).compile
+    val _: QueryTemplate[Void, String] = q
+  }
+
+  test("Pg.coalesce(col, Param) threads Args = Param's type via Concat") {
+    val q = users.select(u => Pg.coalesce(u.email, Param[String])).compile
+    val _: QueryTemplate[String, String] = q
+  }
+
+  test("Pg.coalesce(Param, col, Param) at arity 3 threads (A1, A3) via left-fold Concat") {
+    val q = users.select(u => Pg.coalesce(Param[String], u.email, Param[String])).compile
+    // (((String, Void), String) collapsed = (String, String)
+    val _: QueryTemplate[(String, String), String] = q
+  }
+
+  test("Pg.coalesce variadic fallback for arity > 3 collapses Args = Void") {
+    val q = users.select(u => Pg.coalesce(u.email, u.email, u.email, u.email, u.email)).compile
+    val _: QueryTemplate[Void, String] = q
+  }
+
+  test("Pg.concat(col, Param) threads typed Args") {
+    val q = users.select(u => Pg.concat(u.email, Param[String])).compile
+    val _: QueryTemplate[String, String] = q
+  }
+
+  test("Encoder for Pg.coalesce(Param, col, Param) binds the two Params in render order") {
+    val q = users
+      .select(u => Pg.coalesce(Param[String], u.email, Param[String]).as("v"))
+      .where(u => u.id === Param[UUID])
+      .compile
+    val uid     = UUID.fromString("11111111-1111-1111-1111-111111111111")
+    val af      = q.bind((("first", "third"), uid))
+    val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
+    assertEquals(encoded, List("first", "third", uid.toString))
+  }
+
 }
