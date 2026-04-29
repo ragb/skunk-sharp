@@ -1,16 +1,11 @@
 package skunk.sharp.pg
 
-import skunk.codec.all as pg
 import skunk.data.Arr
 import skunk.sharp.TypedExpr
 import skunk.sharp.where.Where
 
 /**
- * Evidence that `A` is a Postgres-array-shaped Scala type. Currently only skunk's native `Arr[T]` has a built-in
- * instance; users who map `Arr` into their own collection type via `.imap` can ship their own `IsArray.Aux` given.
- *
- * Carries the element type as a type member so operators/functions can mention the element when needed (e.g.
- * `array_append(arr, elem)`) or just assert "A is array-ish" without mentioning the element (e.g. `array_length`).
+ * Evidence that `A` is a Postgres-array-shaped Scala type.
  */
 sealed trait IsArray[A] {
   type Elem
@@ -24,56 +19,39 @@ object IsArray {
 
 }
 
-/**
- * Array operators as extension methods on `TypedExpr[A]` where `IsArray[A]` — works uniformly for `Arr[T]` and
- * `List[T]`-typed columns.
- *
- * Operator mapping:
- *   - `.contains(other)` → `a @> other`
- *   - `.containedBy(other)` → `a <@ other`
- *   - `.overlaps(other)` → `a && other`
- *   - `.concat(other)` → `a || other`
- *   - `elem.elemOf(a)` → `elem = ANY(a)`
- *
- * Postgres doesn't have a native `col IN array` form — `= ANY(…)` is the idiomatic alternative, surfaced as `.elemOf`.
- * Use `.in(NonEmptyList.of(…))` for classical `IN (literal-list)` / `IN (subquery)` via `skunk.sharp.where`.
- */
+/** Array operators as extension methods on `TypedExpr[A, X]` where `IsArray[A]`. Args from both arms propagate. */
 object ArrayOps {
 
-  private def boolOp[A](op: String, l: TypedExpr[A], r: TypedExpr[A]): Where = {
-    val af = l.render |+| TypedExpr.raw(s" $op ") |+| r.render
-    Where(new TypedExpr[Boolean] {
-      val render = af
-      val codec  = pg.bool
-    })
+  private def boolOp[A, X, Y](op: String, l: TypedExpr[A, X], r: TypedExpr[A, Y])(using
+    c2: Where.Concat2[X, Y]
+  ): Where[Where.Concat[X, Y]] = {
+    val frag = TypedExpr.combineSep(l.fragment, s" $op ", r.fragment)
+    Where(frag)
   }
 
-  extension [A](lhs: TypedExpr[A])(using @annotation.unused ev: IsArray[A]) {
+  extension [A, X](lhs: TypedExpr[A, X])(using @annotation.unused ev: IsArray[A]) {
 
-    /** `a @> b` — left array contains every element of right array. */
-    def contains(rhs: TypedExpr[A]): Where = boolOp("@>", lhs, rhs)
+    def contains[Y](rhs: TypedExpr[A, Y])(using Where.Concat2[X, Y]): Where[Where.Concat[X, Y]]    = boolOp("@>", lhs, rhs)
+    def containedBy[Y](rhs: TypedExpr[A, Y])(using Where.Concat2[X, Y]): Where[Where.Concat[X, Y]] = boolOp("<@", lhs, rhs)
+    def overlaps[Y](rhs: TypedExpr[A, Y])(using Where.Concat2[X, Y]): Where[Where.Concat[X, Y]]    = boolOp("&&", lhs, rhs)
 
-    /** `a <@ b` — left array is contained by the right array. */
-    def containedBy(rhs: TypedExpr[A]): Where = boolOp("<@", lhs, rhs)
-
-    /** `a && b` — arrays share at least one element. */
-    def overlaps(rhs: TypedExpr[A]): Where = boolOp("&&", lhs, rhs)
-
-    /** `a || b` — concatenate arrays. Renders as `||`; result type is the same array type. */
-    def concat(rhs: TypedExpr[A]): TypedExpr[A] =
-      TypedExpr(lhs.render |+| TypedExpr.raw(" || ") |+| rhs.render, lhs.codec)
+    def concat[Y](rhs: TypedExpr[A, Y])(using Where.Concat2[X, Y]): TypedExpr[A, Where.Concat[X, Y]] = {
+      val frag = TypedExpr.combineSep(lhs.fragment, " || ", rhs.fragment)
+      TypedExpr[A, Where.Concat[X, Y]](frag, lhs.codec)
+    }
 
   }
 
-  extension [E](elem: TypedExpr[E]) {
+  extension [E, X](elem: TypedExpr[E, X]) {
 
-    /** `elem = ANY(array)` — does the array contain the given element? */
-    def elemOf[A](arr: TypedExpr[A])(using @annotation.unused ev: IsArray.Aux[A, E]): Where = {
-      val af = elem.render |+| TypedExpr.raw(" = ANY(") |+| arr.render |+| TypedExpr.raw(")")
-      Where(new TypedExpr[Boolean] {
-        val render = af
-        val codec  = pg.bool
-      })
+    /** `elem = ANY(array)`. */
+    def elemOf[A, Y](arr: TypedExpr[A, Y])(using
+      @annotation.unused ev: IsArray.Aux[A, E],
+      c2: Where.Concat2[X, Y]
+    ): Where[Where.Concat[X, Y]] = {
+      val arrWrapped = TypedExpr.wrap("ANY(", arr.fragment, ")")
+      val frag       = TypedExpr.combineSep(elem.fragment, " = ", arrWrapped)
+      Where(frag)
     }
 
   }

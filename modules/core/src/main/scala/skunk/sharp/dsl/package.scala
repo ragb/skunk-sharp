@@ -38,10 +38,14 @@ package object dsl {
   val ColumnAttr: skunk.sharp.ColumnAttr.type = skunk.sharp.ColumnAttr
   type ColumnAttr = skunk.sharp.ColumnAttr
 
-  type TypedExpr[T] = skunk.sharp.TypedExpr[T]
+  type TypedExpr[T, Args] = skunk.sharp.TypedExpr[T, Args]
   val TypedExpr: skunk.sharp.TypedExpr.type = skunk.sharp.TypedExpr
 
-  type AliasedExpr[T, N <: String & Singleton] = skunk.sharp.AliasedExpr[T, N]
+  type AliasedExpr[T, N <: String & Singleton, Args] = skunk.sharp.AliasedExpr[T, N, Args]
+
+  /** Re-export the [[skunk.sharp.Param]] entry point for `Param[T]` deferred-parameter declarations. */
+  type Param[T] = skunk.sharp.Param[T]
+  val Param: skunk.sharp.Param.type = skunk.sharp.Param
 
   // Extension methods on TypedExpr[T] (cast, as). Exported here so callers that only pull `skunk.sharp.dsl.*` still
   // see them.
@@ -63,7 +67,7 @@ package object dsl {
   val Pg: skunk.sharp.Pg.type                 = skunk.sharp.Pg
 
   // ---- WHERE predicate type and combinators ----
-  type Where = skunk.sharp.where.Where
+  type Where[A] = skunk.sharp.where.Where[A]
   val Where: skunk.sharp.where.Where.type = skunk.sharp.where.Where
 
   // The expression-level operators ("WHERE operators" historically, but they produce a plain
@@ -101,9 +105,10 @@ package object dsl {
   }
   export skunk.sharp.ops.Stripped
 
-  // Boolean combinators (`&&`, `||`, `!`, `and`, `or`, `not`) stay in `skunk.sharp.where` — they're about
-  // composing predicates, not building them.
-  export skunk.sharp.where.{&&, ||, and, not, or}
+  // Boolean combinators (`&&`, `||`, `!`, `and`, `or`, `not`) — top-level extension on
+  // `TypedExpr[Boolean, A]` defined in `skunk.sharp.where`. Re-exported here so a single
+  // `import skunk.sharp.dsl.*` brings them into scope.
+  export skunk.sharp.where.{&&, ||, and, or, not, unary_!}
 
   // ---- Schema validation ----
   val SchemaValidator: skunk.sharp.validation.SchemaValidator.type = skunk.sharp.validation.SchemaValidator
@@ -154,9 +159,15 @@ package object dsl {
   //
   // `inline v: T` on `lit` forwards the compile-time constant through to the macro in
   // [[skunk.sharp.TypedExpr.lit]].
-  inline def lit[T](inline v: T)(using pf: PgTypeFor[T]): skunk.sharp.TypedExpr[T] = skunk.sharp.TypedExpr.lit(v)
+  inline def lit[T](inline v: T)(using pf: PgTypeFor[T]): skunk.sharp.TypedExpr[T, skunk.Void] =
+    skunk.sharp.TypedExpr.lit(v)
 
-  def param[T](v: T)(using pf: PgTypeFor[T]): skunk.sharp.TypedExpr[T] = skunk.sharp.TypedExpr.parameterised(v)
+  /**
+   * Bake a runtime value as a Void-args fragment. Equivalent to today's captured-args path; supplied for the
+   * dynamic-context migration cases. For static-template re-binding prefer [[Param]] (which carries `T` as Args).
+   */
+  def param[T](v: T)(using pf: PgTypeFor[T]): skunk.sharp.TypedExpr[T, skunk.Void] =
+    skunk.sharp.TypedExpr.parameterised(v)
 
   // ---- CASE expression ----
   //
@@ -166,10 +177,15 @@ package object dsl {
   // `CASE WHEN target = v THEN …` and adds no expressiveness.
 
   /**
-   * Start a `CASE`. Each branch has its own boolean predicate. The first branch's `branch: TypedExpr[T]` pins the
-   * output type; later `.when`s must agree.
+   * Start a `CASE`. Each branch has its own boolean predicate. The first branch's `branch:
+   * TypedExpr[T]` pins the output type; later `.when`s must agree. Captured `Items` accumulate the
+   * sequence of `(cond, branch)` typed expressions so `.otherwise` / `.end` can fold their `Args`
+   * into the final QueryTemplate Args slot via [[ProjArgsOf]].
    */
-  def caseWhen[T](cond: skunk.sharp.where.Where, branch: skunk.sharp.TypedExpr[T]): CaseWhen[T] =
-    new CaseWhen[T](List((cond, branch)), branch.codec)
+  def caseWhen[T, A1, A2](
+    cond: skunk.sharp.TypedExpr[Boolean, A1],
+    branch: skunk.sharp.TypedExpr[T, A2]
+  ): CaseWhen[T, skunk.sharp.TypedExpr[Boolean, A1] *: skunk.sharp.TypedExpr[T, A2] *: EmptyTuple] =
+    new CaseWhen(List((cond, branch)), branch.codec)
 
 }

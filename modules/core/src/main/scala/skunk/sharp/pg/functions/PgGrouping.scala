@@ -1,36 +1,41 @@
 package skunk.sharp.pg.functions
 
-import skunk.Codec
+import skunk.{Codec, Fragment, Void}
 import skunk.sharp.TypedExpr
 
 trait PgGrouping {
 
-  val emptyGroup: Seq[TypedExpr[?]] = Seq.empty
+  val emptyGroup: Seq[TypedExpr[?, ?]] = Seq.empty
 
-  def groupingSets(sets: Seq[TypedExpr[?]]*): TypedExpr[Unit] = {
-    val setFrags = sets.toList.map { set =>
-      if (set.isEmpty) TypedExpr.raw("()")
-      else TypedExpr.raw("(") |+| TypedExpr.joined(set.map(_.render).toList, ", ") |+| TypedExpr.raw(")")
+  def groupingSets(sets: Seq[TypedExpr[?, ?]]*): TypedExpr[Unit, Void] = {
+    val setFrags: List[Fragment[Void]] = sets.toList.map { set =>
+      if (set.isEmpty) TypedExpr.voidFragment("()")
+      else {
+        val joined = TypedExpr.joinedVoid(", ", set.toList.map(_.fragment))
+        TypedExpr.wrap("(", joined, ")")
+      }
     }
-    TypedExpr(
-      TypedExpr.raw("GROUPING SETS (") |+| TypedExpr.joined(setFrags, ", ") |+| TypedExpr.raw(")"),
-      groupSpecCodec
-    )
+    val joined = TypedExpr.joinedVoid(", ", setFrags)
+    val frag   = TypedExpr.wrap("GROUPING SETS (", joined, ")")
+    TypedExpr[Unit, Void](frag, groupSpecCodec)
   }
 
-  def rollup(exprs: TypedExpr[?]*): TypedExpr[Unit] = {
-    val inner = TypedExpr.joined(exprs.toList.map(_.render), ", ")
-    TypedExpr(TypedExpr.raw("ROLLUP (") |+| inner |+| TypedExpr.raw(")"), groupSpecCodec)
+  def rollup(exprs: TypedExpr[?, ?]*): TypedExpr[Unit, Void] = {
+    val joined = TypedExpr.joinedVoid(", ", exprs.toList.map(_.fragment))
+    val frag   = TypedExpr.wrap("ROLLUP (", joined, ")")
+    TypedExpr[Unit, Void](frag, groupSpecCodec)
   }
 
-  def cube(exprs: TypedExpr[?]*): TypedExpr[Unit] = {
-    val inner = TypedExpr.joined(exprs.toList.map(_.render), ", ")
-    TypedExpr(TypedExpr.raw("CUBE (") |+| inner |+| TypedExpr.raw(")"), groupSpecCodec)
+  def cube(exprs: TypedExpr[?, ?]*): TypedExpr[Unit, Void] = {
+    val joined = TypedExpr.joinedVoid(", ", exprs.toList.map(_.fragment))
+    val frag   = TypedExpr.wrap("CUBE (", joined, ")")
+    TypedExpr[Unit, Void](frag, groupSpecCodec)
   }
 
-  def grouping(cols: TypedExpr[?]*): TypedExpr[Int] = {
-    val inner = TypedExpr.joined(cols.toList.map(_.render), ", ")
-    TypedExpr(TypedExpr.raw("GROUPING(") |+| inner |+| TypedExpr.raw(")"), skunk.codec.all.int4)
+  def grouping(cols: TypedExpr[?, ?]*): TypedExpr[Int, Void] = {
+    val joined = TypedExpr.joinedVoid(", ", cols.toList.map(_.fragment))
+    val frag   = TypedExpr.wrap("GROUPING(", joined, ")")
+    TypedExpr[Int, Void](frag, skunk.codec.all.int4)
   }
 
   private val groupSpecCodec: Codec[Unit] =

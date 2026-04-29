@@ -1,141 +1,137 @@
 package skunk.sharp.pg.functions
 
-import skunk.sharp.TypedExpr
+import skunk.{Fragment, Void}
+import skunk.sharp.{Param, TypedExpr}
 import skunk.sharp.pg.PgTypeFor
+import skunk.sharp.where.Where
 
-/**
- * Aggregate functions. Mixed into [[skunk.sharp.Pg]].
- *
- * Placement: all aggregates produce `TypedExpr[T]`, so they slot into SELECT projections, HAVING predicates, or ORDER
- * BY expressions. Correctness of `GROUP BY` coverage is not enforced at compile time — Postgres raises that as a loud
- * runtime error. See the builder's `.groupBy(...)` for explicit groups.
- */
+/** Aggregate functions. Mixed into [[skunk.sharp.Pg]]. Args of input expression(s) propagate to the result. */
 trait PgAggregate {
 
-  /** `count(*)` — row count including NULLs. */
-  val countAll: TypedExpr[Long] =
-    TypedExpr(TypedExpr.raw("count(*)"), skunk.codec.all.int8)
+  /** `count(*)` — row count including NULLs. Args = Void. */
+  val countAll: TypedExpr[Long, Void] = {
+    val frag: Fragment[Void] = TypedExpr.voidFragment("count(*)")
+    TypedExpr[Long, Void](frag, skunk.codec.all.int8)
+  }
 
-  /** `count(expr)` — count of non-null values. */
-  def count[T](expr: TypedExpr[T]): TypedExpr[Long] =
-    TypedExpr(TypedExpr.raw("count(") |+| expr.render |+| TypedExpr.raw(")"), skunk.codec.all.int8)
+  /** `count(expr)`. Args propagates from input. */
+  def count[T, A](expr: TypedExpr[T, A]): TypedExpr[Long, A] = {
+    val frag = TypedExpr.wrap("count(", expr.fragment, ")")
+    TypedExpr[Long, A](frag, skunk.codec.all.int8)
+  }
 
-  /** `count(DISTINCT expr)` — count of distinct non-null values. */
-  def countDistinct[T](expr: TypedExpr[T]): TypedExpr[Long] =
-    TypedExpr(TypedExpr.raw("count(DISTINCT ") |+| expr.render |+| TypedExpr.raw(")"), skunk.codec.all.int8)
+  /** `count(DISTINCT expr)`. */
+  def countDistinct[T, A](expr: TypedExpr[T, A]): TypedExpr[Long, A] = {
+    val frag = TypedExpr.wrap("count(DISTINCT ", expr.fragment, ")")
+    TypedExpr[Long, A](frag, skunk.codec.all.int8)
+  }
 
-  /**
-   * `sum(expr)` — result type follows Postgres's actual rules via [[SumOf]]:
-   *   - `sum(smallint | integer)` → `bigint` (`Long`)
-   *   - `sum(bigint | numeric)` → `numeric` (`BigDecimal`)
-   *   - `sum(real)` → `real` (`Float`)
-   *   - `sum(double precision)` → `double` (`Double`)
-   */
-  def sum[I](expr: TypedExpr[I])(using pf: PgTypeFor[SumOf[I]]): TypedExpr[SumOf[I]] =
-    TypedExpr(TypedExpr.raw("sum(") |+| expr.render |+| TypedExpr.raw(")"), pf.codec)
+  def sum[I, A](expr: TypedExpr[I, A])(using pf: PgTypeFor[SumOf[I]]): TypedExpr[SumOf[I], A] = {
+    val frag = TypedExpr.wrap("sum(", expr.fragment, ")")
+    TypedExpr[SumOf[I], A](frag, pf.codec)
+  }
 
-  /**
-   * `avg(expr)` — integer / bigint / numeric → `numeric` (`BigDecimal`); `real` or `double` → `double` (`Double`).
-   */
-  def avg[I](expr: TypedExpr[I])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I]] =
-    TypedExpr(TypedExpr.raw("avg(") |+| expr.render |+| TypedExpr.raw(")"), pf.codec)
+  def avg[I, A](expr: TypedExpr[I, A])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I], A] = {
+    val frag = TypedExpr.wrap("avg(", expr.fragment, ")")
+    TypedExpr[AvgOf[I], A](frag, pf.codec)
+  }
 
-  /** `min(expr)` — same type as input. */
-  def min[T](expr: TypedExpr[T]): TypedExpr[T] =
-    TypedExpr(TypedExpr.raw("min(") |+| expr.render |+| TypedExpr.raw(")"), expr.codec)
+  def min[T, A](expr: TypedExpr[T, A]): TypedExpr[T, A] = sameTypeFn("min", expr)
+  def max[T, A](expr: TypedExpr[T, A]): TypedExpr[T, A] = sameTypeFn("max", expr)
 
-  /** `max(expr)` — same type as input. */
-  def max[T](expr: TypedExpr[T]): TypedExpr[T] =
-    TypedExpr(TypedExpr.raw("max(") |+| expr.render |+| TypedExpr.raw(")"), expr.codec)
+  /** `string_agg(expr, sep)` — sep is a runtime value baked via Param.bind. */
+  def stringAgg[T, A](expr: TypedExpr[T, A], sep: String)(using ev: StrLike[T], pfs: PgTypeFor[String]): TypedExpr[String, A] = {
+    val sepFrag = Param.bind[String](sep).fragment
+    val inner   = TypedExpr.combineSep(expr.fragment, ", ", sepFrag)
+    val frag    = TypedExpr.wrap("string_agg(", inner.asInstanceOf[Fragment[A]], ")")
+    TypedExpr[String, A](frag, skunk.codec.all.text)
+  }
 
-  /**
-   * `string_agg(expr, sep)` — concatenate string values with a separator. Accepts any string-like tag on the aggregated
-   * expression.
-   */
-  def stringAgg[T](expr: TypedExpr[T], sep: String)(using StrLike[T]): TypedExpr[String] =
-    TypedExpr(
-      TypedExpr.raw("string_agg(") |+| expr.render |+| TypedExpr.raw(", ") |+|
-        TypedExpr.parameterised(sep).render |+| TypedExpr.raw(")"),
-      skunk.codec.all.text
-    )
+  /** `string_agg` taking a TypedExpr separator (Param[String], lit, etc.) — Args propagate from both. */
+  def stringAgg[T, A, B](expr: TypedExpr[T, A], sep: TypedExpr[String, B])(using
+    StrLike[T]
+  ): TypedExpr[String, Where.Concat[A, B]] = {
+    val inner = TypedExpr.combineSep(expr.fragment, ", ", sep.fragment)
+    val frag  = TypedExpr.wrap("string_agg(", inner, ")")
+    TypedExpr[String, Where.Concat[A, B]](frag, skunk.codec.all.text)
+  }
 
-  /** `bool_and(expr)` — true if every non-null input is true. */
-  def boolAnd(expr: TypedExpr[Boolean]): TypedExpr[Boolean] =
-    TypedExpr(TypedExpr.raw("bool_and(") |+| expr.render |+| TypedExpr.raw(")"), skunk.codec.all.bool)
+  def boolAnd[A](expr: TypedExpr[Boolean, A]): TypedExpr[Boolean, A] = sameTypeFn("bool_and", expr)
+  def boolOr[A](expr: TypedExpr[Boolean, A]): TypedExpr[Boolean, A]  = sameTypeFn("bool_or", expr)
 
-  /** `bool_or(expr)` — true if any non-null input is true. */
-  def boolOr(expr: TypedExpr[Boolean]): TypedExpr[Boolean] =
-    TypedExpr(TypedExpr.raw("bool_or(") |+| expr.render |+| TypedExpr.raw(")"), skunk.codec.all.bool)
+  // -------- Variance / standard deviation -----------------------------------------------------
 
-  // -------- Variance / standard deviation (return type mirrors avg) ----------------------------
+  def stddev[I, A](expr: TypedExpr[I, A])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I], A] = {
+    val frag = TypedExpr.wrap("stddev(", expr.fragment, ")")
+    TypedExpr[AvgOf[I], A](frag, pf.codec)
+  }
 
-  /** `stddev(expr)` — sample standard deviation; return type follows Postgres's actual rules via [[AvgOf]]. */
-  def stddev[I](expr: TypedExpr[I])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I]] =
-    TypedExpr(TypedExpr.raw("stddev(") |+| expr.render |+| TypedExpr.raw(")"), pf.codec)
+  def stddevPop[I, A](expr: TypedExpr[I, A])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I], A] = {
+    val frag = TypedExpr.wrap("stddev_pop(", expr.fragment, ")")
+    TypedExpr[AvgOf[I], A](frag, pf.codec)
+  }
 
-  /** `stddev_pop(expr)` — population standard deviation. */
-  def stddevPop[I](expr: TypedExpr[I])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I]] =
-    TypedExpr(TypedExpr.raw("stddev_pop(") |+| expr.render |+| TypedExpr.raw(")"), pf.codec)
+  def stddevSamp[I, A](expr: TypedExpr[I, A])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I], A] = {
+    val frag = TypedExpr.wrap("stddev_samp(", expr.fragment, ")")
+    TypedExpr[AvgOf[I], A](frag, pf.codec)
+  }
 
-  /** `stddev_samp(expr)` — sample standard deviation (synonym for [[stddev]]). */
-  def stddevSamp[I](expr: TypedExpr[I])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I]] =
-    TypedExpr(TypedExpr.raw("stddev_samp(") |+| expr.render |+| TypedExpr.raw(")"), pf.codec)
+  def variance[I, A](expr: TypedExpr[I, A])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I], A] = {
+    val frag = TypedExpr.wrap("variance(", expr.fragment, ")")
+    TypedExpr[AvgOf[I], A](frag, pf.codec)
+  }
 
-  /** `variance(expr)` — sample variance; return type follows [[AvgOf]]. */
-  def variance[I](expr: TypedExpr[I])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I]] =
-    TypedExpr(TypedExpr.raw("variance(") |+| expr.render |+| TypedExpr.raw(")"), pf.codec)
+  def varPop[I, A](expr: TypedExpr[I, A])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I], A] = {
+    val frag = TypedExpr.wrap("var_pop(", expr.fragment, ")")
+    TypedExpr[AvgOf[I], A](frag, pf.codec)
+  }
 
-  /** `var_pop(expr)` — population variance. */
-  def varPop[I](expr: TypedExpr[I])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I]] =
-    TypedExpr(TypedExpr.raw("var_pop(") |+| expr.render |+| TypedExpr.raw(")"), pf.codec)
+  def varSamp[I, A](expr: TypedExpr[I, A])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I], A] = {
+    val frag = TypedExpr.wrap("var_samp(", expr.fragment, ")")
+    TypedExpr[AvgOf[I], A](frag, pf.codec)
+  }
 
-  /** `var_samp(expr)` — sample variance (synonym for [[variance]]). */
-  def varSamp[I](expr: TypedExpr[I])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I]] =
-    TypedExpr(TypedExpr.raw("var_samp(") |+| expr.render |+| TypedExpr.raw(")"), pf.codec)
+  // -------- Two-arg statistical correlations -------------------------------------------------
 
-  // -------- Two-arg statistical correlations ---------------------------------------------------
+  def corr[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
+    twoArgDoubleFn("corr", y, x)
 
-  /** `corr(y, x)` — Pearson correlation coefficient. */
-  def corr[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("corr", y, x)
+  def covarPop[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
+    twoArgDoubleFn("covar_pop", y, x)
 
-  /** `covar_pop(y, x)` — population covariance. */
-  def covarPop[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("covar_pop", y, x)
+  def covarSamp[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
+    twoArgDoubleFn("covar_samp", y, x)
 
-  /** `covar_samp(y, x)` — sample covariance. */
-  def covarSamp[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("covar_samp", y, x)
+  // -------- Regression analysis --------------------------------------------------------------
 
-  // -------- Regression analysis ----------------------------------------------------------------
+  def regrSlope[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
+    twoArgDoubleFn("regr_slope", y, x)
 
-  /** `regr_slope(y, x)` — slope of the least-squares fit line. */
-  def regrSlope[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("regr_slope", y, x)
-
-  /** `regr_intercept(y, x)` — y-intercept of the least-squares fit line. */
-  def regrIntercept[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] =
+  def regrIntercept[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
     twoArgDoubleFn("regr_intercept", y, x)
 
-  /** `regr_count(y, x)` — number of non-null `(y, x)` pairs; never returns NULL. */
-  def regrCount[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Long] =
-    TypedExpr(
-      TypedExpr.raw("regr_count(") |+| y.render |+| TypedExpr.raw(", ") |+| x.render |+| TypedExpr.raw(")"),
-      skunk.codec.all.int8
-    )
+  def regrCount[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Long, Where.Concat[AY, AX]] = {
+    val inner = TypedExpr.combineSep(y.fragment, ", ", x.fragment)
+    val frag  = TypedExpr.wrap("regr_count(", inner, ")")
+    TypedExpr[Long, Where.Concat[AY, AX]](frag, skunk.codec.all.int8)
+  }
 
-  /** `regr_r2(y, x)` — square of the correlation coefficient. */
-  def regrR2[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("regr_r2", y, x)
+  def regrR2[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
+    twoArgDoubleFn("regr_r2", y, x)
 
-  /** `regr_avgx(y, x)` — average of independent variable for non-null pairs. */
-  def regrAvgX[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("regr_avgx", y, x)
+  def regrAvgX[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
+    twoArgDoubleFn("regr_avgx", y, x)
 
-  /** `regr_avgy(y, x)` — average of dependent variable for non-null pairs. */
-  def regrAvgY[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("regr_avgy", y, x)
+  def regrAvgY[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
+    twoArgDoubleFn("regr_avgy", y, x)
 
-  /** `regr_sxx(y, x)` — sum of squares of the independent variable. */
-  def regrSxx[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("regr_sxx", y, x)
+  def regrSxx[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
+    twoArgDoubleFn("regr_sxx", y, x)
 
-  /** `regr_syy(y, x)` — sum of squares of the dependent variable. */
-  def regrSyy[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("regr_syy", y, x)
+  def regrSyy[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
+    twoArgDoubleFn("regr_syy", y, x)
 
-  /** `regr_sxy(y, x)` — sum of cross products. */
-  def regrSxy[Y, X](y: TypedExpr[Y], x: TypedExpr[X]): TypedExpr[Double] = twoArgDoubleFn("regr_sxy", y, x)
+  def regrSxy[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
+    twoArgDoubleFn("regr_sxy", y, x)
 
 }

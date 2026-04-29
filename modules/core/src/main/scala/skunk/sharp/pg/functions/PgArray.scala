@@ -1,139 +1,125 @@
 package skunk.sharp.pg.functions
 
+import skunk.Fragment
 import skunk.codec.all as pg
 import skunk.data.Arr
-import skunk.sharp.TypedExpr
+import skunk.sharp.{Param, TypedExpr}
 import skunk.sharp.pg.{IsArray, PgTypeFor}
+import skunk.sharp.where.Where
 
 /**
- * Built-in Postgres array functions — `array_length`, `cardinality`, `array_append`, `array_prepend`, `array_cat`,
- * `array_position`, `array_positions`, `array_remove`, `array_replace`, `array_to_string`, `string_to_array`, `unnest`,
- * plus the `array_agg` aggregate.
- *
- * Operators (`@>`, `<@`, `&&`, `||`, `= ANY`) live as extension methods in [[skunk.sharp.pg.ArrayOps]].
- *
- * All functions accept any array-shaped Scala type via `IsArray[A]` — works uniformly for `Arr[T]` and `List[T]`
- * columns.
+ * Built-in Postgres array functions. Operators (`@>`, `<@`, `&&`, `||`, `= ANY`) live as extensions in
+ * [[skunk.sharp.pg.ArrayOps]]. Args of input expression(s) propagate to result.
  */
 trait PgArray {
 
-  /** `array_length(a, dim)` → `Option[Int]`. Dimension is 1 for most Postgres arrays. Returns NULL for empty arrays. */
-  def arrayLength[A](a: TypedExpr[A], dim: Int = 1)(using @annotation.unused ev: IsArray[A]): TypedExpr[Option[Int]] =
-    TypedExpr(
-      TypedExpr.raw("array_length(") |+| a.render |+| TypedExpr.raw(s", $dim)"),
-      pg.int4.opt
+  def arrayLength[A, X](a: TypedExpr[A, X], dim: Int = 1)(using @annotation.unused ev: IsArray[A]): TypedExpr[Option[Int], X] = {
+    val parts = a.fragment.parts ++ List[Either[String, cats.data.State[Int, String]]](Left(s", $dim)"))
+    val frag  = Fragment[X](
+      List[Either[String, cats.data.State[Int, String]]](Left("array_length(")) ++ parts,
+      a.fragment.encoder, skunk.util.Origin.unknown
     )
+    TypedExpr[Option[Int], X](frag, pg.int4.opt)
+  }
 
-  /** `cardinality(a)` → `Int` — total element count across all dimensions. */
-  def cardinality[A](a: TypedExpr[A])(using @annotation.unused ev: IsArray[A]): TypedExpr[Int] =
-    TypedExpr(TypedExpr.raw("cardinality(") |+| a.render |+| TypedExpr.raw(")"), pg.int4)
+  def cardinality[A, X](a: TypedExpr[A, X])(using @annotation.unused ev: IsArray[A]): TypedExpr[Int, X] = {
+    val frag = TypedExpr.wrap("cardinality(", a.fragment, ")")
+    TypedExpr[Int, X](frag, pg.int4)
+  }
 
-  /** `array_append(a, elem)`. Result keeps the same array Scala type as the input. */
-  def arrayAppend[A, E](a: TypedExpr[A], elem: TypedExpr[E])(using
+  def arrayAppend[A, E, X, Y](a: TypedExpr[A, X], elem: TypedExpr[E, Y])(using
     @annotation.unused ev: IsArray.Aux[A, E]
-  ): TypedExpr[A] =
-    TypedExpr(
-      TypedExpr.raw("array_append(") |+| a.render |+| TypedExpr.raw(", ") |+| elem.render |+| TypedExpr.raw(")"),
-      a.codec
-    )
+  ): TypedExpr[A, Where.Concat[X, Y]] = {
+    val inner = TypedExpr.combineSep(a.fragment, ", ", elem.fragment)
+    val frag  = TypedExpr.wrap("array_append(", inner, ")")
+    TypedExpr[A, Where.Concat[X, Y]](frag, a.codec)
+  }
 
-  /** `array_prepend(elem, a)`. */
-  def arrayPrepend[A, E](elem: TypedExpr[E], a: TypedExpr[A])(using
+  def arrayPrepend[A, E, X, Y](elem: TypedExpr[E, X], a: TypedExpr[A, Y])(using
     @annotation.unused ev: IsArray.Aux[A, E]
-  ): TypedExpr[A] =
-    TypedExpr(
-      TypedExpr.raw("array_prepend(") |+| elem.render |+| TypedExpr.raw(", ") |+| a.render |+| TypedExpr.raw(")"),
-      a.codec
-    )
+  ): TypedExpr[A, Where.Concat[X, Y]] = {
+    val inner = TypedExpr.combineSep(elem.fragment, ", ", a.fragment)
+    val frag  = TypedExpr.wrap("array_prepend(", inner, ")")
+    TypedExpr[A, Where.Concat[X, Y]](frag, a.codec)
+  }
 
-  /** `array_cat(a, b)` — concatenate two arrays of the same type. */
-  def arrayCat[A](a: TypedExpr[A], b: TypedExpr[A])(using @annotation.unused ev: IsArray[A]): TypedExpr[A] =
-    TypedExpr(
-      TypedExpr.raw("array_cat(") |+| a.render |+| TypedExpr.raw(", ") |+| b.render |+| TypedExpr.raw(")"),
-      a.codec
-    )
-
-  /** `array_position(a, elem)` → `Option[Int]` — 1-based index of the first match, NULL if absent. */
-  def arrayPosition[A, E](a: TypedExpr[A], elem: TypedExpr[E])(using
-    @annotation.unused ev: IsArray.Aux[A, E]
-  ): TypedExpr[Option[Int]] =
-    TypedExpr(
-      TypedExpr.raw("array_position(") |+| a.render |+| TypedExpr.raw(", ") |+| elem.render |+| TypedExpr.raw(")"),
-      pg.int4.opt
-    )
-
-  /** `array_positions(a, elem)` → `Arr[Int]` — all 1-based indices of `elem` in `a`. */
-  def arrayPositions[A, E](a: TypedExpr[A], elem: TypedExpr[E])(using
-    @annotation.unused ev: IsArray.Aux[A, E]
-  ): TypedExpr[Arr[Int]] =
-    TypedExpr(
-      TypedExpr.raw("array_positions(") |+| a.render |+| TypedExpr.raw(", ") |+| elem.render |+| TypedExpr.raw(")"),
-      pg._int4
-    )
-
-  /** `array_remove(a, elem)` — all occurrences of `elem` dropped. */
-  def arrayRemove[A, E](a: TypedExpr[A], elem: TypedExpr[E])(using
-    @annotation.unused ev: IsArray.Aux[A, E]
-  ): TypedExpr[A] =
-    TypedExpr(
-      TypedExpr.raw("array_remove(") |+| a.render |+| TypedExpr.raw(", ") |+| elem.render |+| TypedExpr.raw(")"),
-      a.codec
-    )
-
-  /** `array_replace(a, from, to)` — replace every `from` with `to`. */
-  def arrayReplace[A, E](a: TypedExpr[A], from: TypedExpr[E], to: TypedExpr[E])(using
-    @annotation.unused ev: IsArray.Aux[A, E]
-  ): TypedExpr[A] =
-    TypedExpr(
-      TypedExpr.raw("array_replace(") |+| a.render |+| TypedExpr.raw(", ") |+| from.render |+|
-        TypedExpr.raw(", ") |+| to.render |+| TypedExpr.raw(")"),
-      a.codec
-    )
-
-  /**
-   * `array_to_string(a, sep)` → `String`. NULL elements are skipped.
-   */
-  def arrayToString[A](a: TypedExpr[A], sep: String)(using @annotation.unused ev: IsArray[A]): TypedExpr[String] =
-    TypedExpr(
-      TypedExpr.raw("array_to_string(") |+| a.render |+| TypedExpr.raw(", ") |+| TypedExpr.parameterised(sep).render |+|
-        TypedExpr.raw(")"),
-      pg.text
-    )
-
-  /** `array_to_string(a, sep, nullStr)` → `String`. NULL elements are replaced with `nullStr`. */
-  def arrayToString[A](a: TypedExpr[A], sep: String, nullStr: String)(using
+  def arrayCat[A, X, Y](a: TypedExpr[A, X], b: TypedExpr[A, Y])(using
     @annotation.unused ev: IsArray[A]
-  ): TypedExpr[String] =
-    TypedExpr(
-      TypedExpr.raw("array_to_string(") |+| a.render |+| TypedExpr.raw(", ") |+| TypedExpr.parameterised(sep).render |+|
-        TypedExpr.raw(", ") |+| TypedExpr.parameterised(nullStr).render |+| TypedExpr.raw(")"),
-      pg.text
-    )
+  ): TypedExpr[A, Where.Concat[X, Y]] = {
+    val inner = TypedExpr.combineSep(a.fragment, ", ", b.fragment)
+    val frag  = TypedExpr.wrap("array_cat(", inner, ")")
+    TypedExpr[A, Where.Concat[X, Y]](frag, a.codec)
+  }
 
-  /** `string_to_array(s, sep)` → `Arr[String]`. Empty string separator splits by character. */
-  def stringToArray(s: TypedExpr[String], sep: String): TypedExpr[Arr[String]] =
-    TypedExpr(
-      TypedExpr.raw("string_to_array(") |+| s.render |+| TypedExpr.raw(", ") |+| TypedExpr.parameterised(sep).render |+|
-        TypedExpr.raw(")"),
-      pg._text
-    )
+  def arrayPosition[A, E, X, Y](a: TypedExpr[A, X], elem: TypedExpr[E, Y])(using
+    @annotation.unused ev: IsArray.Aux[A, E]
+  ): TypedExpr[Option[Int], Where.Concat[X, Y]] = {
+    val inner = TypedExpr.combineSep(a.fragment, ", ", elem.fragment)
+    val frag  = TypedExpr.wrap("array_position(", inner, ")")
+    TypedExpr[Option[Int], Where.Concat[X, Y]](frag, pg.int4.opt)
+  }
 
-  /**
-   * `array_agg(expr)` — aggregate rows into a single array. Returns `Arr[T]`; callers who want a Scala `List[T]` can
-   * `.imap` or use the `List[T]` codec directly.
-   */
-  def arrayAgg[T](expr: TypedExpr[T])(using pf: PgTypeFor[Arr[T]]): TypedExpr[Arr[T]] =
-    TypedExpr(TypedExpr.raw("array_agg(") |+| expr.render |+| TypedExpr.raw(")"), pf.codec)
+  def arrayPositions[A, E, X, Y](a: TypedExpr[A, X], elem: TypedExpr[E, Y])(using
+    @annotation.unused ev: IsArray.Aux[A, E]
+  ): TypedExpr[Arr[Int], Where.Concat[X, Y]] = {
+    val inner = TypedExpr.combineSep(a.fragment, ", ", elem.fragment)
+    val frag  = TypedExpr.wrap("array_positions(", inner, ")")
+    TypedExpr[Arr[Int], Where.Concat[X, Y]](frag, pg._int4)
+  }
 
-  /**
-   * `unnest(a)` — set-returning function. Only meaningful in a FROM / LATERAL / SELECT-list context; renders the SQL
-   * but the DSL doesn't yet have a set-returning-source abstraction, so this is primarily here for use in raw fragments
-   * or subqueries.
-   */
-  def unnest[A, E](a: TypedExpr[A])(using
-    @annotation.unused ev: IsArray.Aux[A, E],
-    pf: PgTypeFor[E]
-  ): TypedExpr[E] =
-    TypedExpr(TypedExpr.raw("unnest(") |+| a.render |+| TypedExpr.raw(")"), pf.codec)
+  def arrayRemove[A, E, X, Y](a: TypedExpr[A, X], elem: TypedExpr[E, Y])(using
+    @annotation.unused ev: IsArray.Aux[A, E]
+  ): TypedExpr[A, Where.Concat[X, Y]] = {
+    val inner = TypedExpr.combineSep(a.fragment, ", ", elem.fragment)
+    val frag  = TypedExpr.wrap("array_remove(", inner, ")")
+    TypedExpr[A, Where.Concat[X, Y]](frag, a.codec)
+  }
+
+  def arrayReplace[A, E](a: TypedExpr[A, ?], from: TypedExpr[E, ?], to: TypedExpr[E, ?])(using
+    @annotation.unused ev: IsArray.Aux[A, E]
+  ): TypedExpr[A, skunk.Void] = {
+    val joined = TypedExpr.joinedVoid(", ", List(a.fragment, from.fragment, to.fragment))
+    val frag   = TypedExpr.wrap("array_replace(", joined, ")")
+    TypedExpr[A, skunk.Void](frag, a.codec)
+  }
+
+  def arrayToString[A, X](a: TypedExpr[A, X], sep: String)(using
+    @annotation.unused ev: IsArray[A], pfs: PgTypeFor[String]
+  ): TypedExpr[String, X] = {
+    val sepFrag = Param.bind[String](sep).fragment
+    val s1      = TypedExpr.combineSep(a.fragment, ", ", sepFrag).asInstanceOf[Fragment[X]]
+    val frag    = TypedExpr.wrap("array_to_string(", s1, ")")
+    TypedExpr[String, X](frag, pg.text)
+  }
+
+  def arrayToString[A, X](a: TypedExpr[A, X], sep: String, nullStr: String)(using
+    @annotation.unused ev: IsArray[A], pfs: PgTypeFor[String]
+  ): TypedExpr[String, X] = {
+    val sepFrag  = Param.bind[String](sep).fragment
+    val nullFrag = Param.bind[String](nullStr).fragment
+    val s1       = TypedExpr.combineSep(a.fragment, ", ", sepFrag).asInstanceOf[Fragment[X]]
+    val s2       = TypedExpr.combineSep(s1, ", ", nullFrag).asInstanceOf[Fragment[X]]
+    val frag     = TypedExpr.wrap("array_to_string(", s2, ")")
+    TypedExpr[String, X](frag, pg.text)
+  }
+
+  def stringToArray[X](s: TypedExpr[String, X], sep: String)(using pfs: PgTypeFor[String]): TypedExpr[Arr[String], X] = {
+    val sepFrag = Param.bind[String](sep).fragment
+    val s1      = TypedExpr.combineSep(s.fragment, ", ", sepFrag).asInstanceOf[Fragment[X]]
+    val frag    = TypedExpr.wrap("string_to_array(", s1, ")")
+    TypedExpr[Arr[String], X](frag, pg._text)
+  }
+
+  def arrayAgg[T, X](expr: TypedExpr[T, X])(using pf: PgTypeFor[Arr[T]]): TypedExpr[Arr[T], X] = {
+    val frag = TypedExpr.wrap("array_agg(", expr.fragment, ")")
+    TypedExpr[Arr[T], X](frag, pf.codec)
+  }
+
+  def unnest[A, E, X](a: TypedExpr[A, X])(using
+    @annotation.unused ev: IsArray.Aux[A, E], pf: PgTypeFor[E]
+  ): TypedExpr[E, X] = {
+    val frag = TypedExpr.wrap("unnest(", a.fragment, ")")
+    TypedExpr[E, X](frag, pf.codec)
+  }
 
 }

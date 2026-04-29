@@ -120,9 +120,9 @@ class SelectSuite extends munit.FunSuite {
   }
 
   test("FOR SHARE / FOR NO KEY UPDATE / FOR KEY SHARE") {
-    assert(users.select.forShare.compile.af.fragment.sql.endsWith(" FOR SHARE"))
-    assert(users.select.forNoKeyUpdate.compile.af.fragment.sql.endsWith(" FOR NO KEY UPDATE"))
-    assert(users.select.forKeyShare.compile.af.fragment.sql.endsWith(" FOR KEY SHARE"))
+    assert(users.select.forShare.compile.fragment.sql.endsWith(" FOR SHARE"))
+    assert(users.select.forNoKeyUpdate.compile.fragment.sql.endsWith(" FOR NO KEY UPDATE"))
+    assert(users.select.forKeyShare.compile.fragment.sql.endsWith(" FOR KEY SHARE"))
   }
 
   test("locking carries through to ProjectedSelect") {
@@ -175,12 +175,12 @@ class SelectSuite extends munit.FunSuite {
   }
 
   test("comparison operator as one projection among many — decoded row type includes Boolean") {
-    val q: CompiledQuery[(String, Boolean)] = users
+    val q: QueryTemplate[?, (String, Boolean)] = users
       .select(u => (u.email, u.age >= 18))
       .compile
 
     assertEquals(
-      q.af.fragment.sql,
+      q.fragment.sql,
       """SELECT "email", "age" >= $1 FROM "users""""
     )
   }

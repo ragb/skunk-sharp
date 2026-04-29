@@ -1,151 +1,204 @@
 package skunk.sharp.pg.functions
 
-import skunk.sharp.{PgFunction, TypedExpr}
+import skunk.{Codec, Fragment, Void}
+import skunk.sharp.{Param, PgFunction, TypedExpr}
 import skunk.sharp.pg.PgTypeFor
+import skunk.sharp.where.Where
 
 import java.time.{Duration, LocalDate, LocalDateTime, LocalTime, OffsetDateTime, OffsetTime}
 
-/** Date / time accessor functions and keyword constants. Mixed into [[skunk.sharp.Pg]]. */
+/** Date / time accessor functions and keyword constants. Args of input expression(s) propagate. */
 trait PgTime {
 
-  /** `now()` — current transaction timestamp with timezone. */
-  val now: TypedExpr[OffsetDateTime] = PgFunction.nullary[OffsetDateTime]("now")
+  val now: TypedExpr[OffsetDateTime, Void] = PgFunction.nullary[OffsetDateTime]("now")
 
-  /** `current_timestamp` — keyword form, no parentheses. */
-  val currentTimestamp: TypedExpr[OffsetDateTime] =
-    TypedExpr(TypedExpr.raw("current_timestamp"), skunk.codec.all.timestamptz)
-
-  /** `current_date`. */
-  val currentDate: TypedExpr[LocalDate] =
-    TypedExpr(TypedExpr.raw("current_date"), skunk.codec.all.date)
-
-  /** `current_time` — current time with timezone. */
-  val currentTime: TypedExpr[OffsetTime] =
-    TypedExpr(TypedExpr.raw("current_time"), skunk.codec.all.timetz)
-
-  /** `localtimestamp` — current timestamp without timezone. */
-  val localTimestamp: TypedExpr[LocalDateTime] =
-    TypedExpr(TypedExpr.raw("localtimestamp"), skunk.codec.all.timestamp)
-
-  /** `localtime` — current time without timezone. */
-  val localTime: TypedExpr[LocalTime] =
-    TypedExpr(TypedExpr.raw("localtime"), skunk.codec.all.time)
+  val currentTimestamp: TypedExpr[OffsetDateTime, Void] = TypedExpr(TypedExpr.voidFragment("current_timestamp"), skunk.codec.all.timestamptz)
+  val currentDate:      TypedExpr[LocalDate, Void]      = TypedExpr(TypedExpr.voidFragment("current_date"),      skunk.codec.all.date)
+  val currentTime:      TypedExpr[OffsetTime, Void]     = TypedExpr(TypedExpr.voidFragment("current_time"),      skunk.codec.all.timetz)
+  val localTimestamp:   TypedExpr[LocalDateTime, Void]  = TypedExpr(TypedExpr.voidFragment("localtimestamp"),    skunk.codec.all.timestamp)
+  val localTime:        TypedExpr[LocalTime, Void]      = TypedExpr(TypedExpr.voidFragment("localtime"),         skunk.codec.all.time)
 
   /**
-   * `(aStart, aEnd) OVERLAPS (bStart, bEnd)` — true if the two time intervals share at least an instant. Postgres
-   * accepts date, time, timestamp, and timestamptz pairs — we don't type-gate `T` here because OVERLAPS also applies to
-   * intervals and any two comparable "point" types Postgres knows; the server raises a clear type error on misuse.
-   * Either endpoint may be NULL (treated as unbounded on that side).
+   * `(aStart, aEnd) OVERLAPS (bStart, bEnd)` — 4 typed positions; Args is the left-fold
+   * `Concat[Concat[Concat[A1, A2], A3], A4]`. Custom separator pattern (`, ` inside each pair,
+   * `) OVERLAPS (` between pairs) is handled by manually constructing the parts list while still
+   * delegating slot dispatch to a per-position projector.
    */
-  def overlaps[T](
-    aStart: TypedExpr[T],
-    aEnd: TypedExpr[T],
-    bStart: TypedExpr[T],
-    bEnd: TypedExpr[T]
-  ): skunk.sharp.where.Where =
-    new TypedExpr[Boolean] {
-      val render =
-        TypedExpr.raw("(") |+| aStart.render |+|
-          TypedExpr.raw(", ") |+| aEnd.render |+|
-          TypedExpr.raw(") OVERLAPS (") |+| bStart.render |+|
-          TypedExpr.raw(", ") |+| bEnd.render |+|
-          TypedExpr.raw(")")
-      val codec = skunk.codec.all.bool
+  def overlaps[T, A1, A2, A3, A4](
+    aStart: TypedExpr[T, A1], aEnd: TypedExpr[T, A2], bStart: TypedExpr[T, A3], bEnd: TypedExpr[T, A4]
+  )(using
+    c12:   Where.Concat2[A1, A2],
+    c123:  Where.Concat2[Where.Concat[A1, A2], A3],
+    c1234: Where.Concat2[Where.Concat[Where.Concat[A1, A2], A3], A4]
+  ): Where[Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4]] = {
+    type Out  = Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4]
+    val items = List(aStart.fragment, aEnd.fragment, bStart.fragment, bEnd.fragment)
+
+    val sep        = Left(", "): Either[String, cats.data.State[Int, String]]
+    val openParen  = Left("("): Either[String, cats.data.State[Int, String]]
+    val pairBreak  = Left(") OVERLAPS ("): Either[String, cats.data.State[Int, String]]
+    val closeParen = Left(")"): Either[String, cats.data.State[Int, String]]
+    val parts =
+      List(openParen) ++ aStart.fragment.parts ++
+        List(sep) ++ aEnd.fragment.parts ++
+        List(pairBreak) ++ bStart.fragment.parts ++
+        List(sep) ++ bEnd.fragment.parts ++
+        List(closeParen)
+
+    val enc: skunk.Encoder[Out] = new skunk.Encoder[Out] {
+      override val types: List[skunk.data.Type] = items.flatMap(_.encoder.types)
+      override val sql: cats.data.State[Int, String] =
+        cats.data.State { (n0: Int) =>
+          items.zipWithIndex.foldLeft((n0, "")) { case ((n, acc), (f, i)) =>
+            val (n1, s) = f.encoder.sql.run(n).value
+            val sepStr = i match {
+              case 0 => "("
+              case 1 => ", "
+              case 2 => ") OVERLAPS ("
+              case _ => ", "
+            }
+            (n1, acc + sepStr + s)
+          } match { case (n, acc) => (n, acc + ")") }
+        }
+
+      override def encode(args: Out): List[Option[skunk.data.Encoded]] = {
+        val (a123, a4v) = c1234.project(args)
+        val (a12, a3v)  = c123.project(a123.asInstanceOf[Where.Concat[Where.Concat[A1, A2], A3]])
+        val (a1v, a2v)  = c12.project(a12.asInstanceOf[Where.Concat[A1, A2]])
+        val values: List[Any] = List(a1v, a2v, a3v, a4v)
+        items.zip(values).flatMap { case (f, v) =>
+          val e = f.encoder.asInstanceOf[skunk.Encoder[Any]]
+          if (e eq Void.codec) Nil else e.encode(v)
+        }
+      }
     }
+    val frag: Fragment[Out] = Fragment(parts, enc, skunk.util.Origin.unknown)
+    Where(frag)
+  }
 
   // -------- Field extraction -------------------------------------------------------------------
 
-  /**
-   * `extract(field FROM e)` — extract a date/time field as `BigDecimal` (Postgres 14+ returns `numeric`). `field` is a
-   * bare SQL keyword such as `"year"`, `"month"`, `"epoch"`. Tracks input nullability via [[Lift]].
-   */
-  def extract[T](field: String, e: TypedExpr[T])(using
+  def extract[T, A](field: String, e: TypedExpr[T, A])(using
     pf: PgTypeFor[Lift[T, BigDecimal]]
-  ): TypedExpr[Lift[T, BigDecimal]] =
-    TypedExpr(TypedExpr.raw(s"extract($field FROM ") |+| e.render |+| TypedExpr.raw(")"), pf.codec)
+  ): TypedExpr[Lift[T, BigDecimal], A] = {
+    val parts = List[Either[String, cats.data.State[Int, String]]](Left(s"extract($field FROM ")) ++ e.fragment.parts ++
+      List[Either[String, cats.data.State[Int, String]]](Left(")"))
+    val frag = Fragment[A](parts, e.fragment.encoder, skunk.util.Origin.unknown)
+    TypedExpr[Lift[T, BigDecimal], A](frag, pf.codec)
+  }
 
   // -------- Truncation -------------------------------------------------------------------------
 
-  /** `date_trunc(precision, e)` — truncate to the given precision (e.g. `"month"`); preserves the input type. */
-  def dateTrunc[T](precision: String, e: TypedExpr[T]): TypedExpr[T] =
-    TypedExpr(
-      TypedExpr.raw("date_trunc(") |+| TypedExpr.parameterised(precision).render |+|
-        TypedExpr.raw(", ") |+| e.render |+| TypedExpr.raw(")"),
-      e.codec
-    )
+  def dateTrunc[T, A](precision: String, e: TypedExpr[T, A])(using pfs: PgTypeFor[String]): TypedExpr[T, A] = {
+    val pFrag = Param.bind[String](precision).fragment
+    val s1    = TypedExpr.combineSep(pFrag, ", ", e.fragment).asInstanceOf[Fragment[A]]
+    val frag  = TypedExpr.wrap("date_trunc(", s1, ")")
+    TypedExpr[T, A](frag, e.codec)
+  }
 
   // -------- Interval arithmetic ----------------------------------------------------------------
 
-  /** `age(a, b)` — interval between two timestamps. */
-  def age[T](a: TypedExpr[T], b: TypedExpr[T]): TypedExpr[Duration] =
-    TypedExpr(
-      TypedExpr.raw("age(") |+| a.render |+| TypedExpr.raw(", ") |+| b.render |+| TypedExpr.raw(")"),
-      skunk.codec.all.interval
-    )
+  def age[T, X, Y](a: TypedExpr[T, X], b: TypedExpr[T, Y]): TypedExpr[Duration, Where.Concat[X, Y]] = {
+    val inner = TypedExpr.combineSep(a.fragment, ", ", b.fragment)
+    val frag  = TypedExpr.wrap("age(", inner, ")")
+    TypedExpr[Duration, Where.Concat[X, Y]](frag, skunk.codec.all.interval)
+  }
 
-  /** `age(ts)` — interval between `ts` and `current_date` (at midnight). */
-  def age[T](e: TypedExpr[T]): TypedExpr[Duration] =
-    TypedExpr(TypedExpr.raw("age(") |+| e.render |+| TypedExpr.raw(")"), skunk.codec.all.interval)
+  def age[T, A](e: TypedExpr[T, A]): TypedExpr[Duration, A] = unaryOut("age", e, skunk.codec.all.interval)
 
-  /** `justify_days(interval)` — convert days ≥ 30 into months. */
-  def justifyDays(e: TypedExpr[Duration]): TypedExpr[Duration] =
-    TypedExpr(TypedExpr.raw("justify_days(") |+| e.render |+| TypedExpr.raw(")"), skunk.codec.all.interval)
-
-  /** `justify_hours(interval)` — convert hours ≥ 24 into days. */
-  def justifyHours(e: TypedExpr[Duration]): TypedExpr[Duration] =
-    TypedExpr(TypedExpr.raw("justify_hours(") |+| e.render |+| TypedExpr.raw(")"), skunk.codec.all.interval)
-
-  /** `justify_interval(interval)` — apply both [[justifyDays]] and [[justifyHours]]. */
-  def justifyInterval(e: TypedExpr[Duration]): TypedExpr[Duration] =
-    TypedExpr(TypedExpr.raw("justify_interval(") |+| e.render |+| TypedExpr.raw(")"), skunk.codec.all.interval)
+  def justifyDays[A](e: TypedExpr[Duration, A]):     TypedExpr[Duration, A] = unaryOut("justify_days", e, skunk.codec.all.interval)
+  def justifyHours[A](e: TypedExpr[Duration, A]):    TypedExpr[Duration, A] = unaryOut("justify_hours", e, skunk.codec.all.interval)
+  def justifyInterval[A](e: TypedExpr[Duration, A]): TypedExpr[Duration, A] = unaryOut("justify_interval", e, skunk.codec.all.interval)
 
   // -------- Construction -----------------------------------------------------------------------
 
-  /** `make_date(year, month, day)`. */
-  def makeDate(year: TypedExpr[Int], month: TypedExpr[Int], day: TypedExpr[Int]): TypedExpr[LocalDate] =
-    TypedExpr(
-      TypedExpr.raw("make_date(") |+| year.render |+| TypedExpr.raw(", ") |+|
-        month.render |+| TypedExpr.raw(", ") |+| day.render |+| TypedExpr.raw(")"),
-      skunk.codec.all.date
+  /** `make_date(year, month, day)` — 3 typed positions; Args = `Concat[Concat[Y, M], D]`. */
+  def makeDate[Y, M, D](year: TypedExpr[Int, Y], month: TypedExpr[Int, M], day: TypedExpr[Int, D])(using
+    c12:  Where.Concat2[Y, M],
+    c123: Where.Concat2[Where.Concat[Y, M], D]
+  ): TypedExpr[LocalDate, Where.Concat[Where.Concat[Y, M], D]] = {
+    val projector: Where.Concat[Where.Concat[Y, M], D] => List[Any] = combined => {
+      val (a12, a3v) = c123.project(combined)
+      val (a1v, a2v) = c12.project(a12.asInstanceOf[Where.Concat[Y, M]])
+      List(a1v, a2v, a3v)
+    }
+    val combined = TypedExpr.combineList[Where.Concat[Where.Concat[Y, M], D]](
+      List(year.fragment, month.fragment, day.fragment), ", ", projector
     )
+    val frag = TypedExpr.wrap("make_date(", combined, ")")
+    TypedExpr[LocalDate, Where.Concat[Where.Concat[Y, M], D]](frag, skunk.codec.all.date)
+  }
 
-  /** `make_time(h, m, s)` — `s` accepts fractional seconds. */
-  def makeTime(h: TypedExpr[Int], m: TypedExpr[Int], s: TypedExpr[Double]): TypedExpr[LocalTime] =
-    TypedExpr(
-      TypedExpr.raw("make_time(") |+| h.render |+| TypedExpr.raw(", ") |+|
-        m.render |+| TypedExpr.raw(", ") |+| s.render |+| TypedExpr.raw(")"),
-      skunk.codec.all.time
+  /** `make_time(h, m, s)` — 3 typed positions; Args = `Concat[Concat[H, M], S]`. */
+  def makeTime[H, MM, S](h: TypedExpr[Int, H], m: TypedExpr[Int, MM], s: TypedExpr[Double, S])(using
+    c12:  Where.Concat2[H, MM],
+    c123: Where.Concat2[Where.Concat[H, MM], S]
+  ): TypedExpr[LocalTime, Where.Concat[Where.Concat[H, MM], S]] = {
+    val projector: Where.Concat[Where.Concat[H, MM], S] => List[Any] = combined => {
+      val (a12, a3v) = c123.project(combined)
+      val (a1v, a2v) = c12.project(a12.asInstanceOf[Where.Concat[H, MM]])
+      List(a1v, a2v, a3v)
+    }
+    val combined = TypedExpr.combineList[Where.Concat[Where.Concat[H, MM], S]](
+      List(h.fragment, m.fragment, s.fragment), ", ", projector
     )
+    val frag = TypedExpr.wrap("make_time(", combined, ")")
+    TypedExpr[LocalTime, Where.Concat[Where.Concat[H, MM], S]](frag, skunk.codec.all.time)
+  }
 
-  /** `make_timestamp(year, month, day, h, m, s)` — timestamp without time zone. */
-  def makeTimestamp(
-    year: TypedExpr[Int],
-    month: TypedExpr[Int],
-    day: TypedExpr[Int],
-    h: TypedExpr[Int],
-    m: TypedExpr[Int],
-    s: TypedExpr[Double]
-  ): TypedExpr[LocalDateTime] =
-    TypedExpr(
-      TypedExpr.raw("make_timestamp(") |+|
-        year.render |+| TypedExpr.raw(", ") |+| month.render |+| TypedExpr.raw(", ") |+|
-        day.render |+| TypedExpr.raw(", ") |+| h.render |+| TypedExpr.raw(", ") |+|
-        m.render |+| TypedExpr.raw(", ") |+| s.render |+| TypedExpr.raw(")"),
-      skunk.codec.all.timestamp
+  /**
+   * `make_timestamp(year, month, day, h, m, s)` — 6 typed positions threaded as
+   * `Concat[Concat[Concat[Concat[Concat[Y, MO], D], H], MI], S]` (left-fold).
+   */
+  def makeTimestamp[Y, MO, D, H, MI, S](
+    year:  TypedExpr[Int, Y],
+    month: TypedExpr[Int, MO],
+    day:   TypedExpr[Int, D],
+    h:     TypedExpr[Int, H],
+    m:     TypedExpr[Int, MI],
+    s:     TypedExpr[Double, S]
+  )(using
+    c12:     Where.Concat2[Y, MO],
+    c123:    Where.Concat2[Where.Concat[Y, MO], D],
+    c1234:   Where.Concat2[Where.Concat[Where.Concat[Y, MO], D], H],
+    c12345:  Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI],
+    c123456: Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI], S]
+  ): TypedExpr[LocalDateTime, Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI], S]] = {
+    type Out = Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI], S]
+    val projector: Out => List[Any] = combined => {
+      val (a12345, a6v) = c123456.project(combined)
+      val (a1234, a5v)  = c12345.project(a12345.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI]])
+      val (a123, a4v)   = c1234.project(a1234.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H]])
+      val (a12, a3v)    = c123.project(a123.asInstanceOf[Where.Concat[Where.Concat[Y, MO], D]])
+      val (a1v, a2v)    = c12.project(a12.asInstanceOf[Where.Concat[Y, MO]])
+      List(a1v, a2v, a3v, a4v, a5v, a6v)
+    }
+    val combined = TypedExpr.combineList[Out](
+      List(year.fragment, month.fragment, day.fragment, h.fragment, m.fragment, s.fragment),
+      ", ",
+      projector
     )
+    val frag = TypedExpr.wrap("make_timestamp(", combined, ")")
+    TypedExpr[LocalDateTime, Out](frag, skunk.codec.all.timestamp)
+  }
 
   // -------- Parsing ----------------------------------------------------------------------------
 
-  /** `to_timestamp(d)` — convert Unix epoch seconds (`double precision`) to `timestamptz`. */
-  def toTimestamp(e: TypedExpr[Double]): TypedExpr[OffsetDateTime] =
-    TypedExpr(TypedExpr.raw("to_timestamp(") |+| e.render |+| TypedExpr.raw(")"), skunk.codec.all.timestamptz)
+  def toTimestamp[A](e: TypedExpr[Double, A]): TypedExpr[OffsetDateTime, A] =
+    unaryOut("to_timestamp", e, skunk.codec.all.timestamptz)
 
-  /** `to_date(s, fmt)` — parse a date string using the Postgres `fmt` picture. */
-  def toDate[T](e: TypedExpr[T], fmt: String)(using StrLike[T]): TypedExpr[LocalDate] =
-    TypedExpr(
-      TypedExpr.raw("to_date(") |+| e.render |+| TypedExpr.raw(", ") |+|
-        TypedExpr.parameterised(fmt).render |+| TypedExpr.raw(")"),
-      skunk.codec.all.date
-    )
+  def toDate[T, A](e: TypedExpr[T, A], fmt: String)(using ev: StrLike[T], pfs: PgTypeFor[String]): TypedExpr[LocalDate, A] = {
+    val fmtFrag = Param.bind[String](fmt).fragment
+    val s1      = TypedExpr.combineSep(e.fragment, ", ", fmtFrag).asInstanceOf[Fragment[A]]
+    val frag    = TypedExpr.wrap("to_date(", s1, ")")
+    TypedExpr[LocalDate, A](frag, skunk.codec.all.date)
+  }
+
+  // -------- Helpers -------------------------------------------------------------------------
+
+  private def unaryOut[T, A, R](name: String, e: TypedExpr[T, A], outCodec: Codec[R]): TypedExpr[R, A] = {
+    val frag = TypedExpr.wrap(s"$name(", e.fragment, ")")
+    TypedExpr[R, A](frag, outCodec)
+  }
 
 }

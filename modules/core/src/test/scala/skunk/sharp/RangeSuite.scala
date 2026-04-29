@@ -81,47 +81,47 @@ class RangeSuite extends munit.FunSuite {
         upper = Some(LocalDate.of(2024, 12, 31))
       )))
     ).compile
-    assert(q.af.fragment.sql.contains(""""period" @>"""), q.af.fragment.sql)
+    assert(q.fragment.sql.contains(""""period" @>"""), q.fragment.sql)
   }
 
   test("<@ containedBy renders correctly") {
     val q = bookings.select(b => b.id).where(b => b.period.containedBy(param(PgRange.empty[LocalDate]))).compile
-    assert(q.af.fragment.sql.contains(""""period" <@"""), q.af.fragment.sql)
+    assert(q.fragment.sql.contains(""""period" <@"""), q.fragment.sql)
   }
 
   test("&& overlaps renders correctly") {
     val q = bookings.select(b => b.id).where(b => b.period.overlaps(param(PgRange[LocalDate]()))).compile
-    assert(q.af.fragment.sql.contains(""""period" &&"""), q.af.fragment.sql)
+    assert(q.fragment.sql.contains(""""period" &&"""), q.fragment.sql)
   }
 
   test("<< strictlyLeft renders correctly") {
     val q = bookings.select(b => b.id).where(b => b.period.strictlyLeft(param(PgRange[LocalDate]()))).compile
-    assert(q.af.fragment.sql.contains(""""period" <<"""), q.af.fragment.sql)
+    assert(q.fragment.sql.contains(""""period" <<"""), q.fragment.sql)
   }
 
   test(">> strictlyRight renders correctly") {
     val q = bookings.select(b => b.id).where(b => b.period.strictlyRight(param(PgRange[LocalDate]()))).compile
-    assert(q.af.fragment.sql.contains(""""period" >>"""), q.af.fragment.sql)
+    assert(q.fragment.sql.contains(""""period" >>"""), q.fragment.sql)
   }
 
   test("&< doesNotExtendRight renders correctly") {
     val q = bookings.select(b => b.id).where(b => b.period.doesNotExtendRight(param(PgRange[LocalDate]()))).compile
-    assert(q.af.fragment.sql.contains(""""period" &<"""), q.af.fragment.sql)
+    assert(q.fragment.sql.contains(""""period" &<"""), q.fragment.sql)
   }
 
   test("&> doesNotExtendLeft renders correctly") {
     val q = bookings.select(b => b.id).where(b => b.period.doesNotExtendLeft(param(PgRange[LocalDate]()))).compile
-    assert(q.af.fragment.sql.contains(""""period" &>"""), q.af.fragment.sql)
+    assert(q.fragment.sql.contains(""""period" &>"""), q.fragment.sql)
   }
 
   test("-|- adjacent renders correctly") {
     val q = bookings.select(b => b.id).where(b => b.period.adjacent(param(PgRange[LocalDate]()))).compile
-    assert(q.af.fragment.sql.contains(""""period" -|-"""), q.af.fragment.sql)
+    assert(q.fragment.sql.contains(""""period" -|-"""), q.fragment.sql)
   }
 
   test("@> containsElem renders element containment") {
     val q = bookings.select(b => b.id).where(b => b.period.containsElem(param(LocalDate.of(2024, 6, 15)))).compile
-    assert(q.af.fragment.sql.contains(""""period" @>"""), q.af.fragment.sql)
+    assert(q.fragment.sql.contains(""""period" @>"""), q.fragment.sql)
   }
 
   test("rangeUnion / rangeIntersect / rangeDiff render arithmetic ops") {

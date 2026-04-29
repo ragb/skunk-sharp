@@ -1,116 +1,104 @@
 package skunk.sharp.pg.functions
 
-import skunk.sharp.TypedExpr
+import skunk.{Fragment, Void}
+import skunk.sharp.{Param, TypedExpr}
 import skunk.sharp.pg.PgTypeFor
+import skunk.sharp.where.Where
 
-/**
- * Window-only functions — ranking, distribution, offset access, and value functions that must be used with an
- * `OVER (…)` clause. Mixed into [[skunk.sharp.Pg]].
- *
- * Unlike aggregates, these functions have no meaning without a window frame — Postgres rejects them outside `OVER`. The
- * DSL doesn't enforce this at compile time (the `.over(…)` extension is always available on any `TypedExpr`), but the
- * names and semantics match the Postgres docs.
- *
- * Use the `.over(spec)` extension (imported via `skunk.sharp.dsl.*`) on any of these values / results:
- *
- * {{{
- *   import skunk.sharp.dsl.*
- *
- *   users.select(u => (
- *     u.email,
- *     Pg.rowNumber.over(WindowSpec.orderBy(u.age.asc)),
- *     Pg.sum(u.age).over(WindowSpec.orderBy(u.age.asc).rowsBetween(FrameBound.UnboundedPreceding, FrameBound.CurrentRow)),
- *     Pg.lag(u.age).over(WindowSpec.orderBy(u.age.asc))
- *   ))
- * }}}
- */
+/** Window-only functions. Args of input expression(s) propagate. */
 trait PgWindow {
 
-  // ---- Ranking functions -----------------------------------------------------------------------
+  // ---- Ranking functions (no input) -------------------------------------------------------------
 
-  /** `row_number()` — sequential number of the current row within its partition, counting from 1. */
-  val rowNumber: TypedExpr[Long] =
-    TypedExpr(TypedExpr.raw("row_number()"), skunk.codec.all.int8)
+  val rowNumber:   TypedExpr[Long, Void]   = TypedExpr(TypedExpr.voidFragment("row_number()"),   skunk.codec.all.int8)
+  val rank:        TypedExpr[Long, Void]   = TypedExpr(TypedExpr.voidFragment("rank()"),         skunk.codec.all.int8)
+  val denseRank:   TypedExpr[Long, Void]   = TypedExpr(TypedExpr.voidFragment("dense_rank()"),   skunk.codec.all.int8)
+  val percentRank: TypedExpr[Double, Void] = TypedExpr(TypedExpr.voidFragment("percent_rank()"), skunk.codec.all.float8)
+  val cumeDist:    TypedExpr[Double, Void] = TypedExpr(TypedExpr.voidFragment("cume_dist()"),    skunk.codec.all.float8)
 
-  /** `rank()` — rank of the current row, with gaps for tied rows. */
-  val rank: TypedExpr[Long] =
-    TypedExpr(TypedExpr.raw("rank()"), skunk.codec.all.int8)
+  /** `ntile(n)` — `n` is a literal Int rendered inline. */
+  def ntile(n: Int): TypedExpr[Int, Void] =
+    TypedExpr(TypedExpr.voidFragment(s"ntile($n)"), skunk.codec.all.int4)
 
-  /** `dense_rank()` — rank without gaps. */
-  val denseRank: TypedExpr[Long] =
-    TypedExpr(TypedExpr.raw("dense_rank()"), skunk.codec.all.int8)
+  // ---- Offset access functions ------------------------------------------------------------------
 
-  /** `percent_rank()` — relative rank as a fraction in `[0, 1]`. */
-  val percentRank: TypedExpr[Double] =
-    TypedExpr(TypedExpr.raw("percent_rank()"), skunk.codec.all.float8)
+  def lag[T, A](expr: TypedExpr[T, A]): TypedExpr[Option[T], A] =
+    unaryOpt("lag", expr)
 
-  /** `cume_dist()` — cumulative distribution: fraction of rows ≤ the current row. */
-  val cumeDist: TypedExpr[Double] =
-    TypedExpr(TypedExpr.raw("cume_dist()"), skunk.codec.all.float8)
-
-  /** `ntile(n)` — partition rows into `n` buckets numbered 1..n. */
-  def ntile(n: Int): TypedExpr[Int] =
-    TypedExpr(TypedExpr.raw(s"ntile($n)"), skunk.codec.all.int4)
-
-  // ---- Offset access functions -----------------------------------------------------------------
+  def lag[T, A](expr: TypedExpr[T, A], offset: Int): TypedExpr[Option[T], A] = {
+    val parts = e2parts("lag(", expr.fragment, s", $offset)")
+    val frag  = Fragment[A](parts, expr.fragment.encoder, skunk.util.Origin.unknown)
+    TypedExpr[Option[T], A](frag, expr.codec.opt)
+  }
 
   /**
-   * `lag(expr)` — value from the previous row within the partition; `None` (SQL `NULL`) if there is no previous row.
+   * `lag(expr, offset, default)` — `offset` is a literal Int (rendered inline) and `default` is a
+   * baked runtime value (Param.bind); Args propagates from `expr` only.
    */
-  def lag[T](expr: TypedExpr[T]): TypedExpr[Option[T]] =
-    TypedExpr(TypedExpr.raw("lag(") |+| expr.render |+| TypedExpr.raw(")"), expr.codec.opt)
+  def lag[T, A](expr: TypedExpr[T, A], offset: Int, default: T)(using pf: PgTypeFor[T]): TypedExpr[T, A] = {
+    val defFrag = Param.bind[T](default).fragment
+    val parts =
+      List[Either[String, cats.data.State[Int, String]]](Left("lag(")) ++
+        expr.fragment.parts ++
+        List[Either[String, cats.data.State[Int, String]]](Left(s", $offset, ")) ++
+        defFrag.parts ++
+        List[Either[String, cats.data.State[Int, String]]](Left(")"))
+    val combinedEnc = TypedExpr.combineEnc[A, Void](expr.fragment.encoder, defFrag.encoder)(using Where.Concat2.rightVoid[A])
+    val frag        = Fragment(parts, combinedEnc.asInstanceOf[skunk.Encoder[A]], skunk.util.Origin.unknown)
+    TypedExpr[T, A](frag, expr.codec)
+  }
+
+  def lead[T, A](expr: TypedExpr[T, A]): TypedExpr[Option[T], A] =
+    unaryOpt("lead", expr)
+
+  def lead[T, A](expr: TypedExpr[T, A], offset: Int): TypedExpr[Option[T], A] = {
+    val parts = e2parts("lead(", expr.fragment, s", $offset)")
+    val frag  = Fragment[A](parts, expr.fragment.encoder, skunk.util.Origin.unknown)
+    TypedExpr[Option[T], A](frag, expr.codec.opt)
+  }
 
   /**
-   * `lag(expr, offset)` — value `offset` rows before the current row; `None` if out of partition.
+   * `lead(expr, offset, default)` — `offset` is a literal Int (rendered inline) and `default` is a
+   * baked runtime value (Param.bind); Args propagates from `expr` only.
    */
-  def lag[T](expr: TypedExpr[T], offset: Int): TypedExpr[Option[T]] =
-    TypedExpr(TypedExpr.raw("lag(") |+| expr.render |+| TypedExpr.raw(s", $offset)"), expr.codec.opt)
+  def lead[T, A](expr: TypedExpr[T, A], offset: Int, default: T)(using pf: PgTypeFor[T]): TypedExpr[T, A] = {
+    val defFrag = Param.bind[T](default).fragment
+    val parts =
+      List[Either[String, cats.data.State[Int, String]]](Left("lead(")) ++
+        expr.fragment.parts ++
+        List[Either[String, cats.data.State[Int, String]]](Left(s", $offset, ")) ++
+        defFrag.parts ++
+        List[Either[String, cats.data.State[Int, String]]](Left(")"))
+    val combinedEnc = TypedExpr.combineEnc[A, Void](expr.fragment.encoder, defFrag.encoder)(using Where.Concat2.rightVoid[A])
+    val frag        = Fragment(parts, combinedEnc.asInstanceOf[skunk.Encoder[A]], skunk.util.Origin.unknown)
+    TypedExpr[T, A](frag, expr.codec)
+  }
 
-  /**
-   * `lag(expr, offset, default)` — value `offset` rows before; returns `default` instead of `NULL` when out of
-   * partition. Result type is non-optional because the default fills the gap.
-   */
-  def lag[T](expr: TypedExpr[T], offset: Int, default: T)(using pf: PgTypeFor[T]): TypedExpr[T] =
-    TypedExpr(
-      TypedExpr.raw("lag(") |+| expr.render |+| TypedExpr.raw(s", $offset, ") |+|
-        TypedExpr.parameterised(default).render |+| TypedExpr.raw(")"),
-      expr.codec
-    )
+  // ---- Value functions --------------------------------------------------------------------------
 
-  /**
-   * `lead(expr)` — value from the next row; `None` if there is no next row.
-   */
-  def lead[T](expr: TypedExpr[T]): TypedExpr[Option[T]] =
-    TypedExpr(TypedExpr.raw("lead(") |+| expr.render |+| TypedExpr.raw(")"), expr.codec.opt)
+  def firstValue[T, A](expr: TypedExpr[T, A]): TypedExpr[T, A] = {
+    val frag = TypedExpr.wrap("first_value(", expr.fragment, ")")
+    TypedExpr[T, A](frag, expr.codec)
+  }
 
-  /**
-   * `lead(expr, offset)` — value `offset` rows after the current row; `None` if out of partition.
-   */
-  def lead[T](expr: TypedExpr[T], offset: Int): TypedExpr[Option[T]] =
-    TypedExpr(TypedExpr.raw("lead(") |+| expr.render |+| TypedExpr.raw(s", $offset)"), expr.codec.opt)
+  def lastValue[T, A](expr: TypedExpr[T, A]): TypedExpr[T, A] = {
+    val frag = TypedExpr.wrap("last_value(", expr.fragment, ")")
+    TypedExpr[T, A](frag, expr.codec)
+  }
 
-  /**
-   * `lead(expr, offset, default)` — value `offset` rows after; returns `default` instead of `NULL`.
-   */
-  def lead[T](expr: TypedExpr[T], offset: Int, default: T)(using pf: PgTypeFor[T]): TypedExpr[T] =
-    TypedExpr(
-      TypedExpr.raw("lead(") |+| expr.render |+| TypedExpr.raw(s", $offset, ") |+|
-        TypedExpr.parameterised(default).render |+| TypedExpr.raw(")"),
-      expr.codec
-    )
+  def nthValue[T, A](expr: TypedExpr[T, A], n: Int): TypedExpr[T, A] = {
+    val parts = e2parts("nth_value(", expr.fragment, s", $n)")
+    val frag  = Fragment[A](parts, expr.fragment.encoder, skunk.util.Origin.unknown)
+    TypedExpr[T, A](frag, expr.codec)
+  }
 
-  // ---- Value functions -------------------------------------------------------------------------
+  private def unaryOpt[T, A](name: String, expr: TypedExpr[T, A]): TypedExpr[Option[T], A] = {
+    val frag = TypedExpr.wrap(s"$name(", expr.fragment, ")")
+    TypedExpr[Option[T], A](frag, expr.codec.opt)
+  }
 
-  /** `first_value(expr)` — value from the first row of the window frame. */
-  def firstValue[T](expr: TypedExpr[T]): TypedExpr[T] =
-    TypedExpr(TypedExpr.raw("first_value(") |+| expr.render |+| TypedExpr.raw(")"), expr.codec)
-
-  /** `last_value(expr)` — value from the last row of the window frame. */
-  def lastValue[T](expr: TypedExpr[T]): TypedExpr[T] =
-    TypedExpr(TypedExpr.raw("last_value(") |+| expr.render |+| TypedExpr.raw(")"), expr.codec)
-
-  /** `nth_value(expr, n)` — value from the `n`-th row of the window frame (1-based). */
-  def nthValue[T](expr: TypedExpr[T], n: Int): TypedExpr[T] =
-    TypedExpr(TypedExpr.raw("nth_value(") |+| expr.render |+| TypedExpr.raw(s", $n)"), expr.codec)
+  private def e2parts(prefix: String, f: Fragment[?], suffix: String): List[Either[String, cats.data.State[Int, String]]] =
+    List[Either[String, cats.data.State[Int, String]]](Left(prefix)) ++ f.parts ++
+      List[Either[String, cats.data.State[Int, String]]](Left(suffix))
 
 }

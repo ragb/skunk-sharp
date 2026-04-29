@@ -1,180 +1,125 @@
 package skunk.sharp.pg.functions
 
+
+import skunk.{Fragment, Void}
 import skunk.codec.all as pg
-import skunk.sharp.TypedExpr
+import skunk.sharp.{Param, TypedExpr}
 import skunk.sharp.pg.{IsRange, PgTypeFor}
 import skunk.sharp.pg.tags.PgRange as PgRangeTag
+import skunk.sharp.where.Where
 
 import java.time.{LocalDate, LocalDateTime, OffsetDateTime}
 
-/**
- * Postgres range functions. Mixed into [[skunk.sharp.Pg]].
- *
- * Accessor functions:
- *   - `rangeLower(r)` → `lower(r)` — lower bound (NULL if unbounded)
- *   - `rangeUpper(r)` → `upper(r)` — upper bound (NULL if unbounded)
- *   - `rangeIsEmpty(r)` → `isempty(r)`
- *   - `rangeLowerInc(r)` → `lower_inc(r)` — true if lower bound is inclusive
- *   - `rangeUpperInc(r)` → `upper_inc(r)`
- *   - `rangeLowerInf(r)` → `lower_inf(r)` — true if lower bound is −∞
- *   - `rangeUpperInf(r)` → `upper_inf(r)`
- *
- * Constructor functions (two-argument form, uses default `[)` bounds):
- *   - `int4range(lo, hi)` / `int4range(lo, hi, bounds)`
- *   - `int8range`, `numrange`, `daterange`, `tsrange`, `tstzrange` — same pattern
- */
+/** Postgres range functions. Mixed into [[skunk.sharp.Pg]]. Args of input expression(s) propagate. */
 trait PgRangeFns {
 
   // -------- Accessors -----------------------------------------------------------------------
 
-  /** `lower(r)` — lower bound of the range; NULL if the bound is unbounded (−∞). */
-  def rangeLower[R, E](r: TypedExpr[R])(using
-    @annotation.unused ev: IsRange.Aux[R, E],
-    pf: PgTypeFor[Option[E]]
-  ): TypedExpr[Option[E]] =
-    TypedExpr(TypedExpr.raw("lower(") |+| r.render |+| TypedExpr.raw(")"), pf.codec)
+  def rangeLower[R, E, X](r: TypedExpr[R, X])(using
+    @annotation.unused ev: IsRange.Aux[R, E], pf: PgTypeFor[Option[E]]
+  ): TypedExpr[Option[E], X] =
+    unaryRange("lower", r, pf.codec)
 
-  /** `upper(r)` — upper bound of the range; NULL if the bound is unbounded (+∞). */
-  def rangeUpper[R, E](r: TypedExpr[R])(using
-    @annotation.unused ev: IsRange.Aux[R, E],
-    pf: PgTypeFor[Option[E]]
-  ): TypedExpr[Option[E]] =
-    TypedExpr(TypedExpr.raw("upper(") |+| r.render |+| TypedExpr.raw(")"), pf.codec)
+  def rangeUpper[R, E, X](r: TypedExpr[R, X])(using
+    @annotation.unused ev: IsRange.Aux[R, E], pf: PgTypeFor[Option[E]]
+  ): TypedExpr[Option[E], X] =
+    unaryRange("upper", r, pf.codec)
 
-  /** `isempty(r)` — true if the range contains no elements. */
-  def rangeIsEmpty[R](r: TypedExpr[R])(using @annotation.unused ev: IsRange[R]): TypedExpr[Boolean] =
-    TypedExpr(TypedExpr.raw("isempty(") |+| r.render |+| TypedExpr.raw(")"), pg.bool)
+  def rangeIsEmpty[R, X](r: TypedExpr[R, X])(using @annotation.unused ev: IsRange[R]): TypedExpr[Boolean, X] =
+    unaryRange("isempty", r, pg.bool)
 
-  /** `lower_inc(r)` — true if the lower bound is inclusive. */
-  def rangeLowerInc[R](r: TypedExpr[R])(using @annotation.unused ev: IsRange[R]): TypedExpr[Boolean] =
-    TypedExpr(TypedExpr.raw("lower_inc(") |+| r.render |+| TypedExpr.raw(")"), pg.bool)
+  def rangeLowerInc[R, X](r: TypedExpr[R, X])(using @annotation.unused ev: IsRange[R]): TypedExpr[Boolean, X] =
+    unaryRange("lower_inc", r, pg.bool)
 
-  /** `upper_inc(r)` — true if the upper bound is inclusive. */
-  def rangeUpperInc[R](r: TypedExpr[R])(using @annotation.unused ev: IsRange[R]): TypedExpr[Boolean] =
-    TypedExpr(TypedExpr.raw("upper_inc(") |+| r.render |+| TypedExpr.raw(")"), pg.bool)
+  def rangeUpperInc[R, X](r: TypedExpr[R, X])(using @annotation.unused ev: IsRange[R]): TypedExpr[Boolean, X] =
+    unaryRange("upper_inc", r, pg.bool)
 
-  /** `lower_inf(r)` — true if the lower bound is −∞ (unbounded). */
-  def rangeLowerInf[R](r: TypedExpr[R])(using @annotation.unused ev: IsRange[R]): TypedExpr[Boolean] =
-    TypedExpr(TypedExpr.raw("lower_inf(") |+| r.render |+| TypedExpr.raw(")"), pg.bool)
+  def rangeLowerInf[R, X](r: TypedExpr[R, X])(using @annotation.unused ev: IsRange[R]): TypedExpr[Boolean, X] =
+    unaryRange("lower_inf", r, pg.bool)
 
-  /** `upper_inf(r)` — true if the upper bound is +∞ (unbounded). */
-  def rangeUpperInf[R](r: TypedExpr[R])(using @annotation.unused ev: IsRange[R]): TypedExpr[Boolean] =
-    TypedExpr(TypedExpr.raw("upper_inf(") |+| r.render |+| TypedExpr.raw(")"), pg.bool)
+  def rangeUpperInf[R, X](r: TypedExpr[R, X])(using @annotation.unused ev: IsRange[R]): TypedExpr[Boolean, X] =
+    unaryRange("upper_inf", r, pg.bool)
 
-  // -------- Constructor functions -----------------------------------------------------------
+  // -------- Two-arg range constructors -----------------------------------------------------------
 
-  /** `int4range(lo, hi)` — construct an `int4range` with default `[)` bounds. */
-  def int4range(lo: TypedExpr[Int], hi: TypedExpr[Int])(using
+  def int4range[X, Y](lo: TypedExpr[Int, X], hi: TypedExpr[Int, Y])(using
     pf: PgTypeFor[PgRangeTag[Int]]
-  ): TypedExpr[PgRangeTag[Int]] =
-    TypedExpr(
-      TypedExpr.raw("int4range(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+| TypedExpr.raw(")"),
-      pf.codec
-    )
+  )(using c2: Where.Concat2[X, Y]): TypedExpr[PgRangeTag[Int], Where.Concat[X, Y]] = rangeCtor2("int4range", lo, hi, pf.codec)
 
-  /** `int4range(lo, hi, bounds)` — construct an `int4range` with explicit bounds string (e.g. `"[]"`, `"()"`, …). */
-  def int4range(lo: TypedExpr[Int], hi: TypedExpr[Int], bounds: String)(using
-    pf: PgTypeFor[PgRangeTag[Int]]
-  ): TypedExpr[PgRangeTag[Int]] =
-    TypedExpr(
-      TypedExpr.raw("int4range(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+|
-        TypedExpr.raw(", ") |+| TypedExpr.parameterised(bounds).render |+| TypedExpr.raw(")"),
-      pf.codec
-    )
+  def int4range[X, Y](lo: TypedExpr[Int, X], hi: TypedExpr[Int, Y], bounds: String)(using pf: PgTypeFor[PgRangeTag[Int]], pfs: PgTypeFor[String], c2: Where.Concat2[X, Y]): TypedExpr[PgRangeTag[Int], Where.Concat[X, Y]] = rangeCtor3("int4range", lo, hi, bounds, pf.codec)
 
-  /** `int8range(lo, hi)` — construct an `int8range` with default `[)` bounds. */
-  def int8range(lo: TypedExpr[Long], hi: TypedExpr[Long])(using
+  def int8range[X, Y](lo: TypedExpr[Long, X], hi: TypedExpr[Long, Y])(using
     pf: PgTypeFor[PgRangeTag[Long]]
-  ): TypedExpr[PgRangeTag[Long]] =
-    TypedExpr(
-      TypedExpr.raw("int8range(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+| TypedExpr.raw(")"),
-      pf.codec
-    )
+  )(using c2: Where.Concat2[X, Y]): TypedExpr[PgRangeTag[Long], Where.Concat[X, Y]] = rangeCtor2("int8range", lo, hi, pf.codec)
 
-  /** `int8range(lo, hi, bounds)`. */
-  def int8range(lo: TypedExpr[Long], hi: TypedExpr[Long], bounds: String)(using
-    pf: PgTypeFor[PgRangeTag[Long]]
-  ): TypedExpr[PgRangeTag[Long]] =
-    TypedExpr(
-      TypedExpr.raw("int8range(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+|
-        TypedExpr.raw(", ") |+| TypedExpr.parameterised(bounds).render |+| TypedExpr.raw(")"),
-      pf.codec
-    )
+  def int8range[X, Y](lo: TypedExpr[Long, X], hi: TypedExpr[Long, Y], bounds: String)(using pf: PgTypeFor[PgRangeTag[Long]], pfs: PgTypeFor[String], c2: Where.Concat2[X, Y]): TypedExpr[PgRangeTag[Long], Where.Concat[X, Y]] = rangeCtor3("int8range", lo, hi, bounds, pf.codec)
 
-  /** `numrange(lo, hi)` — construct a `numrange` with default `[)` bounds. */
-  def numrange(lo: TypedExpr[BigDecimal], hi: TypedExpr[BigDecimal])(using
+  def numrange[X, Y](lo: TypedExpr[BigDecimal, X], hi: TypedExpr[BigDecimal, Y])(using
     pf: PgTypeFor[PgRangeTag[BigDecimal]]
-  ): TypedExpr[PgRangeTag[BigDecimal]] =
-    TypedExpr(
-      TypedExpr.raw("numrange(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+| TypedExpr.raw(")"),
-      pf.codec
-    )
+  )(using c2: Where.Concat2[X, Y]): TypedExpr[PgRangeTag[BigDecimal], Where.Concat[X, Y]] = rangeCtor2("numrange", lo, hi, pf.codec)
 
-  /** `numrange(lo, hi, bounds)`. */
-  def numrange(lo: TypedExpr[BigDecimal], hi: TypedExpr[BigDecimal], bounds: String)(using
-    pf: PgTypeFor[PgRangeTag[BigDecimal]]
-  ): TypedExpr[PgRangeTag[BigDecimal]] =
-    TypedExpr(
-      TypedExpr.raw("numrange(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+|
-        TypedExpr.raw(", ") |+| TypedExpr.parameterised(bounds).render |+| TypedExpr.raw(")"),
-      pf.codec
-    )
+  def numrange[X, Y](lo: TypedExpr[BigDecimal, X], hi: TypedExpr[BigDecimal, Y], bounds: String)(using pf: PgTypeFor[PgRangeTag[BigDecimal]], pfs: PgTypeFor[String], c2: Where.Concat2[X, Y]): TypedExpr[PgRangeTag[BigDecimal], Where.Concat[X, Y]] = rangeCtor3("numrange", lo, hi, bounds, pf.codec)
 
-  /** `daterange(lo, hi)` — construct a `daterange` with default `[)` bounds. */
-  def daterange(lo: TypedExpr[LocalDate], hi: TypedExpr[LocalDate])(using
+  def daterange[X, Y](lo: TypedExpr[LocalDate, X], hi: TypedExpr[LocalDate, Y])(using
     pf: PgTypeFor[PgRangeTag[LocalDate]]
-  ): TypedExpr[PgRangeTag[LocalDate]] =
-    TypedExpr(
-      TypedExpr.raw("daterange(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+| TypedExpr.raw(")"),
-      pf.codec
-    )
+  )(using c2: Where.Concat2[X, Y]): TypedExpr[PgRangeTag[LocalDate], Where.Concat[X, Y]] = rangeCtor2("daterange", lo, hi, pf.codec)
 
-  /** `daterange(lo, hi, bounds)`. */
-  def daterange(lo: TypedExpr[LocalDate], hi: TypedExpr[LocalDate], bounds: String)(using
-    pf: PgTypeFor[PgRangeTag[LocalDate]]
-  ): TypedExpr[PgRangeTag[LocalDate]] =
-    TypedExpr(
-      TypedExpr.raw("daterange(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+|
-        TypedExpr.raw(", ") |+| TypedExpr.parameterised(bounds).render |+| TypedExpr.raw(")"),
-      pf.codec
-    )
+  def daterange[X, Y](lo: TypedExpr[LocalDate, X], hi: TypedExpr[LocalDate, Y], bounds: String)(using pf: PgTypeFor[PgRangeTag[LocalDate]], pfs: PgTypeFor[String], c2: Where.Concat2[X, Y]): TypedExpr[PgRangeTag[LocalDate], Where.Concat[X, Y]] = rangeCtor3("daterange", lo, hi, bounds, pf.codec)
 
-  /** `tsrange(lo, hi)` — construct a `tsrange` with default `[)` bounds. */
-  def tsrange(lo: TypedExpr[LocalDateTime], hi: TypedExpr[LocalDateTime])(using
+  def tsrange[X, Y](lo: TypedExpr[LocalDateTime, X], hi: TypedExpr[LocalDateTime, Y])(using
     pf: PgTypeFor[PgRangeTag[LocalDateTime]]
-  ): TypedExpr[PgRangeTag[LocalDateTime]] =
-    TypedExpr(
-      TypedExpr.raw("tsrange(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+| TypedExpr.raw(")"),
-      pf.codec
-    )
+  )(using c2: Where.Concat2[X, Y]): TypedExpr[PgRangeTag[LocalDateTime], Where.Concat[X, Y]] = rangeCtor2("tsrange", lo, hi, pf.codec)
 
-  /** `tsrange(lo, hi, bounds)`. */
-  def tsrange(lo: TypedExpr[LocalDateTime], hi: TypedExpr[LocalDateTime], bounds: String)(using
-    pf: PgTypeFor[PgRangeTag[LocalDateTime]]
-  ): TypedExpr[PgRangeTag[LocalDateTime]] =
-    TypedExpr(
-      TypedExpr.raw("tsrange(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+|
-        TypedExpr.raw(", ") |+| TypedExpr.parameterised(bounds).render |+| TypedExpr.raw(")"),
-      pf.codec
-    )
+  def tsrange[X, Y](lo: TypedExpr[LocalDateTime, X], hi: TypedExpr[LocalDateTime, Y], bounds: String)(using pf: PgTypeFor[PgRangeTag[LocalDateTime]], pfs: PgTypeFor[String], c2: Where.Concat2[X, Y]): TypedExpr[PgRangeTag[LocalDateTime], Where.Concat[X, Y]] = rangeCtor3("tsrange", lo, hi, bounds, pf.codec)
 
-  /** `tstzrange(lo, hi)` — construct a `tstzrange` with default `[)` bounds. */
-  def tstzrange(lo: TypedExpr[OffsetDateTime], hi: TypedExpr[OffsetDateTime])(using
+  def tstzrange[X, Y](lo: TypedExpr[OffsetDateTime, X], hi: TypedExpr[OffsetDateTime, Y])(using
     pf: PgTypeFor[PgRangeTag[OffsetDateTime]]
-  ): TypedExpr[PgRangeTag[OffsetDateTime]] =
-    TypedExpr(
-      TypedExpr.raw("tstzrange(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+| TypedExpr.raw(")"),
-      pf.codec
-    )
+  )(using c2: Where.Concat2[X, Y]): TypedExpr[PgRangeTag[OffsetDateTime], Where.Concat[X, Y]] = rangeCtor2("tstzrange", lo, hi, pf.codec)
 
-  /** `tstzrange(lo, hi, bounds)`. */
-  def tstzrange(lo: TypedExpr[OffsetDateTime], hi: TypedExpr[OffsetDateTime], bounds: String)(using
-    pf: PgTypeFor[PgRangeTag[OffsetDateTime]]
-  ): TypedExpr[PgRangeTag[OffsetDateTime]] =
-    TypedExpr(
-      TypedExpr.raw("tstzrange(") |+| lo.render |+| TypedExpr.raw(", ") |+| hi.render |+|
-        TypedExpr.raw(", ") |+| TypedExpr.parameterised(bounds).render |+| TypedExpr.raw(")"),
-      pf.codec
-    )
+  def tstzrange[X, Y](lo: TypedExpr[OffsetDateTime, X], hi: TypedExpr[OffsetDateTime, Y], bounds: String)(using pf: PgTypeFor[PgRangeTag[OffsetDateTime]], pfs: PgTypeFor[String], c2: Where.Concat2[X, Y]): TypedExpr[PgRangeTag[OffsetDateTime], Where.Concat[X, Y]] = rangeCtor3("tstzrange", lo, hi, bounds, pf.codec)
+
+  // -------- Helpers -------------------------------------------------------------------------
+
+  private def unaryRange[R, X, T](
+    name: String, r: TypedExpr[R, X], outCodec: skunk.Codec[T]
+  ): TypedExpr[T, X] = {
+    val frag = TypedExpr.wrap(s"$name(", r.fragment, ")")
+    TypedExpr[T, X](frag, outCodec)
+  }
+
+  private def rangeCtor2[T, A, B, X, Y](
+    name: String, lo: TypedExpr[A, X], hi: TypedExpr[B, Y], outCodec: skunk.Codec[T]
+  )(using c2: Where.Concat2[X, Y]): TypedExpr[T, Where.Concat[X, Y]] = {
+    val inner = TypedExpr.combineSep(lo.fragment, ", ", hi.fragment)
+    val frag  = TypedExpr.wrap(s"$name(", inner, ")")
+    TypedExpr[T, Where.Concat[X, Y]](frag, outCodec)
+  }
+
+  /**
+   * Three-arg range constructor (lo, hi, bounds). `bounds` is a baked runtime String
+   * (Param.bind); Args is `Concat[X, Y]` from `lo` / `hi`.
+   */
+  private def rangeCtor3[T, A, B, X, Y](
+    name: String, lo: TypedExpr[A, X], hi: TypedExpr[B, Y], bounds: String, outCodec: skunk.Codec[T]
+  )(using pfs: PgTypeFor[String], c2: Where.Concat2[X, Y]): TypedExpr[T, Where.Concat[X, Y]] = {
+    val boundsFrag = Param.bind[String](bounds).fragment
+    val parts =
+      List[Either[String, cats.data.State[Int, String]]](Left(s"$name(")) ++
+        lo.fragment.parts ++
+        List[Either[String, cats.data.State[Int, String]]](Left(", ")) ++
+        hi.fragment.parts ++
+        List[Either[String, cats.data.State[Int, String]]](Left(", ")) ++
+        boundsFrag.parts ++
+        List[Either[String, cats.data.State[Int, String]]](Left(")"))
+    // lo/hi typed; bounds Void. Combine [Concat[X, Y], Void] via rightVoid.
+    val loHiEnc      = TypedExpr.combineEnc[X, Y](lo.fragment.encoder, hi.fragment.encoder)
+    val withBoundsEnc =
+      TypedExpr.combineEnc[Where.Concat[X, Y], Void](
+        loHiEnc.asInstanceOf[skunk.Encoder[Where.Concat[X, Y]]],
+        boundsFrag.encoder
+      )(using Where.Concat2.rightVoid[Where.Concat[X, Y]])
+    val frag = Fragment(parts, withBoundsEnc.asInstanceOf[skunk.Encoder[Where.Concat[X, Y]]], skunk.util.Origin.unknown)
+    TypedExpr[T, Where.Concat[X, Y]](frag, outCodec)
+  }
 
 }

@@ -28,25 +28,28 @@ class CaseWhenSuite extends munit.FunSuite {
   }
 
   test("caseWhen with only .end — no ELSE, result decodes as Option[T]") {
-    val q: CompiledQuery[Option[String]] = users.select(u =>
+    val q: QueryTemplate[?, Option[String]] = users.select(u =>
       caseWhen(u.age < 18, lit("minor")).end
     ).compile
 
     assertEquals(
-      q.af.fragment.sql,
+      q.fragment.sql,
       """SELECT CASE WHEN "age" < $1 THEN 'minor' END FROM "users""""
     )
   }
 
   test("caseWhen usable in WHERE — renders as a boolean expression at the filter") {
-    val af = users.select(u => u.email)
+    // `caseWhen(...).otherwise(...)` returns `TypedExpr[Boolean, Any]` (per-branch Args threading is roadmap),
+    // so the surrounding WHERE widens its Args to Any too — no Args=Void overload of `.af` applies. Inspect
+    // the typed Fragment's SQL directly via `.fragment.sql`.
+    val sql = users.select(u => u.email)
       .where(u =>
         caseWhen(u.age < 18, lit(false))
           .otherwise(lit(true))
       )
-      .compile.af
+      .compile.fragment.sql
 
-    assert(af.fragment.sql.contains("""WHERE CASE WHEN "age" < $1 THEN FALSE ELSE TRUE END"""), af.fragment.sql)
+    assert(sql.contains("""WHERE CASE WHEN "age" < $1 THEN FALSE ELSE TRUE END"""), sql)
   }
 
   test("caseWhen usable in ORDER BY") {
@@ -74,9 +77,9 @@ class CaseWhenSuite extends munit.FunSuite {
 
   test(".end decoded type IS Option[T], .otherwise is T") {
     // Type-level assertion — no runtime content needed.
-    val withElse: CompiledQuery[String] =
+    val withElse: QueryTemplate[?, String] =
       users.select(u => caseWhen(u.age < 18, lit("a")).otherwise(lit("b"))).compile
-    val withoutElse: CompiledQuery[Option[String]] =
+    val withoutElse: QueryTemplate[?, Option[String]] =
       users.select(u => caseWhen(u.age < 18, lit("a")).end).compile
     val _ = (withElse, withoutElse)
   }

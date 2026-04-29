@@ -1,27 +1,23 @@
 package skunk.sharp.pg.functions
 
 import skunk.sharp.TypedExpr
+import skunk.sharp.where.Where
 
-/** Subquery-based predicates. Mixed into [[skunk.sharp.Pg]]. */
+/** Subquery-based predicates. Args of the inner subquery propagates via `AsSubquery`. */
 trait PgSubquery {
 
-  /**
-   * `EXISTS (<subquery>)`. The subquery's row type doesn't matter — only existence. Accepts any
-   * [[skunk.sharp.dsl.AsSubquery]]-compatible value (compiled query or un-compiled builder).
-   *
-   * Rendering is deferred — the subquery's `render` thunk is captured by closure and only invoked when the outermost
-   * `.compile` walks `TypedExpr.render`. Inner `.compile` calls (on SelectBuilder / ProjectedSelect subqueries) happen
-   * at that moment, not at `Pg.exists(…)`-call time.
-   */
-  def exists[Q, T](sub: Q)(using ev: skunk.sharp.dsl.AsSubquery[Q, T]): TypedExpr[Boolean] = {
-    val thunk = ev.render(sub)
-    TypedExpr(TypedExpr.raw("EXISTS (") |+| thunk() |+| TypedExpr.raw(")"), skunk.codec.all.bool)
+  /** `EXISTS (<subquery>)`. */
+  def exists[Q, T, A](sub: Q)(using ev: skunk.sharp.dsl.AsSubquery[Q, T, A]): Where[A] = {
+    val inner = ev.fragment(sub)
+    val frag  = TypedExpr.wrap("EXISTS (", inner, ")")
+    Where(frag)
   }
 
-  /** `NOT EXISTS (<subquery>)`. Same deferred-rendering contract as [[exists]]. */
-  def notExists[Q, T](sub: Q)(using ev: skunk.sharp.dsl.AsSubquery[Q, T]): TypedExpr[Boolean] = {
-    val thunk = ev.render(sub)
-    TypedExpr(TypedExpr.raw("NOT EXISTS (") |+| thunk() |+| TypedExpr.raw(")"), skunk.codec.all.bool)
+  /** `NOT EXISTS (<subquery>)`. */
+  def notExists[Q, T, A](sub: Q)(using ev: skunk.sharp.dsl.AsSubquery[Q, T, A]): Where[A] = {
+    val inner = ev.fragment(sub)
+    val frag  = TypedExpr.wrap("NOT EXISTS (", inner, ")")
+    Where(frag)
   }
 
 }

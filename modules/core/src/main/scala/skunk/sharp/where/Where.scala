@@ -1,60 +1,193 @@
 package skunk.sharp.where
 
+import skunk.{Encoder, Fragment, Void}
 import skunk.sharp.TypedExpr
+import skunk.util.Origin
 
 /**
- * A WHERE-clause predicate — just a `TypedExpr[Boolean]`. Used to live as a thin wrapper class; collapsed into a type
- * alias so any expression producing a boolean value (user operators, `Pg.exists`, subqueries, extension-module
- * predicates) can be used directly without a `Where(...)` wrap at call sites.
- *
- * All chaining methods (`&&`, `and`, `||`, `or`, unary `!`, `not`) live as extension methods on `TypedExpr[Boolean]` —
- * see [[WhereOps]] below.
+ * `Where[A]` is a type alias for `TypedExpr[Boolean, A]` — a boolean-typed expression that contributes `A` to the
+ * surrounding builder's WHERE / HAVING / ON args. Kept as a type alias for ergonomic call sites and
+ * documentation; it's the same vocabulary as any other typed expression.
  */
-type Where = TypedExpr[Boolean]
+type Where[A] = TypedExpr[Boolean, A]
 
+/**
+ * Combinator + helper namespace for `Where`.
+ */
 object Where {
 
+  private[sharp] val OR_KW:  String = " OR "
+  private[sharp] val AND_KW: String = " AND "
+  private[sharp] val NOT_OPEN_KW: String = "NOT ("
+
+  /** Construct directly from a typed Fragment + codec. Codec is fixed to bool. */
+  def apply[A](fragment: Fragment[A]): TypedExpr[Boolean, A] =
+    TypedExpr[Boolean, A](fragment, skunk.codec.all.bool)
+
   /**
-   * Identity helper kept for source compatibility with call sites that read more naturally as `Where(Pg.exists(sub))`.
-   * `Where(e)` now just is `e`, so prefer passing `TypedExpr[Boolean]` directly.
+   * Type-level concat: drop `Void` placeholders so `(Void, A)` collapses to `A`, `(A, Void)` to `A`, and
+   * `(Void, Void)` to `Void`. Used by builders / operators to keep their `Args` parameter clean when one of the
+   * arms contributes no params.
    */
-  inline def apply(expr: TypedExpr[Boolean]): Where = expr
-
-  /** AND two predicates. */
-  def and(l: Where, r: Where): Where = {
-    val rendered = TypedExpr.raw("(") |+| l.render |+| TypedExpr.raw(" AND ") |+| r.render |+| TypedExpr.raw(")")
-    lift(rendered)
+  type Concat[A, B] = (A, B) match {
+    case (Void, Void) => Void
+    case (Void, b)    => b
+    case (a, Void)    => a
+    case _            => (A, B)
   }
 
-  /** OR two predicates. */
-  def or(l: Where, r: Where): Where = {
-    val rendered = TypedExpr.raw("(") |+| l.render |+| TypedExpr.raw(" OR ") |+| r.render |+| TypedExpr.raw(")")
-    lift(rendered)
+  /**
+   * Project a `Concat[A, B]` value (whatever shape that reduced to) back into a `(A, B)` tuple — the input
+   * shape an `Encoder[A].product(Encoder[B])` actually expects at execute time. Without this, an
+   * `Encoder[(A, B)]` cast as `Encoder[Concat[A, B]]` would receive the wrong shape (e.g. raw `Void` when
+   * `Concat[Void, Void] = Void` reduced) and ClassCastException deep in Skunk's encoder chain.
+   *
+   * The four arms mirror the [[Concat]] match type. Resolved at the call site where `A` and `B` are concrete,
+   * via the priority chain below.
+   */
+  trait Concat2[A, B] {
+    def project(c: Concat[A, B]): (A, B)
   }
 
-  /** NOT a predicate. */
-  def not(w: Where): Where = {
-    val rendered = TypedExpr.raw("NOT (") |+| w.render |+| TypedExpr.raw(")")
-    lift(rendered)
-  }
-
-  private def lift(af: skunk.AppliedFragment): Where =
-    new TypedExpr[Boolean] {
-      val render = af
-      val codec  = skunk.codec.all.bool
+  object Concat2 extends Concat2HighPrio {
+    /** Both arms contribute `Void`: `Concat[Void, Void] = Void`, supply `(Void, Void)`. */
+    given bothVoid: Concat2[Void, Void] = new Concat2[Void, Void] {
+      def project(c: Concat[Void, Void]): (Void, Void) = (Void, Void)
     }
+  }
+
+  trait Concat2HighPrio extends Concat2MedPrio {
+    /** LHS is Void: `Concat[Void, B] = B`. Supply `(Void, b)`. */
+    given leftVoid[B]: Concat2[Void, B] = new Concat2[Void, B] {
+      def project(c: Concat[Void, B]): (Void, B) = (Void, c.asInstanceOf[B])
+    }
+    /** RHS is Void: `Concat[A, Void] = A`. Supply `(a, Void)`. */
+    given rightVoid[A]: Concat2[A, Void] = new Concat2[A, Void] {
+      def project(c: Concat[A, Void]): (A, Void) = (c.asInstanceOf[A], Void)
+    }
+  }
+
+  trait Concat2MedPrio {
+    /** Default: neither side is Void. `Concat[A, B] = (A, B)` — identity projection. */
+    given default[A, B]: Concat2[A, B] = new Concat2[A, B] {
+      def project(c: Concat[A, B]): (A, B) = c.asInstanceOf[(A, B)]
+    }
+  }
+
+  /**
+   * Right-fold of [[Concat]] over a tuple of Args types. Drops `Void` slots cleanly so
+   * `FoldConcat[(Void, Int, Void, String)] = (Int, String)`. Used by variadic builders / projection lists /
+   * RETURNING tuples to combine N typed-Args slots into one.
+   */
+  type FoldConcat[T <: Tuple] = T match {
+    case EmptyTuple        => Void
+    case h *: EmptyTuple   => h
+    case h *: t            => Concat[h, FoldConcat[t]]
+  }
+
+  /**
+   * Project a `FoldConcat[T]` value back into a heterogeneous list of per-slot values, in tuple order — one
+   * entry per slot of `T`, including `Void` placeholders for slots whose Args is `Void`. Resolved at the call
+   * site via the priority chain below; each step uses the underlying [[Concat2]] instance to peel off one
+   * slot at a time.
+   */
+  trait FoldConcatN[T <: Tuple] {
+    def project(c: FoldConcat[T]): List[Any]
+  }
+
+  object FoldConcatN {
+
+    given empty: FoldConcatN[EmptyTuple] = new FoldConcatN[EmptyTuple] {
+      def project(c: FoldConcat[EmptyTuple]): List[Any] = Nil
+    }
+
+    given single[H]: FoldConcatN[H *: EmptyTuple] = new FoldConcatN[H *: EmptyTuple] {
+      def project(c: FoldConcat[H *: EmptyTuple]): List[Any] = List(c)
+    }
+
+    given cons[H, T <: NonEmptyTuple](using
+      c2:   Concat2[H, FoldConcat[T]],
+      rest: FoldConcatN[T]
+    ): FoldConcatN[H *: T] = new FoldConcatN[H *: T] {
+      def project(c: FoldConcat[H *: T]): List[Any] = {
+        val (h, t) = c2.project(c.asInstanceOf[Concat[H, FoldConcat[T]]])
+        h :: rest.project(t)
+      }
+    }
+
+  }
+
+  /**
+   * Pair two encoders into one whose input shape matches `Concat[A, B]`. Always products both sub-encoders
+   * (so any baked values riding on either side flow through), then contramaps the user's `Concat[A, B]` input
+   * back into the `(A, B)` tuple the product actually consumes.
+   */
+  private[sharp] def concatEncoders[A, B](
+    a: Encoder[?], b: Encoder[?]
+  )(using c2: Concat2[A, B]): Encoder[Concat[A, B]] = {
+    val productEnc: Encoder[(Any, Any)] =
+      a.asInstanceOf[Encoder[Any]].product(b.asInstanceOf[Encoder[Any]])
+    productEnc.contramap[Concat[A, B]](in => c2.project(in).asInstanceOf[(Any, Any)])
+  }
+
+  // ---- Combinators (binop / not) ---------------------------------------------------------------
+
+  private[sharp] def binop[A, B](
+    l: TypedExpr[Boolean, A],
+    r: TypedExpr[Boolean, B],
+    opSql: String
+  )(using c2: Concat2[A, B]): TypedExpr[Boolean, Concat[A, B]] = {
+    val parts: List[Either[String, cats.data.State[Int, String]]] =
+      List[Either[String, cats.data.State[Int, String]]](Left("(")) ++
+        l.fragment.parts ++
+        List[Either[String, cats.data.State[Int, String]]](Left(opSql)) ++
+        r.fragment.parts ++
+        List[Either[String, cats.data.State[Int, String]]](Left(")"))
+    val enc                           = concatEncoders[A, B](l.fragment.encoder, r.fragment.encoder)
+    val frag: Fragment[Concat[A, B]]  = Fragment(parts, enc, Origin.unknown)
+    apply[Concat[A, B]](frag)
+  }
+
+  private[sharp] def notOf[A](w: TypedExpr[Boolean, A]): TypedExpr[Boolean, A] = {
+    val parts: List[Either[String, cats.data.State[Int, String]]] =
+      List[Either[String, cats.data.State[Int, String]]](Left(NOT_OPEN_KW)) ++
+        w.fragment.parts ++
+        List[Either[String, cats.data.State[Int, String]]](Left(")"))
+    val frag: Fragment[A] = Fragment(parts, w.fragment.encoder, Origin.unknown)
+    apply[A](frag)
+  }
+
+  /**
+   * Adopt a `TypedExpr[Boolean, A]` as a `Where[A]` — identity now that Where is a type alias. Kept for source
+   * compat with code that previously called `Where(expr)` to lift a non-Where Boolean expression.
+   */
+  def fromTypedExpr[A](expr: TypedExpr[Boolean, A]): TypedExpr[Boolean, A] = expr
 
 }
 
-/**
- * Chaining ops on any `TypedExpr[Boolean]` (= `Where`) — `&&` / `and`, `||` / `or`, unary `!` / `not`. Because `Where`
- * is now a type alias, these are equally available on any boolean expression: `Pg.exists(sub) && u.age >= 18`.
- */
-extension (lhs: Where) {
-  def &&(rhs: Where): Where  = Where.and(lhs, rhs)
-  def and(rhs: Where): Where = Where.and(lhs, rhs)
-  def ||(rhs: Where): Where  = Where.or(lhs, rhs)
-  def or(rhs: Where): Where  = Where.or(lhs, rhs)
-  def unary_! : Where        = Where.not(lhs)
-  def not: Where             = Where.not(lhs)
+/** Combinator extensions on `TypedExpr[Boolean, A]`. */
+extension [A](self: TypedExpr[Boolean, A]) {
+
+  /** AND two predicates — combined `Args = Concat[A, B]`. */
+  def and[B](that: TypedExpr[Boolean, B])(using Where.Concat2[A, B]): TypedExpr[Boolean, Where.Concat[A, B]] =
+    Where.binop(self, that, Where.AND_KW)
+
+  /** Infix AND. */
+  def &&[B](that: TypedExpr[Boolean, B])(using Where.Concat2[A, B]): TypedExpr[Boolean, Where.Concat[A, B]] =
+    Where.binop(self, that, Where.AND_KW)
+
+  /** OR two predicates — combined `Args = Concat[A, B]`. */
+  def or[B](that: TypedExpr[Boolean, B])(using Where.Concat2[A, B]): TypedExpr[Boolean, Where.Concat[A, B]] =
+    Where.binop(self, that, Where.OR_KW)
+
+  /** Infix OR. */
+  def ||[B](that: TypedExpr[Boolean, B])(using Where.Concat2[A, B]): TypedExpr[Boolean, Where.Concat[A, B]] =
+    Where.binop(self, that, Where.OR_KW)
+
+  /** NOT a predicate. */
+  def not: TypedExpr[Boolean, A] = Where.notOf(self)
+
+  /** Unary NOT — same as `.not`. */
+  def unary_! : TypedExpr[Boolean, A] = Where.notOf(self)
+
 }

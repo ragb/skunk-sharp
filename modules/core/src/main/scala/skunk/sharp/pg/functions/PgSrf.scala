@@ -76,7 +76,7 @@ trait PgSrf {
   } =
     srfRelation1[Int, "n"](
       "generate_series",
-      List(TypedExpr.parameterised(start).render, TypedExpr.parameterised(stop).render),
+      List(typedExprToAf(Param.bind(start)), typedExprToAf(Param.bind(stop))),
       "n",
       pg.int4
     )
@@ -87,29 +87,30 @@ trait PgSrf {
     srfRelation1[Int, "n"](
       "generate_series",
       List(
-        TypedExpr.parameterised(start).render,
-        TypedExpr.parameterised(stop).render,
-        TypedExpr.parameterised(step).render
+        typedExprToAf(Param.bind(start)),
+        typedExprToAf(Param.bind(stop)),
+        typedExprToAf(Param.bind(step))
       ),
       "n",
       pg.int4
     )
 
   /**
-   * `unnest(array)` as a [[Relation]] — each element becomes a row of a single-column output `v`. Named
-   * `unnestAsRelation` to avoid colliding with the expression-level [[PgArray.unnest]] that returns a `TypedExpr[E]`
-   * (usable in SELECT-list position). Use this one when you want a joinable source — most often inside a LATERAL join
-   * so the array column comes from the outer row.
+   * `unnest(array)` as a [[Relation]]. Currently constrained to Args=Void inner expressions — typed-args
+   * threading through SRF relations is roadmap.
    */
-  def unnestAsRelation[A, E](a: TypedExpr[A])(using
+  def unnestAsRelation[A, E](a: TypedExpr[A, skunk.Void])(using
     @scala.annotation.unused ev: IsArray.Aux[A, E],
     pf: PgTypeFor[E]
   ): Relation[Column[E, "v", false, EmptyTuple] *: EmptyTuple] { type Alias = "v"; type Mode = AliasMode.Explicit } =
     srfRelation1[E, "v"](
       "unnest",
-      List(a.render),
+      List(typedExprToAf(a)),
       "v",
       pf.codec
     )
+
+  private def typedExprToAf[T](e: TypedExpr[T, skunk.Void]): AppliedFragment =
+    e.fragment.apply(skunk.Void)
 
 }

@@ -5,180 +5,321 @@ import cats.effect.Resource
 import fs2.Stream
 import skunk.*
 import skunk.data.Completion
+import skunk.sharp.where.Where
 
 /**
- * The compiled form of a query builder — everything needed to execute but nothing session-bound yet. Every DSL verb
- * (`select`, `insert`, `update`, `delete`, plus their `RETURNING` variants) reduces to one of these two types at
- * `.compile` time. All session-facing operations (`run`, `unique`, `option`, `stream`, `cursor`) live as extensions on
- * these types — defined once, available everywhere, mirroring [[skunk.Session]]'s own row-fetching surface.
+ * The compiled form of a query builder — a typed `Fragment[Args]` plus a row codec, with no values bound. Every
+ * DSL verb (`select`, `insert`, `update`, `delete`, plus their `RETURNING` variants) reduces to one of these
+ * two types at `.compile` time. All session-facing operations (`run`, `unique`, `option`, `stream`, `cursor`,
+ * `prepared`) live as extensions on these types — defined once, available everywhere, mirroring
+ * [[skunk.Session]]'s own row-fetching surface.
  *
- * Splitting builders from execution keeps two concerns separate: builders know about the query's structure and
- * refinements, compiled values know about skunk's runtime plumbing. It also lets `RETURNING` variants on
- * INSERT/UPDATE/DELETE share every query operation with SELECT for free.
+ * Internal representation is a typed `skunk.Fragment[Args]`. Argument values are supplied at execute time —
+ * `q.run(session)(args)` for non-`Void` `Args`, plain `q.run(session)` for `Args = skunk.Void`. The same
+ * `QueryTemplate` value can be reused with many different argument tuples; that's the whole point of building
+ * the SQL once and re-binding values.
  *
- * Note on `prepare` / `prepareR`: skunk exposes those so callers can re-bind different argument values on each call.
- * Our `AppliedFragment` bakes arguments in, which defeats the point — so we don't ship `.prepare` extensions here.
- * Users that genuinely need re-bindable prepared queries should build a `skunk.Query[A, B]` directly.
+ * For subquery composition (embedding into an outer query) use `AsSubquery` — it sees the typed inner
+ * `Fragment[Args]` and threads it into the outer's args slot.
  */
-final case class CompiledQuery[R](af: AppliedFragment, codec: Codec[R])
+final class QueryTemplate[Args, R] private (
+  val fragment: Fragment[Args],
+  val codec:    Codec[R]
+) {
+
+  /** Typed skunk `Query[Args, R]` — suitable for `session.prepare(q.typedQuery)` to reuse with arg values. */
+  def typedQuery: Query[Args, R] = fragment.query(codec)
+
+  /** Identity — `.compile` on an already-compiled query is a no-op. */
+  def compile: QueryTemplate[Args, R] = this
+
+  /**
+   * Map the row shape into a case class `T` whose `MirroredElemTypes` align with `R`. Works for plain-tuple
+   * projections (e.g. from `.returningTuple`) and named-tuple projections (e.g. from `.returningAll`) — the
+   * [[QueryTemplateMapping.Unwrap]] match type strips named-tuple labels before the comparison.
+   */
+  def to[T <: Product](using
+    m: scala.deriving.Mirror.ProductOf[T] {
+      type MirroredElemTypes = QueryTemplateMapping.Unwrap[R] & Tuple
+    }
+  ): QueryTemplate[Args, T] = {
+    val mapped: skunk.Codec[T] = codec.imap[T](r => m.fromProduct(r.asInstanceOf[Product]))(t =>
+      Tuple.fromProductTyped[T](t)(using m).asInstanceOf[R]
+    )
+    QueryTemplate.mk[Args, T](fragment, mapped)
+  }
+}
+
+object QueryTemplate {
+
+  /** Direct construction from a typed `Fragment[Args]` + row codec. */
+  def mk[Args, R](fragment: Fragment[Args], codec: Codec[R]): QueryTemplate[Args, R] =
+    new QueryTemplate[Args, R](fragment, codec)
+
+  /**
+   * Bridge for call sites that have an `AppliedFragment` (its args are already baked) and need to surface as a
+   * `QueryTemplate[Void, R]`. Used by the few remaining AF-based code paths (e.g. `SetOpQuery.compile`); typed
+   * builders should call [[mk]] directly with their `Fragment[Args]`.
+   */
+  def fromApplied[R](af: AppliedFragment, codec: Codec[R]): QueryTemplate[Void, R] =
+    new QueryTemplate[Void, R](skunk.sharp.TypedExpr.liftAfToVoid(af), codec)
+}
 
 /** The compiled form of a statement that does not return rows (INSERT/UPDATE/DELETE without RETURNING). */
-final case class CompiledCommand(af: AppliedFragment)
+final class CommandTemplate[Args] private (
+  val fragment: Fragment[Args]
+) {
+
+  /** Typed skunk `Command[Args]` — suitable for `session.prepare(c.typedCommand)`. */
+  def typedCommand: Command[Args] = fragment.command
+
+  /** Identity — `.compile` on an already-compiled command is a no-op. */
+  def compile: CommandTemplate[Args] = this
+}
+
+object CommandTemplate {
+
+  def mk[Args](fragment: Fragment[Args]): CommandTemplate[Args] =
+    new CommandTemplate[Args](fragment)
+
+  def fromApplied(af: AppliedFragment): CommandTemplate[Void] =
+    new CommandTemplate[Void](skunk.sharp.TypedExpr.liftAfToVoid(af))
+}
+
+/** Strip named-tuple labels for the `to[T]` match-type unification on [[QueryTemplate]]. */
+object QueryTemplateMapping {
+
+  type Unwrap[R] = R match
+    case scala.NamedTuple.NamedTuple[?, v] => v
+    case _                                 => R
+}
 
 /**
- * Session-facing operations for queries. Deliberately mirror [[skunk.Session]]'s own row-fetching API so there's one
- * vocabulary to learn.
+ * Session-facing operations for queries. Mirror [[skunk.Session]]'s own row-fetching API. `args` is the typed
+ * captured-parameter tuple — supplied at execute time, not at builder-build time. For `Args = Void`-shaped
+ * templates see the extension block below for argless overloads.
  */
-extension [R](q: CompiledQuery[R]) {
+extension [Args, R](q: QueryTemplate[Args, R]) {
 
   /** Run and collect all rows. */
-  inline def run[F[_]](session: Session[F]): F[List[R]] =
-    session.execute(q.af.fragment.query(q.codec))(q.af.argument)
+  inline def run[F[_]](session: Session[F])(args: Args): F[List[R]] =
+    session.execute(q.typedQuery)(args)
 
   /** Run and return exactly one row. Fails if the row count is not 1. */
-  inline def unique[F[_]](session: Session[F]): F[R] =
-    session.unique(q.af.fragment.query(q.codec))(q.af.argument)
+  inline def unique[F[_]](session: Session[F])(args: Args): F[R] =
+    session.unique(q.typedQuery)(args)
 
   /** Run and return at most one row. Fails if the row count is greater than 1. */
-  inline def option[F[_]](session: Session[F]): F[Option[R]] =
-    session.option(q.af.fragment.query(q.codec))(q.af.argument)
+  inline def option[F[_]](session: Session[F])(args: Args): F[Option[R]] =
+    session.option(q.typedQuery)(args)
 
   /** Stream rows with back-pressure. `chunkSize` is the number of rows fetched per network round-trip. */
-  inline def stream[F[_]](session: Session[F], chunkSize: Int = 64): Stream[F, R] =
-    session.stream(q.af.fragment.query(q.codec))(q.af.argument, chunkSize)
+  inline def stream[F[_]](session: Session[F], chunkSize: Int)(args: Args): Stream[F, R] =
+    session.stream(q.typedQuery)(args, chunkSize)
 
   /** Open a cursor for manual row-by-row fetching. Resource-safe. */
-  inline def cursor[F[_]](session: Session[F]): Resource[F, Cursor[F, R]] =
-    session.cursor(q.af.fragment.query(q.codec))(q.af.argument)
+  inline def cursor[F[_]](session: Session[F])(args: Args): Resource[F, Cursor[F, R]] =
+    session.cursor(q.typedQuery)(args)
 
-  /** Kleisli variant of [[run]] — session injected at the call edge. */
-  def runK[F[_]]: Kleisli[F, Session[F], List[R]] = Kleisli(s => run(s))
+  /** Prepare the query as a [[skunk.PreparedQuery]] for re-execution with different argument values. */
+  def prepared[F[_]](session: Session[F]): F[PreparedQuery[F, Args, R]] =
+    session.prepare(q.typedQuery)
+
+  /** Bind a specific args value, producing the opaque [[skunk.AppliedFragment]] form. */
+  def bind(args: Args): AppliedFragment = q.fragment(args)
+
+  /** Kleisli variant of [[run]] — session injected at the call edge; args bound up front. */
+  def runK[F[_]](args: Args): Kleisli[F, Session[F], List[R]] = Kleisli(s => run(s)(args))
 
   /** Kleisli variant of [[unique]]. */
-  def uniqueK[F[_]]: Kleisli[F, Session[F], R] = Kleisli(s => unique(s))
+  def uniqueK[F[_]](args: Args): Kleisli[F, Session[F], R] = Kleisli(s => unique(s)(args))
 
   /** Kleisli variant of [[option]]. */
-  def optionK[F[_]]: Kleisli[F, Session[F], Option[R]] = Kleisli(s => option(s))
+  def optionK[F[_]](args: Args): Kleisli[F, Session[F], Option[R]] = Kleisli(s => option(s)(args))
 
   /**
    * A `Kleisli` whose container is `Stream[F, *]` — i.e., `Session[F] => Stream[F, R]`. Calling `.run(session)` gives a
-   * plain `Stream[F, R]`, so multiple streams share a session without any natural-transformation boilerplate:
-   * {{{
-   *   Stream.resource(pool).flatMap(rooms.findAll.run)    // Stream[IO, RoomRow]
-   * }}}
+   * plain `Stream[F, R]`, so multiple streams share a session without any natural-transformation boilerplate.
    */
+  def streamKF[F[_]](args: Args, chunkSize: Int): Kleisli[Stream[F, *], Session[F], R] =
+    Kleisli(s => stream[F](s, chunkSize)(args))
+
+}
+
+/**
+ * Argless overloads for `Args = Void`-shaped templates — no `args` parameter at execute time. Routes through
+ * Skunk's extended-protocol execute (`session.execute(q)(Void)`) **not** the simple-protocol `execute(q)` —
+ * Void here means "encoder takes Void at execute" which may still emit baked values via `contramap` (e.g.
+ * INSERT with values baked via `Param.bind`). The simple protocol can't bind any params; the extended one
+ * does. The few truly-no-params cases pay one extra round trip but are still correct.
+ */
+extension [R](q: QueryTemplate[Void, R]) {
+
+  inline def run[F[_]](session: Session[F]): F[List[R]] =
+    session.execute[Void, R](q.typedQuery)(Void)
+
+  inline def unique[F[_]](session: Session[F]): F[R] =
+    session.unique[Void, R](q.typedQuery)(Void)
+
+  inline def option[F[_]](session: Session[F]): F[Option[R]] =
+    session.option[Void, R](q.typedQuery)(Void)
+
+  inline def stream[F[_]](session: Session[F], chunkSize: Int = 64): Stream[F, R] =
+    session.stream(q.typedQuery)(Void, chunkSize)
+
+  inline def cursor[F[_]](session: Session[F]): Resource[F, Cursor[F, R]] =
+    session.cursor(q.typedQuery)(Void)
+
+  /** Pre-applied form — same as `.bind(Void)` / `.fragment(Void)`. */
+  def af: AppliedFragment = q.fragment(Void)
+
+  def runK[F[_]]: Kleisli[F, Session[F], List[R]] = Kleisli(s => run(s))
+
+  def uniqueK[F[_]]: Kleisli[F, Session[F], R] = Kleisli(s => unique(s))
+
+  def optionK[F[_]]: Kleisli[F, Session[F], Option[R]] = Kleisli(s => option(s))
+
   def streamKF[F[_]](chunkSize: Int = 64): Kleisli[Stream[F, *], Session[F], R] =
     Kleisli(s => stream[F](s, chunkSize))
 
 }
 
 /** Session-facing operations for commands (INSERT/UPDATE/DELETE without RETURNING). */
-extension (c: CompiledCommand) {
+extension [Args](c: CommandTemplate[Args]) {
 
   /** Execute and return the completion message. */
-  inline def run[F[_]](session: Session[F]): F[Completion] =
-    session.execute(c.af.fragment.command)(c.af.argument)
+  inline def run[F[_]](session: Session[F])(args: Args): F[Completion] =
+    session.execute(c.typedCommand)(args)
 
-  /** Kleisli variant of [[run]] — session injected at the call edge. */
+  /** Prepare the command as a [[skunk.PreparedCommand]] for re-execution with different argument values. */
+  def prepared[F[_]](session: Session[F]): F[PreparedCommand[F, Args]] =
+    session.prepare(c.typedCommand)
+
+  def bind(args: Args): AppliedFragment = c.fragment(args)
+
+  def runK[F[_]](args: Args): Kleisli[F, Session[F], Completion] = Kleisli(s => run(s)(args))
+
+}
+
+/** Argless command overloads for `Args = Void`. Routes through extended protocol (see QueryTemplate Void). */
+extension (c: CommandTemplate[Void]) {
+
+  inline def run[F[_]](session: Session[F]): F[Completion] =
+    session.execute[Void](c.typedCommand)(Void)
+
+  def af: AppliedFragment = c.fragment(Void)
+
   def runK[F[_]]: Kleisli[F, Session[F], Completion] = Kleisli(s => run(s))
 
 }
 
 /**
- * Subquery support — typeclass-based. A subquery is anything that can produce a [[Codec]]`[T]` plus a deferred SQL
- * thunk:
+ * Subquery support — typeclass-based. A subquery is anything that can produce a [[Codec]]`[T]` plus a typed
+ * `Fragment[Args]`:
  *
  *   - a fully `.compile`d query (identity instance),
- *   - a [[ProjectedSelect]]`[Ss, T]` with an explicit projection (compiled on demand),
- *   - a [[SelectBuilder]]`[Ss]` anchored at a single source whose whole-row is `T` (compiled on demand),
- *   - a [[SetOpQuery]]`[T]` built from chained `UNION` / `INTERSECT` / `EXCEPT`.
+ *   - a [[ProjectedSelect]] with an explicit projection (compiled on demand),
+ *   - a [[SelectBuilder]] anchored at a single source whose whole-row is `T` (compiled on demand),
+ *   - a [[SetOpQuery]] built from chained `UNION` / `INTERSECT` / `EXCEPT`,
+ *   - a literal [[Values]] table.
  *
- * This way users don't have to call `.compile` on inner queries — they pass the builder directly to `.asExpr`,
- * `col.in(...)`, or `Pg.exists(...)` and the outer compilation handles the inner too.
+ * `Args` exposes the inner subquery's typed parameters so they thread into the outer composition wherever the
+ * subquery is embedded — in `Pg.exists(inner)`, `col.in(inner)`, scalar `.asExpr`, set-op operands, etc.
  *
- * Codec extraction (`codec`) is expected to be cheap — no SQL rendered. Rendering (`render`) is a thunk so callers that
- * don't need the fragment yet (like [[SetOpQuery]] chaining) can defer all SQL materialisation to the single outer
- * `.compile` call.
- *
- * Correlated subqueries: build the inner query inside an outer `.select` / `.where` lambda; outer
- * [[skunk.sharp.TypedColumn]]s are in lexical scope, their `render` emits alias-qualified SQL (`"u"."id"`) that
- * correlates at SQL-evaluation time.
+ * Codec extraction (`codec`) is expected to be cheap — no SQL rendered. `fragment` is allowed to compile the
+ * inner query (cheap for builders, no extra cost over `.compile`).
  */
-sealed trait AsSubquery[Q, T] {
+sealed trait AsSubquery[Q, T, Args] {
   def codec(q: Q): Codec[T]
-  def render(q: Q): () => AppliedFragment
-  final def toCompiled(q: Q): CompiledQuery[T] = CompiledQuery(render(q)(), codec(q))
+  def fragment(q: Q): Fragment[Args]
 }
 
 object AsSubquery {
 
-  given identity[T]: AsSubquery[CompiledQuery[T], T] = new AsSubquery[CompiledQuery[T], T] {
-    def codec(q: CompiledQuery[T]): Codec[T]               = q.codec
-    def render(q: CompiledQuery[T]): () => AppliedFragment = () => q.af
-  }
+  given identity[Args, T]: AsSubquery[QueryTemplate[Args, T], T, Args] =
+    new AsSubquery[QueryTemplate[Args, T], T, Args] {
+      def codec(q: QueryTemplate[Args, T]): Codec[T]       = q.codec
+      def fragment(q: QueryTemplate[Args, T]): Fragment[Args] = q.fragment
+    }
 
-  given fromProjected[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, T](using
-    ev: skunk.sharp.GroupCoverage[Proj, Groups]
-  ): AsSubquery[ProjectedSelect[Ss, Proj, Groups, T], T] =
-    new AsSubquery[ProjectedSelect[Ss, Proj, Groups, T], T] {
-      def codec(q: ProjectedSelect[Ss, Proj, Groups, T]): Codec[T]               = q.codec
-      def render(q: ProjectedSelect[Ss, Proj, Groups, T]): () => AppliedFragment = () => q.compile(using ev).af
+  given fromProjected[
+    Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DistinctOn <: Tuple, Orders <: Tuple,
+    DA, PA, GA, OA, WA, HA, T
+  ](using
+    ev:      skunk.sharp.GroupCoverage[Proj, Groups],
+    d:       skunk.sharp.dsl.ProjArgsOf.Aux[DistinctOn, DA],
+    pa:      skunk.sharp.dsl.ProjArgsOf.Aux[Proj, PA],
+    g:       skunk.sharp.dsl.ProjArgsOf.Aux[Groups, GA],
+    o:       skunk.sharp.dsl.ProjArgsOf.Aux[Orders, OA],
+    c12:     Where.Concat2[DA, PA],
+    c123:    Where.Concat2[Where.Concat[DA, PA], WA],
+    c1234:   Where.Concat2[Where.Concat[Where.Concat[DA, PA], WA], GA],
+    c12345:  Where.Concat2[Where.Concat[Where.Concat[Where.Concat[DA, PA], WA], GA], HA],
+    c123456: Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA, PA], WA], GA], HA], OA]
+  ): AsSubquery[
+    ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T],
+    T,
+    Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA, PA], WA], GA], HA], OA]
+  ] =
+    new AsSubquery[
+      ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T],
+      T,
+      Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA, PA], WA], GA], HA], OA]
+    ] {
+      def codec(q: ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T]): Codec[T] = q.codec
+      def fragment(q: ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T])
+        : Fragment[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA, PA], WA], GA], HA], OA]] =
+        q.compile[DA, PA, GA, OA](using ev, d, pa, g, o, c12, c123, c1234, c12345, c123456).fragment
     }
 
   /**
    * Whole-row SelectBuilder → subquery of NamedRow. Relies on the same `IsSingleSource` evidence `.compile` uses.
-   *
-   * The result-type `R` is split from the `NamedRowOf[C]` computation via a `=:=` constraint so the compiler can
-   * satisfy it even when `R` has already been reduced at the call site (e.g. when chaining `.union` → `.intersect` on a
-   * `SetOpQuery[R]` whose `R` the earlier step already normalised to the concrete named-tuple form). Matching the two
-   * shapes directly — `AsSubquery[SelectBuilder[Ss], NamedRowOf[C]]` — loses that round-trip: Scala won't always expand
-   * the match type inside `NamedRowOf` during implicit search.
    */
-  given fromSelectBuilder[Ss <: Tuple, C <: Tuple, R](using
+  given fromSelectBuilder[Ss <: Tuple, WA, HA, C <: Tuple, R](using
     ev: IsSingleSource.Aux[Ss, C],
+    c2: Where.Concat2[WA, HA],
     eq: R =:= skunk.sharp.NamedRowOf[C]
-  ): AsSubquery[SelectBuilder[Ss], R] =
-    new AsSubquery[SelectBuilder[Ss], R] {
-      def codec(b: SelectBuilder[Ss]): Codec[R] = {
+  ): AsSubquery[SelectBuilder[Ss, WA, HA], R, Where.Concat[WA, HA]] =
+    new AsSubquery[SelectBuilder[Ss, WA, HA], R, Where.Concat[WA, HA]] {
+      def codec(b: SelectBuilder[Ss, WA, HA]): Codec[R] = {
         val entries = b.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
         skunk.sharp.internal.rowCodec(entries.head.effectiveCols).asInstanceOf[Codec[R]]
       }
-      def render(b: SelectBuilder[Ss]): () => AppliedFragment = () => b.compile(using ev).af
+      def fragment(b: SelectBuilder[Ss, WA, HA]): Fragment[Where.Concat[WA, HA]] =
+        b.compile(using ev, c2).fragment.asInstanceOf[Fragment[Where.Concat[WA, HA]]]
     }
 
-  given fromSetOp[T]: AsSubquery[SetOpQuery[T], T] = new AsSubquery[SetOpQuery[T], T] {
-    def codec(q: SetOpQuery[T]): Codec[T]               = q.codec
-    def render(q: SetOpQuery[T]): () => AppliedFragment = q.renderFn
-  }
+  given fromSetOp[T]: AsSubquery[SetOpQuery[T], T, Void] =
+    new AsSubquery[SetOpQuery[T], T, Void] {
+      def codec(q: SetOpQuery[T]): Codec[T]               = q.codec
+      def fragment(q: SetOpQuery[T]): Fragment[Void] =
+        skunk.sharp.TypedExpr.liftAfToVoid(q.renderFn())
+    }
 
   /**
    * A literal [[Values]] fragment is also a subquery: embed it wherever a sub-select would go (INSERT…FROM, set-op
-   * operand, scalar `.asExpr`). Declared here because `AsSubquery` is sealed — subclasses / instances that widen
-   * through `new` must live with the declaration.
+   * operand, scalar `.asExpr`).
    */
-  given fromValues[Cols <: Tuple, Row <: scala.NamedTuple.AnyNamedTuple]: AsSubquery[Values[Cols, Row], Row] =
-    new AsSubquery[Values[Cols, Row], Row] {
-      def codec(v: Values[Cols, Row]): Codec[Row]             = v.codec
-      def render(v: Values[Cols, Row]): () => AppliedFragment = () => v.render
+  given fromValues[Cols <: Tuple, Row <: scala.NamedTuple.AnyNamedTuple]: AsSubquery[Values[Cols, Row], Row, Void] =
+    new AsSubquery[Values[Cols, Row], Row, Void] {
+      def codec(v: Values[Cols, Row]): Codec[Row] = v.codec
+      def fragment(v: Values[Cols, Row]): Fragment[Void] =
+        skunk.sharp.TypedExpr.liftAfToVoid(v.render)
     }
 
 }
 
 /**
  * Lift a subquery-like thing into the [[skunk.sharp.TypedExpr]] vocabulary so it slots in wherever an expression is
- * expected — SELECT projection, WHERE RHS, UPDATE SET, `col.in(q)`, `Pg.exists(q)`, etc.
+ * expected — SELECT projection, WHERE RHS, UPDATE SET, `col.in(q)`, `Pg.exists(q)`, etc. The inner subquery's `Args`
+ * threads into the resulting `TypedExpr[T, Args]`.
  */
 extension [Q](q: Q) {
 
-  def asExpr[T](using ev: AsSubquery[Q, T]): skunk.sharp.TypedExpr[T] = {
-    val thunk = ev.render(q)
-    // Rendering is deferred — `thunk()` sits inside `TypedExpr`'s by-name argument and only fires when the
-    // outermost `.compile` walks this expression's `.render`. Inner subquery compilation (for builder-shaped
-    // `Q`s) happens at that moment, keeping the "single terminal compile" rule intact.
-    skunk.sharp.TypedExpr(
-      skunk.sharp.TypedExpr.raw("(") |+| thunk() |+| skunk.sharp.TypedExpr.raw(")"),
-      ev.codec(q)
-    )
+  def asExpr[T, Args](using ev: AsSubquery[Q, T, Args]): skunk.sharp.TypedExpr[T, Args] = {
+    val inner = ev.fragment(q)
+    val frag  = skunk.sharp.TypedExpr.wrap("(", inner, ")")
+    skunk.sharp.TypedExpr(frag, ev.codec(q))
   }
 
 }

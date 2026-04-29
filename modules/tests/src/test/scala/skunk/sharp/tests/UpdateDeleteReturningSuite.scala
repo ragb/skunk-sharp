@@ -1,6 +1,7 @@
 package skunk.sharp.tests
 
 import cats.effect.IO
+import skunk.sharp.*
 import skunk.sharp.dsl.*
 
 import java.time.OffsetDateTime
@@ -119,6 +120,33 @@ class UpdateDeleteReturningSuite extends PgFixture {
             .compile.run(s)
           after2 <- users.select.where(u => u.id === id).compile.unique(s)
           _ = assertEquals(after2.deleted_at, Some(ts))
+        } yield ()
+      }
+    }
+  }
+
+  test("UPDATE SET Param[T] + WHERE Param[T] round-trips through Postgres") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val id = UUID.fromString("44444444-4444-4444-4444-444444444444")
+        val tpl = users.update
+          .set(u => u.email := Param[String])
+          .where(u => u.id === Param[UUID])
+          .returning(u => u.email)
+          .compile
+        // Static type assertion: typed Args = (String, UUID).
+        val _: QueryTemplate[(String, UUID), String] = tpl
+        for {
+          _ <- users.insert((
+            id = id,
+            email = "before@x",
+            age = 5,
+            created_at = OffsetDateTime.now(),
+            deleted_at = None
+          )).compile.run(s)
+          _ <- assertIO(tpl.unique(s)(("after@x", id)), "after@x")
+          row <- users.select.where(u => u.id === id).compile.unique(s)
+          _    = assertEquals(row.email, "after@x")
         } yield ()
       }
     }
