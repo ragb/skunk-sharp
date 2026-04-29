@@ -3,6 +3,7 @@ package skunk.sharp.pg.functions
 import skunk.{Fragment, Void}
 import skunk.sharp.{Param, TypedExpr}
 import skunk.sharp.pg.PgTypeFor
+import skunk.sharp.where.Where
 
 /** Window-only functions. Args of input expression(s) propagate. */
 trait PgWindow {
@@ -30,14 +31,21 @@ trait PgWindow {
     TypedExpr[Option[T], A](frag, expr.codec.opt)
   }
 
-  def lag[T](expr: TypedExpr[T, ?], offset: Int, default: T)(using pf: PgTypeFor[T]): TypedExpr[T, Void] = {
-    // expr's encoder + Param.bind(default)'s encoder must combine via joinedVoid so the default's bound
-    // value flows through. Previously the encoder was just the column's Void.codec — Postgres saw `$1` in
-    // the SQL but no encoder slot for it.
+  /**
+   * `lag(expr, offset, default)` — `offset` is a literal Int (rendered inline) and `default` is a
+   * baked runtime value (Param.bind); Args propagates from `expr` only.
+   */
+  def lag[T, A](expr: TypedExpr[T, A], offset: Int, default: T)(using pf: PgTypeFor[T]): TypedExpr[T, A] = {
     val defFrag = Param.bind[T](default).fragment
-    val mid     = TypedExpr.joinedVoid(s", $offset, ", List(expr.fragment, defFrag))
-    val frag    = TypedExpr.wrap("lag(", mid, ")")
-    TypedExpr[T, Void](frag, expr.codec)
+    val parts =
+      List[Either[String, cats.data.State[Int, String]]](Left("lag(")) ++
+        expr.fragment.parts ++
+        List[Either[String, cats.data.State[Int, String]]](Left(s", $offset, ")) ++
+        defFrag.parts ++
+        List[Either[String, cats.data.State[Int, String]]](Left(")"))
+    val combinedEnc = TypedExpr.combineEnc[A, Void](expr.fragment.encoder, defFrag.encoder)(using Where.Concat2.rightVoid[A])
+    val frag        = Fragment(parts, combinedEnc.asInstanceOf[skunk.Encoder[A]], skunk.util.Origin.unknown)
+    TypedExpr[T, A](frag, expr.codec)
   }
 
   def lead[T, A](expr: TypedExpr[T, A]): TypedExpr[Option[T], A] =
@@ -49,11 +57,21 @@ trait PgWindow {
     TypedExpr[Option[T], A](frag, expr.codec.opt)
   }
 
-  def lead[T](expr: TypedExpr[T, ?], offset: Int, default: T)(using pf: PgTypeFor[T]): TypedExpr[T, Void] = {
+  /**
+   * `lead(expr, offset, default)` — `offset` is a literal Int (rendered inline) and `default` is a
+   * baked runtime value (Param.bind); Args propagates from `expr` only.
+   */
+  def lead[T, A](expr: TypedExpr[T, A], offset: Int, default: T)(using pf: PgTypeFor[T]): TypedExpr[T, A] = {
     val defFrag = Param.bind[T](default).fragment
-    val mid     = TypedExpr.joinedVoid(s", $offset, ", List(expr.fragment, defFrag))
-    val frag    = TypedExpr.wrap("lead(", mid, ")")
-    TypedExpr[T, Void](frag, expr.codec)
+    val parts =
+      List[Either[String, cats.data.State[Int, String]]](Left("lead(")) ++
+        expr.fragment.parts ++
+        List[Either[String, cats.data.State[Int, String]]](Left(s", $offset, ")) ++
+        defFrag.parts ++
+        List[Either[String, cats.data.State[Int, String]]](Left(")"))
+    val combinedEnc = TypedExpr.combineEnc[A, Void](expr.fragment.encoder, defFrag.encoder)(using Where.Concat2.rightVoid[A])
+    val frag        = Fragment(parts, combinedEnc.asInstanceOf[skunk.Encoder[A]], skunk.util.Origin.unknown)
+    TypedExpr[T, A](frag, expr.codec)
   }
 
   // ---- Value functions --------------------------------------------------------------------------

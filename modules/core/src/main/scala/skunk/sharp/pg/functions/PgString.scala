@@ -202,13 +202,25 @@ trait PgString {
     TypedExpr[T, A](frag, e.codec)
   }
 
-  def lpad[T](e: TypedExpr[T, ?], n: Int, fill: String)(using
+  /**
+   * `lpad(e, n, fill)` — `n` and `fill` are baked runtime values (Param.bind);  Args propagates
+   * from `e` only.
+   */
+  def lpad[T, A](e: TypedExpr[T, A], n: Int, fill: String)(using
     ev: StrLike[T], pf: PgTypeFor[String]
-  ): TypedExpr[T, Void] = {
+  ): TypedExpr[T, A] = {
     val fillFrag = Param.bind[String](fill).fragment
-    val mid      = TypedExpr.joinedVoid(s", $n, ", List(e.fragment, fillFrag))
-    val frag     = TypedExpr.wrap("lpad(", mid, ")")
-    TypedExpr[T, Void](frag, e.codec)
+    // Build parts: lpad( | e.parts | , n, | fill.parts | )
+    val parts =
+      List[Either[String, cats.data.State[Int, String]]](Left("lpad(")) ++
+        e.fragment.parts ++
+        List[Either[String, cats.data.State[Int, String]]](Left(s", $n, ")) ++
+        fillFrag.parts ++
+        List[Either[String, cats.data.State[Int, String]]](Left(")"))
+    // Encoder: e.encoder takes A; fill encoder takes Void (baked). Combine left-Void.
+    val combinedEnc = TypedExpr.combineEnc[A, Void](e.fragment.encoder, fillFrag.encoder)(using Where.Concat2.rightVoid[A])
+    val frag        = Fragment(parts, combinedEnc.asInstanceOf[skunk.Encoder[A]], skunk.util.Origin.unknown)
+    TypedExpr[T, A](frag, e.codec)
   }
 
   def rpad[T, A](e: TypedExpr[T, A], n: Int)(using StrLike[T]): TypedExpr[T, A] = {
@@ -219,13 +231,23 @@ trait PgString {
     TypedExpr[T, A](frag, e.codec)
   }
 
-  def rpad[T](e: TypedExpr[T, ?], n: Int, fill: String)(using
+  /**
+   * `rpad(e, n, fill)` — `n` and `fill` are baked runtime values (Param.bind); Args propagates
+   * from `e` only.
+   */
+  def rpad[T, A](e: TypedExpr[T, A], n: Int, fill: String)(using
     ev: StrLike[T], pf: PgTypeFor[String]
-  ): TypedExpr[T, Void] = {
+  ): TypedExpr[T, A] = {
     val fillFrag = Param.bind[String](fill).fragment
-    val mid      = TypedExpr.joinedVoid(s", $n, ", List(e.fragment, fillFrag))
-    val frag     = TypedExpr.wrap("rpad(", mid, ")")
-    TypedExpr[T, Void](frag, e.codec)
+    val parts =
+      List[Either[String, cats.data.State[Int, String]]](Left("rpad(")) ++
+        e.fragment.parts ++
+        List[Either[String, cats.data.State[Int, String]]](Left(s", $n, ")) ++
+        fillFrag.parts ++
+        List[Either[String, cats.data.State[Int, String]]](Left(")"))
+    val combinedEnc = TypedExpr.combineEnc[A, Void](e.fragment.encoder, fillFrag.encoder)(using Where.Concat2.rightVoid[A])
+    val frag        = Fragment(parts, combinedEnc.asInstanceOf[skunk.Encoder[A]], skunk.util.Origin.unknown)
+    TypedExpr[T, A](frag, e.codec)
   }
 
   // ---- Fixed text return (NULL-propagating via Lift) ------------------------------------------

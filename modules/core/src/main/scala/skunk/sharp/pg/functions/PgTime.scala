@@ -147,18 +147,39 @@ trait PgTime {
   }
 
   /**
-   * `make_timestamp(year, month, day, h, m, s)` — 6 typed positions. Currently kept at `Args = Void`
-   * (typed-Args threading at arity-6 is feasible via combineList + manual Concat fold but the
-   * boilerplate is large; deferred until it's actually needed in the wild).
+   * `make_timestamp(year, month, day, h, m, s)` — 6 typed positions threaded as
+   * `Concat[Concat[Concat[Concat[Concat[Y, MO], D], H], MI], S]` (left-fold).
    */
-  def makeTimestamp(
-    year: TypedExpr[Int, ?], month: TypedExpr[Int, ?], day: TypedExpr[Int, ?],
-    h: TypedExpr[Int, ?], m: TypedExpr[Int, ?], s: TypedExpr[Double, ?]
-  ): TypedExpr[LocalDateTime, Void] = {
-    val joined = TypedExpr.joinedVoid(", ",
-      List(year.fragment, month.fragment, day.fragment, h.fragment, m.fragment, s.fragment))
-    val frag   = TypedExpr.wrap("make_timestamp(", joined, ")")
-    TypedExpr[LocalDateTime, Void](frag, skunk.codec.all.timestamp)
+  def makeTimestamp[Y, MO, D, H, MI, S](
+    year:  TypedExpr[Int, Y],
+    month: TypedExpr[Int, MO],
+    day:   TypedExpr[Int, D],
+    h:     TypedExpr[Int, H],
+    m:     TypedExpr[Int, MI],
+    s:     TypedExpr[Double, S]
+  )(using
+    c12:     Where.Concat2[Y, MO],
+    c123:    Where.Concat2[Where.Concat[Y, MO], D],
+    c1234:   Where.Concat2[Where.Concat[Where.Concat[Y, MO], D], H],
+    c12345:  Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI],
+    c123456: Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI], S]
+  ): TypedExpr[LocalDateTime, Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI], S]] = {
+    type Out = Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI], S]
+    val projector: Out => List[Any] = combined => {
+      val (a12345, a6v) = c123456.project(combined)
+      val (a1234, a5v)  = c12345.project(a12345.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI]])
+      val (a123, a4v)   = c1234.project(a1234.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H]])
+      val (a12, a3v)    = c123.project(a123.asInstanceOf[Where.Concat[Where.Concat[Y, MO], D]])
+      val (a1v, a2v)    = c12.project(a12.asInstanceOf[Where.Concat[Y, MO]])
+      List(a1v, a2v, a3v, a4v, a5v, a6v)
+    }
+    val combined = TypedExpr.combineList[Out](
+      List(year.fragment, month.fragment, day.fragment, h.fragment, m.fragment, s.fragment),
+      ", ",
+      projector
+    )
+    val frag = TypedExpr.wrap("make_timestamp(", combined, ")")
+    TypedExpr[LocalDateTime, Out](frag, skunk.codec.all.timestamp)
   }
 
   // -------- Parsing ----------------------------------------------------------------------------

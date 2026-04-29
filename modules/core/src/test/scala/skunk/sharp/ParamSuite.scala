@@ -630,4 +630,19 @@ class ParamSuite extends munit.FunSuite {
     val _: QueryTemplate[(((java.time.LocalDate, java.time.LocalDate), java.time.LocalDate), java.time.LocalDate), ?] = q
   }
 
+  test("Pg.lpad(col, 4, fill) propagates Args from the typed expr only") {
+    val q = users.select(u => Pg.lpad(u.email, 4, "*")).compile
+    val _: QueryTemplate[Void, String] = q
+  }
+
+  test("Pg.rpad(Param, 4, fill) threads Param through expr position") {
+    val q = empty.select(_ => Pg.rpad(Param[String], 4, "_")).compile
+    val _: QueryTemplate[String, String] = q
+  }
+
+  test("Pg.lag(Param, 1, default) threads Param through expr position") {
+    val q = users.select(_ => Pg.lag(Param[String], 1, "n/a")).compile
+    val _: QueryTemplate[String, String] = q
+  }
+
 }
