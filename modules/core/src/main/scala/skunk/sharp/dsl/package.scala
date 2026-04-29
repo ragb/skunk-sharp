@@ -177,13 +177,15 @@ package object dsl {
   // `CASE WHEN target = v THEN …` and adds no expressiveness.
 
   /**
-   * Start a `CASE`. Each branch has its own boolean predicate. The first branch's `branch: TypedExpr[T]` pins the
-   * output type; later `.when`s must agree.
+   * Start a `CASE`. Each branch has its own boolean predicate. The first branch's `branch:
+   * TypedExpr[T]` pins the output type; later `.when`s must agree. Captured `Items` accumulate the
+   * sequence of `(cond, branch)` typed expressions so `.otherwise` / `.end` can fold their `Args`
+   * into the final QueryTemplate Args slot via [[ProjArgsOf]].
    */
   def caseWhen[T, A1, A2](
     cond: skunk.sharp.TypedExpr[Boolean, A1],
     branch: skunk.sharp.TypedExpr[T, A2]
-  ): CaseWhen[T] =
-    new CaseWhen[T](List((cond, branch)), branch.codec)
+  ): CaseWhen[T, skunk.sharp.TypedExpr[Boolean, A1] *: skunk.sharp.TypedExpr[T, A2] *: EmptyTuple] =
+    new CaseWhen(List((cond, branch)), branch.codec)
 
 }

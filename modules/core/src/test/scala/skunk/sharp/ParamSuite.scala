@@ -645,4 +645,53 @@ class ParamSuite extends munit.FunSuite {
     val _: QueryTemplate[String, String] = q
   }
 
+  // -------- CASE WHEN: typed Args threading ---------------------------------
+
+  test("CASE WHEN with all-Void branches collapses Args to Void") {
+    val q = users
+      .select(u => caseWhen(u.age < 18, lit("minor")).otherwise(lit("adult")))
+      .compile
+    val _: QueryTemplate[Void, String] = q
+  }
+
+  test("CASE WHEN with Param in cond + ELSE Param threads (Int, String) via Concat") {
+    val q = users
+      .select(_ =>
+        caseWhen(Param[Int] === lit(0), lit("zero"))
+          .otherwise(Param[String])
+      )
+      .compile
+    val _: QueryTemplate[(Int, String), String] = q
+  }
+
+  test("CASE WHEN with Param in branch result threads Param's type") {
+    val q = users
+      .select(u =>
+        caseWhen(u.age < 18, Param[String])
+          .otherwise(lit("adult"))
+      )
+      .compile
+    val _: QueryTemplate[String, String] = q
+  }
+
+  test("CASE WHEN multi-branch: cond1=Param, branch2=Param, ELSE=Param threads three Args") {
+    val q = users
+      .select(_ =>
+        caseWhen(Param[Int] === lit(1), lit("a"))
+          .when(Param[Int] === lit(2), Param[String])
+          .otherwise(Param[String])
+      )
+      .compile
+    // ProjArgsOf folds right-to-left over Items + ELSE; Void slots collapse:
+    //   (Int, Void, Int, String, String) → Concat-fold: (Int, (Int, (String, String)))
+    val _: QueryTemplate[(Int, (Int, (String, String))), String] = q
+  }
+
+  test("CASE WHEN .end produces Option[T] with typed Args") {
+    val q = users
+      .select(_ => caseWhen(Param[Int] === lit(0), lit("zero")).end)
+      .compile
+    val _: QueryTemplate[Int, Option[String]] = q
+  }
+
 }
