@@ -600,4 +600,34 @@ class ParamSuite extends munit.FunSuite {
     assertEquals(encoded, List("first", "third", uid.toString))
   }
 
+  test("Pg.greatest at arity 2 threads typed Args") {
+    val q = users.select(u => Pg.greatest(u.age, Param[Int])).compile
+    val _: QueryTemplate[Int, Int] = q
+  }
+
+  test("Pg.least at arity 3 threads typed Args via left-fold Concat") {
+    val q = users.select(u => Pg.least(Param[Int], u.age, Param[Int])).compile
+    val _: QueryTemplate[(Int, Int), Int] = q
+  }
+
+  test("Pg.makeDate(Param, lit, Param) threads (Y, D) via Concat") {
+    val q = empty.select(_ => Pg.makeDate(Param[Int], lit(1), Param[Int])).compile
+    val _: QueryTemplate[(Int, Int), java.time.LocalDate] = q
+  }
+
+  test("Pg.overlaps(Param, Param, Param, Param) threads 4-slot Concat") {
+    val q = bookings
+      .select(b => b.id)
+      .where(_ =>
+        Pg.overlaps(
+          Param[java.time.LocalDate],
+          Param[java.time.LocalDate],
+          Param[java.time.LocalDate],
+          Param[java.time.LocalDate]
+        )
+      )
+      .compile
+    val _: QueryTemplate[(((java.time.LocalDate, java.time.LocalDate), java.time.LocalDate), java.time.LocalDate), ?] = q
+  }
+
 }

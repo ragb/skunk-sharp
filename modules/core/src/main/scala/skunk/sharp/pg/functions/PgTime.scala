@@ -19,17 +19,60 @@ trait PgTime {
   val localTime:        TypedExpr[LocalTime, Void]      = TypedExpr(TypedExpr.voidFragment("localtime"),         skunk.codec.all.time)
 
   /**
-   * `(aStart, aEnd) OVERLAPS (bStart, bEnd)`. Args = Void — variadic-shape, joined via
-   * [[TypedExpr.joinedVoid]] for proper Void-Void contramap chain. Per-arm typed-Args is roadmap.
+   * `(aStart, aEnd) OVERLAPS (bStart, bEnd)` — 4 typed positions; Args is the left-fold
+   * `Concat[Concat[Concat[A1, A2], A3], A4]`. Custom separator pattern (`, ` inside each pair,
+   * `) OVERLAPS (` between pairs) is handled by manually constructing the parts list while still
+   * delegating slot dispatch to a per-position projector.
    */
-  def overlaps[T](
-    aStart: TypedExpr[T, ?], aEnd: TypedExpr[T, ?], bStart: TypedExpr[T, ?], bEnd: TypedExpr[T, ?]
-  ): Where[Void] = {
-    // Manually compose the SQL since separators differ (", " inside, ") OVERLAPS (" between pairs).
-    val a       = TypedExpr.joinedVoid(", ", List(aStart.fragment, aEnd.fragment))
-    val b       = TypedExpr.joinedVoid(", ", List(bStart.fragment, bEnd.fragment))
-    val withOp  = TypedExpr.joinedVoid(") OVERLAPS (", List(a, b))
-    val frag    = TypedExpr.wrap("(", withOp, ")")
+  def overlaps[T, A1, A2, A3, A4](
+    aStart: TypedExpr[T, A1], aEnd: TypedExpr[T, A2], bStart: TypedExpr[T, A3], bEnd: TypedExpr[T, A4]
+  )(using
+    c12:   Where.Concat2[A1, A2],
+    c123:  Where.Concat2[Where.Concat[A1, A2], A3],
+    c1234: Where.Concat2[Where.Concat[Where.Concat[A1, A2], A3], A4]
+  ): Where[Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4]] = {
+    type Out  = Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4]
+    val items = List(aStart.fragment, aEnd.fragment, bStart.fragment, bEnd.fragment)
+
+    val sep        = Left(", "): Either[String, cats.data.State[Int, String]]
+    val openParen  = Left("("): Either[String, cats.data.State[Int, String]]
+    val pairBreak  = Left(") OVERLAPS ("): Either[String, cats.data.State[Int, String]]
+    val closeParen = Left(")"): Either[String, cats.data.State[Int, String]]
+    val parts =
+      List(openParen) ++ aStart.fragment.parts ++
+        List(sep) ++ aEnd.fragment.parts ++
+        List(pairBreak) ++ bStart.fragment.parts ++
+        List(sep) ++ bEnd.fragment.parts ++
+        List(closeParen)
+
+    val enc: skunk.Encoder[Out] = new skunk.Encoder[Out] {
+      override val types: List[skunk.data.Type] = items.flatMap(_.encoder.types)
+      override val sql: cats.data.State[Int, String] =
+        cats.data.State { (n0: Int) =>
+          items.zipWithIndex.foldLeft((n0, "")) { case ((n, acc), (f, i)) =>
+            val (n1, s) = f.encoder.sql.run(n).value
+            val sepStr = i match {
+              case 0 => "("
+              case 1 => ", "
+              case 2 => ") OVERLAPS ("
+              case _ => ", "
+            }
+            (n1, acc + sepStr + s)
+          } match { case (n, acc) => (n, acc + ")") }
+        }
+
+      override def encode(args: Out): List[Option[skunk.data.Encoded]] = {
+        val (a123, a4v) = c1234.project(args)
+        val (a12, a3v)  = c123.project(a123.asInstanceOf[Where.Concat[Where.Concat[A1, A2], A3]])
+        val (a1v, a2v)  = c12.project(a12.asInstanceOf[Where.Concat[A1, A2]])
+        val values: List[Any] = List(a1v, a2v, a3v, a4v)
+        items.zip(values).flatMap { case (f, v) =>
+          val e = f.encoder.asInstanceOf[skunk.Encoder[Any]]
+          if (e eq Void.codec) Nil else e.encode(v)
+        }
+      }
+    }
+    val frag: Fragment[Out] = Fragment(parts, enc, skunk.util.Origin.unknown)
     Where(frag)
   }
 
@@ -69,18 +112,45 @@ trait PgTime {
 
   // -------- Construction -----------------------------------------------------------------------
 
-  def makeDate(year: TypedExpr[Int, ?], month: TypedExpr[Int, ?], day: TypedExpr[Int, ?]): TypedExpr[LocalDate, Void] = {
-    val joined = TypedExpr.joinedVoid(", ", List(year.fragment, month.fragment, day.fragment))
-    val frag   = TypedExpr.wrap("make_date(", joined, ")")
-    TypedExpr[LocalDate, Void](frag, skunk.codec.all.date)
+  /** `make_date(year, month, day)` — 3 typed positions; Args = `Concat[Concat[Y, M], D]`. */
+  def makeDate[Y, M, D](year: TypedExpr[Int, Y], month: TypedExpr[Int, M], day: TypedExpr[Int, D])(using
+    c12:  Where.Concat2[Y, M],
+    c123: Where.Concat2[Where.Concat[Y, M], D]
+  ): TypedExpr[LocalDate, Where.Concat[Where.Concat[Y, M], D]] = {
+    val projector: Where.Concat[Where.Concat[Y, M], D] => List[Any] = combined => {
+      val (a12, a3v) = c123.project(combined)
+      val (a1v, a2v) = c12.project(a12.asInstanceOf[Where.Concat[Y, M]])
+      List(a1v, a2v, a3v)
+    }
+    val combined = TypedExpr.combineList[Where.Concat[Where.Concat[Y, M], D]](
+      List(year.fragment, month.fragment, day.fragment), ", ", projector
+    )
+    val frag = TypedExpr.wrap("make_date(", combined, ")")
+    TypedExpr[LocalDate, Where.Concat[Where.Concat[Y, M], D]](frag, skunk.codec.all.date)
   }
 
-  def makeTime(h: TypedExpr[Int, ?], m: TypedExpr[Int, ?], s: TypedExpr[Double, ?]): TypedExpr[LocalTime, Void] = {
-    val joined = TypedExpr.joinedVoid(", ", List(h.fragment, m.fragment, s.fragment))
-    val frag   = TypedExpr.wrap("make_time(", joined, ")")
-    TypedExpr[LocalTime, Void](frag, skunk.codec.all.time)
+  /** `make_time(h, m, s)` — 3 typed positions; Args = `Concat[Concat[H, M], S]`. */
+  def makeTime[H, MM, S](h: TypedExpr[Int, H], m: TypedExpr[Int, MM], s: TypedExpr[Double, S])(using
+    c12:  Where.Concat2[H, MM],
+    c123: Where.Concat2[Where.Concat[H, MM], S]
+  ): TypedExpr[LocalTime, Where.Concat[Where.Concat[H, MM], S]] = {
+    val projector: Where.Concat[Where.Concat[H, MM], S] => List[Any] = combined => {
+      val (a12, a3v) = c123.project(combined)
+      val (a1v, a2v) = c12.project(a12.asInstanceOf[Where.Concat[H, MM]])
+      List(a1v, a2v, a3v)
+    }
+    val combined = TypedExpr.combineList[Where.Concat[Where.Concat[H, MM], S]](
+      List(h.fragment, m.fragment, s.fragment), ", ", projector
+    )
+    val frag = TypedExpr.wrap("make_time(", combined, ")")
+    TypedExpr[LocalTime, Where.Concat[Where.Concat[H, MM], S]](frag, skunk.codec.all.time)
   }
 
+  /**
+   * `make_timestamp(year, month, day, h, m, s)` — 6 typed positions. Currently kept at `Args = Void`
+   * (typed-Args threading at arity-6 is feasible via combineList + manual Concat fold but the
+   * boilerplate is large; deferred until it's actually needed in the wild).
+   */
   def makeTimestamp(
     year: TypedExpr[Int, ?], month: TypedExpr[Int, ?], day: TypedExpr[Int, ?],
     h: TypedExpr[Int, ?], m: TypedExpr[Int, ?], s: TypedExpr[Double, ?]
