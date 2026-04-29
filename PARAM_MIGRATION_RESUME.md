@@ -1,18 +1,34 @@
 # Resume: Param migration (TypedExpr[T] → TypedExpr[T, Args])
 
 **Branch**: `macro-sql-assembly`
-**Head**: `e3b0d58` — pushed to remote.
+**Head**: `8822261` — pushed to remote.
 
 | module    | tests   | status |
 | --------- | ------- | ------ |
-| core      | 439/439 | ✅     |
+| core      | 444/444 | ✅     |
 | circe     | 10/10   | ✅     |
 | iron      | 4/4     | ✅     |
 | refined   | 5/5     | ✅     |
 | tests     | 159/159 | ✅ (Postgres testcontainers) |
-| **total** | **617/617** | ✅ |
+| **total** | **622/622** | ✅ |
 
-## Latest session (commits `90160ed` → `e3b0d58`)
+## Latest session (commits `90160ed` → `8822261`)
+
+- `8822261` — **CASE WHEN threads typed `Args`**. `CaseWhen[T,
+  Items <: Tuple]` accumulates each `(cond, branch)` pair on `.when`;
+  `.otherwise` / `.end` summon `ProjArgsOf` over the items (plus ELSE)
+  to derive `OutA`. The render path switches from `joinedVoid` to a
+  hand-rolled encoder dispatching projector(args) per typed slot in
+  render order (`CASE WHEN c1 THEN b1 [WHEN c2 THEN b2 ...] [ELSE e]
+  END`). Backwards-compat for all-Void branches via the ProjArgsOf
+  priority chain.
+
+  ```scala
+  caseWhen(Param[Int] === lit(0), lit("zero"))
+    .when(u.age < 18, Param[String])
+    .otherwise(Param[String])
+    // : TypedExpr[String, (Int, (String, String))]   // right-folded Concat
+  ```
 
 - `e3b0d58` — **Round out variadic-typed builders**:
   - `Pg.lpad(e, n, fill)` / `Pg.rpad(e, n, fill)`: `n` and `fill`
@@ -261,15 +277,9 @@ other means.
    Refactor: add `Groups` to `SelectBuilder`'s class type params (38
    refs); make `SelectBuilder.groupBy` transparent-inline so the type
    threads through `.select`.
-2. **CASE WHEN typed Args**. Branches' Args are widened to `?` today.
-   Threading needs `CaseWhen[T, A]` parametric carrying the running
-   Concat-fold of branch + ELSE arms; `caseWhen` / `.when` /
-   `.otherwise` rewritten to extend A. The runtime walker pattern is
-   the same as combineList but the public API needs the type-level
-   tracking.
-3. **`UPDATE … FROM` / `DELETE … USING` typed Args from the USING/FROM
+2. **`UPDATE … FROM` / `DELETE … USING` typed Args from the USING/FROM
    source**. Currently the inner relation is bound at Void.
-4. **Subquery `.alias` / CTE bodies with typed inner Args**.
+3. **Subquery `.alias` / CTE bodies with typed inner Args**.
    `SelectBuilder.alias` and `compileFragment` bind `Void`; threading
    inner subquery's Args through `.alias` / CTE is roadmap.
 
