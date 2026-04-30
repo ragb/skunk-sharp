@@ -1,18 +1,33 @@
 # Resume: Param migration (TypedExpr[T] → TypedExpr[T, Args])
 
 **Branch**: `macro-sql-assembly`
-**Head**: `f0cb710` — local; not yet pushed.
+**Head**: `[next]` — local; not yet pushed.
 
 | module    | tests   | status |
 | --------- | ------- | ------ |
-| core      | 457/457 | ✅     |
+| core      | 465/465 | ✅     |
 | circe     | 10/10   | ✅     |
 | iron      | 4/4     | ✅     |
 | refined   | 5/5     | ✅     |
 | tests     | 159/159 | ✅ (Postgres testcontainers) |
-| **total** | **635/635** | ✅ |
+| **total** | **643/643** | ✅ |
 
-## Latest session (commits `90160ed` → `f0cb710`)
+## Latest session (commits `90160ed` → `[next]`)
+
+- `[next]` — **Verify and document UPDATE SET `:= Param[T]` and UPDATE
+  FROM / DELETE USING typed Args**. Both were already implemented (the
+  resume-doc entries were stale); this commit adds 8 new `ParamSuite`
+  tests and closes the open-gap / known-limitation entries.
+
+  Tests:
+  - UPDATE SET single Param → `CommandTemplate[String]`, SQL check.
+  - UPDATE SET Param + WHERE Param → `CommandTemplate[(String, UUID)]`, SQL.
+  - UPDATE SET two Params via `&` → `CommandTemplate[(String, Int)]`, SQL.
+  - UPDATE SET mixed baked + Param → `CommandTemplate[String]`, SQL.
+  - UPDATE FROM Param in WHERE → `CommandTemplate[UUID]`, SQL.
+  - UPDATE FROM Param in SET → `CommandTemplate[String]`, SQL.
+  - UPDATE FROM Param in SET + WHERE → `CommandTemplate[(String, UUID)]`, SQL.
+  - DELETE USING Param in WHERE → `CommandTemplate[UUID]`, SQL.
 
 - `f0cb710` — **ON CONFLICT DO UPDATE threads typed `CA` Args**.
   `InsertCommand[Cols, Args]` → `InsertCommand[Cols, Args, CA]` (new third
@@ -389,9 +404,7 @@ other means.
 
 ## Open gaps (priority order)
 
-1. **`UPDATE … FROM` / `DELETE … USING` typed Args from the USING/FROM
-   source**. Currently the inner relation is bound at Void.
-2. **Subquery `.alias` / CTE bodies with typed inner Args**.
+1. **Subquery `.alias` / CTE bodies with typed inner Args**.
    These positions now **fail at compile time** if the inner query has
    non-Void Args (guards landed in `af70bd0`). Threading inner Args through
    to the outer `QueryTemplate` remains roadmap — the guard prevents
@@ -444,9 +457,11 @@ UPDATE WHERE, DELETE WHERE, DELETE … RETURNING, and `INSERT.withParams` — se
   extension parameter positions break Scala 3 overload resolution. Trade-off:
   nullable-column value-RHS comparisons need `Some(value)` / `None` (rare in
   practice; `.isNull` / `.isNotNull` is the right tool for SQL NULL semantics).
-- **UPDATE SET RHS `:= Param[T]` is unsafe.** `.set` forces SetArgs = Void and
-  the encoder still expects T at execute. Use baked values (`:= "x"`) for SET.
-  Re-add typed Param[T] in SET when per-row Args reduction lands.
+- ~~**UPDATE SET RHS `:= Param[T]` is unsafe.**~~ **Resolved.** `c.col :=
+  Param[T]` works correctly; `set[A](f => col := Param[T])` yields
+  `UpdateWithSet[..., T]`, and `&`-chaining two Params yields
+  `UpdateWithSet[..., (T1, T2)]`. UPDATE FROM and DELETE USING thread
+  SET/WHERE typed Args correctly too. Covered by ParamSuite.
 - **`.alias` subqueries / CTE bodies / JOIN ON predicates** — using `Param[T]` in
   these positions is now a **compile error** (guards added). The underlying limitation
   (Args not threaded through) is unchanged; the error fires early and clearly.

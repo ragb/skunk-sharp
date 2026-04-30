@@ -775,6 +775,94 @@ class ParamSuite extends munit.FunSuite {
     val _: CommandTemplate[Void] = cmd
   }
 
+  // -------- UPDATE SET := Param[T] -------------------------------------------------------
+
+  test("UPDATE SET single Param yields CommandTemplate[T]") {
+    val cmd = users.update.set(u => u.email := Param[String]).updateAll.compile
+    val _: CommandTemplate[String] = cmd
+    assertEquals(cmd.fragment.sql.trim, """UPDATE "users" SET "email" = $1""")
+  }
+
+  test("UPDATE SET Param + WHERE Param yields CommandTemplate[(String, UUID)]") {
+    val cmd = users.update
+      .set(u => u.email := Param[String])
+      .where(u => u.id === Param[UUID])
+      .compile
+    val _: CommandTemplate[(String, UUID)] = cmd
+    assertEquals(cmd.fragment.sql.trim, """UPDATE "users" SET "email" = $1 WHERE "id" = $2""")
+  }
+
+  test("UPDATE SET two Params via & yields CommandTemplate[(String, Int)]") {
+    val cmd = users.update
+      .set(u => (u.email := Param[String]) & (u.age := Param[Int]))
+      .updateAll
+      .compile
+    val _: CommandTemplate[(String, Int)] = cmd
+    assertEquals(cmd.fragment.sql.trim, """UPDATE "users" SET "email" = $1, "age" = $2""")
+  }
+
+  test("UPDATE SET mixed baked + Param yields CommandTemplate[String]") {
+    val cmd = users.update
+      .set(u => (u.age := 0) & (u.email := Param[String]))
+      .updateAll
+      .compile
+    val _: CommandTemplate[String] = cmd
+    assertEquals(cmd.fragment.sql.trim, """UPDATE "users" SET "age" = $1, "email" = $2""")
+  }
+
+  // -------- UPDATE … FROM / DELETE … USING typed Args ------------------------------------
+
+  test("UPDATE … FROM Param in WHERE yields CommandTemplate[UUID]") {
+    val cmd = users.update
+      .from(posts)
+      .set(r => r.users.age := 0)
+      .where(r => r.users.id === Param[UUID])
+      .compile
+    val _: CommandTemplate[UUID] = cmd
+    assertEquals(
+      cmd.fragment.sql.trim,
+      """UPDATE "users" SET "age" = $1 FROM "posts" WHERE "users"."id" = $2"""
+    )
+  }
+
+  test("UPDATE … FROM Param in SET yields CommandTemplate[String]") {
+    val cmd = users.update
+      .from(posts)
+      .set(r => r.users.email := Param[String])
+      .where(r => r.users.id ==== r.posts.user_id)
+      .compile
+    val _: CommandTemplate[String] = cmd
+    assertEquals(
+      cmd.fragment.sql.trim,
+      """UPDATE "users" SET "email" = $1 FROM "posts" WHERE "users"."id" = "posts"."user_id""""
+    )
+  }
+
+  test("UPDATE … FROM Param in SET and WHERE yields CommandTemplate[(String, UUID)]") {
+    val cmd = users.update
+      .from(posts)
+      .set(r => r.users.email := Param[String])
+      .where(r => r.users.id === Param[UUID])
+      .compile
+    val _: CommandTemplate[(String, UUID)] = cmd
+    assertEquals(
+      cmd.fragment.sql.trim,
+      """UPDATE "users" SET "email" = $1 FROM "posts" WHERE "users"."id" = $2"""
+    )
+  }
+
+  test("DELETE … USING Param in WHERE yields CommandTemplate[UUID]") {
+    val cmd = users.delete
+      .using(posts)
+      .where(r => r.users.id === Param[UUID])
+      .compile
+    val _: CommandTemplate[UUID] = cmd
+    assertEquals(
+      cmd.fragment.sql.trim,
+      """DELETE FROM "users" USING "posts" WHERE "users"."id" = $1"""
+    )
+  }
+
   // -------- Compile-time guards: Param not allowed in subquery / CTE / ON positions ---------------
 
   test("SelectBuilder.alias rejects Param in WHERE at compile time") {
