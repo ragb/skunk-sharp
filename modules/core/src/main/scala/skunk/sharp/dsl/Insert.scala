@@ -1,5 +1,6 @@
 package skunk.sharp.dsl
 
+import scala.annotation.targetName
 import cats.Reducible
 import skunk.{AppliedFragment, Codec, Encoder, Fragment, Void}
 import skunk.sharp.*
@@ -28,76 +29,65 @@ import scala.deriving.Mirror
 final class InsertBuilder[Cols <: Tuple] private[sharp] (private[sharp] val table: Table[Cols, ?]) {
 
   /** Single-row insert from a named tuple of values. Args = Void (values baked via Param.bind). */
-  inline def apply[R <: NamedTuple.AnyNamedTuple](row: R): InsertCommand[Cols, Void] = {
+  inline def apply[R <: NamedTuple.AnyNamedTuple](row: R): InsertCommand[Cols, Void, Void] = {
     CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[R]]
     CompileChecks.requireCoversRequired[Cols, NamedTuple.Names[R]]
     CompileChecks.requireValueTypesMatch[Cols, NamedTuple.Names[R], NamedTuple.DropNames[R]]
     val names = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
     val vs    = row.asInstanceOf[Tuple].toList
-    InsertCommand.buildSingleBaked[Cols](table, names, vs, OnConflict.None)
+    InsertCommand.buildSingleBaked[Cols](table, names, vs, AppliedFragment.empty)
   }
 
   /** Single-row insert from a case-class instance. Args = Void. */
-  inline def apply[T <: Product](row: T)(using m: Mirror.ProductOf[T]): InsertCommand[Cols, Void] = {
+  inline def apply[T <: Product](row: T)(using m: Mirror.ProductOf[T]): InsertCommand[Cols, Void, Void] = {
     CompileChecks.requireAllNamesInCols[Cols, m.MirroredElemLabels]
     CompileChecks.requireCoversRequired[Cols, m.MirroredElemLabels]
     CompileChecks.requireValueTypesMatch[Cols, m.MirroredElemLabels, m.MirroredElemTypes]
     val names = constValueTuple[m.MirroredElemLabels].toList.asInstanceOf[List[String]]
     val vs    = row.productIterator.toList
-    InsertCommand.buildSingleBaked[Cols](table, names, vs, OnConflict.None)
+    InsertCommand.buildSingleBaked[Cols](table, names, vs, AppliedFragment.empty)
   }
 
   /** Batch from varargs. Values baked; Args = Void. */
-  inline def values[R <: NamedTuple.AnyNamedTuple](row: R, more: R*): InsertCommand[Cols, Void] = {
+  inline def values[R <: NamedTuple.AnyNamedTuple](row: R, more: R*): InsertCommand[Cols, Void, Void] = {
     CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[R]]
     CompileChecks.requireCoversRequired[Cols, NamedTuple.Names[R]]
     CompileChecks.requireValueTypesMatch[Cols, NamedTuple.Names[R], NamedTuple.DropNames[R]]
     val names = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
     val rows  = (row :: more.toList).map(_.asInstanceOf[Tuple].toList)
-    InsertCommand.buildMany[Cols](table, names, rows, OnConflict.None)
+    InsertCommand.buildMany[Cols](table, names, rows, AppliedFragment.empty)
   }
 
   /** Batch from `Reducible`. Args = Void. */
-  inline def values[F[_]: Reducible, R <: NamedTuple.AnyNamedTuple](rows: F[R]): InsertCommand[Cols, Void] = {
+  inline def values[F[_]: Reducible, R <: NamedTuple.AnyNamedTuple](rows: F[R]): InsertCommand[Cols, Void, Void] = {
     CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[R]]
     CompileChecks.requireCoversRequired[Cols, NamedTuple.Names[R]]
     CompileChecks.requireValueTypesMatch[Cols, NamedTuple.Names[R], NamedTuple.DropNames[R]]
     val names = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
     val rs    = Reducible[F].toNonEmptyList(rows).toList.map(_.asInstanceOf[Tuple].toList)
-    InsertCommand.buildMany[Cols](table, names, rs, OnConflict.None)
+    InsertCommand.buildMany[Cols](table, names, rs, AppliedFragment.empty)
   }
 
-  inline def values[F[_]: Reducible, T <: Product](rows: F[T])(using m: Mirror.ProductOf[T]): InsertCommand[Cols, Void] = {
+  inline def values[F[_]: Reducible, T <: Product](rows: F[T])(using m: Mirror.ProductOf[T]): InsertCommand[Cols, Void, Void] = {
     CompileChecks.requireAllNamesInCols[Cols, m.MirroredElemLabels]
     CompileChecks.requireCoversRequired[Cols, m.MirroredElemLabels]
     CompileChecks.requireValueTypesMatch[Cols, m.MirroredElemLabels, m.MirroredElemTypes]
     val names = constValueTuple[m.MirroredElemLabels].toList.asInstanceOf[List[String]]
     val rs    = Reducible[F].toNonEmptyList(rows).toList.map(_.productIterator.toList)
-    InsertCommand.buildMany[Cols](table, names, rs, OnConflict.None)
+    InsertCommand.buildMany[Cols](table, names, rs, AppliedFragment.empty)
   }
 
   /** `INSERT INTO … SELECT …`. The inner subquery's `Args` threads via the `AsSubquery` evidence. */
   inline def from[Q, Row <: NamedTuple.AnyNamedTuple, Args](src: Q)(using
     ev: AsSubquery[Q, Row, Args]
-  ): InsertCommand[Cols, Args] = {
+  ): InsertCommand[Cols, Args, Void] = {
     CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[Row]]
     CompileChecks.requireCoversRequired[Cols, NamedTuple.Names[Row]]
     CompileChecks.requireValueTypesMatch[Cols, NamedTuple.Names[Row], NamedTuple.DropNames[Row]]
     val names = constValueTuple[NamedTuple.Names[Row]].toList.asInstanceOf[List[String]]
-    InsertCommand.buildFromQuery[Cols, Args](table, names, ev.fragment(src), OnConflict.None)
+    InsertCommand.buildFromQuery[Cols, Args](table, names, ev.fragment(src), AppliedFragment.empty)
   }
 
-}
-
-/** ON CONFLICT clause. */
-sealed trait OnConflict
-
-object OnConflict {
-
-  case object None extends OnConflict
-  case object DoNothing extends OnConflict
-  final case class TargetDoNothing(columns: List[String]) extends OnConflict
-  final case class TargetDoUpdate(columns: List[String], assignments: List[SetAssignment[?, ?]]) extends OnConflict
 }
 
 /**
@@ -123,14 +113,37 @@ object InsertSource {
   final case class FromQuery(fragment: Fragment[?]) extends InsertSource
 }
 
-final class InsertCommand[Cols <: Tuple, Args] private[sharp] (
+/**
+ * An assembled INSERT statement.
+ *
+ * `Args` is the captured-parameter type from the INSERT source (Void for value-baked inserts, or the row
+ * tuple for `.withParams`). `CA` is the captured-parameter type from the `ON CONFLICT DO UPDATE SET`
+ * clause (Void when there is no typed Param in the conflict clause).
+ *
+ * The conflict clause is stored as two parts:
+ *  - `conflictHeaderAf` — the static SQL prefix (e.g. `" ON CONFLICT (id) DO UPDATE SET "` or
+ *    `" ON CONFLICT DO NOTHING"` or the entire baked clause for the Tuple-form DO UPDATE).
+ *  - `conflictSets` — the typed SET fragment (`CA`). `emptyVoidSlot` when the conflict clause is static.
+ *
+ * `insertParts` always emits exactly **two** `Right` slots in order:
+ *   - Slot 0 (A1 = Args): the INSERT source. `emptyVoidSlot` for value-baked sources.
+ *   - Slot 1 (A2 = CA): `conflictSets`. `emptyVoidSlot` when no typed conflict.
+ *
+ * The fixed-slot layout means `command[Args, CA]` and `withReturningTyped[Args, CA, ...]` dispatch
+ * correctly for all combinations of baked/typed source and baked/typed conflict.
+ */
+final class InsertCommand[Cols <: Tuple, Args, CA] private[sharp] (
   private[sharp] val table: Table[Cols, ?],
   private[sharp] val projected: List[Column[?, ?, ?, ?]],
   private[sharp] val source: InsertSource,
-  private[sharp] val conflict: OnConflict
+  /** Static SQL for the conflict clause, pre-applied. `AppliedFragment.empty` when there is no conflict. */
+  private[sharp] val conflictHeaderAf: AppliedFragment,
+  /** Typed SET expressions for `ON CONFLICT DO UPDATE`. `emptyVoidSlot` when not a typed DO UPDATE. */
+  private[sharp] val conflictSets: Fragment[CA]
 ) {
 
-  def compile: CommandTemplate[Args] = MutationAssembly.command[Args, Void](insertParts).asInstanceOf[CommandTemplate[Args]]
+  def compile(using c2: Where.Concat2[Args, CA]): CommandTemplate[Where.Concat[Args, CA]] =
+    MutationAssembly.command[Args, CA](insertParts)
 
   // ---- Body parts ---------------------------------------------------------------
 
@@ -141,72 +154,84 @@ final class InsertCommand[Cols <: Tuple, Args] private[sharp] (
       TypedExpr.raw(s"INSERT INTO ${table.qualifiedName} ($projections) ")
     }
 
-  private def insertParts: List[BodyPart] = {
+  /**
+   * Build the body-parts list. Always has two Right slots (source at 0, conflict sets at 1) so
+   * `assemble[Args, CA, Void]` dispatches A1→source and CA→conflictSets correctly regardless of baking.
+   */
+  private[dsl] def insertParts: List[BodyPart] = {
     val buf = scala.collection.mutable.ListBuffer[BodyPart](Left(headerAf))
     source match {
       case InsertSource.TypedRow(f) =>
         buf += Left(RawConstants.VALUES)
         buf += Left(f.asInstanceOf[Fragment[Void]].apply(Void))
+        buf += Right(SelectBuilder.emptyVoidSlot)  // A1 = Void placeholder (row already in Left)
       case InsertSource.TypedRowParams(f) =>
         buf += Left(RawConstants.VALUES)
-        buf += Right(f) // typed slot — encoder takes Args at execute
+        buf += Right(f)                            // A1 = Args
       case InsertSource.ManyRows(rows) =>
         buf += Left(TypedExpr.raw("VALUES "))
         buf += Left(TypedExpr.joined(rows, ", "))
+        buf += Right(SelectBuilder.emptyVoidSlot)  // A1 = Void placeholder
       case InsertSource.FromQuery(frag) =>
-        buf += Right(frag)
+        buf += Right(frag)                         // A1 = Args
     }
-    val cf = conflictFragment
-    if (cf ne AppliedFragment.empty) buf += Left(cf)
+    if (conflictHeaderAf ne AppliedFragment.empty) buf += Left(conflictHeaderAf)
+    buf += Right(conflictSets)                     // A2 = CA (or emptyVoid when no typed conflict)
     buf.toList
   }
 
   def returning[T, A](f: ColumnsView[Cols] => TypedExpr[T, A])(using
-    c2: Where.Concat2[Args, A]
-  ): QueryTemplate[Where.Concat[Args, A], T] = {
+    c12:  Where.Concat2[Args, CA],
+    c123: Where.Concat2[Where.Concat[Args, CA], A]
+  ): QueryTemplate[Where.Concat[Where.Concat[Args, CA], A], T] = {
     val view = table.columnsView
     val expr = f(view)
-    MutationAssembly.withReturningTyped2[Args, A, T](insertParts, expr.fragment, expr.codec)
+    MutationAssembly.withReturningTyped[Args, CA, A, T](insertParts, expr.fragment, expr.codec)
   }
 
   def returningTuple[T <: NonEmptyTuple](f: ColumnsView[Cols] => T)(using
-    fc: FoldConcatN[CollectArgs[T]],
-    c2: Where.Concat2[Args, FoldConcat[CollectArgs[T]]]
-  ): QueryTemplate[Where.Concat[Args, FoldConcat[CollectArgs[T]]], ExprOutputs[T]] = {
+    fc:   FoldConcatN[CollectArgs[T]],
+    c12:  Where.Concat2[Args, CA],
+    c123: Where.Concat2[Where.Concat[Args, CA], FoldConcat[CollectArgs[T]]]
+  ): QueryTemplate[Where.Concat[Where.Concat[Args, CA], FoldConcat[CollectArgs[T]]], ExprOutputs[T]] = {
     val view     = table.columnsView
     val exprs    = f(view).toList.asInstanceOf[List[TypedExpr[?, ?]]]
     val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
     val combined = TypedExpr.combineList[FoldConcat[CollectArgs[T]]](exprs.map(_.fragment), ", ", fc.project)
-    MutationAssembly.withReturningTyped2[Args, FoldConcat[CollectArgs[T]], ExprOutputs[T]](
+    MutationAssembly.withReturningTyped[Args, CA, FoldConcat[CollectArgs[T]], ExprOutputs[T]](
       insertParts, combined, codec
     )
   }
 
   def returningAll(using
-    c2: Where.Concat2[Args, Void]
-  ): QueryTemplate[Args, NamedRowOf[Cols]] = {
+    c12:  Where.Concat2[Args, CA],
+    c123: Where.Concat2[Where.Concat[Args, CA], Void]
+  ): QueryTemplate[Where.Concat[Args, CA], NamedRowOf[Cols]] = {
     val exprs =
       table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
         TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
       )
     val codec    = rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
     val combined = TypedExpr.combineList[Void](exprs.map(_.fragment), ", ", _ => List.fill(exprs.size)(Void))
-    MutationAssembly.withReturningTyped2[Args, Void, NamedRowOf[Cols]](insertParts, combined, codec)
-      .asInstanceOf[QueryTemplate[Args, NamedRowOf[Cols]]]
+    MutationAssembly.withReturningTyped[Args, CA, Void, NamedRowOf[Cols]](insertParts, combined, codec)
+      .asInstanceOf[QueryTemplate[Where.Concat[Args, CA], NamedRowOf[Cols]]]
   }
 
   // ---- ON CONFLICT ----
 
-  def onConflictDoNothing: InsertCommand[Cols, Args] = withConflict(OnConflict.DoNothing)
+  def onConflictDoNothing: InsertCommand[Cols, Args, Void] =
+    InsertCommand.mk(table, projected, source, TypedExpr.raw(" ON CONFLICT DO NOTHING"), SelectBuilder.emptyVoidSlot)
 
   def onConflict[T, Null <: Boolean, N <: String & Singleton](
     f: ColumnsView[Cols] => TypedColumn[T, Null, N]
   )(using
     ev: HasUniqueness[Cols, N] =:= true
   ): OnConflictBuilder[Cols, Args] = {
-    val view = table.columnsView
-    val col  = f(view)
-    new OnConflictBuilder[Cols, Args](this, List(col.name))
+    val col = f(table.columnsView)
+    OnConflictBuilder(
+      InsertCommand.mk(table, projected, source, AppliedFragment.empty, SelectBuilder.emptyVoidSlot),
+      List(col.name)
+    )
   }
 
   def onConflictComposite[T <: NonEmptyTuple](
@@ -214,35 +239,26 @@ final class InsertCommand[Cols <: Tuple, Args] private[sharp] (
   )(using
     ev: HasCompositeUniqueness[Cols, NamesOfTypedCols[T]] =:= true
   ): OnConflictBuilder[Cols, Args] = {
-    val view  = table.columnsView
-    val names = f(view).toList.asInstanceOf[List[TypedColumn[?, ?, ?]]].map(_.name)
-    new OnConflictBuilder[Cols, Args](this, names)
+    val names = f(table.columnsView).toList.asInstanceOf[List[TypedColumn[?, ?, ?]]].map(_.name)
+    OnConflictBuilder(
+      InsertCommand.mk(table, projected, source, AppliedFragment.empty, SelectBuilder.emptyVoidSlot),
+      names
+    )
   }
-
-  private[sharp] def conflictFragment: AppliedFragment =
-    conflict match {
-      case OnConflict.None                  => AppliedFragment.empty
-      case OnConflict.DoNothing             => TypedExpr.raw(" ON CONFLICT DO NOTHING")
-      case OnConflict.TargetDoNothing(cols) =>
-        TypedExpr.raw(s" ON CONFLICT (${cols.map(c => s""""$c"""").mkString(", ")}) DO NOTHING")
-      case OnConflict.TargetDoUpdate(cols, sets) =>
-        val header = TypedExpr.raw(s" ON CONFLICT (${cols.map(c => s""""$c"""").mkString(", ")}) DO UPDATE SET ")
-        // Each SetAssignment[?, ?]'s fragment may carry typed Args; for the AppliedFragment path here we
-        // bind Void (assumes value-baked path — ON CONFLICT DO UPDATE typically uses the EXCLUDED pseudo-table
-        // or constant values). Typed-args threading through ON CONFLICT is roadmap.
-        header |+| TypedExpr.joined(
-          sets.map(sa => sa.fragment.asInstanceOf[Fragment[Void]].apply(Void)),
-          ", "
-        )
-    }
-
-  private[sharp] def withConflict(c: OnConflict): InsertCommand[Cols, Args] =
-    new InsertCommand[Cols, Args](table, projected, source, c)
 
   private[sharp] def tableColumns: Cols = table.columns
 }
 
 object InsertCommand {
+
+  private[dsl] def mk[Cols <: Tuple, Args, CA](
+    table: Table[Cols, ?],
+    projected: List[Column[?, ?, ?, ?]],
+    source: InsertSource,
+    conflictHeaderAf: AppliedFragment,
+    conflictSets: Fragment[CA]
+  ): InsertCommand[Cols, Args, CA] =
+    new InsertCommand[Cols, Args, CA](table, projected, source, conflictHeaderAf, conflictSets)
 
   /**
    * Single-row insert from `Param[T]` placeholders — Args = the row tuple. The row encoder is built from
@@ -252,14 +268,13 @@ object InsertCommand {
     table: Table[Cols, ?],
     names: List[String],
     params: List[Param[?]],
-    conflict: OnConflict
-  ): InsertCommand[Cols, Args] = {
+    conflictHeaderAf: AppliedFragment
+  ): InsertCommand[Cols, Args, Void] = {
     val projected = lookupProjected(table, names)
-    // Build the row codec from the Params' own codecs (NOT the column's, in case they differ — typically same).
     val perRow: Codec[Tuple] = tupleCodec(params.map(_.codec))
     val rowEnc               = perRow.values
     val frag: Fragment[Args] = Fragment(List(Right(rowEnc.sql)), rowEnc.asInstanceOf[Encoder[Args]], Origin.unknown)
-    new InsertCommand[Cols, Args](table, projected, InsertSource.TypedRowParams(frag), conflict)
+    mk(table, projected, InsertSource.TypedRowParams(frag), conflictHeaderAf, SelectBuilder.emptyVoidSlot)
   }
 
   /** Build a single-row insert with values baked via Param.bind. Args = Void. */
@@ -267,16 +282,15 @@ object InsertCommand {
     table: Table[Cols, ?],
     names: List[String],
     values: List[Any],
-    conflict: OnConflict
-  ): InsertCommand[Cols, Void] = {
+    conflictHeaderAf: AppliedFragment
+  ): InsertCommand[Cols, Void, Void] = {
     val projected = lookupProjected(table, names)
     val perRow: Codec[Tuple] = tupleCodec(projected.map(_.codec))
     val rowEnc               = perRow.values
-    // Bake values via contramap so the resulting Fragment has Void encoder.
     val values0: Tuple = Tuple.fromArray(values.toArray[Any])
     val voidEnc: Encoder[Void] = rowEnc.contramap[Void](_ => values0)
     val frag: Fragment[Void] = Fragment(List(Right(rowEnc.sql)), voidEnc, Origin.unknown)
-    new InsertCommand[Cols, Void](table, projected, InsertSource.TypedRow(frag), conflict)
+    mk(table, projected, InsertSource.TypedRow(frag), conflictHeaderAf, SelectBuilder.emptyVoidSlot)
   }
 
   /** Batch — pre-applies each row to its own AppliedFragment. Args = Void. */
@@ -284,24 +298,24 @@ object InsertCommand {
     table: Table[Cols, ?],
     names: List[String],
     rows: List[List[Any]],
-    conflict: OnConflict
-  ): InsertCommand[Cols, Void] = {
+    conflictHeaderAf: AppliedFragment
+  ): InsertCommand[Cols, Void, Void] = {
     val projected = lookupProjected(table, names)
     val perRow: Codec[Tuple] = tupleCodec(projected.map(_.codec))
     val rowEnc               = perRow.values
     val rowFrag: Fragment[Tuple] =
       Fragment(parts = List(Right(rowEnc.sql)), encoder = rowEnc, origin = Origin.unknown)
     val applied = rows.map(r => rowFrag(Tuple.fromArray(r.toArray[Any])))
-    new InsertCommand[Cols, Void](table, projected, InsertSource.ManyRows(applied), conflict)
+    mk(table, projected, InsertSource.ManyRows(applied), conflictHeaderAf, SelectBuilder.emptyVoidSlot)
   }
 
   private[sharp] def buildFromQuery[Cols <: Tuple, Args](
     table: Table[Cols, ?],
     names: List[String],
     fragment: Fragment[Args],
-    conflict: OnConflict
-  ): InsertCommand[Cols, Args] =
-    new InsertCommand[Cols, Args](table, lookupProjected(table, names), InsertSource.FromQuery(fragment), conflict)
+    conflictHeaderAf: AppliedFragment
+  ): InsertCommand[Cols, Args, Void] =
+    mk(table, lookupProjected(table, names), InsertSource.FromQuery(fragment), conflictHeaderAf, SelectBuilder.emptyVoidSlot)
 
   private def lookupProjected[Cols <: Tuple](
     table: Table[Cols, ?],
@@ -317,33 +331,91 @@ object InsertCommand {
 
 }
 
-/** Continuation after `.onConflict(col)`. */
+/**
+ * Continuation after `.onConflict(col)`. Holds a Void-CA base command so that `doUpdate[CA]` can return
+ * a fresh `InsertCommand[Cols, Args, CA]` with the correct CA type.
+ */
 final class OnConflictBuilder[Cols <: Tuple, Args] private[sharp] (
-  cmd: InsertCommand[Cols, Args],
-  cols: List[String]
+  private val cmd: InsertCommand[Cols, Args, Void],
+  private val cols: List[String]
 ) {
 
-  def doNothing: InsertCommand[Cols, Args] = cmd.withConflict(OnConflict.TargetDoNothing(cols))
+  private def quotedCols: String = cols.map(c => s""""$c"""").mkString(", ")
+  private def doNothingHeader: AppliedFragment =
+    TypedExpr.raw(s" ON CONFLICT ($quotedCols) DO NOTHING")
+  private def doUpdateHeader: AppliedFragment =
+    TypedExpr.raw(s" ON CONFLICT ($quotedCols) DO UPDATE SET ")
 
-  def doUpdate(f: ColumnsView[Cols] => SetAssignment[?, ?] | Tuple): InsertCommand[Cols, Args] = {
-    val view        = ColumnsView(cmd.tableColumns)
-    val assignments = f(view) match {
-      case sa: SetAssignment[?, ?] => List(sa)
-      case t: Tuple                => t.toList.asInstanceOf[List[SetAssignment[?, ?]]]
-    }
-    cmd.withConflict(OnConflict.TargetDoUpdate(cols, assignments))
+  def doNothing: InsertCommand[Cols, Args, Void] =
+    InsertCommand.mk(cmd.table, cmd.projected, cmd.source, doNothingHeader, SelectBuilder.emptyVoidSlot)
+
+  /**
+   * Typed SET — the lambda returns a single `SetAssignment[?, CA]` (possibly `&`-chained). `CA` propagates
+   * to `InsertCommand` and surfaces in `.compile`'s `CommandTemplate[Concat[Args, CA]]`. Use [[Param]] in
+   * the RHS to defer values to execute time; baked RHS values (`:= "x"`) yield `CA = Void`.
+   *
+   * For multiple baked-value assignments, the Tuple overload (`.doUpdate(c => (c.a := "x", c.b := 1))`)
+   * is safer: it pre-applies all values into `Left(AF)` to avoid a product-encoder issue that would arise
+   * when two baked encoders are combined via `&`.
+   */
+  def doUpdate[CA](f: ColumnsView[Cols] => SetAssignment[?, CA]): InsertCommand[Cols, Args, CA] = {
+    val sa = f(ColumnsView(cmd.tableColumns))
+    InsertCommand.mk(
+      cmd.table, cmd.projected, cmd.source,
+      doUpdateHeader,
+      sa.fragment.asInstanceOf[Fragment[CA]]
+    )
   }
 
+  /**
+   * Tuple SET — multiple baked-value assignments. All SET RHS values are pre-applied into `Left(AF)`,
+   * so `CA = Void` and the conflict contributes no runtime parameters. The baked clause (header +
+   * pre-applied SET values) is stored as a single `Left(AppliedFragment)`.
+   */
+  @targetName("doUpdateTuple")
+  def doUpdate(f: ColumnsView[Cols] => Tuple): InsertCommand[Cols, Args, Void] = {
+    val view   = ColumnsView(cmd.tableColumns)
+    val raw    = f(view).toList.asInstanceOf[List[SetAssignment[?, ?]]]
+    val setsAF = TypedExpr.joined(raw.map(sa => sa.fragment.asInstanceOf[Fragment[Void]].apply(Void)), ", ")
+    InsertCommand.mk(
+      cmd.table, cmd.projected, cmd.source,
+      doUpdateHeader |+| setsAF,
+      SelectBuilder.emptyVoidSlot
+    )
+  }
+
+  /**
+   * Typed SET with access to the `excluded` pseudo-table. `CA` propagates from the assignment's Args.
+   */
+  def doUpdateFromExcluded[CA](
+    f: (ColumnsView[Cols], ColumnsView[Cols]) => SetAssignment[?, CA]
+  ): InsertCommand[Cols, Args, CA] = {
+    val target   = ColumnsView(cmd.tableColumns)
+    val excluded = ColumnsView.qualifiedRaw(cmd.tableColumns, "excluded")
+    val sa       = f(target, excluded)
+    InsertCommand.mk(
+      cmd.table, cmd.projected, cmd.source,
+      doUpdateHeader,
+      sa.fragment.asInstanceOf[Fragment[CA]]
+    )
+  }
+
+  /**
+   * Tuple SET with `excluded` pseudo-table. All values pre-applied; `CA = Void`.
+   */
+  @targetName("doUpdateFromExcludedTuple")
   def doUpdateFromExcluded(
-    f: (ColumnsView[Cols], ColumnsView[Cols]) => SetAssignment[?, ?] | Tuple
-  ): InsertCommand[Cols, Args] = {
-    val target      = ColumnsView(cmd.tableColumns)
-    val excluded    = ColumnsView.qualifiedRaw(cmd.tableColumns, "excluded")
-    val assignments = f(target, excluded) match {
-      case sa: SetAssignment[?, ?] => List(sa)
-      case t: Tuple                => t.toList.asInstanceOf[List[SetAssignment[?, ?]]]
-    }
-    cmd.withConflict(OnConflict.TargetDoUpdate(cols, assignments))
+    f: (ColumnsView[Cols], ColumnsView[Cols]) => Tuple
+  ): InsertCommand[Cols, Args, Void] = {
+    val target   = ColumnsView(cmd.tableColumns)
+    val excluded = ColumnsView.qualifiedRaw(cmd.tableColumns, "excluded")
+    val raw      = f(target, excluded).toList.asInstanceOf[List[SetAssignment[?, ?]]]
+    val setsAF   = TypedExpr.joined(raw.map(sa => sa.fragment.asInstanceOf[Fragment[Void]].apply(Void)), ", ")
+    InsertCommand.mk(
+      cmd.table, cmd.projected, cmd.source,
+      doUpdateHeader |+| setsAF,
+      SelectBuilder.emptyVoidSlot
+    )
   }
 
 }
@@ -377,7 +449,7 @@ extension [Cols <: Tuple](b: InsertBuilder[Cols]) {
    */
   inline def withParams[R <: NamedTuple.AnyNamedTuple](
     row: R
-  ): InsertCommand[Cols, StripParams[NamedTuple.DropNames[R]]] = {
+  ): InsertCommand[Cols, StripParams[NamedTuple.DropNames[R]], Void] = {
     CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[R]]
     CompileChecks.requireCoversRequired[Cols, NamedTuple.Names[R]]
     val names  = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
@@ -388,7 +460,7 @@ extension [Cols <: Tuple](b: InsertBuilder[Cols]) {
           s"skunk-sharp: .withParams expects every field to be a Param[T]; got: $other (${other.getClass.getName})"
         )
     }
-    InsertCommand.buildSingleParams[Cols, StripParams[NamedTuple.DropNames[R]]](b.table, names, params, OnConflict.None)
+    InsertCommand.buildSingleParams[Cols, StripParams[NamedTuple.DropNames[R]]](b.table, names, params, AppliedFragment.empty)
   }
 
 }

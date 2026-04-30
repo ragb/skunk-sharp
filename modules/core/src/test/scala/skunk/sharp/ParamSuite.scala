@@ -16,15 +16,17 @@ object ParamSuite {
   case class Post(id: UUID, user_id: UUID, title: String)
   case class Booking(id: UUID, period: PgRange[LocalDate])
   case class Tagged(id: UUID, tags: Arr[String])
+  case class Task(id: UUID, title: String, priority: Int, due: LocalDate)
 }
 
 class ParamSuite extends munit.FunSuite {
-  import ParamSuite.{User, Post, Booking, Tagged}
+  import ParamSuite.{User, Post, Booking, Tagged, Task}
 
   private val users    = Table.of[User]("users")
   private val posts    = Table.of[Post]("posts")
   private val bookings = Table.of[Booking]("bookings")
   private val tagged   = Table.of[Tagged]("tagged")
+  private val tasks    = Table.of[Task]("tasks").withPrimary("id")
 
   // -------- SELECT WHERE -------------------------------------------------------
 
@@ -712,6 +714,65 @@ class ParamSuite extends munit.FunSuite {
       .select(_ => caseWhen(Param[Int] === lit(0), lit("zero")).end)
       .compile
     val _: QueryTemplate[Int, Option[String]] = q
+  }
+
+  // -------- ON CONFLICT DO UPDATE typed Args --------------------------------------------------
+
+  test("onConflict.doUpdate with Param yields CommandTemplate[CA]") {
+    val cmd = tasks.insert
+      .apply((id = UUID.randomUUID(), title = "t", priority = 1, due = LocalDate.now()))
+      .onConflict(t => t.id)
+      .doUpdate(t => t.title := Param[String])
+      .compile
+    val _: CommandTemplate[String] = cmd
+  }
+
+  test("onConflict.doUpdate with Param produces correct SQL") {
+    val cmd = tasks.insert
+      .apply((id = UUID.randomUUID(), title = "t", priority = 1, due = LocalDate.now()))
+      .onConflict(t => t.id)
+      .doUpdate(t => t.title := Param[String])
+      .compile
+    assert(
+      cmd.fragment.sql.endsWith("""ON CONFLICT ("id") DO UPDATE SET "title" = $5"""),
+      s"unexpected sql: ${cmd.fragment.sql}"
+    )
+  }
+
+  test("onConflict.doUpdate with two Params via & yields CommandTemplate[(String, Int)]") {
+    val cmd = tasks.insert
+      .apply((id = UUID.randomUUID(), title = "t", priority = 1, due = LocalDate.now()))
+      .onConflict(t => t.id)
+      .doUpdate(t => (t.title := Param[String]) & (t.priority := Param[Int]))
+      .compile
+    val _: CommandTemplate[(String, Int)] = cmd
+  }
+
+  test("onConflict.doUpdate tuple overload (baked) yields CommandTemplate[Void]") {
+    val cmd = tasks.insert
+      .apply((id = UUID.randomUUID(), title = "t", priority = 1, due = LocalDate.now()))
+      .onConflict(t => t.id)
+      .doUpdate(t => (t.title := "updated", t.priority := 9))
+      .compile
+    val _: CommandTemplate[Void] = cmd
+  }
+
+  test("onConflict.doUpdateFromExcluded with Param yields CommandTemplate[CA]") {
+    val cmd = tasks.insert
+      .apply((id = UUID.randomUUID(), title = "t", priority = 1, due = LocalDate.now()))
+      .onConflict(t => t.id)
+      .doUpdateFromExcluded((t, _) => t.title := Param[String])
+      .compile
+    val _: CommandTemplate[String] = cmd
+  }
+
+  test("onConflict.doNothing after Param insert yields CommandTemplate[Void]") {
+    val cmd = tasks.insert
+      .apply((id = UUID.randomUUID(), title = "t", priority = 1, due = LocalDate.now()))
+      .onConflict(t => t.id)
+      .doNothing
+      .compile
+    val _: CommandTemplate[Void] = cmd
   }
 
   // -------- Compile-time guards: Param not allowed in subquery / CTE / ON positions ---------------

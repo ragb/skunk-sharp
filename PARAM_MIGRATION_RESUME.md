@@ -1,18 +1,86 @@
 # Resume: Param migration (TypedExpr[T] → TypedExpr[T, Args])
 
 **Branch**: `macro-sql-assembly`
-**Head**: `af70bd0` — local; not yet pushed.
+**Head**: `[next]` — local; not yet pushed.
 
 | module    | tests   | status |
 | --------- | ------- | ------ |
-| core      | 451/451 | ✅     |
+| core      | 457/457 | ✅     |
 | circe     | 10/10   | ✅     |
 | iron      | 4/4     | ✅     |
 | refined   | 5/5     | ✅     |
 | tests     | 159/159 | ✅ (Postgres testcontainers) |
-| **total** | **629/629** | ✅ |
+| **total** | **635/635** | ✅ |
 
-## Latest session (commits `90160ed` → `af70bd0`)
+## Latest session (commits `90160ed` → `[next]`)
+
+- `[next]` — **ON CONFLICT DO UPDATE threads typed `CA` Args**.
+  `InsertCommand[Cols, Args]` → `InsertCommand[Cols, Args, CA]` (new third
+  type param). The conflict clause is split into:
+  - `conflictHeaderAf: AppliedFragment` — static SQL (e.g.
+    `" ON CONFLICT (id) DO UPDATE SET "`, `" ON CONFLICT DO NOTHING"`, or
+    the fully pre-applied baked clause for the Tuple-form DO UPDATE).
+  - `conflictSets: Fragment[CA]` — typed SET fragment (`emptyVoidSlot`
+    when conflict is static/baked).
+
+  `insertParts` always emits exactly **two** `Right` slots: slot 0 = source
+  (A1=Args), slot 1 = conflictSets (A2=CA), so `command[Args, CA]` and
+  `withReturningTyped[Args, CA, ...]` dispatch correctly for all
+  combinations.
+
+  `OnConflictBuilder` now carries `InsertCommand[Cols, Args, Void]` and
+  exposes:
+  - `doUpdate[CA](f: ColumnsView => SetAssignment[?, CA])` — typed SET,
+    CA propagates. Use `Param[T]` on the RHS for deferred values.
+  - `doUpdate(f: ColumnsView => Tuple)` (`@targetName("doUpdateTuple")`)
+    — Tuple of baked assignments, pre-applied into `conflictHeaderAf`;
+    CA = Void.
+  - Same two overloads for `doUpdateFromExcluded`.
+  - `doNothing` — CA = Void.
+
+  `.compile` now requires `Where.Concat2[Args, CA]` and returns
+  `CommandTemplate[Where.Concat[Args, CA]]`. RETURNING methods use the
+  3-slot `withReturningTyped[Args, CA, RetArgs, R]`.
+
+  ```scala
+  val upsert: CommandTemplate[String] =
+    users.insert(row)
+      .onConflict(c => c.id)
+      .doUpdate(c => c.email := Param[String])
+      .compile
+  upsert.run(session)("new@email.com")
+  ```
+
+  ParamSuite: 6 new tests covering `doUpdate[CA]` type assertion,
+  SQL correctness, two-Param `&`-chained (`(String, Int)`), Tuple baked
+  (Void), `doUpdateFromExcluded[CA]`, and `doNothing` type assertion.
+
+- `af70bd0` — **Compile-time guards on `.alias`, `cte`, and `.on`**. Any of
+  these positions that carries a non-Void `WArgs` / `HArgs` / `GroupsT`
+  now fails at the call site with a `=:= skunk.Void` evidence error
+  instead of silently binding Param args to `Void`. This prevents a class
+  of bugs where a user would write `users.select.where(u => u.id ===
+  Param[UUID]).alias("u")` expecting the Param to surface in the outer
+  `QueryTemplate` — it now produces a clear compile error.
+
+  Changes:
+  - `Cte.scala`: `cte[..., WA, HA]` for both `SelectBuilder` and
+    `ProjectedSelect` overloads require `WA =:= Void`, `HA =:= Void`,
+    `ProjArgsOf.Aux[GroupsT, Void]`.
+  - `Join.scala`: `.alias` extension on `SelectBuilder` and
+    `ProjectedSelect` require `WA =:= Void`, `HA =:= Void` (plus
+    `ProjArgsOf.Aux[GroupsT, Void]` for `SelectBuilder`). `renderInner`
+    simplified to `sb.compileFragment` — safe now that we know inner Args
+    are all Void. `.on[A]` gains `(using A =:= Void)` so Params in JOIN
+    ON predicates fail at compile time.
+  - `Select.scala`: doc updates only (callers now enforce the constraints).
+  - `Param.scala`: `bind` scaladoc simplified.
+
+  ParamSuite: 5 new `typeCheckErrors` tests covering `.alias` on
+  SelectBuilder, `.alias` on ProjectedSelect, `cte` of SelectBuilder,
+  `cte` of projected SELECT, and `.on` with a Param predicate.
+
+## Previous session (commits `90160ed` → `f02171c`)
 
 - `af70bd0` — **Compile-time guards on `.alias`, `cte`, and `.on`**. Any of
   these positions that carries a non-Void `WArgs` / `HArgs` / `GroupsT`
@@ -382,10 +450,11 @@ UPDATE WHERE, DELETE WHERE, DELETE … RETURNING, and `INSERT.withParams` — se
 - **`.alias` subqueries / CTE bodies / JOIN ON predicates** — using `Param[T]` in
   these positions is now a **compile error** (guards added). The underlying limitation
   (Args not threaded through) is unchanged; the error fires early and clearly.
-- **SetOp / Values / window OVER specs / ON CONFLICT DO UPDATE / ON predicates** —
+- **SetOp / Values / window OVER specs / ON predicates** —
   Args bound at Void via `bindVoid` at materialisation. Encoder still threads bound
   values correctly, but the user-visible `Args` doesn't surface typed Params from
-  these positions. Per-position typed-Args is roadmap.
+  these positions. Per-position typed-Args is roadmap. **ON CONFLICT DO UPDATE** is
+  now done — see `CA` type param on `InsertCommand`.
 - **Variadic builders > arity 3** — `Pg.coalesce`, `Pg.concat`, `Pg.greatest`,
   `Pg.least` have typed overloads up to arity 3; N > 3 collapses to `Args = Void`.
   Mixing typed `Param[T]` inside variadic builders with > 3 args works at runtime
