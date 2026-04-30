@@ -1,7 +1,7 @@
 # Resume: Param migration (TypedExpr[T] → TypedExpr[T, Args])
 
 **Branch**: `macro-sql-assembly`
-**Head**: `[next]` — local; not yet pushed.
+**Head**: `c12fe90` — local; not yet pushed.
 
 | module    | tests   | status |
 | --------- | ------- | ------ |
@@ -12,9 +12,9 @@
 | tests     | 159/159 | ✅ (Postgres testcontainers) |
 | **total** | **643/643** | ✅ |
 
-## Latest session (commits `90160ed` → `[next]`)
+## Latest session (commits `90160ed` → `c12fe90`)
 
-- `[next]` — **Verify and document UPDATE SET `:= Param[T]` and UPDATE
+- `c12fe90` — **Verify and document UPDATE SET `:= Param[T]` and UPDATE
   FROM / DELETE USING typed Args**. Both were already implemented (the
   resume-doc entries were stale); this commit adds 8 new `ParamSuite`
   tests and closes the open-gap / known-limitation entries.
