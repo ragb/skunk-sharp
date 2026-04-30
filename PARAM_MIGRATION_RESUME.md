@@ -1,7 +1,7 @@
 # Resume: Param migration (TypedExpr[T] → TypedExpr[T, Args])
 
 **Branch**: `macro-sql-assembly`
-**Head**: `[next]` — local; not yet pushed.
+**Head**: `f0cb710` — local; not yet pushed.
 
 | module    | tests   | status |
 | --------- | ------- | ------ |
@@ -12,9 +12,9 @@
 | tests     | 159/159 | ✅ (Postgres testcontainers) |
 | **total** | **635/635** | ✅ |
 
-## Latest session (commits `90160ed` → `[next]`)
+## Latest session (commits `90160ed` → `f0cb710`)
 
-- `[next]` — **ON CONFLICT DO UPDATE threads typed `CA` Args**.
+- `f0cb710` — **ON CONFLICT DO UPDATE threads typed `CA` Args**.
   `InsertCommand[Cols, Args]` → `InsertCommand[Cols, Args, CA]` (new third
   type param). The conflict clause is split into:
   - `conflictHeaderAf: AppliedFragment` — static SQL (e.g.
