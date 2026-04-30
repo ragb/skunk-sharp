@@ -85,9 +85,11 @@ extension [Cols <: Tuple](r: Relation[Cols]) {
  * set-op results need a little more `Cols`-metadata threading; `.asExpr` (scalar-subquery-as-expression) covers the
  * common cases in the meantime.
  */
-extension [Ss <: Tuple, WA, HA](sb: SelectBuilder[Ss, WA, HA])(using
-  ev: IsSingleSource[Ss],
-  c2: Where.Concat2[WA, HA]
+extension [Ss <: Tuple, GroupsT <: Tuple, GA, WA, HA](sb: SelectBuilder[Ss, GroupsT, WA, HA])(using
+  ev:   IsSingleSource[Ss],
+  g:    skunk.sharp.dsl.ProjArgsOf.Aux[GroupsT, GA],
+  c12:  Where.Concat2[WA, GA],
+  c123: Where.Concat2[Where.Concat[WA, GA], HA]
 ) {
 
   def alias[A <: String & Singleton](a: A): Relation[ev.Cols] {
@@ -96,11 +98,11 @@ extension [Ss <: Tuple, WA, HA](sb: SelectBuilder[Ss, WA, HA])(using
   } = {
     val newAlias = a
     val cols = sb.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].head.effectiveCols.asInstanceOf[ev.Cols]
-    // Capture c2 at the outer site (concrete WA/HA) and pass it through to compile inside the
-    // closure — otherwise the thunk is compiled at abstract WA/HA and Scala picks `default` for
-    // c2, which crashes at runtime trying to project a Void-args fragment.
+    // Capture evidences at the outer site (concrete types) and pass them through to compile
+    // inside the closure — otherwise the thunk is compiled at abstract WA/GA/HA and Scala picks
+    // `default` for c2, which crashes at runtime trying to project a Void-args fragment.
     val renderInner: () => AppliedFragment = () =>
-      sb.compile(using ev, c2).fragment.asInstanceOf[skunk.Fragment[skunk.Void]].apply(skunk.Void)
+      sb.compile[GA](using ev, g, c12, c123).fragment.asInstanceOf[skunk.Fragment[skunk.Void]].apply(skunk.Void)
     new Relation[ev.Cols] {
       type Alias = A
       type Mode  = AliasMode.Explicit
@@ -556,7 +558,7 @@ final class IncompleteJoin[
    */
   def on[A](
     f: OnView[Ss, CR0, AR] => skunk.sharp.TypedExpr[Boolean, A]
-  ): SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR]], skunk.Void, skunk.Void] = {
+  ): SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR]], EmptyTuple, skunk.Void, skunk.Void] = {
     val rawPred = f(buildOnView[Ss, CR0, AR](sources, pendingOriginalCols, pendingAlias))
     // A `Where[A] = TypedExpr[Boolean, A]` already; this lift is identity. Kept for source compat with
     // direct boolean-typed exprs from third-party operators.
@@ -575,7 +577,7 @@ final class IncompleteJoin[
       case _                              => sources
     }
     val nextSources = (finalCommitted :* entry).asInstanceOf[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR]]]
-    new SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR]], skunk.Void, skunk.Void](nextSources)
+    new SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR]], EmptyTuple, skunk.Void, skunk.Void](nextSources)
   }
 
 }
@@ -687,13 +689,13 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
   def crossJoin[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](right: R)(using
     aR: AsRelation.Aux[R, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
-  ): SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR]), skunk.Void, skunk.Void] = {
+  ): SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR]), EmptyTuple, skunk.Void, skunk.Void] = {
     val baseEntry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val rel       = aR(right)
     val rCols     = rel.columns.asInstanceOf[CR]
     val rEntry    =
       new SourceEntry[RR, CR, CR, AR](rel, aR.aliasValue(right), rCols, rCols, JoinKind.Cross, None)
-    new SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR]), skunk.Void, skunk.Void]((baseEntry, rEntry))
+    new SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR]), EmptyTuple, skunk.Void, skunk.Void]((baseEntry, rEntry))
   }
 
   // ---- LATERAL joins ---------------------------------------------------------------------------
@@ -773,7 +775,7 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
   )(using
     aR: AsRelation.Aux[T, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
-  ): SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR]), skunk.Void, skunk.Void] = {
+  ): SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR]), EmptyTuple, skunk.Void, skunk.Void] = {
     val baseEntry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val outer     = ColumnsView.qualified(baseEntry.effectiveCols, baseEntry.alias)
     val t         = fn(outer)
@@ -789,7 +791,7 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
         None,
         isLateral = true
       )
-    new SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR]), skunk.Void, skunk.Void]((baseEntry, rEntry))
+    new SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR]), EmptyTuple, skunk.Void, skunk.Void]((baseEntry, rEntry))
   }
 
 }

@@ -479,6 +479,26 @@ class ParamSuite extends munit.FunSuite {
     assertEquals(encoded, List("1.5", uid.toString, "7"))
   }
 
+  test("Pre-projection: SelectBuilder.groupBy(Param) → .select threads GArgs through Groups") {
+    val q = users
+      .select
+      .groupBy(u => Pg.mod(u.age, Param[Int]))
+      .select(_ => Pg.countAll)
+      .compile
+    val _: QueryTemplate[Int, Long] = q
+  }
+
+  test("Pre-projection groupBy(Param) encodes value in render order") {
+    val q = users
+      .select
+      .groupBy(u => Pg.mod(u.age, Param[Int]))
+      .select(_ => Pg.countAll)
+      .compile
+    val af      = q.bind(7)
+    val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
+    assertEquals(encoded, List("7"))
+  }
+
   // -------- DISTINCT ON: typed Args threading --------------------------------
 
   test("SELECT DISTINCT ON column ref collapses DArgs to Void") {

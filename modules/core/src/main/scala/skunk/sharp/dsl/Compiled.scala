@@ -275,18 +275,20 @@ object AsSubquery {
   /**
    * Whole-row SelectBuilder → subquery of NamedRow. Relies on the same `IsSingleSource` evidence `.compile` uses.
    */
-  given fromSelectBuilder[Ss <: Tuple, WA, HA, C <: Tuple, R](using
-    ev: IsSingleSource.Aux[Ss, C],
-    c2: Where.Concat2[WA, HA],
-    eq: R =:= skunk.sharp.NamedRowOf[C]
-  ): AsSubquery[SelectBuilder[Ss, WA, HA], R, Where.Concat[WA, HA]] =
-    new AsSubquery[SelectBuilder[Ss, WA, HA], R, Where.Concat[WA, HA]] {
-      def codec(b: SelectBuilder[Ss, WA, HA]): Codec[R] = {
+  given fromSelectBuilder[Ss <: Tuple, GroupsT <: Tuple, GA, WA, HA, C <: Tuple, R](using
+    ev:   IsSingleSource.Aux[Ss, C],
+    g:    skunk.sharp.dsl.ProjArgsOf.Aux[GroupsT, GA],
+    c12:  Where.Concat2[WA, GA],
+    c123: Where.Concat2[Where.Concat[WA, GA], HA],
+    eq:   R =:= skunk.sharp.NamedRowOf[C]
+  ): AsSubquery[SelectBuilder[Ss, GroupsT, WA, HA], R, Where.Concat[Where.Concat[WA, GA], HA]] =
+    new AsSubquery[SelectBuilder[Ss, GroupsT, WA, HA], R, Where.Concat[Where.Concat[WA, GA], HA]] {
+      def codec(b: SelectBuilder[Ss, GroupsT, WA, HA]): Codec[R] = {
         val entries = b.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
         skunk.sharp.internal.rowCodec(entries.head.effectiveCols).asInstanceOf[Codec[R]]
       }
-      def fragment(b: SelectBuilder[Ss, WA, HA]): Fragment[Where.Concat[WA, HA]] =
-        b.compile(using ev, c2).fragment.asInstanceOf[Fragment[Where.Concat[WA, HA]]]
+      def fragment(b: SelectBuilder[Ss, GroupsT, WA, HA]): Fragment[Where.Concat[Where.Concat[WA, GA], HA]] =
+        b.compile[GA](using ev, g, c12, c123).fragment.asInstanceOf[Fragment[Where.Concat[Where.Concat[WA, GA], HA]]]
     }
 
   given fromSetOp[T]: AsSubquery[SetOpQuery[T], T, Void] =
