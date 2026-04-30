@@ -1,18 +1,45 @@
 # Resume: Param migration (TypedExpr[T] → TypedExpr[T, Args])
 
 **Branch**: `macro-sql-assembly`
-**Head**: `8822261` — pushed to remote.
+**Head**: `10e6f5d` — local; not yet pushed.
 
 | module    | tests   | status |
 | --------- | ------- | ------ |
-| core      | 444/444 | ✅     |
+| core      | 446/446 | ✅     |
 | circe     | 10/10   | ✅     |
 | iron      | 4/4     | ✅     |
 | refined   | 5/5     | ✅     |
 | tests     | 159/159 | ✅ (Postgres testcontainers) |
-| **total** | **622/622** | ✅ |
+| **total** | **624/624** | ✅ |
 
-## Latest session (commits `90160ed` → `8822261`)
+## Latest session (commits `90160ed` → `10e6f5d`)
+
+- `10e6f5d` — **`SelectBuilder.groupBy` threads typed Args via `Groups`
+  class param**. `SelectBuilder` now carries `Groups <: Tuple` (4-param
+  class: `[Ss, Groups, WArgs, HArgs]`). `groupBy` is `transparent
+  inline`, extending Groups via `Tuple.Concat[Groups, NormProj[G]]`;
+  `.select` carries Groups through to `ProjectedSelect`'s slot. compile
+  takes `[GArgs]` method param + `ProjArgsOf.Aux[Groups, GArgs]` and
+  threads GArgs between WHERE and HAVING. The previous runtime size-
+  fallback path (Void-fill) is gone for this shape.
+
+  ROLLUP / CUBE / GROUPING SETS return `TypedExpr[Unit, ?]`; new
+  `HasOpaqueGroup[G]` match type + `GroupCoverage.opaque` given vacate
+  coverage when any group entry is set-spec (coverage is meaningless
+  there — set-specs project columns conditionally per generated row).
+
+  ```scala
+  users.select
+       .groupBy(u => Pg.mod(u.age, Param[Int]))
+       .select(_ => Pg.countAll)
+       .compile
+    // : QueryTemplate[Int, Long]
+  ```
+
+  Cte.cte / Compiled.fromSelectBuilder / Join.alias all thread the new
+  `GroupsT` + ProjArgsOf evidences. SelectBuilder's constructor needs
+  `@scala.annotation.publicInBinary` because the new inline `groupBy`
+  constructs SelectBuilder directly.
 
 - `8822261` — **CASE WHEN threads typed `Args`**. `CaseWhen[T,
   Items <: Tuple]` accumulates each `(cond, branch)` pair on `.when`;
@@ -269,17 +296,9 @@ other means.
 
 ## Open gaps (priority order)
 
-1. **`SelectBuilder.groupBy` doesn't track `Groups` type-level**.
-   When the user does `SelectBuilder.groupBy → .select`, the
-   ProjectedSelect inherits the runtime `groupBys` list but `Groups`
-   resets to `EmptyTuple`. Compile() handles this with a runtime size
-   fallback (Void-fill); typed Args from such a path don't surface.
-   Refactor: add `Groups` to `SelectBuilder`'s class type params (38
-   refs); make `SelectBuilder.groupBy` transparent-inline so the type
-   threads through `.select`.
-2. **`UPDATE … FROM` / `DELETE … USING` typed Args from the USING/FROM
+1. **`UPDATE … FROM` / `DELETE … USING` typed Args from the USING/FROM
    source**. Currently the inner relation is bound at Void.
-3. **Subquery `.alias` / CTE bodies with typed inner Args**.
+2. **Subquery `.alias` / CTE bodies with typed inner Args**.
    `SelectBuilder.alias` and `compileFragment` bind `Void`; threading
    inner subquery's Args through `.alias` / CTE is roadmap.
 
