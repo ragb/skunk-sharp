@@ -1,7 +1,7 @@
 # Resume: Param migration (TypedExpr[T] → TypedExpr[T, Args])
 
 **Branch**: `macro-sql-assembly`
-**Head**: `[next]` — local; not yet pushed.
+**Head**: `af70bd0` — local; not yet pushed.
 
 | module    | tests   | status |
 | --------- | ------- | ------ |
@@ -12,9 +12,9 @@
 | tests     | 159/159 | ✅ (Postgres testcontainers) |
 | **total** | **629/629** | ✅ |
 
-## Latest session (commits `90160ed` → `[next]`)
+## Latest session (commits `90160ed` → `af70bd0`)
 
-- `[next]` — **Compile-time guards on `.alias`, `cte`, and `.on`**. Any of
+- `af70bd0` — **Compile-time guards on `.alias`, `cte`, and `.on`**. Any of
   these positions that carries a non-Void `WArgs` / `HArgs` / `GroupsT`
   now fails at the call site with a `=:= skunk.Void` evidence error
   instead of silently binding Param args to `Void`. This prevents a class
@@ -325,7 +325,7 @@ other means.
    source**. Currently the inner relation is bound at Void.
 2. **Subquery `.alias` / CTE bodies with typed inner Args**.
    These positions now **fail at compile time** if the inner query has
-   non-Void Args (guards landed in `[next]`). Threading inner Args through
+   non-Void Args (guards landed in `af70bd0`). Threading inner Args through
    to the outer `QueryTemplate` remains roadmap — the guard prevents
    silent data loss in the meantime.
 
@@ -411,7 +411,7 @@ UPDATE WHERE, DELETE WHERE, DELETE … RETURNING, and `INSERT.withParams` — se
 
 The user explicitly chose to pause pg/functions/* (which is mechanical "thread A through") and **resume with the dsl/* layer first** — that's where the user-visible API decisions surface.
 
-### 1. dsl/Compiled.scala — DONE in commit `[next]`
+### 1. dsl/Compiled.scala — DONE in commit `af70bd0`
 
 - `QueryTemplate[Args, R]` / `CommandTemplate[Args]` carry only `fragment` + `codec` (no captured args).
 - Execution extensions take `args: Args` at execute time. `Args = Void` overloads provide argless `q.run(session)` / `c.run(session)`.
