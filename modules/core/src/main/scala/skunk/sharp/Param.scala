@@ -46,12 +46,8 @@ object Param {
 
   /**
    * Bake a runtime value into a `TypedExpr[T, Void]` — the value is fixed at construction time, not supplied at
-   * execute. Equivalent to today's captured-args path, but explicit. Mostly useful when:
-   *
-   *   - building dynamic AppliedFragments programmatically and you want a typed-expression handle on a specific
-   *     value,
-   *   - migration aid where existing code wrote `=== runtimeValue` — wrap as `=== Param.bind(value)` to preserve
-   *     behavior verbatim.
+   * execute. This is what the value-taking operator overloads (`=== v`, `>= v`, …) call internally; you rarely need
+   * it directly unless you are constructing a dynamic expression outside the built-in operators.
    *
    * Prefer [[Param]] without `.bind` for static queries — that lets the user supply args at execute time and
    * preserves Skunk's plan-cache friendliness.

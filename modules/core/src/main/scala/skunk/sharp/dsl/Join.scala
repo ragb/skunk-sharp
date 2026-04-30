@@ -81,15 +81,16 @@ extension [Cols <: Tuple](r: Relation[Cols]) {
  *   active.innerJoin(orders).on(r => r.active.id ==== r.orders.user_id).compile
  * }}}
  *
- * Available on single-source whole-row builders today via `IsSingleSource` evidence. Projection-typed subqueries and
- * set-op results need a little more `Cols`-metadata threading; `.asExpr` (scalar-subquery-as-expression) covers the
- * common cases in the meantime.
+ * Available on single-source whole-row builders via `IsSingleSource` evidence. The inner builder must have
+ * no typed Args (`WArgs = Void`, `HArgs = Void`, no Params in GROUP BY) — compile-time constraints catch
+ * this early. Using [[Param]] in a derived-table subquery requires full Args threading through [[Relation]],
+ * which is on the roadmap; for now, move the parameter to the outer query's WHERE instead.
  */
-extension [Ss <: Tuple, GroupsT <: Tuple, GA, WA, HA](sb: SelectBuilder[Ss, GroupsT, WA, HA])(using
-  ev:   IsSingleSource[Ss],
-  g:    skunk.sharp.dsl.ProjArgsOf.Aux[GroupsT, GA],
-  c12:  Where.Concat2[WA, GA],
-  c123: Where.Concat2[Where.Concat[WA, GA], HA]
+extension [Ss <: Tuple, GroupsT <: Tuple, WA, HA](sb: SelectBuilder[Ss, GroupsT, WA, HA])(using
+  ev:  IsSingleSource[Ss],
+  _wv: WA =:= skunk.Void,
+  _hv: HA =:= skunk.Void,
+  _gv: skunk.sharp.dsl.ProjArgsOf.Aux[GroupsT, skunk.Void]
 ) {
 
   def alias[A <: String & Singleton](a: A): Relation[ev.Cols] {
@@ -98,11 +99,7 @@ extension [Ss <: Tuple, GroupsT <: Tuple, GA, WA, HA](sb: SelectBuilder[Ss, Grou
   } = {
     val newAlias = a
     val cols = sb.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].head.effectiveCols.asInstanceOf[ev.Cols]
-    // Capture evidences at the outer site (concrete types) and pass them through to compile
-    // inside the closure — otherwise the thunk is compiled at abstract WA/GA/HA and Scala picks
-    // `default` for c2, which crashes at runtime trying to project a Void-args fragment.
-    val renderInner: () => AppliedFragment = () =>
-      sb.compile[GA](using ev, g, c12, c123).fragment.asInstanceOf[skunk.Fragment[skunk.Void]].apply(skunk.Void)
+    val renderInner: () => AppliedFragment = () => sb.compileFragment(using ev)
     new Relation[ev.Cols] {
       type Alias = A
       type Mode  = AliasMode.Explicit
@@ -134,7 +131,12 @@ extension [Ss <: Tuple, GroupsT <: Tuple, GA, WA, HA](sb: SelectBuilder[Ss, Grou
  */
 extension [Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DA <: Tuple, OA <: Tuple, WA, HA, Row](
   ps: ProjectedSelect[Ss, Proj, Groups, DA, OA, WA, HA, Row]
-)(using gc: GroupCoverage[Proj, Groups], @scala.annotation.unused np: AllNamedProj[Proj]) {
+)(using
+  gc:  GroupCoverage[Proj, Groups],
+  @scala.annotation.unused np: AllNamedProj[Proj],
+  _wv: WA =:= skunk.Void,
+  _hv: HA =:= skunk.Void
+) {
 
   def alias[A <: String & Singleton](a: A): Relation[ProjCols[Proj]] {
     type Alias = A
@@ -555,8 +557,12 @@ final class IncompleteJoin[
    * Finalise the join predicate. The view sees every committed source's effective cols plus the pending source's
    * *original* cols — `ON` is evaluated before `NULL`-padding happens. Transitions to [[SelectBuilder]] with the
    * (possibly nullabilified) committed sources plus the pending source appended.
+   *
+   * The predicate must have `A = Void` — i.e. no [[Param]] in the ON expression. Column-to-column comparisons
+   * (`r.a.id ==== r.b.user_id`) and `lit(true)` satisfy this automatically. Threading typed ON-predicate Args
+   * into the outer [[SelectBuilder]] is roadmap.
    */
-  def on[A](
+  def on[A](using _av: A =:= skunk.Void)(
     f: OnView[Ss, CR0, AR] => skunk.sharp.TypedExpr[Boolean, A]
   ): SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR]], EmptyTuple, skunk.Void, skunk.Void] = {
     val rawPred = f(buildOnView[Ss, CR0, AR](sources, pendingOriginalCols, pendingAlias))

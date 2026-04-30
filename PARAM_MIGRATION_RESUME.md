@@ -1,18 +1,43 @@
 # Resume: Param migration (TypedExpr[T] → TypedExpr[T, Args])
 
 **Branch**: `macro-sql-assembly`
-**Head**: `10e6f5d` — local; not yet pushed.
+**Head**: `[next]` — local; not yet pushed.
 
 | module    | tests   | status |
 | --------- | ------- | ------ |
-| core      | 446/446 | ✅     |
+| core      | 451/451 | ✅     |
 | circe     | 10/10   | ✅     |
 | iron      | 4/4     | ✅     |
 | refined   | 5/5     | ✅     |
 | tests     | 159/159 | ✅ (Postgres testcontainers) |
-| **total** | **624/624** | ✅ |
+| **total** | **629/629** | ✅ |
 
-## Latest session (commits `90160ed` → `10e6f5d`)
+## Latest session (commits `90160ed` → `[next]`)
+
+- `[next]` — **Compile-time guards on `.alias`, `cte`, and `.on`**. Any of
+  these positions that carries a non-Void `WArgs` / `HArgs` / `GroupsT`
+  now fails at the call site with a `=:= skunk.Void` evidence error
+  instead of silently binding Param args to `Void`. This prevents a class
+  of bugs where a user would write `users.select.where(u => u.id ===
+  Param[UUID]).alias("u")` expecting the Param to surface in the outer
+  `QueryTemplate` — it now produces a clear compile error.
+
+  Changes:
+  - `Cte.scala`: `cte[..., WA, HA]` for both `SelectBuilder` and
+    `ProjectedSelect` overloads require `WA =:= Void`, `HA =:= Void`,
+    `ProjArgsOf.Aux[GroupsT, Void]`.
+  - `Join.scala`: `.alias` extension on `SelectBuilder` and
+    `ProjectedSelect` require `WA =:= Void`, `HA =:= Void` (plus
+    `ProjArgsOf.Aux[GroupsT, Void]` for `SelectBuilder`). `renderInner`
+    simplified to `sb.compileFragment` — safe now that we know inner Args
+    are all Void. `.on[A]` gains `(using A =:= Void)` so Params in JOIN
+    ON predicates fail at compile time.
+  - `Select.scala`: doc updates only (callers now enforce the constraints).
+  - `Param.scala`: `bind` scaladoc simplified.
+
+  ParamSuite: 5 new `typeCheckErrors` tests covering `.alias` on
+  SelectBuilder, `.alias` on ProjectedSelect, `cte` of SelectBuilder,
+  `cte` of projected SELECT, and `.on` with a Param predicate.
 
 - `10e6f5d` — **`SelectBuilder.groupBy` threads typed Args via `Groups`
   class param**. `SelectBuilder` now carries `Groups <: Tuple` (4-param
@@ -299,8 +324,10 @@ other means.
 1. **`UPDATE … FROM` / `DELETE … USING` typed Args from the USING/FROM
    source**. Currently the inner relation is bound at Void.
 2. **Subquery `.alias` / CTE bodies with typed inner Args**.
-   `SelectBuilder.alias` and `compileFragment` bind `Void`; threading
-   inner subquery's Args through `.alias` / CTE is roadmap.
+   These positions now **fail at compile time** if the inner query has
+   non-Void Args (guards landed in `[next]`). Threading inner Args through
+   to the outer `QueryTemplate` remains roadmap — the guard prevents
+   silent data loss in the meantime.
 
 The unifying engineering work is the now-shipped helper
 `TypedExpr.combineList[Combined](items, sep, projector): Fragment[Combined]`
@@ -352,16 +379,17 @@ UPDATE WHERE, DELETE WHERE, DELETE … RETURNING, and `INSERT.withParams` — se
 - **UPDATE SET RHS `:= Param[T]` is unsafe.** `.set` forces SetArgs = Void and
   the encoder still expects T at execute. Use baked values (`:= "x"`) for SET.
   Re-add typed Param[T] in SET when per-row Args reduction lands.
-- **CTE bodies / SetOp / Values / `.alias` subqueries / window OVER specs / `select`
-  projections / ORDER BY exprs / DISTINCT ON / RETURNING items / ON CONFLICT DO
-  UPDATE / ON predicates** — Args bound at Void via `bindVoid` at materialisation.
-  Encoder still threads bound values correctly (proven by integration tests passing),
-  but the user-visible `Args` doesn't surface typed Params from these positions.
-  Per-position typed-Args is roadmap.
-- **Variadic CASE WHEN / Pg.overlaps / Pg.makeDate / Pg.greatest / Pg.least /
-  Pg.coalesce / Pg.concat / etc.** all collapse Args to `Void`. Mixing typed
-  `Param[T]` inside variadic builders works at runtime (encoder still emits)
-  but the result's typed Args slot is `Void`.
+- **`.alias` subqueries / CTE bodies / JOIN ON predicates** — using `Param[T]` in
+  these positions is now a **compile error** (guards added). The underlying limitation
+  (Args not threaded through) is unchanged; the error fires early and clearly.
+- **SetOp / Values / window OVER specs / ON CONFLICT DO UPDATE / ON predicates** —
+  Args bound at Void via `bindVoid` at materialisation. Encoder still threads bound
+  values correctly, but the user-visible `Args` doesn't surface typed Params from
+  these positions. Per-position typed-Args is roadmap.
+- **Variadic builders > arity 3** — `Pg.coalesce`, `Pg.concat`, `Pg.greatest`,
+  `Pg.least` have typed overloads up to arity 3; N > 3 collapses to `Args = Void`.
+  Mixing typed `Param[T]` inside variadic builders with > 3 args works at runtime
+  (encoder still emits) but the result's typed Args slot is `Void`.
 - **Multi-item RETURNING with named tuples** is unsupported — only plain
   tuple projections (`returningTuple(u => (u.id, u.email))`) thread typed
   RetArgs. Named tuples in the RETURNING projection lambda would hit the

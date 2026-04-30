@@ -60,7 +60,12 @@ final class CteRelation[Cols <: Tuple, Name <: String & Singleton] private[sharp
 def cte[Ss <: Tuple, GroupsT <: Tuple, WA, HA, N <: String & Singleton](
   name: N,
   query: SelectBuilder[Ss, GroupsT, WA, HA]
-)(using ev: IsSingleSource[Ss]): CteRelation[ev.Cols, N] = {
+)(using
+  ev:  IsSingleSource[Ss],
+  _wv: WA =:= skunk.Void,
+  _hv: HA =:= skunk.Void,
+  _gv: ProjArgsOf.Aux[GroupsT, skunk.Void]
+): CteRelation[ev.Cols, N] = {
   val entries = query.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
   val deps    = directCtes(entries)
   val cols    = entries.head.effectiveCols.asInstanceOf[ev.Cols]
@@ -84,8 +89,10 @@ def cte[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DA <: Tuple, OA <: Tuple, W
   name: N,
   query: ProjectedSelect[Ss, Proj, Groups, DA, OA, WA, HA, Row]
 )(using
-  gc: GroupCoverage[Proj, Groups],
-  @scala.annotation.unused np: AllNamedProj[Proj]
+  gc:  GroupCoverage[Proj, Groups],
+  @scala.annotation.unused np: AllNamedProj[Proj],
+  _wv: WA =:= skunk.Void,
+  _hv: HA =:= skunk.Void
 ): CteRelation[ProjCols[Proj], N] = {
   val entries = query.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
   val deps    = directCtes(entries)

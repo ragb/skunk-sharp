@@ -389,10 +389,9 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
   ) = select[X](f)
 
   /**
-   * Bridge for [[Cte]] / `SelectBuilder.alias` that still need an `AppliedFragment`. Renders the SELECT body
-   * **without** the CTE preamble (the outer query's `assemble` is responsible for emitting `WITH` once).
-   * Currently constrained to `WArgs = Void` and `HArgs = Void` — typed-args threading through CTE bodies and
-   * aliased subqueries is roadmap.
+   * Bridge for [[Cte]] / `SelectBuilder.alias` — renders the SELECT body **without** the CTE preamble.
+   * Callers enforce at compile time that `WArgs = Void`, `HArgs = Void`, and GROUP BY has no typed Args;
+   * this method is only reached when all inner Args slots are Void.
    */
   private[dsl] def compileFragment(using ev: IsSingleSource[Ss]): AppliedFragment = {
     val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]]
@@ -1160,9 +1159,9 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
   }
 
   /**
-   * Bridge for [[Cte]] / `.alias` paths still on AppliedFragment. Renders the body without CTE preamble
-   * (outer query's `assemble` owns the WITH). Constrained to Void-args inner queries (`ProjArgs = WArgs
-   * = HArgs = Void`); typed-args threading through CTE / `.alias` is roadmap.
+   * Bridge for [[Cte]] / `.alias` — renders the body without CTE preamble (outer query's `assemble` owns
+   * the WITH). Callers enforce at compile time that `WArgs = Void` and `HArgs = Void`; this method is
+   * only reached when all inner Args slots are Void.
    */
   private[dsl] def compileFragment(using @scala.annotation.unused ev: GroupCoverage[Proj, Groups]): AppliedFragment = {
     val distinctSize = distinctOnOpt.fold(0)(_.size)

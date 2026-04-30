@@ -714,4 +714,68 @@ class ParamSuite extends munit.FunSuite {
     val _: QueryTemplate[Int, Option[String]] = q
   }
 
+  // -------- Compile-time guards: Param not allowed in subquery / CTE / ON positions ---------------
+
+  test("SelectBuilder.alias rejects Param in WHERE at compile time") {
+    val errors = compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.*
+      import skunk.sharp.dsl.*
+      import java.util.UUID
+      case class User(id: UUID, email: String, age: Int)
+      val users = Table.of[User]("users")
+      users.select.where(u => u.id === Param[UUID]).alias("u")
+    """)
+    assert(errors.nonEmpty, "expected compile error: Param in alias'd SelectBuilder WHERE")
+  }
+
+  test("cte rejects Param in WHERE at compile time") {
+    val errors = compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.*
+      import skunk.sharp.dsl.*
+      import java.util.UUID
+      case class User(id: UUID, email: String, age: Int)
+      val users = Table.of[User]("users")
+      cte("active", users.select.where(u => u.id === Param[UUID]))
+    """)
+    assert(errors.nonEmpty, "expected compile error: Param in cte SelectBuilder WHERE")
+  }
+
+  test("ProjectedSelect.alias rejects Param in WHERE at compile time") {
+    val errors = compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.*
+      import skunk.sharp.dsl.*
+      import java.util.UUID
+      case class User(id: UUID, email: String, age: Int)
+      val users = Table.of[User]("users")
+      users.select(u => u.email).where(u => u.id === Param[UUID]).alias("u")
+    """)
+    assert(errors.nonEmpty, "expected compile error: Param in alias'd ProjectedSelect WHERE")
+  }
+
+  test("cte of projected SELECT rejects Param in WHERE at compile time") {
+    val errors = compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.*
+      import skunk.sharp.dsl.*
+      import java.util.UUID
+      case class User(id: UUID, email: String, age: Int)
+      val users = Table.of[User]("users")
+      cte("u", users.select(u => u.email.as("e")).where(u => u.id === Param[UUID]))
+    """)
+    assert(errors.nonEmpty, "expected compile error: Param in cte ProjectedSelect WHERE")
+  }
+
+  test("on rejects Param in predicate at compile time") {
+    val errors = compiletime.testing.typeCheckErrors("""
+      import skunk.sharp.*
+      import skunk.sharp.dsl.*
+      import java.util.UUID
+      case class User(id: UUID, email: String, age: Int)
+      case class Post(id: UUID, user_id: UUID, title: String)
+      val users = Table.of[User]("users")
+      val posts = Table.of[Post]("posts")
+      users.innerJoin(posts).on(r => r.users.id === Param[UUID])
+    """)
+    assert(errors.nonEmpty, "expected compile error: Param in JOIN ON predicate")
+  }
+
 }
