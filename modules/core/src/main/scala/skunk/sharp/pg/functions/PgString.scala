@@ -19,19 +19,19 @@ trait PgString {
   def initcap[T, A](e: TypedExpr[T, A])(using StrLike[T]): TypedExpr[T, A] = stringPreserveFn("initcap", e)
 
   /** `trim(chars FROM s)`. */
-  def trim[T, A](e: TypedExpr[T, A], chars: String)(using ev: StrLike[T], pf: PgTypeFor[String]): TypedExpr[T, A] = {
+  inline def trim[T, A](e: TypedExpr[T, A], chars: String)(using ev: StrLike[T], pf: PgTypeFor[String]): TypedExpr[T, A] = {
     val charsFrag = Param.bind[String](chars).fragment
-    val inner     = TypedExpr.combineSep(charsFrag, " FROM ", e.fragment).asInstanceOf[Fragment[A]]
+    val inner     = TypedExpr.combineSepInl[Void, A](charsFrag, " FROM ", e.fragment).asInstanceOf[Fragment[A]]
     val frag      = TypedExpr.wrap("trim(", inner, ")")
     TypedExpr[T, A](frag, e.codec)
   }
 
   /** `replace(s, from, to)` with runtime String args (Param.bind). */
-  def replace[T, A](e: TypedExpr[T, A], from: String, to: String)(using ev: StrLike[T], pf: PgTypeFor[String]): TypedExpr[T, A] = {
+  inline def replace[T, A](e: TypedExpr[T, A], from: String, to: String)(using ev: StrLike[T], pf: PgTypeFor[String]): TypedExpr[T, A] = {
     val fromFrag = Param.bind[String](from).fragment
     val toFrag   = Param.bind[String](to).fragment
-    val s1       = TypedExpr.combineSep(e.fragment, ", ", fromFrag).asInstanceOf[Fragment[A]]
-    val s2       = TypedExpr.combineSep(s1, ", ", toFrag).asInstanceOf[Fragment[A]]
+    val s1       = TypedExpr.combineSepInl[A, Void](e.fragment, ", ", fromFrag).asInstanceOf[Fragment[A]]
+    val s2       = TypedExpr.combineSepInl[A, Void](s1, ", ", toFrag).asInstanceOf[Fragment[A]]
     val frag     = TypedExpr.wrap("replace(", s2, ")")
     TypedExpr[T, A](frag, e.codec)
   }
@@ -92,23 +92,23 @@ trait PgString {
   }
 
   /** `regexp_replace(s, pattern, replacement)`. */
-  def regexpReplace[T, A](e: TypedExpr[T, A], pattern: String, replacement: String)(using
+  inline def regexpReplace[T, A](e: TypedExpr[T, A], pattern: String, replacement: String)(using
     ev: StrLike[T], pf: PgTypeFor[String]
   ): TypedExpr[T, A] = {
     val pf1 = Param.bind[String](pattern).fragment
     val pf2 = Param.bind[String](replacement).fragment
-    val s1  = TypedExpr.combineSep(e.fragment, ", ", pf1).asInstanceOf[Fragment[A]]
-    val s2  = TypedExpr.combineSep(s1, ", ", pf2).asInstanceOf[Fragment[A]]
+    val s1  = TypedExpr.combineSepInl[A, Void](e.fragment, ", ", pf1).asInstanceOf[Fragment[A]]
+    val s2  = TypedExpr.combineSepInl[A, Void](s1, ", ", pf2).asInstanceOf[Fragment[A]]
     val frag = TypedExpr.wrap("regexp_replace(", s2, ")")
     TypedExpr[T, A](frag, e.codec)
   }
 
   /** `split_part(s, delim, field)`. */
-  def splitPart[T, A](e: TypedExpr[T, A], delim: String, field: Int)(using
+  inline def splitPart[T, A](e: TypedExpr[T, A], delim: String, field: Int)(using
     ev: StrLike[T], pf: PgTypeFor[String]
   ): TypedExpr[T, A] = {
     val delimFrag = Param.bind[String](delim).fragment
-    val s1        = TypedExpr.combineSep(e.fragment, ", ", delimFrag).asInstanceOf[Fragment[A]]
+    val s1        = TypedExpr.combineSepInl[A, Void](e.fragment, ", ", delimFrag).asInstanceOf[Fragment[A]]
     val frag      = Fragment[A](
       List[Either[String, cats.data.State[Int, String]]](Left("split_part(")) ++ s1.parts ++
         List[Either[String, cats.data.State[Int, String]]](Left(s", $field)")),
@@ -125,24 +125,21 @@ trait PgString {
   }
 
   /** `concat(a, b)` — Args = `Concat[A1, A2]`. */
-  def concat[A1, A2](a: TypedExpr[String, A1], b: TypedExpr[String, A2])(using
-    c2: Where.Concat2[A1, A2]
+  inline def concat[A1, A2](
+    a: TypedExpr[String, A1], b: TypedExpr[String, A2]
   ): TypedExpr[String, Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSep(a.fragment, ", ", b.fragment)
+    val inner = TypedExpr.combineSepInl[A1, A2](a.fragment, ", ", b.fragment)
     val frag  = TypedExpr.wrap("concat(", inner, ")")
     TypedExpr[String, Where.Concat[A1, A2]](frag, skunk.codec.all.text)
   }
 
   /** `concat(a, b, c)` — Args = `Concat[Concat[A1, A2], A3]` (left-fold). */
-  def concat[A1, A2, A3](
+  inline def concat[A1, A2, A3](
     a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3]
-  )(using
-    c12:  Where.Concat2[A1, A2],
-    c123: Where.Concat2[Where.Concat[A1, A2], A3]
   ): TypedExpr[String, Where.Concat[Where.Concat[A1, A2], A3]] = {
     val projector: Where.Concat[Where.Concat[A1, A2], A3] => List[Any] = combined => {
-      val (a12, a3v) = c123.project(combined)
-      val (a1v, a2v) = c12.project(a12.asInstanceOf[Where.Concat[A1, A2]])
+      val (a12, a3v) = Where.projectConcat[Where.Concat[A1, A2], A3](combined)
+      val (a1v, a2v) = Where.projectConcat[A1, A2](a12.asInstanceOf[Where.Concat[A1, A2]])
       List(a1v, a2v, a3v)
     }
     val combined = TypedExpr.combineList[Where.Concat[Where.Concat[A1, A2], A3]](
@@ -155,32 +152,26 @@ trait PgString {
   }
 
   /** `concat(a, b, c, d)` — Args is the right-folded `Concat` of all four inputs. */
-  def concat[A1, A2, A3, A4](
+  inline def concat[A1, A2, A3, A4](
     a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3], d: TypedExpr[String, A4]
-  )(using
-    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: EmptyTuple]
   ): TypedExpr[String, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: EmptyTuple]] =
     PgFunction.naryTypedFold[String, A1 *: A2 *: A3 *: A4 *: EmptyTuple](
       "concat", List(a.fragment, b.fragment, c.fragment, d.fragment), skunk.codec.all.text
     )
 
   /** `concat(a, b, c, d, e)` — Args is the right-folded `Concat` of all five inputs. */
-  def concat[A1, A2, A3, A4, A5](
+  inline def concat[A1, A2, A3, A4, A5](
     a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3],
     d: TypedExpr[String, A4], e: TypedExpr[String, A5]
-  )(using
-    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple]
   ): TypedExpr[String, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple]] =
     PgFunction.naryTypedFold[String, A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple](
       "concat", List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment), skunk.codec.all.text
     )
 
   /** `concat(a, b, c, d, e, f)` — Args is the right-folded `Concat` of all six inputs. */
-  def concat[A1, A2, A3, A4, A5, A6](
+  inline def concat[A1, A2, A3, A4, A5, A6](
     a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3],
     d: TypedExpr[String, A4], e: TypedExpr[String, A5], f: TypedExpr[String, A6]
-  )(using
-    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple]
   ): TypedExpr[String, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple]] =
     PgFunction.naryTypedFold[String, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple](
       "concat",
@@ -189,11 +180,9 @@ trait PgString {
     )
 
   /** `concat(a, b, c, d, e, f, g)` — Args is the right-folded `Concat` of all seven inputs. */
-  def concat[A1, A2, A3, A4, A5, A6, A7](
+  inline def concat[A1, A2, A3, A4, A5, A6, A7](
     a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3],
     d: TypedExpr[String, A4], e: TypedExpr[String, A5], f: TypedExpr[String, A6], g: TypedExpr[String, A7]
-  )(using
-    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple]
   ): TypedExpr[String, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple]] =
     PgFunction.naryTypedFold[String, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple](
       "concat",
@@ -202,11 +191,9 @@ trait PgString {
     )
 
   /** `concat(a, b, c, d, e, f, g, h)` — Args is the right-folded `Concat` of all eight inputs. */
-  def concat[A1, A2, A3, A4, A5, A6, A7, A8](
+  inline def concat[A1, A2, A3, A4, A5, A6, A7, A8](
     a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3], d: TypedExpr[String, A4],
     e: TypedExpr[String, A5], f: TypedExpr[String, A6], g: TypedExpr[String, A7], h: TypedExpr[String, A8]
-  )(using
-    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple]
   ): TypedExpr[String, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple]] =
     PgFunction.naryTypedFold[String, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple](
       "concat",
@@ -215,12 +202,10 @@ trait PgString {
     )
 
   /** `concat(a, b, c, d, e, f, g, h, i)` — Args is the right-folded `Concat` of all nine inputs. */
-  def concat[A1, A2, A3, A4, A5, A6, A7, A8, A9](
+  inline def concat[A1, A2, A3, A4, A5, A6, A7, A8, A9](
     a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3], d: TypedExpr[String, A4],
     e: TypedExpr[String, A5], f: TypedExpr[String, A6], g: TypedExpr[String, A7],
     h: TypedExpr[String, A8], i: TypedExpr[String, A9]
-  )(using
-    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple]
   ): TypedExpr[String, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple]] =
     PgFunction.naryTypedFold[String, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple](
       "concat",
@@ -240,26 +225,26 @@ trait PgString {
     stringToIntFn("octet_length", e)
 
   /** `position(substr IN str)` — substr is runtime String; nullability tracked via Lift. */
-  def position[T, A](substr: String, in: TypedExpr[T, A])(using
+  inline def position[T, A](substr: String, in: TypedExpr[T, A])(using
     ev: StrLike[T],
     pf: PgTypeFor[Lift[T, Int]],
     pfs: PgTypeFor[String]
   ): TypedExpr[Lift[T, Int], A] = {
     val substrFrag = Param.bind[String](substr).fragment
-    val s1         = TypedExpr.combineSep(substrFrag, " IN ", in.fragment).asInstanceOf[Fragment[A]]
+    val s1         = TypedExpr.combineSepInl[Void, A](substrFrag, " IN ", in.fragment).asInstanceOf[Fragment[A]]
     val frag       = TypedExpr.wrap("position(", s1, ")")
     TypedExpr[Lift[T, Int], A](frag, pf.codec)
   }
 
   // ---- Tag-preserving misc -------------------------------------------------------------------
 
-  def translate[T, A](e: TypedExpr[T, A], from: String, to: String)(using
+  inline def translate[T, A](e: TypedExpr[T, A], from: String, to: String)(using
     ev: StrLike[T], pf: PgTypeFor[String]
   ): TypedExpr[T, A] = {
     val ff = Param.bind[String](from).fragment
     val tf = Param.bind[String](to).fragment
-    val s1 = TypedExpr.combineSep(e.fragment, ", ", ff).asInstanceOf[Fragment[A]]
-    val s2 = TypedExpr.combineSep(s1, ", ", tf).asInstanceOf[Fragment[A]]
+    val s1 = TypedExpr.combineSepInl[A, Void](e.fragment, ", ", ff).asInstanceOf[Fragment[A]]
+    val s2 = TypedExpr.combineSepInl[A, Void](s1, ", ", tf).asInstanceOf[Fragment[A]]
     val frag = TypedExpr.wrap("translate(", s2, ")")
     TypedExpr[T, A](frag, e.codec)
   }
@@ -288,7 +273,9 @@ trait PgString {
         fillFrag.parts ++
         List[Either[String, cats.data.State[Int, String]]](Left(")"))
     // Encoder: e.encoder takes A; fill encoder takes Void (baked). Combine left-Void.
-    val combinedEnc = TypedExpr.combineEnc[A, Void](e.fragment.encoder, fillFrag.encoder)(using Where.Concat2.rightVoid[A])
+    val combinedEnc = TypedExpr.combineEnc[A, Void](
+      e.fragment.encoder, fillFrag.encoder, c => (c.asInstanceOf[A], Void)
+    )
     val frag        = Fragment(parts, combinedEnc.asInstanceOf[skunk.Encoder[A]], skunk.util.Origin.unknown)
     TypedExpr[T, A](frag, e.codec)
   }
@@ -315,7 +302,9 @@ trait PgString {
         List[Either[String, cats.data.State[Int, String]]](Left(s", $n, ")) ++
         fillFrag.parts ++
         List[Either[String, cats.data.State[Int, String]]](Left(")"))
-    val combinedEnc = TypedExpr.combineEnc[A, Void](e.fragment.encoder, fillFrag.encoder)(using Where.Concat2.rightVoid[A])
+    val combinedEnc = TypedExpr.combineEnc[A, Void](
+      e.fragment.encoder, fillFrag.encoder, c => (c.asInstanceOf[A], Void)
+    )
     val frag        = Fragment(parts, combinedEnc.asInstanceOf[skunk.Encoder[A]], skunk.util.Origin.unknown)
     TypedExpr[T, A](frag, e.codec)
   }
@@ -332,11 +321,11 @@ trait PgString {
     TypedExpr[Lift[T, String], A](frag, pf.codec)
   }
 
-  def toChar[T, A](e: TypedExpr[T, A], fmt: String)(using
+  inline def toChar[T, A](e: TypedExpr[T, A], fmt: String)(using
     pf: PgTypeFor[Lift[T, String]], pfs: PgTypeFor[String]
   ): TypedExpr[Lift[T, String], A] = {
     val fmtFrag = Param.bind[String](fmt).fragment
-    val s1      = TypedExpr.combineSep(e.fragment, ", ", fmtFrag).asInstanceOf[Fragment[A]]
+    val s1      = TypedExpr.combineSepInl[A, Void](e.fragment, ", ", fmtFrag).asInstanceOf[Fragment[A]]
     val frag    = TypedExpr.wrap("to_char(", s1, ")")
     TypedExpr[Lift[T, String], A](frag, pf.codec)
   }
@@ -356,11 +345,11 @@ trait PgString {
 
   // ---- String -> BigDecimal ------------------------------------------------------------------
 
-  def toNumber[T, A](e: TypedExpr[T, A], fmt: String)(using
+  inline def toNumber[T, A](e: TypedExpr[T, A], fmt: String)(using
     ev: StrLike[T], pf: PgTypeFor[Lift[T, BigDecimal]], pfs: PgTypeFor[String]
   ): TypedExpr[Lift[T, BigDecimal], A] = {
     val fmtFrag = Param.bind[String](fmt).fragment
-    val s1      = TypedExpr.combineSep(e.fragment, ", ", fmtFrag).asInstanceOf[Fragment[A]]
+    val s1      = TypedExpr.combineSepInl[A, Void](e.fragment, ", ", fmtFrag).asInstanceOf[Fragment[A]]
     val frag    = TypedExpr.wrap("to_number(", s1, ")")
     TypedExpr[Lift[T, BigDecimal], A](frag, pf.codec)
   }

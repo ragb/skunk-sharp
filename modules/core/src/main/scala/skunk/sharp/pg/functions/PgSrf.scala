@@ -98,26 +98,26 @@ private[sharp] def srfRelation1[T, N <: String & Singleton, BA](
 trait PgSrf {
 
   /** `generate_series(start, stop)` — inclusive integer range, one column `n INT` per row. */
-  def generateSeries[A, B](start: TypedExpr[Int, A], stop: TypedExpr[Int, B])(using
-    c2: Where.Concat2[A, B]
+  inline def generateSeries[A, B](
+    start: TypedExpr[Int, A], stop: TypedExpr[Int, B]
   ): TypedBodyRelation[Column[Int, "n", false, EmptyTuple] *: EmptyTuple, Where.Concat[A, B]] {
     type Alias = "n"
     type Mode  = AliasMode.Explicit
   } = {
-    val argsFrag: Fragment[Where.Concat[A, B]] = TypedExpr.combineSep(start.fragment, ", ", stop.fragment)
+    val argsFrag: Fragment[Where.Concat[A, B]] = TypedExpr.combineSepInl[A, B](start.fragment, ", ", stop.fragment)
     srfRelation1[Int, "n", Where.Concat[A, B]]("generate_series", argsFrag, "n", pg.int4)
   }
 
   /** `generate_series(start, stop, step)` — with an explicit step (positive or negative). */
-  def generateSeries[A, B, C](start: TypedExpr[Int, A], stop: TypedExpr[Int, B], step: TypedExpr[Int, C])(using
-    cAB:  Where.Concat2[A, B],
-    cABC: Where.Concat2[Where.Concat[A, B], C]
+  inline def generateSeries[A, B, C](
+    start: TypedExpr[Int, A], stop: TypedExpr[Int, B], step: TypedExpr[Int, C]
   ): TypedBodyRelation[Column[Int, "n", false, EmptyTuple] *: EmptyTuple, Where.Concat[Where.Concat[A, B], C]] {
     type Alias = "n"
     type Mode  = AliasMode.Explicit
   } = {
-    val ab: Fragment[Where.Concat[A, B]] = TypedExpr.combineSep(start.fragment, ", ", stop.fragment)
-    val abc: Fragment[Where.Concat[Where.Concat[A, B], C]] = TypedExpr.combineSep(ab, ", ", step.fragment)
+    val ab: Fragment[Where.Concat[A, B]] = TypedExpr.combineSepInl[A, B](start.fragment, ", ", stop.fragment)
+    val abc: Fragment[Where.Concat[Where.Concat[A, B], C]] =
+      TypedExpr.combineSepInl[Where.Concat[A, B], C](ab, ", ", step.fragment)
     srfRelation1[Int, "n", Where.Concat[Where.Concat[A, B], C]]("generate_series", abc, "n", pg.int4)
   }
 

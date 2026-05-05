@@ -31,8 +31,8 @@ trait PgNumeric {
   }
 
   /** `mod(a, b)` — both arms typed; combined Args. */
-  def mod[T, AA, BA](a: TypedExpr[T, AA], b: TypedExpr[T, BA]): TypedExpr[T, Where.Concat[AA, BA]] = {
-    val inner = TypedExpr.combineSep(a.fragment, ", ", b.fragment)
+  inline def mod[T, AA, BA](a: TypedExpr[T, AA], b: TypedExpr[T, BA]): TypedExpr[T, Where.Concat[AA, BA]] = {
+    val inner = TypedExpr.combineSepInl[AA, BA](a.fragment, ", ", b.fragment)
     val frag  = TypedExpr.wrap("mod(", inner, ")")
     TypedExpr[T, Where.Concat[AA, BA]](frag, a.codec)
   }
@@ -44,22 +44,19 @@ trait PgNumeric {
   }
 
   /** `greatest(a, b)` — Args = `Concat[A1, A2]`. */
-  def greatest[T, A1, A2](a: TypedExpr[T, A1], b: TypedExpr[T, A2])(using
-    c2: Where.Concat2[A1, A2]
-  ): TypedExpr[T, Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSep(a.fragment, ", ", b.fragment)
+  inline def greatest[T, A1, A2](a: TypedExpr[T, A1], b: TypedExpr[T, A2]): TypedExpr[T, Where.Concat[A1, A2]] = {
+    val inner = TypedExpr.combineSepInl[A1, A2](a.fragment, ", ", b.fragment)
     val frag  = TypedExpr.wrap("greatest(", inner, ")")
     TypedExpr[T, Where.Concat[A1, A2]](frag, a.codec)
   }
 
   /** `greatest(a, b, c)` — Args = `Concat[Concat[A1, A2], A3]` (left-fold). */
-  def greatest[T, A1, A2, A3](a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3])(using
-    c12:  Where.Concat2[A1, A2],
-    c123: Where.Concat2[Where.Concat[A1, A2], A3]
+  inline def greatest[T, A1, A2, A3](
+    a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3]
   ): TypedExpr[T, Where.Concat[Where.Concat[A1, A2], A3]] = {
     val projector: Where.Concat[Where.Concat[A1, A2], A3] => List[Any] = combined => {
-      val (a12, a3v) = c123.project(combined)
-      val (a1v, a2v) = c12.project(a12.asInstanceOf[Where.Concat[A1, A2]])
+      val (a12, a3v) = Where.projectConcat[Where.Concat[A1, A2], A3](combined)
+      val (a1v, a2v) = Where.projectConcat[A1, A2](a12.asInstanceOf[Where.Concat[A1, A2]])
       List(a1v, a2v, a3v)
     }
     val combined = TypedExpr.combineList[Where.Concat[Where.Concat[A1, A2], A3]](
@@ -70,42 +67,34 @@ trait PgNumeric {
   }
 
   /** `greatest(a, b, c, d)` — Args is the right-folded `Concat` of all four inputs. */
-  def greatest[T, A1, A2, A3, A4](
+  inline def greatest[T, A1, A2, A3, A4](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4]
-  )(using
-    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: EmptyTuple]
   ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: EmptyTuple]] =
     PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: EmptyTuple](
       "greatest", List(a.fragment, b.fragment, c.fragment, d.fragment), a.codec
     )
 
   /** `greatest(a, b, c, d, e)` — Args is the right-folded `Concat` of all five inputs. */
-  def greatest[T, A1, A2, A3, A4, A5](
+  inline def greatest[T, A1, A2, A3, A4, A5](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4], e: TypedExpr[T, A5]
-  )(using
-    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple]
   ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple]] =
     PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple](
       "greatest", List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment), a.codec
     )
 
   /** `greatest(a, b, c, d, e, f)` — Args is the right-folded `Concat` of all six inputs. */
-  def greatest[T, A1, A2, A3, A4, A5, A6](
+  inline def greatest[T, A1, A2, A3, A4, A5, A6](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
     e: TypedExpr[T, A5], f: TypedExpr[T, A6]
-  )(using
-    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple]
   ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple]] =
     PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple](
       "greatest", List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment), a.codec
     )
 
   /** `greatest(a, b, c, d, e, f, g)` — Args is the right-folded `Concat` of all seven inputs. */
-  def greatest[T, A1, A2, A3, A4, A5, A6, A7](
+  inline def greatest[T, A1, A2, A3, A4, A5, A6, A7](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
     e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7]
-  )(using
-    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple]
   ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple]] =
     PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple](
       "greatest",
@@ -114,11 +103,9 @@ trait PgNumeric {
     )
 
   /** `greatest(a, b, c, d, e, f, g, h)` — Args is the right-folded `Concat` of all eight inputs. */
-  def greatest[T, A1, A2, A3, A4, A5, A6, A7, A8](
+  inline def greatest[T, A1, A2, A3, A4, A5, A6, A7, A8](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
     e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7], h: TypedExpr[T, A8]
-  )(using
-    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple]
   ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple]] =
     PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple](
       "greatest",
@@ -127,11 +114,9 @@ trait PgNumeric {
     )
 
   /** `greatest(a, b, c, d, e, f, g, h, i)` — Args is the right-folded `Concat` of all nine inputs. */
-  def greatest[T, A1, A2, A3, A4, A5, A6, A7, A8, A9](
+  inline def greatest[T, A1, A2, A3, A4, A5, A6, A7, A8, A9](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
     e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7], h: TypedExpr[T, A8], i: TypedExpr[T, A9]
-  )(using
-    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple]
   ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple]] =
     PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple](
       "greatest",
@@ -146,22 +131,19 @@ trait PgNumeric {
   }
 
   /** `least(a, b)` — Args = `Concat[A1, A2]`. */
-  def least[T, A1, A2](a: TypedExpr[T, A1], b: TypedExpr[T, A2])(using
-    c2: Where.Concat2[A1, A2]
-  ): TypedExpr[T, Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSep(a.fragment, ", ", b.fragment)
+  inline def least[T, A1, A2](a: TypedExpr[T, A1], b: TypedExpr[T, A2]): TypedExpr[T, Where.Concat[A1, A2]] = {
+    val inner = TypedExpr.combineSepInl[A1, A2](a.fragment, ", ", b.fragment)
     val frag  = TypedExpr.wrap("least(", inner, ")")
     TypedExpr[T, Where.Concat[A1, A2]](frag, a.codec)
   }
 
   /** `least(a, b, c)` — Args = `Concat[Concat[A1, A2], A3]` (left-fold). */
-  def least[T, A1, A2, A3](a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3])(using
-    c12:  Where.Concat2[A1, A2],
-    c123: Where.Concat2[Where.Concat[A1, A2], A3]
+  inline def least[T, A1, A2, A3](
+    a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3]
   ): TypedExpr[T, Where.Concat[Where.Concat[A1, A2], A3]] = {
     val projector: Where.Concat[Where.Concat[A1, A2], A3] => List[Any] = combined => {
-      val (a12, a3v) = c123.project(combined)
-      val (a1v, a2v) = c12.project(a12.asInstanceOf[Where.Concat[A1, A2]])
+      val (a12, a3v) = Where.projectConcat[Where.Concat[A1, A2], A3](combined)
+      val (a1v, a2v) = Where.projectConcat[A1, A2](a12.asInstanceOf[Where.Concat[A1, A2]])
       List(a1v, a2v, a3v)
     }
     val combined = TypedExpr.combineList[Where.Concat[Where.Concat[A1, A2], A3]](
@@ -172,42 +154,34 @@ trait PgNumeric {
   }
 
   /** `least(a, b, c, d)` — Args is the right-folded `Concat` of all four inputs. */
-  def least[T, A1, A2, A3, A4](
+  inline def least[T, A1, A2, A3, A4](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4]
-  )(using
-    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: EmptyTuple]
   ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: EmptyTuple]] =
     PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: EmptyTuple](
       "least", List(a.fragment, b.fragment, c.fragment, d.fragment), a.codec
     )
 
   /** `least(a, b, c, d, e)` — Args is the right-folded `Concat` of all five inputs. */
-  def least[T, A1, A2, A3, A4, A5](
+  inline def least[T, A1, A2, A3, A4, A5](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4], e: TypedExpr[T, A5]
-  )(using
-    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple]
   ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple]] =
     PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple](
       "least", List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment), a.codec
     )
 
   /** `least(a, b, c, d, e, f)` — Args is the right-folded `Concat` of all six inputs. */
-  def least[T, A1, A2, A3, A4, A5, A6](
+  inline def least[T, A1, A2, A3, A4, A5, A6](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
     e: TypedExpr[T, A5], f: TypedExpr[T, A6]
-  )(using
-    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple]
   ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple]] =
     PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple](
       "least", List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment), a.codec
     )
 
   /** `least(a, b, c, d, e, f, g)` — Args is the right-folded `Concat` of all seven inputs. */
-  def least[T, A1, A2, A3, A4, A5, A6, A7](
+  inline def least[T, A1, A2, A3, A4, A5, A6, A7](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
     e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7]
-  )(using
-    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple]
   ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple]] =
     PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple](
       "least",
@@ -216,11 +190,9 @@ trait PgNumeric {
     )
 
   /** `least(a, b, c, d, e, f, g, h)` — Args is the right-folded `Concat` of all eight inputs. */
-  def least[T, A1, A2, A3, A4, A5, A6, A7, A8](
+  inline def least[T, A1, A2, A3, A4, A5, A6, A7, A8](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
     e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7], h: TypedExpr[T, A8]
-  )(using
-    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple]
   ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple]] =
     PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple](
       "least",
@@ -229,11 +201,9 @@ trait PgNumeric {
     )
 
   /** `least(a, b, c, d, e, f, g, h, i)` — Args is the right-folded `Concat` of all nine inputs. */
-  def least[T, A1, A2, A3, A4, A5, A6, A7, A8, A9](
+  inline def least[T, A1, A2, A3, A4, A5, A6, A7, A8, A9](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
     e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7], h: TypedExpr[T, A8], i: TypedExpr[T, A9]
-  )(using
-    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple]
   ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple]] =
     PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple](
       "least",
@@ -245,10 +215,10 @@ trait PgNumeric {
 
   def sqrt[T, A](e: TypedExpr[T, A])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double], A] = doubleFn("sqrt", e)
 
-  def power[A, B, AA, BA](a: TypedExpr[A, AA], b: TypedExpr[B, BA])(using
+  inline def power[A, B, AA, BA](a: TypedExpr[A, AA], b: TypedExpr[B, BA])(using
     pf: PgTypeFor[Lift[A, Double]]
   ): TypedExpr[Lift[A, Double], Where.Concat[AA, BA]] = {
-    val inner = TypedExpr.combineSep(a.fragment, ", ", b.fragment)
+    val inner = TypedExpr.combineSepInl[AA, BA](a.fragment, ", ", b.fragment)
     val frag  = TypedExpr.wrap("power(", inner, ")")
     TypedExpr[Lift[A, Double], Where.Concat[AA, BA]](frag, pf.codec)
   }
@@ -281,10 +251,10 @@ trait PgNumeric {
   def atan[T, A](e: TypedExpr[T, A])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double], A] = doubleFn("atan", e)
 
   /** `atan2(y, x)` — both arms typed; combined Args. */
-  def atan2[A, B, AA, BA](y: TypedExpr[A, AA], x: TypedExpr[B, BA])(using
+  inline def atan2[A, B, AA, BA](y: TypedExpr[A, AA], x: TypedExpr[B, BA])(using
     pf: PgTypeFor[Lift[A, Double]]
   ): TypedExpr[Lift[A, Double], Where.Concat[AA, BA]] = {
-    val inner = TypedExpr.combineSep(y.fragment, ", ", x.fragment)
+    val inner = TypedExpr.combineSepInl[AA, BA](y.fragment, ", ", x.fragment)
     val frag  = TypedExpr.wrap("atan2(", inner, ")")
     TypedExpr[Lift[A, Double], Where.Concat[AA, BA]](frag, pf.codec)
   }

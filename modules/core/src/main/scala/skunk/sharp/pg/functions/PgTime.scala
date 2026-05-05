@@ -24,12 +24,8 @@ trait PgTime {
    * `) OVERLAPS (` between pairs) is handled by manually constructing the parts list while still
    * delegating slot dispatch to a per-position projector.
    */
-  def overlaps[T, A1, A2, A3, A4](
+  inline def overlaps[T, A1, A2, A3, A4](
     aStart: TypedExpr[T, A1], aEnd: TypedExpr[T, A2], bStart: TypedExpr[T, A3], bEnd: TypedExpr[T, A4]
-  )(using
-    c12:   Where.Concat2[A1, A2],
-    c123:  Where.Concat2[Where.Concat[A1, A2], A3],
-    c1234: Where.Concat2[Where.Concat[Where.Concat[A1, A2], A3], A4]
   ): Where[Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4]] = {
     type Out  = Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4]
     val items = List(aStart.fragment, aEnd.fragment, bStart.fragment, bEnd.fragment)
@@ -62,9 +58,9 @@ trait PgTime {
         }
 
       override def encode(args: Out): List[Option[skunk.data.Encoded]] = {
-        val (a123, a4v) = c1234.project(args)
-        val (a12, a3v)  = c123.project(a123.asInstanceOf[Where.Concat[Where.Concat[A1, A2], A3]])
-        val (a1v, a2v)  = c12.project(a12.asInstanceOf[Where.Concat[A1, A2]])
+        val (a123, a4v) = Where.projectConcat[Where.Concat[Where.Concat[A1, A2], A3], A4](args)
+        val (a12, a3v)  = Where.projectConcat[Where.Concat[A1, A2], A3](a123.asInstanceOf[Where.Concat[Where.Concat[A1, A2], A3]])
+        val (a1v, a2v)  = Where.projectConcat[A1, A2](a12.asInstanceOf[Where.Concat[A1, A2]])
         val values: List[Any] = List(a1v, a2v, a3v, a4v)
         items.zip(values).flatMap { case (f, v) =>
           val e = f.encoder.asInstanceOf[skunk.Encoder[Any]]
@@ -89,17 +85,17 @@ trait PgTime {
 
   // -------- Truncation -------------------------------------------------------------------------
 
-  def dateTrunc[T, A](precision: String, e: TypedExpr[T, A])(using pfs: PgTypeFor[String]): TypedExpr[T, A] = {
+  inline def dateTrunc[T, A](precision: String, e: TypedExpr[T, A])(using pfs: PgTypeFor[String]): TypedExpr[T, A] = {
     val pFrag = Param.bind[String](precision).fragment
-    val s1    = TypedExpr.combineSep(pFrag, ", ", e.fragment).asInstanceOf[Fragment[A]]
+    val s1    = TypedExpr.combineSepInl[Void, A](pFrag, ", ", e.fragment).asInstanceOf[Fragment[A]]
     val frag  = TypedExpr.wrap("date_trunc(", s1, ")")
     TypedExpr[T, A](frag, e.codec)
   }
 
   // -------- Interval arithmetic ----------------------------------------------------------------
 
-  def age[T, X, Y](a: TypedExpr[T, X], b: TypedExpr[T, Y]): TypedExpr[Duration, Where.Concat[X, Y]] = {
-    val inner = TypedExpr.combineSep(a.fragment, ", ", b.fragment)
+  inline def age[T, X, Y](a: TypedExpr[T, X], b: TypedExpr[T, Y]): TypedExpr[Duration, Where.Concat[X, Y]] = {
+    val inner = TypedExpr.combineSepInl[X, Y](a.fragment, ", ", b.fragment)
     val frag  = TypedExpr.wrap("age(", inner, ")")
     TypedExpr[Duration, Where.Concat[X, Y]](frag, skunk.codec.all.interval)
   }
@@ -113,13 +109,12 @@ trait PgTime {
   // -------- Construction -----------------------------------------------------------------------
 
   /** `make_date(year, month, day)` — 3 typed positions; Args = `Concat[Concat[Y, M], D]`. */
-  def makeDate[Y, M, D](year: TypedExpr[Int, Y], month: TypedExpr[Int, M], day: TypedExpr[Int, D])(using
-    c12:  Where.Concat2[Y, M],
-    c123: Where.Concat2[Where.Concat[Y, M], D]
+  inline def makeDate[Y, M, D](
+    year: TypedExpr[Int, Y], month: TypedExpr[Int, M], day: TypedExpr[Int, D]
   ): TypedExpr[LocalDate, Where.Concat[Where.Concat[Y, M], D]] = {
     val projector: Where.Concat[Where.Concat[Y, M], D] => List[Any] = combined => {
-      val (a12, a3v) = c123.project(combined)
-      val (a1v, a2v) = c12.project(a12.asInstanceOf[Where.Concat[Y, M]])
+      val (a12, a3v) = Where.projectConcat[Where.Concat[Y, M], D](combined)
+      val (a1v, a2v) = Where.projectConcat[Y, M](a12.asInstanceOf[Where.Concat[Y, M]])
       List(a1v, a2v, a3v)
     }
     val combined = TypedExpr.combineList[Where.Concat[Where.Concat[Y, M], D]](
@@ -130,13 +125,12 @@ trait PgTime {
   }
 
   /** `make_time(h, m, s)` — 3 typed positions; Args = `Concat[Concat[H, M], S]`. */
-  def makeTime[H, MM, S](h: TypedExpr[Int, H], m: TypedExpr[Int, MM], s: TypedExpr[Double, S])(using
-    c12:  Where.Concat2[H, MM],
-    c123: Where.Concat2[Where.Concat[H, MM], S]
+  inline def makeTime[H, MM, S](
+    h: TypedExpr[Int, H], m: TypedExpr[Int, MM], s: TypedExpr[Double, S]
   ): TypedExpr[LocalTime, Where.Concat[Where.Concat[H, MM], S]] = {
     val projector: Where.Concat[Where.Concat[H, MM], S] => List[Any] = combined => {
-      val (a12, a3v) = c123.project(combined)
-      val (a1v, a2v) = c12.project(a12.asInstanceOf[Where.Concat[H, MM]])
+      val (a12, a3v) = Where.projectConcat[Where.Concat[H, MM], S](combined)
+      val (a1v, a2v) = Where.projectConcat[H, MM](a12.asInstanceOf[Where.Concat[H, MM]])
       List(a1v, a2v, a3v)
     }
     val combined = TypedExpr.combineList[Where.Concat[Where.Concat[H, MM], S]](
@@ -150,27 +144,21 @@ trait PgTime {
    * `make_timestamp(year, month, day, h, m, s)` — 6 typed positions threaded as
    * `Concat[Concat[Concat[Concat[Concat[Y, MO], D], H], MI], S]` (left-fold).
    */
-  def makeTimestamp[Y, MO, D, H, MI, S](
+  inline def makeTimestamp[Y, MO, D, H, MI, S](
     year:  TypedExpr[Int, Y],
     month: TypedExpr[Int, MO],
     day:   TypedExpr[Int, D],
     h:     TypedExpr[Int, H],
     m:     TypedExpr[Int, MI],
     s:     TypedExpr[Double, S]
-  )(using
-    c12:     Where.Concat2[Y, MO],
-    c123:    Where.Concat2[Where.Concat[Y, MO], D],
-    c1234:   Where.Concat2[Where.Concat[Where.Concat[Y, MO], D], H],
-    c12345:  Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI],
-    c123456: Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI], S]
   ): TypedExpr[LocalDateTime, Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI], S]] = {
     type Out = Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI], S]
     val projector: Out => List[Any] = combined => {
-      val (a12345, a6v) = c123456.project(combined)
-      val (a1234, a5v)  = c12345.project(a12345.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI]])
-      val (a123, a4v)   = c1234.project(a1234.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H]])
-      val (a12, a3v)    = c123.project(a123.asInstanceOf[Where.Concat[Where.Concat[Y, MO], D]])
-      val (a1v, a2v)    = c12.project(a12.asInstanceOf[Where.Concat[Y, MO]])
+      val (a12345, a6v) = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI], S](combined)
+      val (a1234, a5v)  = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI](a12345.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI]])
+      val (a123, a4v)   = Where.projectConcat[Where.Concat[Where.Concat[Y, MO], D], H](a1234.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H]])
+      val (a12, a3v)    = Where.projectConcat[Where.Concat[Y, MO], D](a123.asInstanceOf[Where.Concat[Where.Concat[Y, MO], D]])
+      val (a1v, a2v)    = Where.projectConcat[Y, MO](a12.asInstanceOf[Where.Concat[Y, MO]])
       List(a1v, a2v, a3v, a4v, a5v, a6v)
     }
     val combined = TypedExpr.combineList[Out](
@@ -187,9 +175,9 @@ trait PgTime {
   def toTimestamp[A](e: TypedExpr[Double, A]): TypedExpr[OffsetDateTime, A] =
     unaryOut("to_timestamp", e, skunk.codec.all.timestamptz)
 
-  def toDate[T, A](e: TypedExpr[T, A], fmt: String)(using ev: StrLike[T], pfs: PgTypeFor[String]): TypedExpr[LocalDate, A] = {
+  inline def toDate[T, A](e: TypedExpr[T, A], fmt: String)(using ev: StrLike[T], pfs: PgTypeFor[String]): TypedExpr[LocalDate, A] = {
     val fmtFrag = Param.bind[String](fmt).fragment
-    val s1      = TypedExpr.combineSep(e.fragment, ", ", fmtFrag).asInstanceOf[Fragment[A]]
+    val s1      = TypedExpr.combineSepInl[A, Void](e.fragment, ", ", fmtFrag).asInstanceOf[Fragment[A]]
     val frag    = TypedExpr.wrap("to_date(", s1, ")")
     TypedExpr[LocalDate, A](frag, skunk.codec.all.date)
   }

@@ -43,7 +43,9 @@ trait PgWindow {
         List[Either[String, cats.data.State[Int, String]]](Left(s", $offset, ")) ++
         defFrag.parts ++
         List[Either[String, cats.data.State[Int, String]]](Left(")"))
-    val combinedEnc = TypedExpr.combineEnc[A, Void](expr.fragment.encoder, defFrag.encoder)(using Where.Concat2.rightVoid[A])
+    val combinedEnc = TypedExpr.combineEnc[A, Void](
+      expr.fragment.encoder, defFrag.encoder, c => (c.asInstanceOf[A], Void)
+    )
     val frag        = Fragment(parts, combinedEnc.asInstanceOf[skunk.Encoder[A]], skunk.util.Origin.unknown)
     TypedExpr[T, A](frag, expr.codec)
   }
@@ -69,7 +71,9 @@ trait PgWindow {
         List[Either[String, cats.data.State[Int, String]]](Left(s", $offset, ")) ++
         defFrag.parts ++
         List[Either[String, cats.data.State[Int, String]]](Left(")"))
-    val combinedEnc = TypedExpr.combineEnc[A, Void](expr.fragment.encoder, defFrag.encoder)(using Where.Concat2.rightVoid[A])
+    val combinedEnc = TypedExpr.combineEnc[A, Void](
+      expr.fragment.encoder, defFrag.encoder, c => (c.asInstanceOf[A], Void)
+    )
     val frag        = Fragment(parts, combinedEnc.asInstanceOf[skunk.Encoder[A]], skunk.util.Origin.unknown)
     TypedExpr[T, A](frag, expr.codec)
   }
