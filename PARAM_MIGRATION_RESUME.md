@@ -67,7 +67,19 @@ Every standard query shape is fully cached at compile time:
 
 ## Pending
 
+**Substrate cleanup** — three stacked simplifications, all sketched but not yet landed:
+
+1. *Drop `Concat2` / `FoldConcatN` typeclasses.* The priority-chain givens are redundant: `inline def projectConcat[A, B](c: Concat[A, B]): (A, B)` with `erasedValue` dispatch produces the four shape branches (`Void/Void`, `Void/B`, `A/Void`, neither) with no typeclass machinery. Same for `projectFoldConcat[T <: Tuple]` via inline tuple recursion. Cost: every method that takes `using c2: Concat2[A, B]` (across all builders, operators, helpers) drops the using-clause and becomes `inline def`; calls to `c2.project(x)` become `Where.projectConcat[A, B](x)`. Inline propagation cascades — methods calling these become inline too. Mechanical sweep across ~25 files.
+
+2. *Drop AF from `BodyPart`.* `Either[AppliedFragment, Fragment[?]]` → `Either[Fragment[?], Fragment[?]]`: both arms hold Fragments, the Left/Right tag is purely positional (Left = no slot in Args tuple; Right = takes a positional slot, even if its encoder is Void). `RawConstants` keywords keep their AF form for execute-boundary use; emit sites do `.fragment` to extract the typed Fragment. Walker in `assembleN` becomes uniform — no `case Left(af) => af.fragment.parts` vs `case Right(f) => f.parts` split. Subtle: Param.bind-baked Lefts have non-empty encoder types but take Void input — walker calls `f.encoder.encode(skunk.Void)`.
+
+3. *Smart `Concat` with flat tuples.* Replace the existing `Concat[A, B]` (which produces nested `Tuple2`s for 3+ params: `((T1, T2), T3)`) with one that flattens via `Tuple.Concat[ToTuple[A], ToTuple[B]]` (where `ToTuple[X] = X` if `X <: Tuple`, else `X *: EmptyTuple`). Result: 1-param queries stay `Args = T` (single value preserved), 2-param `(T1, T2)`, 3-param flat `(T1, T2, T3)` — matches user intuition, simplifies encoder splitting via `tuple.take(aLen) ++ tuple.drop(aLen)`. UX impact: tests asserting `((T1, T2), T3)` shapes update to `(T1, T2, T3)`.
+
+These three are independent and stackable. Recommended order: (1) first (largest mechanical sweep, removes the most code), (2) next (substrate uniformity), (3) last (UX win).
+
 **Top-level builder-chain owner macro** — issue #24's acid test. A macro that resolves the entire builder chain so any `.compile` whose structure is compile-time-known (parts list of constant strings + encoder built from singleton codecs and `Param[T]`-supplied per-type codecs) collapses to a *single interned* `Fragment[Args]` constant at expansion time. `Args = Void` is the trivial subcase (no `Param`); the general case is `Fragment[A]` where `A` is the threaded captured-args tuple — same collapse, same allocation savings. Today each leaf macro-bakes its own `parts` list and they concatenate at runtime via shared-AF references in `assembleN` — the AFs are reused but the parts list is rebuilt per compile. Substantial Scala 3 macro project. The accompanying compile-time assertion (positive: static-shape queries ARE constants; negative: dynamic-shape queries do NOT collapse) depends on this — easiest to express for the `Args = Void` subcase (`Void.codec` reference-equality), more involved for the typed case (encoder is a product of singleton codecs).
+
+Best done *after* the substrate cleanup — uniform Fragment-only `BodyPart` and inline-everywhere dispatch make the macro target much cleaner.
 
 **Small typed-Args holdouts** — none. Every Args-loss position is closed; `Param` surfaces in the outer `Args` everywhere it parses.
 
