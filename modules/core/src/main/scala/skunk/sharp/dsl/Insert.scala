@@ -203,6 +203,27 @@ final class InsertCommand[Cols <: Tuple, Args, CA] private[sharp] (
     )
   }
 
+  def returningNamed[NT <: scala.NamedTuple.AnyNamedTuple](f: ColumnsView[Cols] => NT)(using
+    fc:   FoldConcatN[CollectArgs[scala.NamedTuple.DropNames[NT]]],
+    c12:  Where.Concat2[Args, CA],
+    c123: Where.Concat2[Where.Concat[Args, CA], FoldConcat[CollectArgs[scala.NamedTuple.DropNames[NT]]]]
+  ): QueryTemplate[
+    Where.Concat[Where.Concat[Args, CA], FoldConcat[CollectArgs[scala.NamedTuple.DropNames[NT]]]],
+    scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]]
+  ] = {
+    type Vs = scala.NamedTuple.DropNames[NT]
+    type Ns = scala.NamedTuple.Names[NT]
+    type R  = scala.NamedTuple.NamedTuple[Ns, ExprOutputs[Vs]]
+    val view     = table.columnsView
+    val tup      = f(view).asInstanceOf[Product]
+    val exprs    = tup.productIterator.toList.asInstanceOf[List[TypedExpr[?, ?]]]
+    val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[R]]
+    val combined = TypedExpr.combineList[FoldConcat[CollectArgs[Vs]]](exprs.map(_.fragment), ", ", fc.project)
+    MutationAssembly.withReturningTyped[Args, CA, FoldConcat[CollectArgs[Vs]], R](
+      insertParts, combined, codec
+    )
+  }
+
   def returningAll(using
     c12:  Where.Concat2[Args, CA],
     c123: Where.Concat2[Where.Concat[Args, CA], Void]

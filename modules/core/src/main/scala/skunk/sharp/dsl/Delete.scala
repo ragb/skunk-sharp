@@ -112,6 +112,30 @@ final class DeleteReady[Cols <: Tuple, Name <: String & Singleton, Args] private
     )
   }
 
+  /**
+   * `RETURNING <named tuple of TypedExprs>` — projects multiple columns into a labelled tuple
+   * (`(id = u.id, email = u.email)`). Args of each item thread into the outer query via
+   * [[Where.FoldConcatN]] (drops `Void` slots so plain column refs collapse out).
+   */
+  def returningNamed[NT <: scala.NamedTuple.AnyNamedTuple](f: ColumnsView[Cols] => NT)(using
+    fc: FoldConcatN[CollectArgs[scala.NamedTuple.DropNames[NT]]],
+    c2: Where.Concat2[Args, FoldConcat[CollectArgs[scala.NamedTuple.DropNames[NT]]]]
+  ): QueryTemplate[
+    Where.Concat[Args, FoldConcat[CollectArgs[scala.NamedTuple.DropNames[NT]]]],
+    scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]]
+  ] = {
+    type Vs = scala.NamedTuple.DropNames[NT]
+    type Ns = scala.NamedTuple.Names[NT]
+    type R  = scala.NamedTuple.NamedTuple[Ns, ExprOutputs[Vs]]
+    val tup      = f(table.columnsView).asInstanceOf[Product]
+    val exprs    = tup.productIterator.toList.asInstanceOf[List[TypedExpr[?, ?]]]
+    val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[R]]
+    val combined = TypedExpr.combineList[FoldConcat[CollectArgs[Vs]]](exprs.map(_.fragment), ", ", fc.project)
+    MutationAssembly.withReturningTyped2[Args, FoldConcat[CollectArgs[Vs]], R](
+      deleteParts, combined, codec
+    )
+  }
+
   def returningAll(using
     c2: Where.Concat2[Args, Void]
   ): QueryTemplate[Args, NamedRowOf[Cols]] = {
@@ -315,6 +339,28 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
     val combined = TypedExpr.combineList[FoldConcat[CollectArgs[T]]](exprs.map(_.fragment), ", ", fc.project)
     returning[ExprOutputs[T], FoldConcat[CollectArgs[T]], SArgs](_ =>
       TypedExpr[ExprOutputs[T], FoldConcat[CollectArgs[T]]](combined, codec)
+    )(using sbOf, bff, sw, swR)
+  }
+
+  def returningNamed[NT <: scala.NamedTuple.AnyNamedTuple, SArgs](f: JoinedView[Ss] => NT)(using
+    fc:   FoldConcatN[CollectArgs[scala.NamedTuple.DropNames[NT]]],
+    sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
+    bff:  SourceBodyArgsProj[Ss],
+    sw:   Where.Concat2[SArgs, Args],
+    swR:  Where.Concat2[Where.Concat[SArgs, Args], FoldConcat[CollectArgs[scala.NamedTuple.DropNames[NT]]]]
+  ): QueryTemplate[
+    Where.Concat[Where.Concat[SArgs, Args], FoldConcat[CollectArgs[scala.NamedTuple.DropNames[NT]]]],
+    scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]]
+  ] = {
+    type Vs = scala.NamedTuple.DropNames[NT]
+    type Ns = scala.NamedTuple.Names[NT]
+    type R  = scala.NamedTuple.NamedTuple[Ns, ExprOutputs[Vs]]
+    val tup      = f(buildJoinedView(sources)).asInstanceOf[Product]
+    val exprs    = tup.productIterator.toList.asInstanceOf[List[TypedExpr[?, ?]]]
+    val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[R]]
+    val combined = TypedExpr.combineList[FoldConcat[CollectArgs[Vs]]](exprs.map(_.fragment), ", ", fc.project)
+    returning[R, FoldConcat[CollectArgs[Vs]], SArgs](_ =>
+      TypedExpr[R, FoldConcat[CollectArgs[Vs]]](combined, codec)
     )(using sbOf, bff, sw, swR)
   }
 

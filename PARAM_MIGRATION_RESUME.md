@@ -4,12 +4,12 @@
 
 All green:
 
-- `core` 485/485
+- `core` 488/488
 - `circe` 10/10
 - `iron` 4/4
 - `refined` 5/5
 - `tests` 159/159 (Postgres testcontainers)
-- **total 663/663**
+- **total 666/666**
 
 CompileBench (200,000 iterations × 5 scenarios — SELECT, INSERT, UPDATE, DELETE, JOIN) reports **0 dynamic AppliedFragments per compile**. See [`CompileBench.scala`](modules/core/src/test/scala/skunk/sharp/bench/CompileBench.scala).
 
@@ -42,6 +42,7 @@ Verified across the entire DSL surface (see [`ParamSuite.scala`](modules/core/sr
 - **Window `OVER (…)` specs**: `WindowSpec.partitionBy(Param)` and `WindowSpec.orderBy(Param.asc)` thread `(PA, OA)` typed slots into the wrapping expression's `Args` via `Concat[A, Concat[PA, OA]]`. Frame bounds (`rowsBetween` / `rangeBetween` / `groupsBetween`) are static integer constants — Args-neutral.
 - **`SetOpQuery[A, R]`**: carries an `Args` type parameter; each `.union` / `.intersect` / `.except` step concatenates arms via `Concat[A1, A2]`. Param-bearing arms (e.g. `users.select.where(u => u.email === Param[String]).union(...)`) thread their typed Args end-to-end into the outer `CompiledQuery`.
 - **`IN` / `ANY` / `ALL (subquery)`**: now thread the inner subquery's typed Args. `col.in(<subquery>)` returns `Where[Concat[A, RA]]` — Param in the inner subquery surfaces as `RA` on the outer query. Value-list `IN (NonEmptyList(...))` still produces `Args = Void` (values are Param.bind-baked).
+- **Named-tuple multi-item RETURNING**: `users.delete.where(...).returningNamed(u => (id = u.id, p = Pg.power(u.age, Param[Double])))` projects to `NamedTuple[("id", "p"), (UUID, Double)]` and threads the named tuple's value-Args via [[FoldConcatN]]. Available on every mutation builder (`InsertCommand`, `UpdateReady`, `UpdateFromReady`, `DeleteReady`, `DeleteUsingReady`).
 
 ## Static-by-default operators
 
@@ -68,9 +69,7 @@ Every standard query shape is fully cached at compile time:
 
 **Top-level builder-chain owner macro** — issue #24's acid test. A macro that resolves the entire builder chain so a fully-static query (`users.select.where(u => u.id === lit(uuid)).compile`) collapses to a *single interned* `Fragment[Void]` constant at expansion time. Today each leaf macro-bakes its own `parts` list and they concatenate at runtime via shared-AF references in `assembleN` — the AFs are reused but the parts list is rebuilt per compile. Substantial Scala 3 macro project. The accompanying compile-time assertion (positive: static queries ARE constants; negative: dynamic queries do NOT collapse) depends on this.
 
-**Small typed-Args holdouts** — positions where `Param` works at runtime via the encoder but isn't surfaced in the outer `Args` type:
-
-- Multi-item RETURNING with **named tuples** — only plain tuple projections (`returningTuple(u => (u.id, u.email))`) thread typed `RetArgs`. Named tuples in RETURNING hit the Scala 3.8 NamedTuple-vs-Tuple match-type blocker (SELECT projections dodge this with `erasedValue`; not yet ported to RETURNING).
+**Small typed-Args holdouts** — none. Every Args-loss position is closed; `Param` surfaces in the outer `Args` everywhere it parses.
 
 ## Roadmap
 

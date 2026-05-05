@@ -1042,6 +1042,41 @@ class ParamSuite extends munit.FunSuite {
     assert(qt.fragment.sql.contains("""(SELECT "user_id", "title" FROM "posts" WHERE "id" = $1) AS "p""""), qt.fragment.sql)
   }
 
+  // -------- Named-tuple RETURNING typed Args -----------------------------------------------------
+
+  test("DELETE.returningNamed threads typed Args + projects to NamedTuple row") {
+    case class User(id: UUID, email: String, age: Int)
+    val users = Table.of[User]("users")
+    val q = users.delete
+      .where(u => u.id === Param[UUID])
+      .returningNamed(u => (id = u.id, email = u.email))
+    type Row = (id: UUID, email: String)
+    val _: QueryTemplate[UUID, Row] = q
+    assert(q.fragment.sql.endsWith("""RETURNING "id", "email""""), q.fragment.sql)
+  }
+
+  test("INSERT.returningNamed with Param-bearing items threads (rowArgs, retArgs) and labels") {
+    case class User(id: UUID, email: String, age: Int)
+    val users = Table.of[User]("users")
+    val uid   = UUID.fromString("11111111-1111-1111-1111-111111111111")
+    val q = users
+      .insert((id = uid, email = "a@b", age = 30))
+      .returningNamed(u => (id = u.id, p = Pg.power(u.age, Param[Double])))
+    type Row = (id: UUID, p: Double)
+    val _: QueryTemplate[Double, Row] = q
+  }
+
+  test("UPDATE.returningNamed with multiple Params + named labels") {
+    case class User(id: UUID, email: String, age: Int)
+    val users = Table.of[User]("users")
+    val q = users.update
+      .set(u => u.email := Param[String])
+      .where(u => u.id === Param[UUID])
+      .returningNamed(u => (powered = Pg.power(u.age, Param[Double]), modded = Pg.mod(u.age, Param[Int])))
+    type Row = (powered: Double, modded: Int)
+    val _: QueryTemplate[((String, UUID), (Double, Int)), Row] = q
+  }
+
   // -------- IN / ANY / ALL subquery typed Args ---------------------------------------------------
 
   test("col.in(<Param-bearing subquery>) threads inner Args via Concat") {

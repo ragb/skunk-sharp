@@ -198,6 +198,28 @@ final class UpdateReady[Cols <: Tuple, Name <: String & Singleton, SetArgs, WArg
     )
   }
 
+  def returningNamed[NT <: scala.NamedTuple.AnyNamedTuple](
+    f: ColumnsView[Cols] => NT
+  )(using
+    fc:   FoldConcatN[CollectArgs[scala.NamedTuple.DropNames[NT]]],
+    c12:  Where.Concat2[SetArgs, WArgs],
+    c123: Where.Concat2[Where.Concat[SetArgs, WArgs], FoldConcat[CollectArgs[scala.NamedTuple.DropNames[NT]]]]
+  ): QueryTemplate[
+    Where.Concat[Where.Concat[SetArgs, WArgs], FoldConcat[CollectArgs[scala.NamedTuple.DropNames[NT]]]],
+    scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]]
+  ] = {
+    type Vs = scala.NamedTuple.DropNames[NT]
+    type Ns = scala.NamedTuple.Names[NT]
+    type R  = scala.NamedTuple.NamedTuple[Ns, ExprOutputs[Vs]]
+    val tup      = f(table.columnsView).asInstanceOf[Product]
+    val exprs    = tup.productIterator.toList.asInstanceOf[List[TypedExpr[?, ?]]]
+    val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[R]]
+    val combined = TypedExpr.combineList[FoldConcat[CollectArgs[Vs]]](exprs.map(_.fragment), ", ", fc.project)
+    MutationAssembly.withReturningTyped[SetArgs, WArgs, FoldConcat[CollectArgs[Vs]], R](
+      updateParts, combined, codec
+    )
+  }
+
   def returningAll(using
     c12:  Where.Concat2[SetArgs, WArgs],
     c123: Where.Concat2[Where.Concat[SetArgs, WArgs], Void]
@@ -394,6 +416,31 @@ final class UpdateFromReady[
     val combined = TypedExpr.combineList[FoldConcat[CollectArgs[T]]](exprs.map(_.fragment), ", ", fc.project)
     returning[ExprOutputs[T], FoldConcat[CollectArgs[T]], SArgs](_ =>
       TypedExpr[ExprOutputs[T], FoldConcat[CollectArgs[T]]](combined, codec)
+    )(using sbOf, bff, setS, setSw, setSwR)
+  }
+
+  def returningNamed[NT <: scala.NamedTuple.AnyNamedTuple, SArgs](
+    f: JoinedView[Ss] => NT
+  )(using
+    fc:      FoldConcatN[CollectArgs[scala.NamedTuple.DropNames[NT]]],
+    sbOf:    SourceBodyArgsOf.Aux[Ss, SArgs],
+    bff:     SourceBodyArgsProj[Ss],
+    setS:    Where.Concat2[SetArgs, SArgs],
+    setSw:   Where.Concat2[Where.Concat[SetArgs, SArgs], WArgs],
+    setSwR:  Where.Concat2[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs], FoldConcat[CollectArgs[scala.NamedTuple.DropNames[NT]]]]
+  ): QueryTemplate[
+    Where.Concat[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs], FoldConcat[CollectArgs[scala.NamedTuple.DropNames[NT]]]],
+    scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]]
+  ] = {
+    type Vs = scala.NamedTuple.DropNames[NT]
+    type Ns = scala.NamedTuple.Names[NT]
+    type R  = scala.NamedTuple.NamedTuple[Ns, ExprOutputs[Vs]]
+    val tup      = f(buildJoinedView(sources)).asInstanceOf[Product]
+    val exprs    = tup.productIterator.toList.asInstanceOf[List[TypedExpr[?, ?]]]
+    val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[R]]
+    val combined = TypedExpr.combineList[FoldConcat[CollectArgs[Vs]]](exprs.map(_.fragment), ", ", fc.project)
+    returning[R, FoldConcat[CollectArgs[Vs]], SArgs](_ =>
+      TypedExpr[R, FoldConcat[CollectArgs[Vs]]](combined, codec)
     )(using sbOf, bff, setS, setSw, setSwR)
   }
 
