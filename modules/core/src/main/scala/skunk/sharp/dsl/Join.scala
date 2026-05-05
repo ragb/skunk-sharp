@@ -267,27 +267,18 @@ extension [Cols <: Tuple, Row <: scala.NamedTuple.AnyNamedTuple](v: Values[Cols,
  * detect it and emit the WITH preamble regardless of how many alias layers are applied. Useful for CTE self-joins:
  * `c.alias("a").innerJoin(c.alias("b")).on(...)`.
  *
+ * Returns a new [[CteRelation]] with the same `cteName`, body, deps, and `BodyArgs` — only the `Alias_` type
+ * parameter changes. This is essential for typed-args CTEs: re-aliasing preserves the body's `BA` at the type
+ * level so the outer compile's [[CteArgs]] still picks it up.
+ *
  * Lives here because Scala 3 requires overloaded extensions to share a single top-level definition group.
  */
-extension [Cols <: Tuple, Name <: String & Singleton, BA](c: CteRelation[Cols, Name, BA]) {
+extension [Cols <: Tuple, Name <: String & Singleton, OldAlias <: String & Singleton, BA](
+  c: CteRelation[Cols, Name, OldAlias, BA]
+) {
 
-  def alias[A <: String & Singleton](a: A): (TypedBodyRelation[Cols, skunk.Void] & IsCte) {
-    type Alias = A
-    type Mode  = AliasMode.Explicit
-  } = {
-    val cteRef = c
-    new TypedBodyRelation[Cols, skunk.Void] with IsCte {
-      type Alias = A
-      type Mode  = AliasMode.Explicit
-      val currentAlias: A                                       = a
-      def name: String                                          = cteRef.cteName
-      def columns: Cols                                         = cteRef.cols0
-      def schema: Option[String]                                = None
-      def expectedTableType: String                             = ""
-      def underlyingCte                                         = cteRef
-      override def fromFragmentWith(x: String): AppliedFragment = cteRef.fromFragmentWith(x)
-    }
-  }
+  def alias[A <: String & Singleton](a: A): CteRelation[Cols, Name, A, BA] =
+    new CteRelation[Cols, Name, A, BA](c.cteName, a, c.body, c.deps, c.cols0)
 
 }
 

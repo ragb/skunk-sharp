@@ -5,12 +5,12 @@ import skunk.sharp.*
 import skunk.sharp.where.Where
 
 /**
- * Marker for any relation whose FROM rendering references a CTE name rather than a base table. Both `CteRelation`
- * itself and re-aliased wrappers produced by `cteRelation.alias("x")` implement this trait so that
- * [[collectCtesInOrder]] can detect them regardless of how many `.alias` layers are on top.
+ * Marker for any relation whose FROM rendering references a CTE name rather than a base table. Both [[CteRelation]]
+ * itself (whether under its default alias or re-aliased via `.alias("x")`) implements this trait so
+ * [[collectCtesInOrder]] can detect it regardless of how many alias layers are on top.
  */
 private[dsl] trait IsCte {
-  def underlyingCte: CteRelation[?, ?, ?]
+  def underlyingCte: CteRelation[?, ?, ?, ?]
 }
 
 /**
@@ -25,25 +25,30 @@ private[dsl] trait IsCte {
  * `BodyArgs` is the captured-args type of the inner SELECT. `Param`s in the inner WHERE / HAVING / GROUP BY surface
  * here as a typed tuple, threaded into the outer query's `Args` via [[CteArgs]].
  *
+ * `Alias_` is decoupled from `Name`: a CTE created via `cte("active", …)` has `Alias_ = Name = "active"`. Calling
+ * `.alias("x")` returns a re-aliased `CteRelation[Cols, "active", "x", BodyArgs]` so its `BodyArgs` stays visible at
+ * the type level (essential for typed-args CTEs to thread their inner Params into the outer compile after re-alias).
+ *
  * `deps` records which other CTEs this one directly references (captured at creation time). [[collectCtesInOrder]] does
  * a depth-first walk over deps so chained CTEs are always emitted in the right dependency order. Typed-args CTEs may
  * not appear as deps — they must be referenced directly in the outer query's FROM (enforced at [[cte]] time via
  * [[CteDepsAllVoid]]).
  */
-final class CteRelation[Cols <: Tuple, Name <: String & Singleton, BodyArgsT] private[sharp] (
+final class CteRelation[Cols <: Tuple, Name <: String & Singleton, Alias_ <: String & Singleton, BodyArgsT] private[sharp] (
   val cteName: Name,
+  val aliasName: Alias_,
   private[sharp] val body: () => Fragment[BodyArgsT],
-  private[sharp] val deps: List[CteRelation[?, ?, ?]],
+  private[sharp] val deps: List[CteRelation[?, ?, ?, ?]],
   private[sharp] val cols0: Cols
 ) extends Relation[Cols] with IsCte {
-  type Alias    = Name
+  type Alias    = Alias_
   type Mode     = AliasMode.Explicit
   type BodyArgs = skunk.Void  // FROM-site contribution; the typed body args bind at the WITH preamble.
 
   /** Typed inner-body args — surfaced in outer compile via [[CteArgs]] / [[CteArgsProj]]. */
   type CteBody = BodyArgsT
 
-  def currentAlias: Name        = cteName
+  def currentAlias: Alias_      = aliasName
   def name: String              = cteName
   def schema: Option[String]    = None
   def columns: Cols             = cols0
@@ -79,7 +84,7 @@ def cte[Ss <: Tuple, GroupsT <: Tuple, WA, HA, N <: String & Singleton, SArgs, G
   csg:   Where.Concat2[Where.Concat[SArgs, WA], GArgs],
   csgh:  Where.Concat2[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA],
   noTypedDeps: CteDepsAllVoid[Ss]
-): CteRelation[ev.Cols, N, Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA]] = {
+): CteRelation[ev.Cols, N, N, Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA]] = {
   type Combined = Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA]
   val entries = query.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
   val deps    = directCtes(entries)
@@ -87,7 +92,7 @@ def cte[Ss <: Tuple, GroupsT <: Tuple, WA, HA, N <: String & Singleton, SArgs, G
   // Captures Ss-evidences in the closure so the body re-renders if `body()` is called more than once.
   val bodyThunk: () => Fragment[Combined] = () =>
     query.compileBodyFragment[SArgs, GArgs](using ev, sbOf, g, cs, csg, csgh)
-  new CteRelation[ev.Cols, N, Combined](name, bodyThunk, deps, cols)
+  new CteRelation[ev.Cols, N, N, Combined](name, name, bodyThunk, deps, cols)
 }
 
 /**
@@ -126,7 +131,7 @@ def cte[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DA <: Tuple, OA <: Tuple, W
   dpsowgh:  Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA],
   dpsowgho: Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA], OA2],
   noTypedDeps: CteDepsAllVoid[Ss]
-): CteRelation[ProjCols[Proj], N, Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA], OA2]] = {
+): CteRelation[ProjCols[Proj], N, N, Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA], OA2]] = {
   type Combined = Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA], OA2]
   val entries = query.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
   val deps    = directCtes(entries)
@@ -135,13 +140,13 @@ def cte[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DA <: Tuple, OA <: Tuple, W
     query.compileBodyFragment[SA, OnA, DA2, PA, GA, OA2](
       using gc, sbOf, bff, onSum, onProj, d, pa, gp, o, dp, dps, dpso, dpsow, dpsowg, dpsowgh, dpsowgho
     )
-  new CteRelation[ProjCols[Proj], N, Combined](name, bodyThunk, deps, cols)
+  new CteRelation[ProjCols[Proj], N, N, Combined](name, name, bodyThunk, deps, cols)
 }
 
 // ---- CTE collection helpers (used by SelectBuilder.compile and ProjectedSelect.compile) --------
 
 /** Extract the directly-referenced CTEs from a source-entry list (handles re-aliased CteRelations via [[IsCte]]). */
-private[dsl] def directCtes(entries: List[SourceEntry[?, ?, ?, ?, ?]]): List[CteRelation[?, ?, ?]] =
+private[dsl] def directCtes(entries: List[SourceEntry[?, ?, ?, ?, ?]]): List[CteRelation[?, ?, ?, ?]] =
   entries.collect {
     case e if e.relation.isInstanceOf[IsCte] =>
       e.relation.asInstanceOf[IsCte].underlyingCte
@@ -151,10 +156,10 @@ private[dsl] def directCtes(entries: List[SourceEntry[?, ?, ?, ?, ?]]): List[Cte
  * Walk `entries`, find all CTE relations (transitively through their `deps`), and return them in dependency order
  * (earliest dependency first). Duplicate names are visited only once.
  */
-private[dsl] def collectCtesInOrder(entries: List[SourceEntry[?, ?, ?, ?, ?]]): List[CteRelation[?, ?, ?]] = {
-  val result                               = scala.collection.mutable.ListBuffer.empty[CteRelation[?, ?, ?]]
+private[dsl] def collectCtesInOrder(entries: List[SourceEntry[?, ?, ?, ?, ?]]): List[CteRelation[?, ?, ?, ?]] = {
+  val result                               = scala.collection.mutable.ListBuffer.empty[CteRelation[?, ?, ?, ?]]
   val visited                              = scala.collection.mutable.LinkedHashSet.empty[String]
-  def visit(c: CteRelation[?, ?, ?]): Unit =
+  def visit(c: CteRelation[?, ?, ?, ?]): Unit =
     if (!visited.contains(c.cteName)) {
       visited += c.cteName
       c.deps.foreach(visit)
@@ -172,7 +177,7 @@ private[dsl] def collectCtesInOrder(entries: List[SourceEntry[?, ?, ?, ?, ?]]): 
  * The slot order matches the dep-walk order: dep CTEs before their dependents. The outer compile's `slotValues`
  * IArray must place per-CTE body args in this same order, ahead of all body slots.
  */
-private[dsl] def renderWithPreambleParts(ctes: List[CteRelation[?, ?, ?]]): List[SelectBuilder.BodyPart] = {
+private[dsl] def renderWithPreambleParts(ctes: List[CteRelation[?, ?, ?, ?]]): List[SelectBuilder.BodyPart] = {
   if (ctes.isEmpty) Nil
   else {
     val buf = scala.collection.mutable.ListBuffer.empty[SelectBuilder.BodyPart]
@@ -197,7 +202,7 @@ private[dsl] def renderWithPreambleParts(ctes: List[CteRelation[?, ?, ?]]): List
  * tuple.
  */
 private[dsl] type GetCteBody[R] = R match {
-  case CteRelation[_, _, ba] => ba
+  case CteRelation[_, _, _, ba] => ba
   case _                     => skunk.Void
 }
 
@@ -271,7 +276,7 @@ object CteDepsAllVoid {
 }
 
 /**
- * Per-CTE body args: maps a list of `CteRelation[?, ?, ?]` (in dep order) to a `List[Any]` of body-args values to
+ * Per-CTE body args: maps a list of `CteRelation[?, ?, ?, ?]` (in dep order) to a `List[Any]` of body-args values to
  * inject at the WITH preamble's Right slots. Each entry is the value paired with that CTE's Right-slot Fragment.
  * Plain (Void) bodies pass `Void`; typed bodies pass the captured args from the outer query's combined `CteArgs`.
  *
@@ -280,7 +285,7 @@ object CteDepsAllVoid {
  * `Void` (their bodies are constrained Void by [[CteDepsAllVoid]]).
  */
 private[dsl] def buildCteSlotValues(
-  collectedCtes: List[CteRelation[?, ?, ?]],
+  collectedCtes: List[CteRelation[?, ?, ?, ?]],
   directRefArgs: Map[String, Any]
 ): List[Any] =
   collectedCtes.map(c => directRefArgs.getOrElse(c.cteName, Void))

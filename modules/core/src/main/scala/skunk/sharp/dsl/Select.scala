@@ -723,7 +723,7 @@ object SelectBuilder {
    */
   private[dsl] def assembleN[Args, R](
     bodyParts:  List[BodyPart],
-    ctes:       List[CteRelation[?, ?, ?]],
+    ctes:       List[CteRelation[?, ?, ?, ?]],
     codec:      Codec[R],
     slotValues: Args => IArray[Any]
   ): QueryTemplate[Args, R] = {
@@ -795,7 +795,7 @@ object SelectBuilder {
    */
   private[dsl] def assemble[A1, A2, R](
     bodyParts: List[BodyPart],
-    ctes:      List[CteRelation[?, ?, ?]],
+    ctes:      List[CteRelation[?, ?, ?, ?]],
     codec:     Codec[R]
   )(using c2: Where.Concat2[A1, A2]): QueryTemplate[Where.Concat[A1, A2], R] = {
     // Explicitly thread c2 and a hand-built rightVoid for c123 down to assemble3 — at abstract A1/A2
@@ -823,7 +823,7 @@ object SelectBuilder {
    */
   private[dsl] def assemble3[A1, A2, A3, R](
     bodyParts: List[BodyPart],
-    ctes:      List[CteRelation[?, ?, ?]],
+    ctes:      List[CteRelation[?, ?, ?, ?]],
     codec:     Codec[R]
   )(using
     c12:  Where.Concat2[A1, A2],
@@ -898,7 +898,7 @@ object SelectBuilder {
    */
   private[dsl] def assemble6[A1, A2, A3, A4, A5, A6, R](
     bodyParts: List[BodyPart],
-    ctes:      List[CteRelation[?, ?, ?]],
+    ctes:      List[CteRelation[?, ?, ?, ?]],
     codec:     Codec[R]
   )(using
     c12:     Where.Concat2[A1, A2],
@@ -973,7 +973,7 @@ object SelectBuilder {
    */
   private[dsl] def assemble5[A1, A2, A3, A4, A5, R](
     bodyParts: List[BodyPart],
-    ctes:      List[CteRelation[?, ?, ?]],
+    ctes:      List[CteRelation[?, ?, ?, ?]],
     codec:     Codec[R]
   )(using
     c12:    Where.Concat2[A1, A2],
@@ -1046,7 +1046,7 @@ object SelectBuilder {
    */
   private[dsl] def assemble4[A1, A2, A3, A4, R](
     bodyParts: List[BodyPart],
-    ctes:      List[CteRelation[?, ?, ?]],
+    ctes:      List[CteRelation[?, ?, ?, ?]],
     codec:     Codec[R]
   )(using
     c12:   Where.Concat2[A1, A2],
@@ -1599,7 +1599,7 @@ private[dsl] def cteDirectArgsByName(
  * `Void`.
  */
 private[dsl] def buildCtePreambleSlots(
-  ctes:           List[CteRelation[?, ?, ?]],
+  ctes:           List[CteRelation[?, ?, ?, ?]],
   directArgsByName: Map[String, Any]
 ): IArray[Any] =
   IArray.from(ctes.map(c => directArgsByName.getOrElse(c.cteName, Void)))
@@ -1614,7 +1614,7 @@ private[dsl] def buildCteAndSlotIArrayWithEntries(
   entries:    List[SourceEntry[?, ?, ?, ?, ?]],
   cteProj:    CteArgsProj[? <: Tuple],
   cArgs:      Any,
-  collected:  List[CteRelation[?, ?, ?]],
+  collected:  List[CteRelation[?, ?, ?, ?]],
   baseSlots:  IArray[Any]
 ): IArray[Any] =
   if (collected.isEmpty) baseSlots

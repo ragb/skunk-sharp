@@ -885,6 +885,20 @@ class ParamSuite extends munit.FunSuite {
     assert(qt.fragment.sql.contains("""WHERE "id" = $1"""), qt.fragment.sql)
   }
 
+  test("typed-args CTE re-aliased via .alias preserves BodyArgs at type level") {
+    case class User(id: UUID, email: String, age: Int)
+    val users = Table.of[User]("users")
+    val byId  = cte("by_id", users.select.where(u => u.id === Param[UUID]))
+    // `.alias("x")` returns a new CteRelation with cteName = "by_id" and aliasName = "x" —
+    // BodyArgs (UUID) survives the re-alias and surfaces in the outer Args.
+    val aliased = byId.alias("x")
+    val qt = aliased.select.compile
+    val _: QueryTemplate[UUID, ?] = qt
+    assert(qt.fragment.sql.contains("""WITH "by_id" AS ("""), qt.fragment.sql)
+    assert(qt.fragment.sql.contains(""""by_id" AS "x""""), qt.fragment.sql)
+    assert(qt.fragment.sql.contains("""WHERE "id" = $1"""), qt.fragment.sql)
+  }
+
   // -------- Typed JOIN ON Args threading ---------------------------------------------------------
 
   test("JOIN ON Param threads typed Args into outer compile") {

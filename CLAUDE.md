@@ -40,11 +40,11 @@ The [schema validator](modules/core/src/main/scala/skunk/sharp/validation/Schema
 
 ## WHERE DSL
 
-- [`TypedExpr[T]`](modules/core/src/main/scala/skunk/sharp/TypedExpr.scala): `render: AppliedFragment` + `codec: Codec[T]`. `TypedExpr.lit(v)` for bound-param literals, `TypedExpr.raw(sql)` for raw SQL bits, `TypedExpr.joined(parts, sep)` for `", "`-style joining.
-- [`TypedColumn[T, Null]`](modules/core/src/main/scala/skunk/sharp/TypedColumn.scala): leaf `TypedExpr`.
-- [`Where`](modules/core/src/main/scala/skunk/sharp/where/Where.scala): thin wrapper around `TypedExpr[Boolean]`; has `.and`/`&&`, `.or`/`||`, `.not`/`unary_!`. Open by design — any third-party `TypedExpr[Boolean]` slots in via `Where(expr)`.
-- [`where/Ops.scala`](modules/core/src/main/scala/skunk/sharp/where/Ops.scala): v0 operators as `extension` methods — `===, !==, <, <=, >, >=, in, like, ilike, isNull, isNotNull`. Ordering ops require `cats.Order[T]`. `isNull`/`isNotNull` gated to `TypedColumn[T, true]`.
-- [`ColumnsView[Cols]`](modules/core/src/main/scala/skunk/sharp/ColumnsView.scala): the named-tuple typed view passed to WHERE/ORDER BY/SET lambdas. `cols.<columnName>` resolves to `TypedColumn[T, Null]` via Scala 3 named-tuple Selectable support.
+- [`TypedExpr[T, Args]`](modules/core/src/main/scala/skunk/sharp/TypedExpr.scala): typed `Fragment[Args]` + `codec: Codec[T]`. The `Args` type parameter is the captured-parameter tuple: `Void` for static expressions (literals, column refs, value-baked via `Param.bind`), `T` for `Param[T]` (deferred to execute time), `Concat[A, B]` for combinators. `TypedExpr.lit(v)` for compile-time-constant primitives (inline SQL, `Args = Void`); `TypedExpr.raw(sql)` for raw SQL bits; `TypedExpr.joined(parts, sep)` for `", "`-style joining.
+- [`TypedColumn[T, Null, N]`](modules/core/src/main/scala/skunk/sharp/TypedColumn.scala): leaf `TypedExpr[T, Void]`.
+- [`Where[A]`](modules/core/src/main/scala/skunk/sharp/where/Where.scala) = `TypedExpr[Boolean, A]`. `.and`/`&&`, `.or`/`||`, `.not`/`unary_!` combinators. Open by design — any third-party `TypedExpr[Boolean, A]` slots in via `Where(expr)`.
+- [`ops/ExprOps.scala`](modules/core/src/main/scala/skunk/sharp/ops/ExprOps.scala): operators as `extension` methods — `===, !==, <, <=, >, >=, between, in, like, ilike, isNull, isNotNull`. **RHS is always a `TypedExpr`** (no value-overload — pick `Param[T]`, `lit(v)`, or `Param.bind(v)` explicitly). Ordering ops require `cats.Order[T]`. `isNull`/`isNotNull` gated to `TypedColumn[T, true, _]`.
+- [`ColumnsView[Cols]`](modules/core/src/main/scala/skunk/sharp/ColumnsView.scala): the named-tuple typed view passed to WHERE/ORDER BY/SET lambdas. `cols.<columnName>` resolves to `TypedColumn[T, Null, N]` via Scala 3 named-tuple Selectable support.
 
 ## DSL builders
 
@@ -96,41 +96,49 @@ All session-facing operations live as `inline` extensions on these two types, de
 
 ## `Args` threading — typed captured parameters
 
-Every builder threads two captured-args type parameters end-to-end:
+Every builder threads typed captured-args parameters end-to-end. `Args` is the tuple of `Param[T]` types deferred to execute time; values baked via `Param.bind(v)` or `lit(v)` collapse their slot to `Void` and drop out of `Args`.
 
-- `SelectBuilder[Ss, WArgs, HArgs]` — `WArgs` accumulates from `.where(_ => Where[A])` lambdas, `HArgs` from `.having(_ => Where[H])`. Other operations (`.orderBy`, `.limit`, `.offset`, `.distinctRows`, locking, `.groupBy`) leave them unchanged.
-- `ProjectedSelect[Ss, Proj, Groups, WArgs, HArgs, Row]` — same `WArgs` / `HArgs` story.
+- `SelectBuilder[Ss, GroupsT, WArgs, HArgs]` — `WArgs` from `.where`, `HArgs` from `.having`. `.groupBy` shifts into `GroupsT`. `.orderBy`, `.limit`, `.offset`, `.distinctRows`, locking are Args-neutral.
+- `ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, HArgs, Row]` — same `WArgs` / `HArgs` story; projection / distinct / order args fold in at compile.
 - `DeleteReady[Cols, Name, Args]` — `Args` from `.where(_ => Where[A])`.
-- `UpdateReady[Cols, Name, SetArgs, WArgs]` — `SetArgs` from `.set(_ => col := value)` (single-col), widened to `Any` for tuple-form `.set` and `.patch`.
-- `InsertCommand[Cols, Args]` — `Args` is the row-values tuple for single-row insert; widened to `?` for `.values(...)` batch and `.from(query)`.
+- `UpdateReady[Cols, Name, SetArgs, WArgs]` — `SetArgs` from `.set(_ => col := expr)` (combine with `&` for typed multi-assignment).
+- `InsertCommand[Cols, Args, CA]` — `Args` is the row-values tuple; `CA` is the `ON CONFLICT DO UPDATE` set-clause args.
+- `CteRelation[Cols, Name, Alias, BodyArgs]` — typed body args (Param in CTE WHERE/HAVING/groups) bind at the WITH preamble, surface via [`CteArgs[Ss]`](modules/core/src/main/scala/skunk/sharp/dsl/Cte.scala) at outer compile.
+- `SourceEntry[R, Cols0, Cols, Alias, OnArgs]` — JOIN sources carry `OnArgs` (Param in `.on` predicate) and contribute to outer `Args` via [`SourceOnArgsProj`](modules/core/src/main/scala/skunk/sharp/dsl/Join.scala). Typed-subquery aliases produce a `TypedBodyRelation[Cols, BA]`; their `BA` flows via [`SourceBodyArgsProj`](modules/core/src/main/scala/skunk/sharp/dsl/Join.scala).
 
-`.compile` collapses the parameter slots through the `Where.Concat[A, B]` match type, which drops `skunk.Void` placeholders so a no-WHERE / no-HAVING query is `CompiledQuery[Void, R]`, a WHERE-only query is `CompiledQuery[WArgs, R]`, and so on. Combined predicates pair via raw tuples — `Where[A] && Where[B]` is `Where[(A, B)]`, no normalisation.
+The `Where.Concat[A, B]` match type drops `Void` placeholders so a no-Param query is `CompiledQuery[Void, R]`, a single-Param query is `CompiledQuery[T, R]`, and so on. `Where[A] && Where[B]` is `Where[(A, B)]` — no normalisation; the projection at compile re-pairs via `Where.Concat2` evidences.
 
-**Operators** in [`skunk.sharp.ops`](modules/core/src/main/scala/skunk/sharp/ops/ExprOps.scala) (`===`, `>=`, `between`, `like`, `in`, …) all return `Where[Stripped[T]]` — typed `Args`, never existential. The `SqlMacros.infix` / `infix2` / `postfix` paths bake the LHS column reference + op symbol into a constant `Fragment[Args]` when LHS is a `TypedColumn`; for non-`TypedColumn` LHS (e.g. `Pg.lower(col)`, `col.cast[…]`) the macro renders the LHS to `AppliedFragment` and uses `Encoder.contramap` to bake those existential args while still surfacing the typed RHS `Args` at the result.
+**Operators** in [`ops/ExprOps.scala`](modules/core/src/main/scala/skunk/sharp/ops/ExprOps.scala) take `TypedExpr` RHS only — the value-RHS overload was deliberately dropped to force an explicit pick between `Param[T]` (deferred), `lit(v)` (compile-time literal), and `Param.bind(v)` (bake-now Void-args opt-in). Each operator returns `Where[Concat[A, B]]` where `A` is the LHS Args and `B` the RHS Args. Macro-baked SQL: every `===`, `<=`, `BETWEEN`, etc. with a `TypedColumn` LHS produces a single `Fragment[Args]` whose `parts` is compile-time-constant strings.
 
 **Escape hatches** for genuinely runtime-built predicates:
 
-- `.whereRaw(af: AppliedFragment)` / `.havingRaw(af)` on `SelectBuilder`/`ProjectedSelect`/mutation builders — accept a pre-applied `AppliedFragment` (any third-party fragment, dynamic filter list, etc.) and widen the corresponding slot's `Args` to `?`. The fragment's bound values are baked via contramap; subsequent typed `.where`/`.having` calls compose normally.
-- `Where(typedExpr: TypedExpr[Boolean])` — lift any boolean-typed `TypedExpr` (subquery `Pg.exists(...)`, jsonb `@>`, range `<<`, …) to `Where[Void]`. Used by extension modules whose operators don't ship typed `Args`.
+- `.whereRaw(af: AppliedFragment)` / `.havingRaw(af)` on `SelectBuilder`/`ProjectedSelect`/mutation builders — accept a pre-applied `AppliedFragment` and widen the slot's `Args` to `?`. Subsequent typed `.where`/`.having` calls compose normally.
+- `Where(typedExpr: TypedExpr[Boolean, A])` — lift any boolean-typed `TypedExpr` (subquery `Pg.exists(...)`, jsonb `@>`, range `<<`, …) to `Where[A]`. Used by extension modules.
+
+**Static-by-default**: `column === "x"` does NOT compile. Pick `=== Param[String]` (deferred), `=== lit("x")` (compile-time literal, inlined as `'x'`), or `=== Param.bind("x")` (explicit Void-bake). Same rule for `:=` in UPDATE SET, `between`, `like`, `in`, `isDistinctFrom`, `similarTo`.
 
 ## Compile-time SQL goal (design aspiration)
 
-**Non-trivial goal for v0.1+**: compile as much SQL structure as possible at compile time, so only the actual query
-parameters (user-supplied values) are emitted at runtime.
+**Goal**: compile as much SQL structure as possible at compile time, so only the actual query parameters (user-supplied
+values via `Param[T]`) are emitted at runtime.
 
-**Done so far** (on `macro-sql-assembly`):
-- `WHERE`-operator macro baking — every `===`, `>=`, `between`, `in`, `like`, `isNull`, … with a `TypedColumn` LHS produces a single `skunk.Fragment` whose `parts` is compile-time-constant strings.
-- Structural-token cache (`SELECT `, ` FROM `, ` WHERE `, `, `, `(`, ` AND `, ` GROUP BY `, ` HAVING `, ` ORDER BY `, …) — process-wide-shared `AppliedFragment`s, returned by `TypedExpr.raw` for the hot strings.
-- `lazy val` caching on `TypedColumn.render`, `Table.columnsView`, `Table.deleteFromHeader`, `Table.updateSetHeader`.
-- `CompiledQuery[Args, R]` / `CompiledCommand[Args]` carry `Fragment[Args]` + `args` — typed throughout.
-- All builders thread `Args` end-to-end (this file's *Args threading* section).
+**Status on `macro-sql-assembly`**: every `.compile` in the standard query shapes (SELECT/INSERT/UPDATE/DELETE/JOIN, with WHERE/HAVING/GROUP BY/ORDER BY/LIMIT/OFFSET/RETURNING/CTE) allocates **0 fresh `AppliedFragment`s** per call (verified by [CompileBench](modules/core/src/test/scala/skunk/sharp/bench/CompileBench.scala) over 200,000 iterations × 5 scenarios — `dynamic AFs: 0,00 per compile`).
 
-Measured: ~27% faster `.compile` than `main`, ~3-7× less heap allocation per call. `CompileBench` in `modules/core/src/test/scala/skunk/sharp/bench/CompileBench.scala`.
+Mechanisms in place:
 
-**Still to do** (Phase 5 / issue #24's acid test):
-- Bake projection lists, `ORDER BY` direction keywords, `LIMIT`/`OFFSET` literal forms.
-- A macro that owns the entire builder chain so the fully-static query case (`users.select.where(u => u.id === lit(uuid)).compile`) collapses to a single interned `Fragment[Void]` at expansion time. Today each leaf bakes its own `parts` list and they concatenate at runtime.
-- Compile-time assertion that fully-static queries are `Fragment` constants (the negative twin: dynamic queries must NOT collapse).
+- **Operator macro baking** — every `===`, `>=`, `between`, `in`, `like`, `isNull`, `:=`, … with a `TypedColumn` LHS produces a single `Fragment` whose `parts` is compile-time-constant strings.
+- **Structural-token intern table** ([`RawConstants`](modules/core/src/main/scala/skunk/sharp/internal/RawConstants.scala)) — process-wide-shared `AppliedFragment`s for the SQL keywords and separators (`SELECT`, `FROM`, `WHERE`, `AND`, `GROUP BY`, `HAVING`, `ORDER BY`, `ASC`, `DESC`, `NULLS FIRST`/`NULLS LAST`, `ON`, `USING`, `RETURNING`, comma-space, parentheses, etc.) — including their leading/trailing whitespace. The `TypedExpr.raw` macro looks up every compile-time-constant call site here, so identical strings anywhere in the codebase resolve to the same instance.
+- **LIMIT/OFFSET literal cache** — `RawConstants.limitAf(n)` / `offsetAf(n)` cache the first 1024 integer values; pagination patterns reuse these without per-compile allocation. Larger values fall back to `rawDynamic`.
+- **Projection-list cache** — `Relation.starProjAf` (`"col1", "col2", …`) and `Relation.starProjFromAfOpt` (`"col1", "col2", … FROM "qualifiedName"`) are per-Relation `lazy val`s. The compile path always uses `starProjAf` (column names are preserved by `nullabilifyCols`, so RIGHT/LEFT/FULL JOIN nullabilification doesn't force a dynamic projection rebuild).
+- **`lazy val` caching** on `TypedColumn.render`, `Table.columnsView`, `Table.deleteFromHeader`, `Table.updateSetHeader`.
+- **Fully-static fast path in `assembleN`** — when every part contributes no typed parameters (`encoder.types.isEmpty`), the assembled `Fragment` uses the process-wide-shared `Void.codec` directly instead of constructing a custom `Encoder`. Saves the per-execute parts-walk for fully-static queries.
+- **`CompiledQuery[Args, R]` / `CompiledCommand[Args]`** carry `Fragment[Args]` + `args` — typed throughout.
+- **All builders thread `Args` end-to-end** (this file's *Args threading* section).
+
+**Still to do** (issue #24's acid test):
+
+- A macro that owns the entire builder chain so a fully-static query (`users.select.where(u => u.id === lit(uuid)).compile`) collapses to a *single interned* `Fragment[Void]` constant at expansion time. Today each leaf macro-bakes its own `parts` list, but they still concatenate at runtime in `assembleN` — the AF references are shared but the parts list is built fresh per compile.
+- Compile-time assertion that fully-static queries are `Fragment` constants (positive) and dynamic queries do NOT collapse (negative). Depends on the owner macro to be meaningful.
 
 ## Schema validation
 
@@ -156,13 +164,23 @@ Measured: ~27% faster `.compile` than `main`, ~3-7× less heap allocation per ca
 
 ## Planned roadmap (v0.1+)
 
-1. Multi-source SELECT for JOINs — `Select.from(a, b)` producing a two-source builder; gradual rollout (INNER → LEFT/RIGHT → FULL).
-2. `GROUP BY` / `HAVING`.
-3. Subqueries (scalar + `IN`/`EXISTS`).
-4. Window functions (`OVER (…)`).
-5. ORDER BY `NULLS FIRST / LAST`.
-6. Companion modules:
-   - `skunk-sharp-json` — **based on skunk-circe**, covering `json` and `jsonb` columns with typed operators (`->`, `->>`, `@>`, `?`, …).
-   - `skunk-sharp-refined` — companion to `skunk-sharp-iron`, using [eu.timepit.refined](https://github.com/fthomas/refined) for users on the pre-Iron stack.
-   - `skunk-sharp-ltree`, `skunk-sharp-arrays`, `skunk-sharp-fts` (full-text search), and eventually PostGIS via `skunk-sharp-postgis`.
-7. Docs site via `sbt-typelevel-site` (Laika) with [**mdoc**](https://scalameta.org/mdoc/) — mdoc is the Typelevel-ecosystem replacement for the old `tut` tool; it type-checks every Scala snippet in the markdown against the live library, so examples can't rot. Published to GitHub Pages via the plugin.
+Done on `macro-sql-assembly`:
+
+- ✅ Multi-source SELECT for JOINs (INNER / LEFT / RIGHT / FULL / CROSS, plus LATERAL).
+- ✅ `GROUP BY` / `HAVING`, set-spec functions (`Pg.rollup` / `Pg.cube` / `Pg.groupingSets`).
+- ✅ Subqueries (scalar + `IN` / `EXISTS` + `ANY` / `ALL`).
+- ✅ Window functions (`OVER (…)`).
+- ✅ `ORDER BY NULLS FIRST/LAST`.
+- ✅ CTEs (incl. typed-args, transitive deps via [`CteDepsAllVoid`](modules/core/src/main/scala/skunk/sharp/dsl/Cte.scala)).
+- ✅ SET operations (`UNION` / `INTERSECT` / `EXCEPT`, with `ALL` variants).
+- ✅ `INSERT … VALUES`, `INSERT … FROM SELECT`, `ON CONFLICT … DO NOTHING/UPDATE/UPDATE FROM EXCLUDED`.
+- ✅ `UPDATE … FROM` / `DELETE … USING` (with typed-args FROM/USING tail sources).
+- ✅ Set-returning functions (`Pg.generateSeries`, `Pg.unnestAsRelation`) with typed args.
+- ✅ Iron refinement bridges (`skunk-sharp-iron`).
+- ✅ Circe JSON support (`skunk-sharp-circe`) covering `json` / `jsonb` columns.
+
+Pending:
+
+- Companion modules: `skunk-sharp-refined` (eu.timepit.refined), `skunk-sharp-ltree`, `skunk-sharp-fts` (full-text search), `skunk-sharp-postgis`.
+- Docs site via `sbt-typelevel-site` (Laika) with [**mdoc**](https://scalameta.org/mdoc/) — mdoc is the Typelevel-ecosystem replacement for the old `tut` tool; it type-checks every Scala snippet in the markdown against the live library, so examples can't rot. Published to GitHub Pages via the plugin.
+- Top-level builder-chain owner macro for fully-static query collapse (see *Compile-time SQL goal* above).
