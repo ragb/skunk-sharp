@@ -1,7 +1,7 @@
 package skunk.sharp.pg.functions
 
 import skunk.{Fragment, Void}
-import skunk.sharp.TypedExpr
+import skunk.sharp.{PgFunction, TypedExpr}
 import skunk.sharp.pg.PgTypeFor
 import skunk.sharp.where.Where
 
@@ -69,11 +69,75 @@ trait PgNumeric {
     TypedExpr[T, Where.Concat[Where.Concat[A1, A2], A3]](frag, a.codec)
   }
 
-  /** `greatest(a, b, c, d, …)` — variadic fallback for arity > 3; Args = `Void`. */
-  def greatest[T](args: TypedExpr[T, ?]*): TypedExpr[T, Void] = {
-    require(args.nonEmpty, "greatest() needs at least one argument")
-    naryPreserve("greatest", args)
-  }
+  /** `greatest(a, b, c, d)` — Args is the right-folded `Concat` of all four inputs. */
+  def greatest[T, A1, A2, A3, A4](
+    a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4]
+  )(using
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: EmptyTuple]
+  ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: EmptyTuple](
+      "greatest", List(a.fragment, b.fragment, c.fragment, d.fragment), a.codec
+    )
+
+  /** `greatest(a, b, c, d, e)` — Args is the right-folded `Concat` of all five inputs. */
+  def greatest[T, A1, A2, A3, A4, A5](
+    a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4], e: TypedExpr[T, A5]
+  )(using
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple]
+  ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple](
+      "greatest", List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment), a.codec
+    )
+
+  /** `greatest(a, b, c, d, e, f)` — Args is the right-folded `Concat` of all six inputs. */
+  def greatest[T, A1, A2, A3, A4, A5, A6](
+    a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
+    e: TypedExpr[T, A5], f: TypedExpr[T, A6]
+  )(using
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple]
+  ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple](
+      "greatest", List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment), a.codec
+    )
+
+  /** `greatest(a, b, c, d, e, f, g)` — Args is the right-folded `Concat` of all seven inputs. */
+  def greatest[T, A1, A2, A3, A4, A5, A6, A7](
+    a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
+    e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7]
+  )(using
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple]
+  ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple](
+      "greatest",
+      List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment, g.fragment),
+      a.codec
+    )
+
+  /** `greatest(a, b, c, d, e, f, g, h)` — Args is the right-folded `Concat` of all eight inputs. */
+  def greatest[T, A1, A2, A3, A4, A5, A6, A7, A8](
+    a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
+    e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7], h: TypedExpr[T, A8]
+  )(using
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple]
+  ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple](
+      "greatest",
+      List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment, g.fragment, h.fragment),
+      a.codec
+    )
+
+  /** `greatest(a, b, c, d, e, f, g, h, i)` — Args is the right-folded `Concat` of all nine inputs. */
+  def greatest[T, A1, A2, A3, A4, A5, A6, A7, A8, A9](
+    a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
+    e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7], h: TypedExpr[T, A8], i: TypedExpr[T, A9]
+  )(using
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple]
+  ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple](
+      "greatest",
+      List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment, g.fragment, h.fragment, i.fragment),
+      a.codec
+    )
 
   /** `least(a)` — single arg; Args propagates from `a`. */
   def least[T, A1](a: TypedExpr[T, A1]): TypedExpr[T, A1] = {
@@ -107,11 +171,75 @@ trait PgNumeric {
     TypedExpr[T, Where.Concat[Where.Concat[A1, A2], A3]](frag, a.codec)
   }
 
-  /** `least(a, b, c, d, …)` — variadic fallback for arity > 3; Args = `Void`. */
-  def least[T](args: TypedExpr[T, ?]*): TypedExpr[T, Void] = {
-    require(args.nonEmpty, "least() needs at least one argument")
-    naryPreserve("least", args)
-  }
+  /** `least(a, b, c, d)` — Args is the right-folded `Concat` of all four inputs. */
+  def least[T, A1, A2, A3, A4](
+    a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4]
+  )(using
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: EmptyTuple]
+  ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: EmptyTuple](
+      "least", List(a.fragment, b.fragment, c.fragment, d.fragment), a.codec
+    )
+
+  /** `least(a, b, c, d, e)` — Args is the right-folded `Concat` of all five inputs. */
+  def least[T, A1, A2, A3, A4, A5](
+    a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4], e: TypedExpr[T, A5]
+  )(using
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple]
+  ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple](
+      "least", List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment), a.codec
+    )
+
+  /** `least(a, b, c, d, e, f)` — Args is the right-folded `Concat` of all six inputs. */
+  def least[T, A1, A2, A3, A4, A5, A6](
+    a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
+    e: TypedExpr[T, A5], f: TypedExpr[T, A6]
+  )(using
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple]
+  ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple](
+      "least", List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment), a.codec
+    )
+
+  /** `least(a, b, c, d, e, f, g)` — Args is the right-folded `Concat` of all seven inputs. */
+  def least[T, A1, A2, A3, A4, A5, A6, A7](
+    a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
+    e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7]
+  )(using
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple]
+  ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple](
+      "least",
+      List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment, g.fragment),
+      a.codec
+    )
+
+  /** `least(a, b, c, d, e, f, g, h)` — Args is the right-folded `Concat` of all eight inputs. */
+  def least[T, A1, A2, A3, A4, A5, A6, A7, A8](
+    a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
+    e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7], h: TypedExpr[T, A8]
+  )(using
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple]
+  ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple](
+      "least",
+      List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment, g.fragment, h.fragment),
+      a.codec
+    )
+
+  /** `least(a, b, c, d, e, f, g, h, i)` — Args is the right-folded `Concat` of all nine inputs. */
+  def least[T, A1, A2, A3, A4, A5, A6, A7, A8, A9](
+    a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
+    e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7], h: TypedExpr[T, A8], i: TypedExpr[T, A9]
+  )(using
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple]
+  ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple](
+      "least",
+      List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment, g.fragment, h.fragment, i.fragment),
+      a.codec
+    )
 
   // -------- Fixed `Double` return (NULL-propagating) ---------------------------------------------
 
@@ -166,12 +294,5 @@ trait PgNumeric {
   def sinh[T, A](e: TypedExpr[T, A])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double], A] = doubleFn("sinh", e)
   def cosh[T, A](e: TypedExpr[T, A])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double], A] = doubleFn("cosh", e)
   def tanh[T, A](e: TypedExpr[T, A])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double], A] = doubleFn("tanh", e)
-
-  /** Variadic same-type fn: `name(arg, arg, ...)`. Args = Void (variadic — see [[TypedExpr.joinedVoid]]). */
-  private def naryPreserve[T](name: String, args: Seq[TypedExpr[T, ?]]): TypedExpr[T, Void] = {
-    val joined = TypedExpr.joinedVoid(", ", args.toList.map(_.fragment))
-    val frag   = TypedExpr.wrap(s"$name(", joined, ")")
-    TypedExpr[T, Void](frag, args.head.codec)
-  }
 
 }

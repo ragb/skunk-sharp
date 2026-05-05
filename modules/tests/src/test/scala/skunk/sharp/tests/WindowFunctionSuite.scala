@@ -101,7 +101,7 @@ class WindowFunctionSuite extends PgFixture {
         for {
           _    <- seed(s, pfx)
           rows <- users
-            .select(u => (u.age, Pg.lag(u.age).over(WindowSpec.orderBy(u.age.asc, u.email.asc))))
+            .select(u => (u.age, Pg.lag(u.age).over(WindowSpec.orderBy(u.age.asc).orderBy(u.email.asc))))
             .where(u => u.email.like(Param.bind(s"$pfx-%")))
             .orderBy(u => (u.age.asc, u.email.asc))
             .compile.run(s)
@@ -120,7 +120,7 @@ class WindowFunctionSuite extends PgFixture {
         for {
           _    <- seed(s, pfx)
           rows <- users
-            .select(u => (u.age, Pg.lag(u.age, 1, 0).over(WindowSpec.orderBy(u.age.asc, u.email.asc))))
+            .select(u => (u.age, Pg.lag(u.age, 1, 0).over(WindowSpec.orderBy(u.age.asc).orderBy(u.email.asc))))
             .where(u => u.email.like(Param.bind(s"$pfx-%")))
             .orderBy(u => (u.age.asc, u.email.asc))
             .compile.run(s)

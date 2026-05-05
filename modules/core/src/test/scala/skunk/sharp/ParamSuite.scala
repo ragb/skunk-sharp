@@ -601,9 +601,31 @@ class ParamSuite extends munit.FunSuite {
     val _: QueryTemplate[(String, String), String] = q
   }
 
-  test("Pg.coalesce variadic fallback for arity > 3 collapses Args = Void") {
+  test("Pg.coalesce(col*5) all column refs reduces Args = Void") {
     val q = users.select(u => Pg.coalesce(u.email, u.email, u.email, u.email, u.email)).compile
     val _: QueryTemplate[Void, String] = q
+  }
+
+  test("Pg.coalesce at arity 5 threads typed Args via FoldConcat") {
+    val q = users.select(u => Pg.coalesce(Param[String], u.email, Param[String], u.email, Param[String])).compile
+    // FoldConcat over (String, Void, String, Void, String) = (String, (String, String))
+    val _: QueryTemplate[(String, (String, String)), String] = q
+  }
+
+  test("Pg.greatest at arity 6 threads typed Args via FoldConcat") {
+    val q = users.select(u =>
+      Pg.greatest(Param[Int], u.age, Param[Int], u.age, Param[Int], u.age)
+    ).compile
+    val _: QueryTemplate[(Int, (Int, Int)), Int] = q
+  }
+
+  test("Pg.least at arity 9 threads typed Args via FoldConcat") {
+    val q = users.select(u =>
+      Pg.least(Param[Int], u.age, Param[Int], u.age, Param[Int], u.age, Param[Int], u.age, Param[Int])
+    ).compile
+    // FoldConcat over (Int, Void, Int, Void, Int, Void, Int, Void, Int)
+    //   right-fold drops Void slots → (Int, (Int, (Int, (Int, Int))))
+    val _: QueryTemplate[(Int, (Int, (Int, (Int, Int)))), Int] = q
   }
 
   test("Pg.concat(col, Param) threads typed Args") {
@@ -1035,6 +1057,44 @@ class ParamSuite extends munit.FunSuite {
       .compile
     val _: CommandTemplate[String] = cmd
     assert(cmd.fragment.sql.contains("""FROM (SELECT "id", "user_id", "status" FROM "posts" WHERE "status" = $1) AS "ap""""), cmd.fragment.sql)
+  }
+
+  // -------- Window OVER (…) typed Args ----------------------------------------------------------
+
+  test("WindowSpec.partitionBy(Param) threads typed Args via Concat") {
+    case class User(id: UUID, email: String, age: Int)
+    val users = Table.of[User]("users")
+    val q = users.select(_ => Pg.rowNumber.over(WindowSpec.partitionBy(Param[String]))).compile
+    val _: QueryTemplate[String, Long] = q
+    assert(q.fragment.sql.contains("PARTITION BY $1"), q.fragment.sql)
+  }
+
+  test("WindowSpec.orderBy(Param.desc) threads typed Args via Concat") {
+    case class User(id: UUID, email: String, age: Int)
+    val users = Table.of[User]("users")
+    val q = users.select(_ => Pg.rank.over(WindowSpec.orderBy(Param[Int].desc))).compile
+    val _: QueryTemplate[Int, Long] = q
+    assert(q.fragment.sql.contains("ORDER BY $1 DESC"), q.fragment.sql)
+  }
+
+  test("WindowSpec partitionBy(Param) + orderBy(Param.asc) threads both Args") {
+    case class User(id: UUID, email: String, age: Int)
+    val users = Table.of[User]("users")
+    val q = users
+      .select(u => Pg.sum(u.age).over(WindowSpec.partitionBy(Param[String]).orderBy(Param[Int].asc)))
+      .compile
+    val _: QueryTemplate[(String, Int), Long] = q
+    assert(q.fragment.sql.contains("PARTITION BY $1 ORDER BY $2 ASC"), q.fragment.sql)
+  }
+
+  test("WindowSpec chained partitionBy(col).partitionBy(Param) threads Param's Args only") {
+    case class User(id: UUID, email: String, age: Int)
+    val users = Table.of[User]("users")
+    val q = users
+      .select(u => Pg.rowNumber.over(WindowSpec.partitionBy(u.email).partitionBy(Param[Int])))
+      .compile
+    val _: QueryTemplate[Int, Long] = q
+    assert(q.fragment.sql.contains("""PARTITION BY "email", $1"""), q.fragment.sql)
   }
 
   test("DELETE … USING <typed-args subquery> threads inner Param into outer Args") {

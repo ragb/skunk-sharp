@@ -49,9 +49,81 @@ trait PgNull {
     TypedExpr[T, Where.Concat[Where.Concat[A1, A2], A3]](frag, pf.codec)
   }
 
-  /** `coalesce(a, b, c, d, …)` — variadic fallback for arity > 3; Args = `Void`. */
-  def coalesce[T](args: TypedExpr[T, ?]*)(using pfr: PgTypeFor[T]): TypedExpr[T, Void] =
-    PgFunction.nary[T]("coalesce", args*).asInstanceOf[TypedExpr[T, Void]]
+  /** `coalesce(a, b, c, d)` — Args is the right-folded `Concat` of all four inputs. */
+  def coalesce[T, A1, A2, A3, A4](
+    a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4]
+  )(using
+    pf: PgTypeFor[T],
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: EmptyTuple]
+  ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: EmptyTuple](
+      "coalesce", List(a.fragment, b.fragment, c.fragment, d.fragment), pf.codec
+    )
+
+  /** `coalesce(a, b, c, d, e)` — Args is the right-folded `Concat` of all five inputs. */
+  def coalesce[T, A1, A2, A3, A4, A5](
+    a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4], e: TypedExpr[T, A5]
+  )(using
+    pf: PgTypeFor[T],
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple]
+  ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple](
+      "coalesce", List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment), pf.codec
+    )
+
+  /** `coalesce(a, b, c, d, e, f)` — Args is the right-folded `Concat` of all six inputs. */
+  def coalesce[T, A1, A2, A3, A4, A5, A6](
+    a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
+    e: TypedExpr[T, A5], f: TypedExpr[T, A6]
+  )(using
+    pf: PgTypeFor[T],
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple]
+  ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple](
+      "coalesce", List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment), pf.codec
+    )
+
+  /** `coalesce(a, b, c, d, e, f, g)` — Args is the right-folded `Concat` of all seven inputs. */
+  def coalesce[T, A1, A2, A3, A4, A5, A6, A7](
+    a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
+    e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7]
+  )(using
+    pf: PgTypeFor[T],
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple]
+  ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple](
+      "coalesce",
+      List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment, g.fragment),
+      pf.codec
+    )
+
+  /** `coalesce(a, b, c, d, e, f, g, h)` — Args is the right-folded `Concat` of all eight inputs. */
+  def coalesce[T, A1, A2, A3, A4, A5, A6, A7, A8](
+    a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
+    e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7], h: TypedExpr[T, A8]
+  )(using
+    pf: PgTypeFor[T],
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple]
+  ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple](
+      "coalesce",
+      List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment, g.fragment, h.fragment),
+      pf.codec
+    )
+
+  /** `coalesce(a, b, c, d, e, f, g, h, i)` — Args is the right-folded `Concat` of all nine inputs. */
+  def coalesce[T, A1, A2, A3, A4, A5, A6, A7, A8, A9](
+    a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
+    e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7], h: TypedExpr[T, A8], i: TypedExpr[T, A9]
+  )(using
+    pf: PgTypeFor[T],
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple]
+  ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[T, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple](
+      "coalesce",
+      List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment, g.fragment, h.fragment, i.fragment),
+      pf.codec
+    )
 
   /**
    * `nullif(a, b)` — returns NULL if `a = b`, else `a`. `b` is a runtime value baked via [[Param.bind]];

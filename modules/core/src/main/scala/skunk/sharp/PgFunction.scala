@@ -1,7 +1,8 @@
 package skunk.sharp
 
-import skunk.{Fragment, Void}
+import skunk.{Codec, Fragment, Void}
 import skunk.sharp.pg.PgTypeFor
+import skunk.sharp.where.Where
 
 
 /**
@@ -10,13 +11,27 @@ import skunk.sharp.pg.PgTypeFor
  *
  * Extension hooks third-party modules and user code lean on:
  *
- *   - `nullary` — zero-argument function (`now()`, `current_date`). Produces `TypedExpr[R, Void]`.
- *   - `unary`   — one-argument function (`lower(x)`). Returns `TypedExpr[A, X] => TypedExpr[R, X]` (Args of input
- *                 propagates).
- *   - `binary`  — two-argument function. Result Args is `Concat[X, Y]`.
- *   - `nary`    — n-argument function (`concat(a, b, c)`). Result Args is the running concat of all inputs.
+ *   - `nullary`        — zero-argument function (`now()`, `current_date`). Produces `TypedExpr[R, Void]`.
+ *   - `unary`          — one-argument function (`lower(x)`). Returns `TypedExpr[A, X] => TypedExpr[R, X]` (Args of
+ *                        input propagates).
+ *   - `binary`         — two-argument function. Result Args is `Concat[X, Y]`.
+ *   - `naryTypedFold`  — N-argument helper used by variadic builders (`coalesce`, `greatest`, `least`, `concat`)
+ *                        to thread each input's typed Args via [[Where.FoldConcatN]].
  */
 object PgFunction {
+
+  /**
+   * Typed N-ary helper: render `name(item, item, …)` with each item's typed `Args` threaded into a single
+   * `Args` slot via [[Where.FoldConcatN]] (right-fold over `Concat`, dropping `Void` slots cleanly). Used by
+   * variadic builders (`coalesce` / `greatest` / `least` / `concat`) at every arity.
+   */
+  private[sharp] def naryTypedFold[T, Tup <: NonEmptyTuple](
+    name: String, items: List[Fragment[?]], codec: Codec[T]
+  )(using fc: Where.FoldConcatN[Tup]): TypedExpr[T, Where.FoldConcat[Tup]] = {
+    val combined = TypedExpr.combineList[Where.FoldConcat[Tup]](items, ", ", fc.project)
+    val frag     = TypedExpr.wrap(s"$name(", combined, ")")
+    TypedExpr(frag, codec)
+  }
 
   /** A zero-argument function. Args = Void. */
   def nullary[R](name: String)(using pfr: PgTypeFor[R]): TypedExpr[R, Void] = {
@@ -42,20 +57,6 @@ object PgFunction {
       val frag  = TypedExpr.wrap(s"$name(", inner, ")")
       TypedExpr[R, where.Where.Concat[X, Y]](frag, pfr.codec)
     }
-
-  /**
-   * An n-argument function: `name(a, b, c, …)`. Args is `Void` — variadic builders treat every input as
-   * Void-args (Param.bind-baked or column refs); typed-Args threading through variadic functions is roadmap.
-   */
-  def nary[R](name: String, args: TypedExpr[?, ?]*)(using pfr: PgTypeFor[R]): TypedExpr[R, Void] = {
-    if (args.isEmpty) {
-      TypedExpr[R, Void](TypedExpr.voidFragment(s"$name()"), pfr.codec)
-    } else {
-      val inner = TypedExpr.joinedVoid(", ", args.toList.map(_.fragment))
-      val frag  = TypedExpr.wrap(s"$name(", inner, ")")
-      TypedExpr[R, Void](frag, pfr.codec)
-    }
-  }
 
 }
 

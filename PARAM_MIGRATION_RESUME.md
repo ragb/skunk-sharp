@@ -4,12 +4,12 @@
 
 All green:
 
-- `core` 473/473
+- `core` 480/480
 - `circe` 10/10
 - `iron` 4/4
 - `refined` 5/5
 - `tests` 159/159 (Postgres testcontainers)
-- **total 651/651**
+- **total 658/658**
 
 CompileBench (200,000 iterations × 5 scenarios — SELECT, INSERT, UPDATE, DELETE, JOIN) reports **0 dynamic AppliedFragments per compile**. See [`CompileBench.scala`](modules/core/src/test/scala/skunk/sharp/bench/CompileBench.scala).
 
@@ -38,7 +38,8 @@ Verified across the entire DSL surface (see [`ParamSuite.scala`](modules/core/sr
 - **DELETE**: WHERE, RETURNING (single + tuple + all). `DELETE … USING <typed-args subquery>` threads inner Param.
 - **INSERT**: row-tuple `Args` for single-row, batched via `cats.Reducible`, `INSERT … FROM SELECT`, `RETURNING` variants. `ON CONFLICT DO UPDATE` threads `CA` (set-clause args) as a third `InsertCommand` type parameter.
 - **SRF**: `Pg.generateSeries(Param[Int], Param[Int])`, `Pg.unnestAsRelation(Param[Arr[E]])`. Function args render as a typed `Right` slot via the `IsSrf` marker in `aliasedFromEntryParts`.
-- **PgFunction operators**: typed Args through `Pg.lower`, `Pg.upper`, `Pg.length`, `Pg.lpad`/`rpad`, `Pg.concat`, `Pg.coalesce`, `Pg.makeDate`, `Pg.power`, `Pg.mod`, `Pg.greatest`, `Pg.least`, `Pg.overlaps`, `Pg.lag`, `Pg.stringAgg`, range/array operators, jsonb operators (typed up to arity 3 — see *Pending* below).
+- **PgFunction operators**: typed Args through `Pg.lower`, `Pg.upper`, `Pg.length`, `Pg.lpad`/`rpad`, `Pg.concat`, `Pg.coalesce`, `Pg.makeDate`, `Pg.power`, `Pg.mod`, `Pg.greatest`, `Pg.least`, `Pg.overlaps`, `Pg.lag`, `Pg.stringAgg`, range/array operators, jsonb operators. Variadic functions (`coalesce` / `greatest` / `least` / `concat`) thread typed Args via [[Where.FoldConcatN]] up to arity 9.
+- **Window `OVER (…)` specs**: `WindowSpec.partitionBy(Param)` and `WindowSpec.orderBy(Param.asc)` thread `(PA, OA)` typed slots into the wrapping expression's `Args` via `Concat[A, Concat[PA, OA]]`. Frame bounds (`rowsBetween` / `rangeBetween` / `groupsBetween`) are static integer constants — Args-neutral.
 
 ## Static-by-default operators
 
@@ -68,10 +69,8 @@ Every standard query shape is fully cached at compile time:
 **Small typed-Args holdouts** — positions where `Param` works at runtime via the encoder but isn't surfaced in the outer `Args` type:
 
 - `IN (subquery)` and `ANY` / `ALL (subquery)` — inner Args bound at Void via `liftAfToVoid` ([`ExprOps.scala`](modules/core/src/main/scala/skunk/sharp/ops/ExprOps.scala)).
-- Window function `OVER (…)` specs — `PARTITION BY Param`, `ORDER BY Param`, frame bounds bind at Void ([`WindowSpec.scala`](modules/core/src/main/scala/skunk/sharp/dsl/WindowSpec.scala)).
 - DISTINCT ON via `compileFragment` (Void/Cte/SetOp internal path) — `.compile` threads them; only the AF/Cte/SetOp internal renders bind at Void (`renderSelectPrefix` + `Select.scala` line near the SetOp / Cte bridge).
 - `SetOpQuery` itself doesn't carry an `Args` type parameter — Param-bearing arms lose their args at the SetOp boundary.
-- Variadic function args > arity 3 — `Pg.coalesce`, `Pg.greatest`, `Pg.least` with 4+ args collapse to `Args = Void`. Arities 1/2/3 thread typed.
 - Multi-item RETURNING with **named tuples** — only plain tuple projections (`returningTuple(u => (u.id, u.email))`) thread typed `RetArgs`. Named tuples in RETURNING hit the Scala 3.8 NamedTuple-vs-Tuple match-type blocker (SELECT projections dodge this with `erasedValue`; not yet ported to RETURNING).
 
 ## Roadmap

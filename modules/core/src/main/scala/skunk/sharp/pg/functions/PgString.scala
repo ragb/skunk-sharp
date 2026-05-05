@@ -154,9 +154,79 @@ trait PgString {
     TypedExpr[String, Where.Concat[Where.Concat[A1, A2], A3]](frag, skunk.codec.all.text)
   }
 
-  /** `concat(a, b, c, d, …)` — variadic fallback for arity > 3; Args = `Void`. */
-  def concat(args: TypedExpr[String, ?]*): TypedExpr[String, Void] =
-    PgFunction.nary[String]("concat", args*).asInstanceOf[TypedExpr[String, Void]]
+  /** `concat(a, b, c, d)` — Args is the right-folded `Concat` of all four inputs. */
+  def concat[A1, A2, A3, A4](
+    a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3], d: TypedExpr[String, A4]
+  )(using
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: EmptyTuple]
+  ): TypedExpr[String, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[String, A1 *: A2 *: A3 *: A4 *: EmptyTuple](
+      "concat", List(a.fragment, b.fragment, c.fragment, d.fragment), skunk.codec.all.text
+    )
+
+  /** `concat(a, b, c, d, e)` — Args is the right-folded `Concat` of all five inputs. */
+  def concat[A1, A2, A3, A4, A5](
+    a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3],
+    d: TypedExpr[String, A4], e: TypedExpr[String, A5]
+  )(using
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple]
+  ): TypedExpr[String, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[String, A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple](
+      "concat", List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment), skunk.codec.all.text
+    )
+
+  /** `concat(a, b, c, d, e, f)` — Args is the right-folded `Concat` of all six inputs. */
+  def concat[A1, A2, A3, A4, A5, A6](
+    a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3],
+    d: TypedExpr[String, A4], e: TypedExpr[String, A5], f: TypedExpr[String, A6]
+  )(using
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple]
+  ): TypedExpr[String, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[String, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: EmptyTuple](
+      "concat",
+      List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment),
+      skunk.codec.all.text
+    )
+
+  /** `concat(a, b, c, d, e, f, g)` — Args is the right-folded `Concat` of all seven inputs. */
+  def concat[A1, A2, A3, A4, A5, A6, A7](
+    a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3],
+    d: TypedExpr[String, A4], e: TypedExpr[String, A5], f: TypedExpr[String, A6], g: TypedExpr[String, A7]
+  )(using
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple]
+  ): TypedExpr[String, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[String, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: EmptyTuple](
+      "concat",
+      List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment, g.fragment),
+      skunk.codec.all.text
+    )
+
+  /** `concat(a, b, c, d, e, f, g, h)` — Args is the right-folded `Concat` of all eight inputs. */
+  def concat[A1, A2, A3, A4, A5, A6, A7, A8](
+    a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3], d: TypedExpr[String, A4],
+    e: TypedExpr[String, A5], f: TypedExpr[String, A6], g: TypedExpr[String, A7], h: TypedExpr[String, A8]
+  )(using
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple]
+  ): TypedExpr[String, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[String, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: EmptyTuple](
+      "concat",
+      List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment, g.fragment, h.fragment),
+      skunk.codec.all.text
+    )
+
+  /** `concat(a, b, c, d, e, f, g, h, i)` — Args is the right-folded `Concat` of all nine inputs. */
+  def concat[A1, A2, A3, A4, A5, A6, A7, A8, A9](
+    a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3], d: TypedExpr[String, A4],
+    e: TypedExpr[String, A5], f: TypedExpr[String, A6], g: TypedExpr[String, A7],
+    h: TypedExpr[String, A8], i: TypedExpr[String, A9]
+  )(using
+    fc: Where.FoldConcatN[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple]
+  ): TypedExpr[String, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple]] =
+    PgFunction.naryTypedFold[String, A1 *: A2 *: A3 *: A4 *: A5 *: A6 *: A7 *: A8 *: A9 *: EmptyTuple](
+      "concat",
+      List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment, g.fragment, h.fragment, i.fragment),
+      skunk.codec.all.text
+    )
 
   // ---- Fixed Int return -----------------------------------------------------------------------
 

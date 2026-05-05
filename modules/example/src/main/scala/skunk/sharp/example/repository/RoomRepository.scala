@@ -71,7 +71,7 @@ object RoomRepository {
       else
         t.update
           .patch(data)
-          .where(r => r.id === id)
+          .where(r => r.id === Param.bind(id))
           .returningAll.to[RoomRow]
           .compile.optionK[IO]
 
