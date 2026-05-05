@@ -1042,6 +1042,35 @@ class ParamSuite extends munit.FunSuite {
     assert(qt.fragment.sql.contains("""(SELECT "user_id", "title" FROM "posts" WHERE "id" = $1) AS "p""""), qt.fragment.sql)
   }
 
+  // -------- IN / ANY / ALL subquery typed Args ---------------------------------------------------
+
+  test("col.in(<Param-bearing subquery>) threads inner Args via Concat") {
+    case class User(id: UUID, email: String, age: Int)
+    case class Post(id: UUID, user_id: UUID, status: String)
+    val users = Table.of[User]("users")
+    val posts = Table.of[Post]("posts")
+    val activeUsers = posts.select(p => p.user_id).where(p => p.status === Param[String])
+    val q = users.select.where(u => u.id.in(activeUsers)).compile
+    val _: QueryTemplate[String, ?] = q
+    assert(q.fragment.sql.contains("\"status\" = $1"), q.fragment.sql)
+  }
+
+  test("col.lteAny(<Param-bearing subquery>) threads inner Args via Concat") {
+    case class User(id: UUID, email: String, age: Int)
+    val users = Table.of[User]("users")
+    val ages  = users.select(u => u.age).where(u => u.email === Param[String])
+    val q     = users.select.where(u => u.age.lteAny(ages)).compile
+    val _: QueryTemplate[String, ?] = q
+    assert(q.fragment.sql.contains("<= ANY") && q.fragment.sql.contains("$1"), q.fragment.sql)
+  }
+
+  test("col.in(values) preserves Args = Void (values are Param.bind-baked)") {
+    case class User(id: UUID, email: String, age: Int)
+    val users = Table.of[User]("users")
+    val q     = users.select.where(u => u.age.in(cats.data.NonEmptyList.of(20, 21, 22))).compile
+    val _: QueryTemplate[Void, ?] = q
+  }
+
   // -------- UPDATE FROM / DELETE USING with typed-args FROM tail --------------------------------
 
   test("UPDATE … FROM <typed-args subquery> threads inner Param into outer Args") {

@@ -305,11 +305,10 @@ object AsSubquery {
         b.compile[SA, GA, CArgs](using ev, sbOf, cteSum, cteProj, g, c0c, c0cs, c0csw, c0cswg).fragment
     }
 
-  given fromSetOp[T]: AsSubquery[SetOpQuery[T], T, Void] =
-    new AsSubquery[SetOpQuery[T], T, Void] {
-      def codec(q: SetOpQuery[T]): Codec[T]               = q.codec
-      def fragment(q: SetOpQuery[T]): Fragment[Void] =
-        skunk.sharp.TypedExpr.liftAfToVoid(q.renderFn())
+  given fromSetOp[A, T]: AsSubquery[SetOpQuery[A, T], T, A] =
+    new AsSubquery[SetOpQuery[A, T], T, A] {
+      def codec(q: SetOpQuery[A, T]): Codec[T]            = q.codec
+      def fragment(q: SetOpQuery[A, T]): Fragment[A]      = q.renderFn()
     }
 
   /**

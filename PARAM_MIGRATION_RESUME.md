@@ -4,12 +4,12 @@
 
 All green:
 
-- `core` 480/480
+- `core` 485/485
 - `circe` 10/10
 - `iron` 4/4
 - `refined` 5/5
 - `tests` 159/159 (Postgres testcontainers)
-- **total 658/658**
+- **total 663/663**
 
 CompileBench (200,000 iterations × 5 scenarios — SELECT, INSERT, UPDATE, DELETE, JOIN) reports **0 dynamic AppliedFragments per compile**. See [`CompileBench.scala`](modules/core/src/test/scala/skunk/sharp/bench/CompileBench.scala).
 
@@ -40,6 +40,8 @@ Verified across the entire DSL surface (see [`ParamSuite.scala`](modules/core/sr
 - **SRF**: `Pg.generateSeries(Param[Int], Param[Int])`, `Pg.unnestAsRelation(Param[Arr[E]])`. Function args render as a typed `Right` slot via the `IsSrf` marker in `aliasedFromEntryParts`.
 - **PgFunction operators**: typed Args through `Pg.lower`, `Pg.upper`, `Pg.length`, `Pg.lpad`/`rpad`, `Pg.concat`, `Pg.coalesce`, `Pg.makeDate`, `Pg.power`, `Pg.mod`, `Pg.greatest`, `Pg.least`, `Pg.overlaps`, `Pg.lag`, `Pg.stringAgg`, range/array operators, jsonb operators. Variadic functions (`coalesce` / `greatest` / `least` / `concat`) thread typed Args via [[Where.FoldConcatN]] up to arity 9.
 - **Window `OVER (…)` specs**: `WindowSpec.partitionBy(Param)` and `WindowSpec.orderBy(Param.asc)` thread `(PA, OA)` typed slots into the wrapping expression's `Args` via `Concat[A, Concat[PA, OA]]`. Frame bounds (`rowsBetween` / `rangeBetween` / `groupsBetween`) are static integer constants — Args-neutral.
+- **`SetOpQuery[A, R]`**: carries an `Args` type parameter; each `.union` / `.intersect` / `.except` step concatenates arms via `Concat[A1, A2]`. Param-bearing arms (e.g. `users.select.where(u => u.email === Param[String]).union(...)`) thread their typed Args end-to-end into the outer `CompiledQuery`.
+- **`IN` / `ANY` / `ALL (subquery)`**: now thread the inner subquery's typed Args. `col.in(<subquery>)` returns `Where[Concat[A, RA]]` — Param in the inner subquery surfaces as `RA` on the outer query. Value-list `IN (NonEmptyList(...))` still produces `Args = Void` (values are Param.bind-baked).
 
 ## Static-by-default operators
 
@@ -68,9 +70,6 @@ Every standard query shape is fully cached at compile time:
 
 **Small typed-Args holdouts** — positions where `Param` works at runtime via the encoder but isn't surfaced in the outer `Args` type:
 
-- `IN (subquery)` and `ANY` / `ALL (subquery)` — inner Args bound at Void via `liftAfToVoid` ([`ExprOps.scala`](modules/core/src/main/scala/skunk/sharp/ops/ExprOps.scala)).
-- DISTINCT ON via `compileFragment` (Void/Cte/SetOp internal path) — `.compile` threads them; only the AF/Cte/SetOp internal renders bind at Void (`renderSelectPrefix` + `Select.scala` line near the SetOp / Cte bridge).
-- `SetOpQuery` itself doesn't carry an `Args` type parameter — Param-bearing arms lose their args at the SetOp boundary.
 - Multi-item RETURNING with **named tuples** — only plain tuple projections (`returningTuple(u => (u.id, u.email))`) thread typed `RetArgs`. Named tuples in RETURNING hit the Scala 3.8 NamedTuple-vs-Tuple match-type blocker (SELECT projections dodge this with `erasedValue`; not yet ported to RETURNING).
 
 ## Roadmap

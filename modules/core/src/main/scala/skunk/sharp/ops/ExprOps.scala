@@ -172,17 +172,21 @@ extension [T, Null <: Boolean, N <: String & Singleton](inline lhs: skunk.sharp.
 }
 
 /**
- * `lhs IN (values...)` / `lhs IN (subquery)`. The RHS evidence builds a Void-args parenthesised fragment; the
- * LHS's args propagate through.
+ * `lhs IN (values...)` / `lhs IN (subquery)`. The RHS evidence builds a typed parenthesised fragment whose `Args`
+ * surface as the `RA` slot; the outer `.in` extension threads them via `Concat[A, RA]`.
  */
 sealed trait InRhs[T, Rhs] {
-  def renderParens(rhs: Rhs): Fragment[Void]
+  type RA
+  def renderParens(rhs: Rhs): Fragment[RA]
 }
 
 object InRhs {
 
-  given reducibleIn[T, F[_]](using R: cats.Reducible[F], pf: PgTypeFor[T]): InRhs[T, F[T]] =
+  type Aux[T, Rhs, A0] = InRhs[T, Rhs] { type RA = A0 }
+
+  given reducibleIn[T, F[_]](using R: cats.Reducible[F], pf: PgTypeFor[T]): InRhs.Aux[T, F[T], Void] =
     new InRhs[T, F[T]] {
+      type RA = Void
       def renderParens(values: F[T]): Fragment[Void] = {
         val literals = R.toNonEmptyList(values).toList.map(v => Param.bind[T](v).fragment)
         // Combine all literal fragments via combineSep with ", " separator; wrap in parens.
@@ -191,13 +195,12 @@ object InRhs {
       }
     }
 
-  given subqueryIn[T, Q, A](using ev: skunk.sharp.dsl.AsSubquery[Q, T, A]): InRhs[T, Q] =
+  given subqueryIn[T, Q, A](using ev: skunk.sharp.dsl.AsSubquery[Q, T, A]): InRhs.Aux[T, Q, A] =
     new InRhs[T, Q] {
-      def renderParens(q: Q): Fragment[Void] = {
+      type RA = A
+      def renderParens(q: Q): Fragment[A] = {
         val inner: Fragment[A] = ev.fragment(q)
-        // Bind the inner Args at Void — typed-args threading through `IN (subquery)` is roadmap.
-        val voidFrag = TypedExpr.liftAfToVoid(inner.apply(Void.asInstanceOf[A]))
-        TypedExpr.wrap("(", voidFrag, ")")
+        TypedExpr.wrap("(", inner, ")")
       }
     }
 
@@ -205,18 +208,21 @@ object InRhs {
 
 extension [T, A](lhs: TypedExpr[T, A]) {
 
-  /** `lhs IN (...)`. RHS bound parameters are baked into the encoder; result Args = LHS Args. */
-  def in[Rhs](rhs: Rhs)(using ev: InRhs[T, Rhs]): Where[A] = {
-    val rhsFrag = ev.renderParens(rhs)
-    val combined = TypedExpr.combineSep(lhs.fragment, " IN ", rhsFrag)
-    Where(combined.asInstanceOf[Fragment[A]])
+  /** `lhs IN (...)`. Param-bearing inner subqueries thread their `Args` into the result via `Concat[A, RA]`. */
+  def in[Rhs, RA](rhs: Rhs)(using
+    ev: InRhs.Aux[T, Rhs, RA],
+    c2: Where.Concat2[A, RA]
+  ): Where[Where.Concat[A, RA]] = {
+    val rhsFrag  = ev.renderParens(rhs)
+    val combined = TypedExpr.combineSep[A, RA](lhs.fragment, " IN ", rhsFrag)
+    Where(combined)
   }
 
 }
 
 /**
  * ANY / ALL quantifier over a subquery RHS. Renders as `<lhs> <op> ANY (<subquery>)` / `<lhs> <op> ALL
- * (<subquery>)`. The inner subquery's args are baked via contramap so result Args = LHS Args.
+ * (<subquery>)`. Param-bearing inner subqueries thread their `QA` slot into the result via `Concat[A, QA]`.
  */
 private def quantifiedRender[T, A, Q, ET, QA](
   lhs: TypedExpr[T, A],
@@ -225,28 +231,46 @@ private def quantifiedRender[T, A, Q, ET, QA](
   q: Q
 )(using
   ev: skunk.sharp.dsl.AsSubquery[Q, ET, QA],
-  c2: Where.Concat2[A, Void]
-): Where[A] = {
-  // The inner subquery's encoder may carry baked Param values (e.g. inner WHERE has `like(...)`). Apply to
-  // Void to bind any inner args, lift back to Fragment[Void] preserving the contramap-Void encoder, then
-  // wrap with `<op> ANY/ALL (...)` and combineSep with the outer LHS so both encoders fold into the result.
-  val inner: Fragment[QA] = ev.fragment(q)
-  val voidFrag            = TypedExpr.liftAfToVoid(inner.apply(Void.asInstanceOf[QA]))
-  val wrapped             = TypedExpr.wrap(s"$op $quant (", voidFrag, ")")
-  val combined            = TypedExpr.combineSep[A, Void](lhs.fragment, " ", wrapped)
-  Where(combined.asInstanceOf[Fragment[A]])
+  c2: Where.Concat2[A, QA]
+): Where[Where.Concat[A, QA]] = {
+  val inner    = ev.fragment(q)
+  val wrapped  = TypedExpr.wrap(s"$op $quant (", inner, ")")
+  val combined = TypedExpr.combineSep[A, QA](lhs.fragment, " ", wrapped)
+  Where(combined)
 }
 
 extension [T, A](lhs: TypedExpr[T, A])(using @unused ord: cats.Order[T]) {
 
-  def ltAny[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, T, QA]): Where[A]  = quantifiedRender(lhs, "<",  "ANY", q)
-  def lteAny[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, T, QA]): Where[A] = quantifiedRender(lhs, "<=", "ANY", q)
-  def gtAny[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, T, QA]): Where[A]  = quantifiedRender(lhs, ">",  "ANY", q)
-  def gteAny[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, T, QA]): Where[A] = quantifiedRender(lhs, ">=", "ANY", q)
+  def ltAny[Q, QA](q: Q)(using
+    skunk.sharp.dsl.AsSubquery[Q, T, QA], Where.Concat2[A, QA]
+  ): Where[Where.Concat[A, QA]] = quantifiedRender(lhs, "<", "ANY", q)
 
-  def ltAll[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, T, QA]): Where[A]  = quantifiedRender(lhs, "<",  "ALL", q)
-  def lteAll[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, T, QA]): Where[A] = quantifiedRender(lhs, "<=", "ALL", q)
-  def gtAll[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, T, QA]): Where[A]  = quantifiedRender(lhs, ">",  "ALL", q)
-  def gteAll[Q, QA](q: Q)(using skunk.sharp.dsl.AsSubquery[Q, T, QA]): Where[A] = quantifiedRender(lhs, ">=", "ALL", q)
+  def lteAny[Q, QA](q: Q)(using
+    skunk.sharp.dsl.AsSubquery[Q, T, QA], Where.Concat2[A, QA]
+  ): Where[Where.Concat[A, QA]] = quantifiedRender(lhs, "<=", "ANY", q)
+
+  def gtAny[Q, QA](q: Q)(using
+    skunk.sharp.dsl.AsSubquery[Q, T, QA], Where.Concat2[A, QA]
+  ): Where[Where.Concat[A, QA]] = quantifiedRender(lhs, ">", "ANY", q)
+
+  def gteAny[Q, QA](q: Q)(using
+    skunk.sharp.dsl.AsSubquery[Q, T, QA], Where.Concat2[A, QA]
+  ): Where[Where.Concat[A, QA]] = quantifiedRender(lhs, ">=", "ANY", q)
+
+  def ltAll[Q, QA](q: Q)(using
+    skunk.sharp.dsl.AsSubquery[Q, T, QA], Where.Concat2[A, QA]
+  ): Where[Where.Concat[A, QA]] = quantifiedRender(lhs, "<", "ALL", q)
+
+  def lteAll[Q, QA](q: Q)(using
+    skunk.sharp.dsl.AsSubquery[Q, T, QA], Where.Concat2[A, QA]
+  ): Where[Where.Concat[A, QA]] = quantifiedRender(lhs, "<=", "ALL", q)
+
+  def gtAll[Q, QA](q: Q)(using
+    skunk.sharp.dsl.AsSubquery[Q, T, QA], Where.Concat2[A, QA]
+  ): Where[Where.Concat[A, QA]] = quantifiedRender(lhs, ">", "ALL", q)
+
+  def gteAll[Q, QA](q: Q)(using
+    skunk.sharp.dsl.AsSubquery[Q, T, QA], Where.Concat2[A, QA]
+  ): Where[Where.Concat[A, QA]] = quantifiedRender(lhs, ">=", "ALL", q)
 
 }

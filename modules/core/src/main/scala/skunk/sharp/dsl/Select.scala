@@ -389,26 +389,6 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
   ) = select[X](f)
 
   /**
-   * Bridge for [[Cte]] — renders the SELECT body **without** the CTE preamble, binding all
-   * inner Args to Void. Called only when the inner query's Args are all Void (enforced by CTE's
-   * compile-time guards).
-   */
-  private[dsl] def compileFragment(using ev: IsSingleSource[Ss]): AppliedFragment = {
-    val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
-    val head    = entries.head
-    val voidGroupProjector: Any => List[Any] = _ => List.fill(groupBys.size)(Void)
-    // 4 slots: [source-body=0, WHERE=1, GROUPBY=2, HAVING=3] — all Void
-    val voidSlots: Void => IArray[Any] = _ => IArray(Void, Void, Void, Void)
-    val tpl = SelectBuilder.assembleN[Void, NamedRowOf[ev.Cols]](
-      bodyParts  = compileBodyParts(head, voidGroupProjector),
-      ctes       = Nil,
-      codec      = rowCodec(head.effectiveCols).asInstanceOf[Codec[NamedRowOf[ev.Cols]]],
-      slotValues = voidSlots
-    )
-    tpl.fragment.asInstanceOf[Fragment[Void]].apply(Void)
-  }
-
-  /**
    * Whole-row `.compile` — only on single-source builders. Threads `SArgs` (from any inner
    * subquery body), `WArgs` (WHERE), `GArgs` (GROUP BY via [[ProjArgsOf]]), and `HArgs`
    * (HAVING) in render order: `[SArgs, WArgs, GArgs, HArgs]`.
@@ -542,10 +522,10 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
       buf += Left(rel.starProjAf)
       buf += Right(SelectBuilder.emptyVoidSlot) // slot 0 (FROM-less → Void)
     }
-    // No tail-source emission here: every caller of `compileBodyParts` (compile, compileBodyFragment,
-    // compileFragment) requires `IsSingleSource[Ss]`, so `Ss = SourceEntry[…] *: EmptyTuple` and there's
-    // no tail. Multi-source SELECT goes through `ProjectedSelect.compileBodyParts` instead, which has its
-    // own tail-source emission via `aliasedFromEntryParts` and per-source ON Right slots.
+    // No tail-source emission here: every caller of `compileBodyParts` (compile, compileBodyFragment)
+    // requires `IsSingleSource[Ss]`, so `Ss = SourceEntry[…] *: EmptyTuple` and there's no tail.
+    // Multi-source SELECT goes through `ProjectedSelect.compileBodyParts` instead, which has its own
+    // tail-source emission via `aliasedFromEntryParts` and per-source ON Right slots.
     // slot 1 = WHERE
     whereOpt match {
       case Some(f) =>
@@ -1306,29 +1286,6 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
       lockingOpt,
       distinctOnOpt
     )
-  }
-
-  /**
-   * Bridge for [[Cte]] — renders the body without CTE preamble, binding all inner Args to Void.
-   * Called only when the inner query's Args are all Void (enforced by CTE's compile-time guards).
-   */
-  private[dsl] def compileFragment(using @scala.annotation.unused ev: GroupCoverage[Proj, Groups]): AppliedFragment = {
-    val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
-    val distinctSize = distinctOnOpt.fold(0)(_.size)
-    val voidDistProjector:  Any => List[Any] = _ => List.fill(distinctSize)(Void)
-    val voidProjProjector:  Any => List[Any] = _ => List.fill(projections.size)(Void)
-    val voidGroupProjector: Any => List[Any] = _ => List.fill(groupBys.size)(Void)
-    val voidOrderProjector: Any => List[Any] = _ => List.fill(orderBys.size)(Void)
-    // Slot count = 2 (DIST, PROJ) + 2 * N (per-source body + ON) + 4 (WHERE, GROUP, HAVING, ORDER); all Void
-    val totalSlots = 2 + 2 * sourceSlotCount(entries) + 4
-    val voidSlots: Void => IArray[Any] = _ => IArray.fill(totalSlots)(Void)
-    val tpl = SelectBuilder.assembleN[Void, Row](
-      bodyParts  = compileBodyParts(voidDistProjector, voidProjProjector, voidGroupProjector, voidOrderProjector),
-      ctes       = Nil,
-      codec      = codec,
-      slotValues = voidSlots
-    )
-    tpl.fragment.asInstanceOf[Fragment[Void]].apply(Void)
   }
 
   /**
