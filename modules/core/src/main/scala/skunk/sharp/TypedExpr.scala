@@ -144,15 +144,16 @@ object TypedExpr {
   /**
    * Pair two typed Fragments into a single one whose Args is `Where.Concat[A, B]`. The combined encoder
    * always products both sub-encoders (so any baked values riding on either side flow through), then
-   * contramaps the user's `Concat[A, B]` input back into the `(A, B)` tuple the product consumes — see
-   * [[Where.Concat2]]. The `eq Void.codec` shortcuts skip the product when one side is the literal Void
-   * encoder (no params at all on that side).
+   * contramaps the user's `Concat[A, B]` input back into the `(A, B)` tuple the product consumes — via the
+   * caller-supplied `proj` (typically `c => Where.projectConcat[A, B](c)` materialised at the caller's inline
+   * site so dispatch reduces). The `eq Void.codec` shortcuts skip the product when one side is the literal
+   * Void encoder (no params at all on that side).
    */
   private[sharp] def combine[A, B](
-    a: Fragment[A], b: Fragment[B]
-  )(using c2: Where.Concat2[A, B]): Fragment[Where.Concat[A, B]] = {
+    a: Fragment[A], b: Fragment[B], proj: Where.Concat[A, B] => (A, B)
+  ): Fragment[Where.Concat[A, B]] = {
     val parts = a.parts ++ b.parts
-    val enc   = combineEnc[A, B](a.encoder, b.encoder)
+    val enc   = combineEnc[A, B](a.encoder, b.encoder, proj)
     Fragment(parts, enc, Origin.unknown)
   }
 
@@ -161,13 +162,25 @@ object TypedExpr {
    * `combine(a, combine(separatorFragment, b))` but allocates fewer intermediate fragments.
    */
   private[sharp] def combineSep[A, B](
-    a: Fragment[A], sepSql: String, b: Fragment[B]
-  )(using c2: Where.Concat2[A, B]): Fragment[Where.Concat[A, B]] = {
+    a: Fragment[A], sepSql: String, b: Fragment[B], proj: Where.Concat[A, B] => (A, B)
+  ): Fragment[Where.Concat[A, B]] = {
     val sepLeft: Either[String, cats.data.State[Int, String]] = Left(sepSql)
     val parts = a.parts ++ List(sepLeft) ++ b.parts
-    val enc   = combineEnc[A, B](a.encoder, b.encoder)
+    val enc   = combineEnc[A, B](a.encoder, b.encoder, proj)
     Fragment(parts, enc, Origin.unknown)
   }
+
+  /** Inline sugar: `combineSep(a, sep, b)` with `Where.projectConcat[A, B]` as the projection. */
+  private[sharp] inline def combineSepInl[A, B](
+    a: Fragment[A], sepSql: String, b: Fragment[B]
+  ): Fragment[Where.Concat[A, B]] =
+    combineSep[A, B](a, sepSql, b, c => Where.projectConcat[A, B](c))
+
+  /** Inline sugar: `combine(a, b)` with `Where.projectConcat[A, B]` as the projection. */
+  private[sharp] inline def combineInl[A, B](
+    a: Fragment[A], b: Fragment[B]
+  ): Fragment[Where.Concat[A, B]] =
+    combine[A, B](a, b, c => Where.projectConcat[A, B](c))
 
   /**
    * Combine N typed `Fragment`s into one whose `Args` is the caller-claimed `Combined`. The encoder walks
@@ -176,8 +189,8 @@ object TypedExpr {
    *
    * Used by variadic builders, RETURNING tuples, SELECT projections, GROUP BY / ORDER BY / DISTINCT ON
    * lists — anywhere N typed slots need to fold into one. The caller supplies a `projector` matching
-   * `Combined` to the per-item values list; typically derived from a [[Where.FoldConcatN]] instance
-   * whose `Combined = FoldConcat[CollectArgs[T]]`.
+   * `Combined` to the per-item values list; typically `c => Where.projectFoldConcat[Tup](c)` materialised at
+   * the caller's inline expansion site so the per-slot dispatch reduces.
    */
   private[sharp] def combineList[Combined](
     items:     List[Fragment[?]],
@@ -232,15 +245,20 @@ object TypedExpr {
       case Nil          => voidFragment("")
       case head :: Nil  => head.asInstanceOf[Fragment[Void]]
       case head :: tail =>
+        // Concat[Void, Void] = Void; identity projection is correct.
+        val projVV: Where.Concat[Void, Void] => (Void, Void) = _ => (Void, Void)
         tail.foldLeft(head.asInstanceOf[Fragment[Void]]) { (acc, p) =>
-          combineSep[Void, Void](acc, sep, p.asInstanceOf[Fragment[Void]])
+          combineSep[Void, Void](acc, sep, p.asInstanceOf[Fragment[Void]], projVV)
         }
     }
 
-  /** Pair two encoders, contramapping `Concat[A, B]` → `(A, B)` per [[Where.Concat2]]. */
+  /**
+   * Pair two encoders, contramapping `Concat[A, B]` → `(A, B)` via the caller-supplied `proj` (typically
+   * `c => Where.projectConcat[A, B](c)`).
+   */
   private[sharp] def combineEnc[A, B](
-    a: Encoder[A], b: Encoder[B]
-  )(using c2: Where.Concat2[A, B]): Encoder[Where.Concat[A, B]] = {
+    a: Encoder[A], b: Encoder[B], proj: Where.Concat[A, B] => (A, B)
+  ): Encoder[Where.Concat[A, B]] = {
     val voidLeft  = a eq Void.codec
     val voidRight = b eq Void.codec
     if (voidLeft && voidRight) Void.codec.asInstanceOf[Encoder[Where.Concat[A, B]]]
@@ -248,7 +266,7 @@ object TypedExpr {
     else if (voidRight)        a.asInstanceOf[Encoder[Where.Concat[A, B]]]
     else {
       val productEnc: Encoder[(A, B)] = a.product(b)
-      productEnc.contramap[Where.Concat[A, B]](c2.project)
+      productEnc.contramap[Where.Concat[A, B]](proj)
     }
   }
 

@@ -37,42 +37,25 @@ object Where {
   }
 
   /**
-   * Project a `Concat[A, B]` value (whatever shape that reduced to) back into a `(A, B)` tuple — the input
-   * shape an `Encoder[A].product(Encoder[B])` actually expects at execute time. Without this, an
-   * `Encoder[(A, B)]` cast as `Encoder[Concat[A, B]]` would receive the wrong shape (e.g. raw `Void` when
-   * `Concat[Void, Void] = Void` reduced) and ClassCastException deep in Skunk's encoder chain.
+   * Project a `Concat[A, B]` value (whatever shape it reduced to) back into a `(A, B)` tuple — the input shape
+   * an `Encoder[A].product(Encoder[B])` actually expects at execute time. Without this, an `Encoder[(A, B)]`
+   * cast as `Encoder[Concat[A, B]]` would receive the wrong shape (e.g. raw `Void` when `Concat[Void, Void] =
+   * Void` reduced) and ClassCastException deep in Skunk's encoder chain.
    *
-   * The four arms mirror the [[Concat]] match type. Resolved at the call site where `A` and `B` are concrete,
-   * via the priority chain below.
+   * The four arms mirror the [[Concat]] match type. Inline-dispatched on `A` / `B` shape via
+   * `compiletime.erasedValue` — caller must therefore be `inline` (or have `A`/`B` concrete in its scope) so
+   * the dispatch reduces.
    */
-  trait Concat2[A, B] {
-    def project(c: Concat[A, B]): (A, B)
-  }
-
-  object Concat2 extends Concat2HighPrio {
-    /** Both arms contribute `Void`: `Concat[Void, Void] = Void`, supply `(Void, Void)`. */
-    given bothVoid: Concat2[Void, Void] = new Concat2[Void, Void] {
-      def project(c: Concat[Void, Void]): (Void, Void) = (Void, Void)
-    }
-  }
-
-  trait Concat2HighPrio extends Concat2MedPrio {
-    /** LHS is Void: `Concat[Void, B] = B`. Supply `(Void, b)`. */
-    given leftVoid[B]: Concat2[Void, B] = new Concat2[Void, B] {
-      def project(c: Concat[Void, B]): (Void, B) = (Void, c.asInstanceOf[B])
-    }
-    /** RHS is Void: `Concat[A, Void] = A`. Supply `(a, Void)`. */
-    given rightVoid[A]: Concat2[A, Void] = new Concat2[A, Void] {
-      def project(c: Concat[A, Void]): (A, Void) = (c.asInstanceOf[A], Void)
-    }
-  }
-
-  trait Concat2MedPrio {
-    /** Default: neither side is Void. `Concat[A, B] = (A, B)` — identity projection. */
-    given default[A, B]: Concat2[A, B] = new Concat2[A, B] {
-      def project(c: Concat[A, B]): (A, B) = c.asInstanceOf[(A, B)]
-    }
-  }
+  inline def projectConcat[A, B](c: Concat[A, B]): (A, B) =
+    inline scala.compiletime.erasedValue[A] match
+      case _: Void =>
+        inline scala.compiletime.erasedValue[B] match
+          case _: Void => (Void, Void).asInstanceOf[(A, B)]
+          case _       => (Void, c).asInstanceOf[(A, B)]
+      case _ =>
+        inline scala.compiletime.erasedValue[B] match
+          case _: Void => (c, Void).asInstanceOf[(A, B)]
+          case _       => c.asInstanceOf[(A, B)]
 
   /**
    * Right-fold of [[Concat]] over a tuple of Args types. Drops `Void` slots cleanly so
@@ -87,47 +70,28 @@ object Where {
 
   /**
    * Project a `FoldConcat[T]` value back into a heterogeneous list of per-slot values, in tuple order — one
-   * entry per slot of `T`, including `Void` placeholders for slots whose Args is `Void`. Resolved at the call
-   * site via the priority chain below; each step uses the underlying [[Concat2]] instance to peel off one
-   * slot at a time.
+   * entry per slot of `T`, including `Void` placeholders for slots whose Args is `Void`. Inline-dispatched on
+   * the tuple shape — caller must therefore be `inline` (or have `T` concrete) so the recursion reduces.
    */
-  trait FoldConcatN[T <: Tuple] {
-    def project(c: FoldConcat[T]): List[Any]
-  }
-
-  object FoldConcatN {
-
-    given empty: FoldConcatN[EmptyTuple] = new FoldConcatN[EmptyTuple] {
-      def project(c: FoldConcat[EmptyTuple]): List[Any] = Nil
-    }
-
-    given single[H]: FoldConcatN[H *: EmptyTuple] = new FoldConcatN[H *: EmptyTuple] {
-      def project(c: FoldConcat[H *: EmptyTuple]): List[Any] = List(c)
-    }
-
-    given cons[H, T <: NonEmptyTuple](using
-      c2:   Concat2[H, FoldConcat[T]],
-      rest: FoldConcatN[T]
-    ): FoldConcatN[H *: T] = new FoldConcatN[H *: T] {
-      def project(c: FoldConcat[H *: T]): List[Any] = {
-        val (h, t) = c2.project(c.asInstanceOf[Concat[H, FoldConcat[T]]])
-        h :: rest.project(t)
-      }
-    }
-
-  }
+  inline def projectFoldConcat[T <: Tuple](c: FoldConcat[T]): List[Any] =
+    inline scala.compiletime.erasedValue[T] match
+      case _: EmptyTuple        => Nil
+      case _: (h *: EmptyTuple) => List(c)
+      case _: (h *: t)          =>
+        val pair = projectConcat[h, FoldConcat[t & Tuple]](c.asInstanceOf[Concat[h, FoldConcat[t & Tuple]]])
+        pair._1 :: projectFoldConcat[t & Tuple](pair._2)
 
   /**
-   * Pair two encoders into one whose input shape matches `Concat[A, B]`. Always products both sub-encoders
-   * (so any baked values riding on either side flow through), then contramaps the user's `Concat[A, B]` input
-   * back into the `(A, B)` tuple the product actually consumes.
+   * Pair two encoders into one whose input shape matches `Concat[A, B]`. The caller-supplied `proj` re-pairs
+   * the `Concat[A, B]` value back into `(A, B)` — typically `c => projectConcat[A, B](c)` materialised at the
+   * caller's inline expansion site so the dispatch reduces with concrete `A` / `B`.
    */
   private[sharp] def concatEncoders[A, B](
-    a: Encoder[?], b: Encoder[?]
-  )(using c2: Concat2[A, B]): Encoder[Concat[A, B]] = {
+    a: Encoder[?], b: Encoder[?], proj: Concat[A, B] => (A, B)
+  ): Encoder[Concat[A, B]] = {
     val productEnc: Encoder[(Any, Any)] =
       a.asInstanceOf[Encoder[Any]].product(b.asInstanceOf[Encoder[Any]])
-    productEnc.contramap[Concat[A, B]](in => c2.project(in).asInstanceOf[(Any, Any)])
+    productEnc.contramap[Concat[A, B]](in => proj(in).asInstanceOf[(Any, Any)])
   }
 
   // ---- Combinators (binop / not) ---------------------------------------------------------------
@@ -135,15 +99,16 @@ object Where {
   private[sharp] def binop[A, B](
     l: TypedExpr[Boolean, A],
     r: TypedExpr[Boolean, B],
-    opSql: String
-  )(using c2: Concat2[A, B]): TypedExpr[Boolean, Concat[A, B]] = {
+    opSql: String,
+    proj: Concat[A, B] => (A, B)
+  ): TypedExpr[Boolean, Concat[A, B]] = {
     val parts: List[Either[String, cats.data.State[Int, String]]] =
       List[Either[String, cats.data.State[Int, String]]](Left("(")) ++
         l.fragment.parts ++
         List[Either[String, cats.data.State[Int, String]]](Left(opSql)) ++
         r.fragment.parts ++
         List[Either[String, cats.data.State[Int, String]]](Left(")"))
-    val enc                           = concatEncoders[A, B](l.fragment.encoder, r.fragment.encoder)
+    val enc                           = concatEncoders[A, B](l.fragment.encoder, r.fragment.encoder, proj)
     val frag: Fragment[Concat[A, B]]  = Fragment(parts, enc, Origin.unknown)
     apply[Concat[A, B]](frag)
   }
@@ -169,20 +134,20 @@ object Where {
 extension [A](self: TypedExpr[Boolean, A]) {
 
   /** AND two predicates — combined `Args = Concat[A, B]`. */
-  def and[B](that: TypedExpr[Boolean, B])(using Where.Concat2[A, B]): TypedExpr[Boolean, Where.Concat[A, B]] =
-    Where.binop(self, that, Where.AND_KW)
+  inline def and[B](that: TypedExpr[Boolean, B]): TypedExpr[Boolean, Where.Concat[A, B]] =
+    Where.binop(self, that, Where.AND_KW, c => Where.projectConcat[A, B](c))
 
   /** Infix AND. */
-  def &&[B](that: TypedExpr[Boolean, B])(using Where.Concat2[A, B]): TypedExpr[Boolean, Where.Concat[A, B]] =
-    Where.binop(self, that, Where.AND_KW)
+  inline def &&[B](that: TypedExpr[Boolean, B]): TypedExpr[Boolean, Where.Concat[A, B]] =
+    Where.binop(self, that, Where.AND_KW, c => Where.projectConcat[A, B](c))
 
   /** OR two predicates — combined `Args = Concat[A, B]`. */
-  def or[B](that: TypedExpr[Boolean, B])(using Where.Concat2[A, B]): TypedExpr[Boolean, Where.Concat[A, B]] =
-    Where.binop(self, that, Where.OR_KW)
+  inline def or[B](that: TypedExpr[Boolean, B]): TypedExpr[Boolean, Where.Concat[A, B]] =
+    Where.binop(self, that, Where.OR_KW, c => Where.projectConcat[A, B](c))
 
   /** Infix OR. */
-  def ||[B](that: TypedExpr[Boolean, B])(using Where.Concat2[A, B]): TypedExpr[Boolean, Where.Concat[A, B]] =
-    Where.binop(self, that, Where.OR_KW)
+  inline def ||[B](that: TypedExpr[Boolean, B]): TypedExpr[Boolean, Where.Concat[A, B]] =
+    Where.binop(self, that, Where.OR_KW, c => Where.projectConcat[A, B](c))
 
   /** NOT a predicate. */
   def not: TypedExpr[Boolean, A] = Where.notOf(self)
