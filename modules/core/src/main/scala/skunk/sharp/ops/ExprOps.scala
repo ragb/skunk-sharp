@@ -43,12 +43,12 @@ type Stripped[T] = T match {
 }
 
 /** Build a `Where[Concat[A, B]]` from `lhs <op> rhs`. Both arms are typed expressions; Args from each propagate. */
-private def opCombine[T, U, A, B](
+private inline def opCombine[T, U, A, B](
   lhs: TypedExpr[T, A],
   opSql: String,
   rhs: TypedExpr[U, B]
-)(using c2: Where.Concat2[A, B]): Where[Where.Concat[A, B]] = {
-  val frag = TypedExpr.combineSep(lhs.fragment, opSql, rhs.fragment)
+): Where[Where.Concat[A, B]] = {
+  val frag = TypedExpr.combineSepInl[A, B](lhs.fragment, opSql, rhs.fragment)
   Where(frag)
 }
 
@@ -58,20 +58,20 @@ private def opCombine[T, U, A, B](
 
 extension [T, A](lhs: TypedExpr[T, A]) {
   /** `lhs = rhs` — RHS is any TypedExpr. Use `Param[T]`, `lit(v)`, or `Param.bind(v)` for value RHS. */
-  def ===[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] = opCombine(lhs, " = ", rhs)
+  inline def ===[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] = opCombine(lhs, " = ", rhs)
 
-  def !==[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] = opCombine(lhs, " <> ", rhs)
+  inline def !==[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] = opCombine(lhs, " <> ", rhs)
 
-  def <[B](rhs: TypedExpr[T, B])(using @unused ord: cats.Order[T]): Where[Where.Concat[A, B]] =
+  inline def <[B](rhs: TypedExpr[T, B])(using @unused ord: cats.Order[T]): Where[Where.Concat[A, B]] =
     opCombine(lhs, " < ", rhs)
 
-  def <=[B](rhs: TypedExpr[T, B])(using @unused ord: cats.Order[T]): Where[Where.Concat[A, B]] =
+  inline def <=[B](rhs: TypedExpr[T, B])(using @unused ord: cats.Order[T]): Where[Where.Concat[A, B]] =
     opCombine(lhs, " <= ", rhs)
 
-  def >[B](rhs: TypedExpr[T, B])(using @unused ord: cats.Order[T]): Where[Where.Concat[A, B]] =
+  inline def >[B](rhs: TypedExpr[T, B])(using @unused ord: cats.Order[T]): Where[Where.Concat[A, B]] =
     opCombine(lhs, " > ", rhs)
 
-  def >=[B](rhs: TypedExpr[T, B])(using @unused ord: cats.Order[T]): Where[Where.Concat[A, B]] =
+  inline def >=[B](rhs: TypedExpr[T, B])(using @unused ord: cats.Order[T]): Where[Where.Concat[A, B]] =
     opCombine(lhs, " >= ", rhs)
 }
 
@@ -79,37 +79,31 @@ extension [T, A](lhs: TypedExpr[T, A]) {
 extension [T, A](lhs: TypedExpr[T, A]) {
 
   /** Same as `===` with TypedExpr RHS — column-vs-column / column-vs-function-call. */
-  def ====[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] = opCombine(lhs, " = ", rhs)
+  inline def ====[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] = opCombine(lhs, " = ", rhs)
 
 }
 
 /** `lhs BETWEEN lo AND hi` family. RHS bounds must be `TypedExpr`s — pass `Param[T]`, `lit(v)`, or `Param.bind(v)`. */
 extension [T, A](lhs: TypedExpr[T, A]) {
 
-  def between[B, C](lo: TypedExpr[T, B], hi: TypedExpr[T, C])(using
-    @unused ord: cats.Order[T],
-    c2_BC: Where.Concat2[B, C],
-    c2_AB: Where.Concat2[A, Where.Concat[B, C]]
+  inline def between[B, C](lo: TypedExpr[T, B], hi: TypedExpr[T, C])(using
+    @unused ord: cats.Order[T]
   ): Where[Where.Concat[A, Where.Concat[B, C]]] = {
-    val rhs = TypedExpr.combineSep(lo.fragment, " AND ", hi.fragment)
+    val rhs = TypedExpr.combineSepInl[B, C](lo.fragment, " AND ", hi.fragment)
     opCombine(lhs, " BETWEEN ", TypedExpr[T, Where.Concat[B, C]](rhs, lo.codec))
   }
 
-  def notBetween[B, C](lo: TypedExpr[T, B], hi: TypedExpr[T, C])(using
-    @unused ord: cats.Order[T],
-    c2_BC: Where.Concat2[B, C],
-    c2_AB: Where.Concat2[A, Where.Concat[B, C]]
+  inline def notBetween[B, C](lo: TypedExpr[T, B], hi: TypedExpr[T, C])(using
+    @unused ord: cats.Order[T]
   ): Where[Where.Concat[A, Where.Concat[B, C]]] = {
-    val rhs = TypedExpr.combineSep(lo.fragment, " AND ", hi.fragment)
+    val rhs = TypedExpr.combineSepInl[B, C](lo.fragment, " AND ", hi.fragment)
     opCombine(lhs, " NOT BETWEEN ", TypedExpr[T, Where.Concat[B, C]](rhs, lo.codec))
   }
 
-  def betweenSymmetric[B, C](lo: TypedExpr[T, B], hi: TypedExpr[T, C])(using
-    @unused ord: cats.Order[T],
-    c2_BC: Where.Concat2[B, C],
-    c2_AB: Where.Concat2[A, Where.Concat[B, C]]
+  inline def betweenSymmetric[B, C](lo: TypedExpr[T, B], hi: TypedExpr[T, C])(using
+    @unused ord: cats.Order[T]
   ): Where[Where.Concat[A, Where.Concat[B, C]]] = {
-    val rhs = TypedExpr.combineSep(lo.fragment, " AND ", hi.fragment)
+    val rhs = TypedExpr.combineSepInl[B, C](lo.fragment, " AND ", hi.fragment)
     opCombine(lhs, " BETWEEN SYMMETRIC ", TypedExpr[T, Where.Concat[B, C]](rhs, lo.codec))
   }
 
@@ -118,17 +112,17 @@ extension [T, A](lhs: TypedExpr[T, A]) {
 /** `lhs IS DISTINCT FROM rhs` / `lhs IS NOT DISTINCT FROM rhs` — NULL-safe (in)equality. */
 extension [T, A](lhs: TypedExpr[T, A]) {
 
-  def isDistinctFrom[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] =
+  inline def isDistinctFrom[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] =
     opCombine(lhs, " IS DISTINCT FROM ", rhs)
 
-  def isNotDistinctFrom[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] =
+  inline def isNotDistinctFrom[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] =
     opCombine(lhs, " IS NOT DISTINCT FROM ", rhs)
 
   /** Source-compat aliases for the column-vs-column NULL-safe variants. */
-  def isDistinctFromExpr[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] =
+  inline def isDistinctFromExpr[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] =
     opCombine(lhs, " IS DISTINCT FROM ", rhs)
 
-  def isNotDistinctFromExpr[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] =
+  inline def isNotDistinctFromExpr[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] =
     opCombine(lhs, " IS NOT DISTINCT FROM ", rhs)
 
 }
@@ -136,16 +130,16 @@ extension [T, A](lhs: TypedExpr[T, A]) {
 /** `lhs LIKE pattern` / `ILIKE` / `SIMILAR TO`. Pattern must be a `TypedExpr[String, _]` — use `lit("…%")` or `Param[String]`. */
 extension [T, A](lhs: TypedExpr[T, A]) {
 
-  def like[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
+  inline def like[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
     opCombine(lhs, " LIKE ", pattern)
 
-  def ilike[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
+  inline def ilike[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
     opCombine(lhs, " ILIKE ", pattern)
 
-  def similarTo[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
+  inline def similarTo[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
     opCombine(lhs, " SIMILAR TO ", pattern)
 
-  def notSimilarTo[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
+  inline def notSimilarTo[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
     opCombine(lhs, " NOT SIMILAR TO ", pattern)
 
 }
@@ -189,8 +183,10 @@ object InRhs {
       type RA = Void
       def renderParens(values: F[T]): Fragment[Void] = {
         val literals = R.toNonEmptyList(values).toList.map(v => Param.bind[T](v).fragment)
-        // Combine all literal fragments via combineSep with ", " separator; wrap in parens.
-        val joined = literals.reduceLeft((a, b) => TypedExpr.combineSep(a, ", ", b).asInstanceOf[Fragment[Void]])
+        // Combine all literal fragments via combineSepInl with ", " separator; wrap in parens.
+        val joined = literals.reduceLeft((a, b) =>
+          TypedExpr.combineSepInl[Void, Void](a, ", ", b).asInstanceOf[Fragment[Void]]
+        )
         TypedExpr.wrap("(", joined, ")")
       }
     }
@@ -209,12 +205,11 @@ object InRhs {
 extension [T, A](lhs: TypedExpr[T, A]) {
 
   /** `lhs IN (...)`. Param-bearing inner subqueries thread their `Args` into the result via `Concat[A, RA]`. */
-  def in[Rhs, RA](rhs: Rhs)(using
-    ev: InRhs.Aux[T, Rhs, RA],
-    c2: Where.Concat2[A, RA]
+  inline def in[Rhs, RA](rhs: Rhs)(using
+    ev: InRhs.Aux[T, Rhs, RA]
   ): Where[Where.Concat[A, RA]] = {
     val rhsFrag  = ev.renderParens(rhs)
-    val combined = TypedExpr.combineSep[A, RA](lhs.fragment, " IN ", rhsFrag)
+    val combined = TypedExpr.combineSepInl[A, RA](lhs.fragment, " IN ", rhsFrag)
     Where(combined)
   }
 
@@ -224,53 +219,52 @@ extension [T, A](lhs: TypedExpr[T, A]) {
  * ANY / ALL quantifier over a subquery RHS. Renders as `<lhs> <op> ANY (<subquery>)` / `<lhs> <op> ALL
  * (<subquery>)`. Param-bearing inner subqueries thread their `QA` slot into the result via `Concat[A, QA]`.
  */
-private def quantifiedRender[T, A, Q, ET, QA](
+private inline def quantifiedRender[T, A, Q, ET, QA](
   lhs: TypedExpr[T, A],
   op: String,
   quant: String,
   q: Q
 )(using
-  ev: skunk.sharp.dsl.AsSubquery[Q, ET, QA],
-  c2: Where.Concat2[A, QA]
+  ev: skunk.sharp.dsl.AsSubquery[Q, ET, QA]
 ): Where[Where.Concat[A, QA]] = {
   val inner    = ev.fragment(q)
   val wrapped  = TypedExpr.wrap(s"$op $quant (", inner, ")")
-  val combined = TypedExpr.combineSep[A, QA](lhs.fragment, " ", wrapped)
+  val combined = TypedExpr.combineSepInl[A, QA](lhs.fragment, " ", wrapped)
   Where(combined)
 }
 
 extension [T, A](lhs: TypedExpr[T, A])(using @unused ord: cats.Order[T]) {
 
-  def ltAny[Q, QA](q: Q)(using
-    skunk.sharp.dsl.AsSubquery[Q, T, QA], Where.Concat2[A, QA]
+  inline def ltAny[Q, QA](q: Q)(using
+    skunk.sharp.dsl.AsSubquery[Q, T, QA]
   ): Where[Where.Concat[A, QA]] = quantifiedRender(lhs, "<", "ANY", q)
 
-  def lteAny[Q, QA](q: Q)(using
-    skunk.sharp.dsl.AsSubquery[Q, T, QA], Where.Concat2[A, QA]
+  inline def lteAny[Q, QA](q: Q)(using
+    skunk.sharp.dsl.AsSubquery[Q, T, QA]
   ): Where[Where.Concat[A, QA]] = quantifiedRender(lhs, "<=", "ANY", q)
 
-  def gtAny[Q, QA](q: Q)(using
-    skunk.sharp.dsl.AsSubquery[Q, T, QA], Where.Concat2[A, QA]
+  inline def gtAny[Q, QA](q: Q)(using
+    skunk.sharp.dsl.AsSubquery[Q, T, QA]
   ): Where[Where.Concat[A, QA]] = quantifiedRender(lhs, ">", "ANY", q)
 
-  def gteAny[Q, QA](q: Q)(using
-    skunk.sharp.dsl.AsSubquery[Q, T, QA], Where.Concat2[A, QA]
+  inline def gteAny[Q, QA](q: Q)(using
+    skunk.sharp.dsl.AsSubquery[Q, T, QA]
   ): Where[Where.Concat[A, QA]] = quantifiedRender(lhs, ">=", "ANY", q)
 
-  def ltAll[Q, QA](q: Q)(using
-    skunk.sharp.dsl.AsSubquery[Q, T, QA], Where.Concat2[A, QA]
+  inline def ltAll[Q, QA](q: Q)(using
+    skunk.sharp.dsl.AsSubquery[Q, T, QA]
   ): Where[Where.Concat[A, QA]] = quantifiedRender(lhs, "<", "ALL", q)
 
-  def lteAll[Q, QA](q: Q)(using
-    skunk.sharp.dsl.AsSubquery[Q, T, QA], Where.Concat2[A, QA]
+  inline def lteAll[Q, QA](q: Q)(using
+    skunk.sharp.dsl.AsSubquery[Q, T, QA]
   ): Where[Where.Concat[A, QA]] = quantifiedRender(lhs, "<=", "ALL", q)
 
-  def gtAll[Q, QA](q: Q)(using
-    skunk.sharp.dsl.AsSubquery[Q, T, QA], Where.Concat2[A, QA]
+  inline def gtAll[Q, QA](q: Q)(using
+    skunk.sharp.dsl.AsSubquery[Q, T, QA]
   ): Where[Where.Concat[A, QA]] = quantifiedRender(lhs, ">", "ALL", q)
 
-  def gteAll[Q, QA](q: Q)(using
-    skunk.sharp.dsl.AsSubquery[Q, T, QA], Where.Concat2[A, QA]
+  inline def gteAll[Q, QA](q: Q)(using
+    skunk.sharp.dsl.AsSubquery[Q, T, QA]
   ): Where[Where.Concat[A, QA]] = quantifiedRender(lhs, ">=", "ALL", q)
 
 }

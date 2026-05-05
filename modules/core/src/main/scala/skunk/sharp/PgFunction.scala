@@ -16,19 +16,22 @@ import skunk.sharp.where.Where
  *                        input propagates).
  *   - `binary`         — two-argument function. Result Args is `Concat[X, Y]`.
  *   - `naryTypedFold`  — N-argument helper used by variadic builders (`coalesce`, `greatest`, `least`, `concat`)
- *                        to thread each input's typed Args via [[Where.FoldConcatN]].
+ *                        to thread each input's typed Args via [[Where.FoldConcat]] (inline-projected).
  */
 object PgFunction {
 
   /**
    * Typed N-ary helper: render `name(item, item, …)` with each item's typed `Args` threaded into a single
-   * `Args` slot via [[Where.FoldConcatN]] (right-fold over `Concat`, dropping `Void` slots cleanly). Used by
-   * variadic builders (`coalesce` / `greatest` / `least` / `concat`) at every arity.
+   * `Args` slot via [[Where.FoldConcat]] (right-fold over `Concat`, dropping `Void` slots cleanly). Used by
+   * variadic builders (`coalesce` / `greatest` / `least` / `concat`) at every arity. Inline so the per-slot
+   * `projectFoldConcat` dispatch reduces with the concrete `Tup` shape at the caller's site.
    */
-  private[sharp] def naryTypedFold[T, Tup <: NonEmptyTuple](
+  private[sharp] inline def naryTypedFold[T, Tup <: NonEmptyTuple](
     name: String, items: List[Fragment[?]], codec: Codec[T]
-  )(using fc: Where.FoldConcatN[Tup]): TypedExpr[T, Where.FoldConcat[Tup]] = {
-    val combined = TypedExpr.combineList[Where.FoldConcat[Tup]](items, ", ", fc.project)
+  ): TypedExpr[T, Where.FoldConcat[Tup]] = {
+    val combined = TypedExpr.combineList[Where.FoldConcat[Tup]](
+      items, ", ", c => Where.projectFoldConcat[Tup](c)
+    )
     val frag     = TypedExpr.wrap(s"$name(", combined, ")")
     TypedExpr(frag, codec)
   }
@@ -48,12 +51,11 @@ object PgFunction {
     }
 
   /** A two-argument function: `name(a, b)`. Args = `Concat[X, Y]`. */
-  def binary[A, B, R, X, Y](name: String)(using
-    pfr: PgTypeFor[R],
-    c2:  where.Where.Concat2[X, Y]
+  inline def binary[A, B, R, X, Y](name: String)(using
+    pfr: PgTypeFor[R]
   ): (TypedExpr[A, X], TypedExpr[B, Y]) => TypedExpr[R, where.Where.Concat[X, Y]] =
     (a, b) => {
-      val inner = TypedExpr.combineSep(a.fragment, ", ", b.fragment)
+      val inner = TypedExpr.combineSepInl[X, Y](a.fragment, ", ", b.fragment)
       val frag  = TypedExpr.wrap(s"$name(", inner, ")")
       TypedExpr[R, where.Where.Concat[X, Y]](frag, pfr.codec)
     }
@@ -67,12 +69,11 @@ object PgFunction {
 object PgOperator {
 
   /** An infix binary operator: `a op b`. Result Args = `Concat[X, Y]`. */
-  def infix[A, B, R, X, Y](op: String)(using
-    pfr: PgTypeFor[R],
-    c2:  where.Where.Concat2[X, Y]
+  inline def infix[A, B, R, X, Y](op: String)(using
+    pfr: PgTypeFor[R]
   ): (TypedExpr[A, X], TypedExpr[B, Y]) => TypedExpr[R, where.Where.Concat[X, Y]] =
     (a, b) => {
-      val frag = TypedExpr.combineSep(a.fragment, s" $op ", b.fragment)
+      val frag = TypedExpr.combineSepInl[X, Y](a.fragment, s" $op ", b.fragment)
       TypedExpr[R, where.Where.Concat[X, Y]](frag, pfr.codec)
     }
 

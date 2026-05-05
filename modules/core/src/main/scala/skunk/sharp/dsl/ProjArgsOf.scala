@@ -68,16 +68,18 @@ object ProjArgsOf extends ProjArgsOfMedPrio {
 
 trait ProjArgsOfMedPrio extends ProjArgsOfLowPrio {
 
-  /** Multi-item tuple cons: right-fold via [[Where.Concat]] (drops Void slots). */
-  given consTuple[H, T <: NonEmptyTuple, HOut, TOut](using
+  /**
+   * Multi-item tuple cons: right-fold via [[Where.Concat]] (drops Void slots). `inline given` so the
+   * `Where.projectConcat` dispatch reduces with concrete `HOut` / `TOut` at the summon site.
+   */
+  inline given consTuple[H, T <: NonEmptyTuple, HOut, TOut](using
     h:  ProjArgsOf[H] { type Out = HOut },
-    t:  ProjArgsOf[T] { type Out = TOut },
-    c2: Where.Concat2[HOut, TOut]
+    t:  ProjArgsOf[T] { type Out = TOut }
   ): (ProjArgsOf[H *: T] { type Out = Where.Concat[HOut, TOut] }) =
     new ProjArgsOf[H *: T] {
       type Out = Where.Concat[HOut, TOut]
       def project(c: Out): List[Any] = {
-        val (a, b) = c2.project(c)
+        val (a, b) = Where.projectConcat[HOut, TOut](c)
         h.project(a) ++ t.project(b)
       }
     }
