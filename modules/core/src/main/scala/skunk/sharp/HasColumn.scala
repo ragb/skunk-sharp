@@ -246,7 +246,7 @@ type HasOpaqueGroup[G <: Tuple] <: Boolean = G match {
  */
 sealed trait GroupCoverage[Proj <: Tuple, G <: Tuple]
 
-object GroupCoverage {
+object GroupCoverage extends GroupCoverageLowPrio {
 
   given empty[Proj <: Tuple]: GroupCoverage[Proj, EmptyTuple] = new GroupCoverage[Proj, EmptyTuple] {}
 
@@ -254,8 +254,10 @@ object GroupCoverage {
     ev: HasOpaqueGroup[G] =:= true
   ): GroupCoverage[Proj, G] = new GroupCoverage[Proj, G] {}
 
+}
+
+trait GroupCoverageLowPrio {
   given nonEmpty[Proj <: Tuple, G <: NonEmptyTuple](using
     ev: AllCovered[Proj, GroupNames[G]]
   ): GroupCoverage[Proj, G] = new GroupCoverage[Proj, G] {}
-
 }

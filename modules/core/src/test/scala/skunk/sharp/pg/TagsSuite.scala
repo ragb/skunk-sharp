@@ -117,11 +117,11 @@ class TagsSuite extends munit.FunSuite {
     val customers = Table.of[Customer]("customers")
     val af        = customers
       .select
-      .where(c => c.email.like("%@example.com") && c.name.ilike("alice%"))
+      .where(c => c.email.like(lit("%@example.com")) && c.name.ilike(lit("alice%")))
       .compile
       .af
 
-    assert(af.fragment.sql.contains("""LIKE $1"""), af.fragment.sql)
-    assert(af.fragment.sql.contains("""ILIKE $2"""), af.fragment.sql)
+    assert(af.fragment.sql.contains("""LIKE '%@example.com'"""), af.fragment.sql)
+    assert(af.fragment.sql.contains("""ILIKE 'alice%'"""), af.fragment.sql)
   }
 }

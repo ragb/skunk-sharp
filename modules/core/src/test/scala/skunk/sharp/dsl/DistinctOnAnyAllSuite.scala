@@ -72,12 +72,12 @@ class DistinctOnAnyAllSuite extends munit.FunSuite {
   // ---- ANY / ALL over a subquery ----------------------------------------------------------------
 
   test("ltAny renders `< ANY (<subquery>)`") {
-    val inner = users.select(x => x.age).where(x => x.email.like("%@x"))
+    val inner = users.select(x => x.age).where(x => x.email.like(lit("%@x")))
     val af    = users.select(u => u.email).where(u => u.age.ltAny(inner)).compile.af
 
     assertEquals(
       af.fragment.sql,
-      """SELECT "email" FROM "users" WHERE "age" < ANY (SELECT "age" FROM "users" WHERE "email" LIKE $1)"""
+      """SELECT "email" FROM "users" WHERE "age" < ANY (SELECT "age" FROM "users" WHERE "email" LIKE '%@x')"""
     )
   }
 
@@ -92,7 +92,7 @@ class DistinctOnAnyAllSuite extends munit.FunSuite {
   }
 
   test("ANY / ALL accept a ProjectedSelect subquery (single-column projection)") {
-    val inner = users.select(x => x.age).where(x => x.email.like("admin-%"))
+    val inner = users.select(x => x.age).where(x => x.email.like(lit("admin-%")))
     val af    = users.select(u => u.email).where(u => u.age.gtAll(inner)).compile.af
 
     assert(af.fragment.sql.contains("""> ALL ("""), af.fragment.sql)

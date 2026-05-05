@@ -26,7 +26,7 @@ object CompileBench {
 
   def selectWhereOrderLimit(age: Int, email: String): skunk.AppliedFragment =
     users.select
-      .where(u => u.age >= age && u.email.like(email))
+      .where(u => u.age >= Param.bind(age) && u.email.like(Param.bind(email)))
       .orderBy(u => u.createdAt.desc)
       .limit(20)
       .compile
@@ -36,14 +36,14 @@ object CompileBench {
     users.insert((id = id, email = email, age = age, createdAt = ts)).compile.af
 
   def updateSet(id: UUID, email: String): skunk.AppliedFragment =
-    users.update.set(u => u.email := email).where(u => u.id === id).compile.af
+    users.update.set(u => u.email := Param.bind(email)).where(u => u.id === Param.bind(id)).compile.af
 
   def deleteWhere(id: UUID): skunk.AppliedFragment =
-    users.delete.where(u => u.id === id).compile.af
+    users.delete.where(u => u.id === Param.bind(id)).compile.af
 
   def joinSelect(age: Int): skunk.AppliedFragment =
     users.innerJoin(posts).on(r => r.users.id ==== r.posts.authorId)
-      .where(r => r.users.age >= age)
+      .where(r => r.users.age >= Param.bind(age))
       .select(r => (r.users.email, r.posts.title))
       .compile.af
 

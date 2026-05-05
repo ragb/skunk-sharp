@@ -40,10 +40,10 @@ final class DeleteBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
   ): DeleteUsingBuilder[
     Cols,
     Name,
-    SourceEntry[Table[Cols, Name], Cols, Cols, Name] *: SourceEntry[RR, CR, CR, AR] *: EmptyTuple
+    SourceEntry[Table[Cols, Name], Cols, Cols, Name, Void] *: SourceEntry[RR, CR, CR, AR, Void] *: EmptyTuple
   ] = {
     val targetEntry =
-      new SourceEntry[Table[Cols, Name], Cols, Cols, Name](
+      new SourceEntry[Table[Cols, Name], Cols, Cols, Name, Void](
         table,
         table.currentAlias,
         table.columns,
@@ -54,11 +54,11 @@ final class DeleteBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
     val rel        = aR(other)
     val oCols      = rel.columns.asInstanceOf[CR]
     val otherEntry =
-      new SourceEntry[RR, CR, CR, AR](rel, aR.aliasValue(other), oCols, oCols, JoinKind.Inner, None)
+      new SourceEntry[RR, CR, CR, AR, Void](rel, aR.aliasValue(other), oCols, oCols, JoinKind.Inner, None)
     new DeleteUsingBuilder[
       Cols,
       Name,
-      SourceEntry[Table[Cols, Name], Cols, Cols, Name] *: SourceEntry[RR, CR, CR, AR] *: EmptyTuple
+      SourceEntry[Table[Cols, Name], Cols, Cols, Name, Void] *: SourceEntry[RR, CR, CR, AR, Void] *: EmptyTuple
     ](table, targetEntry *: otherEntry *: EmptyTuple)
   }
 
@@ -187,11 +187,11 @@ final class DeleteUsingBuilder[Cols <: Tuple, Name <: String & Singleton, Ss <: 
   def using[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](other: R)(using
     aR: AsRelation.Aux[R, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
-  ): DeleteUsingBuilder[Cols, Name, Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]] = {
+  ): DeleteUsingBuilder[Cols, Name, Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR, Void]]] = {
     val rel   = aR(other)
     val oCols = rel.columns.asInstanceOf[CR]
-    val entry = new SourceEntry[RR, CR, CR, AR](rel, aR.aliasValue(other), oCols, oCols, JoinKind.Inner, None)
-    new DeleteUsingBuilder[Cols, Name, Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]](
+    val entry = new SourceEntry[RR, CR, CR, AR, Void](rel, aR.aliasValue(other), oCols, oCols, JoinKind.Inner, None)
+    new DeleteUsingBuilder[Cols, Name, Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR, Void]]](
       table,
       sources :* entry
     )
@@ -233,14 +233,20 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
     new DeleteUsingReady[Cols, Name, Ss, Any](table, sources, Some(combined))
   }
 
-  def compile: CommandTemplate[Args] = MutationAssembly.command[Args, Void](bodyParts).asInstanceOf[CommandTemplate[Args]]
-
+  /**
+   * DELETE … USING <tail sources> WHERE — emits per-source body Right slots so typed-subquery USING sources
+   * thread their inner Args into the outer command's args.
+   */
   private def bodyParts: List[BodyPart] = {
     val buf = scala.collection.mutable.ListBuffer[BodyPart](Left(table.deleteFromHeader))
-    val usingEntries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].tail
+    val usingEntries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]].tail
     if (usingEntries.nonEmpty) {
       buf += Left(RawConstants.USING)
-      buf += Left(TypedExpr.joined(usingEntries.map(aliasedFromEntry), ", "))
+      var first = true
+      usingEntries.foreach { s =>
+        if (first) first = false else buf += Left(TypedExpr.raw(", "))
+        aliasedFromEntryParts(s).foreach(buf += _)
+      }
     }
     whereOpt.foreach { f =>
       buf += Left(RawConstants.WHERE)
@@ -249,36 +255,85 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
     buf.toList
   }
 
-  def returning[T, A](f: JoinedView[Ss] => TypedExpr[T, A])(using
-    c2: Where.Concat2[Args, A]
-  ): QueryTemplate[Where.Concat[Args, A], T] = {
-    val expr = f(buildJoinedView(sources))
-    MutationAssembly.withReturningTyped2[Args, A, T](bodyParts, expr.fragment, expr.codec)
+  private def usingTailBodyArgs(bff: SourceBodyArgsProj[? <: Tuple], sArgs: Any): List[Any] =
+    bff.project(sArgs) match {
+      case _ :: rest => rest // drop head (target table — always Void)
+      case _         => Nil
+    }
+
+  // Concat-chain: SArgs ⊕ Args (WHERE).
+  def compile[SArgs](using
+    sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
+    bff:  SourceBodyArgsProj[Ss],
+    sw:   Where.Concat2[SArgs, Args]
+  ): CommandTemplate[Where.Concat[SArgs, Args]] = {
+    type Out = Where.Concat[SArgs, Args]
+    val slotValues: Out => IArray[Any] = args => {
+      val (sArgs, wArgs) = sw.project(args)
+      val perTailBody    = usingTailBodyArgs(bff, sArgs)
+      val out = scala.collection.mutable.ArrayBuffer.empty[Any]
+      perTailBody.foreach(out += _)
+      out += wArgs
+      IArray.from(out)
+    }
+    val tpl = SelectBuilder.assembleN[Out, Void](bodyParts, Nil, Void.codec, slotValues)
+    CommandTemplate.mk[Out](tpl.fragment)
   }
 
-  def returningTuple[T <: NonEmptyTuple](f: JoinedView[Ss] => T)(using
-    fc: FoldConcatN[CollectArgs[T]],
-    c2: Where.Concat2[Args, FoldConcat[CollectArgs[T]]]
-  ): QueryTemplate[Where.Concat[Args, FoldConcat[CollectArgs[T]]], ExprOutputs[T]] = {
+  // Concat-chain: SArgs ⊕ Args (WHERE) ⊕ A (RETURNING).
+  def returning[T, A, SArgs](f: JoinedView[Ss] => TypedExpr[T, A])(using
+    sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
+    bff:  SourceBodyArgsProj[Ss],
+    sw:   Where.Concat2[SArgs, Args],
+    swR:  Where.Concat2[Where.Concat[SArgs, Args], A]
+  ): QueryTemplate[Where.Concat[Where.Concat[SArgs, Args], A], T] = {
+    val expr = f(buildJoinedView(sources))
+    val parts: List[BodyPart] = bodyParts ++ List[BodyPart](Left(RawConstants.RETURNING), Right(expr.fragment))
+    type Out = Where.Concat[Where.Concat[SArgs, Args], A]
+    val slotValues: Out => IArray[Any] = args => {
+      val (swAcc, retArgs) = swR.project(args)
+      val (sArgs, wArgs)   = sw.project(swAcc.asInstanceOf[Where.Concat[SArgs, Args]])
+      val perTailBody      = usingTailBodyArgs(bff, sArgs)
+      val out = scala.collection.mutable.ArrayBuffer.empty[Any]
+      perTailBody.foreach(out += _)
+      out += wArgs
+      out += retArgs
+      IArray.from(out)
+    }
+    SelectBuilder.assembleN[Out, T](parts, Nil, expr.codec, slotValues)
+  }
+
+  def returningTuple[T <: NonEmptyTuple, SArgs](f: JoinedView[Ss] => T)(using
+    fc:   FoldConcatN[CollectArgs[T]],
+    sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
+    bff:  SourceBodyArgsProj[Ss],
+    sw:   Where.Concat2[SArgs, Args],
+    swR:  Where.Concat2[Where.Concat[SArgs, Args], FoldConcat[CollectArgs[T]]]
+  ): QueryTemplate[Where.Concat[Where.Concat[SArgs, Args], FoldConcat[CollectArgs[T]]], ExprOutputs[T]] = {
     val exprs    = f(buildJoinedView(sources)).toList.asInstanceOf[List[TypedExpr[?, ?]]]
     val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
     val combined = TypedExpr.combineList[FoldConcat[CollectArgs[T]]](exprs.map(_.fragment), ", ", fc.project)
-    MutationAssembly.withReturningTyped2[Args, FoldConcat[CollectArgs[T]], ExprOutputs[T]](
-      bodyParts, combined, codec
-    )
+    returning[ExprOutputs[T], FoldConcat[CollectArgs[T]], SArgs](_ =>
+      TypedExpr[ExprOutputs[T], FoldConcat[CollectArgs[T]]](combined, codec)
+    )(using sbOf, bff, sw, swR)
   }
 
-  def returningAll(using
-    c2: Where.Concat2[Args, Void]
-  ): QueryTemplate[Args, NamedRowOf[Cols]] = {
+  def returningAll[SArgs](using
+    sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
+    bff:  SourceBodyArgsProj[Ss],
+    sw:   Where.Concat2[SArgs, Args],
+    swR:  Where.Concat2[Where.Concat[SArgs, Args], Void]
+  ): QueryTemplate[Where.Concat[SArgs, Args], NamedRowOf[Cols]] = {
     val exprs =
       table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
         TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
       )
     val codec    = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
     val combined = TypedExpr.combineList[Void](exprs.map(_.fragment), ", ", _ => List.fill(exprs.size)(Void))
-    MutationAssembly.withReturningTyped2[Args, Void, NamedRowOf[Cols]](bodyParts, combined, codec)
-      .asInstanceOf[QueryTemplate[Args, NamedRowOf[Cols]]]
+    returning[NamedRowOf[Cols], Void, SArgs](_ =>
+      TypedExpr[NamedRowOf[Cols], Void](combined, codec)
+    )(using sbOf, bff, sw, swR)
+      .asInstanceOf[QueryTemplate[Where.Concat[SArgs, Args], NamedRowOf[Cols]]]
   }
 
 }

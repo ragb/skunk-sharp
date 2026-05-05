@@ -49,7 +49,7 @@ class MultiSchemaSuite extends PgFixture {
             .insert((id = id, name = Varchar[256]("widget"), price = Numeric[10, 2](BigDecimal("9.99"))))
             .compile.run(s)
           _ <- assertIO(
-            products.select(p => (p.name, p.price)).where(p => p.id === id).compile.unique(s),
+            products.select(p => (p.name, p.price)).where(p => p.id === Param.bind(id)).compile.unique(s),
             (Varchar[256]("widget"), Numeric[10, 2](BigDecimal("9.99")))
           )
         } yield ()

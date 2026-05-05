@@ -1,6 +1,6 @@
 package skunk.sharp.dsl
 
-import skunk.{AppliedFragment, Codec}
+import skunk.{AppliedFragment, Codec, Fragment, Void}
 import skunk.sharp.*
 import skunk.sharp.where.Where
 
@@ -43,10 +43,10 @@ import scala.NamedTuple
  */
 extension [Cols <: Tuple](r: Relation[Cols]) {
 
-  def alias[A <: String & Singleton](a: A): Relation[Cols] { type Alias = A; type Mode = AliasMode.Explicit } = {
+  def alias[A <: String & Singleton](a: A): TypedBodyRelation[Cols, skunk.Void] { type Alias = A; type Mode = AliasMode.Explicit } = {
     val underlying = r
     val newAlias   = a
-    new Relation[Cols] {
+    new TypedBodyRelation[Cols, skunk.Void] {
       type Alias = A
       type Mode  = AliasMode.Explicit
       val currentAlias: A                 = newAlias
@@ -56,8 +56,6 @@ extension [Cols <: Tuple](r: Relation[Cols]) {
       def expectedTableType: String       = underlying.expectedTableType
       override def hasFromClause: Boolean = underlying.hasFromClause
       override def qualifiedName: String  = underlying.qualifiedName
-      // Delegate the rendering kernel — the underlying decides table-vs-view-vs-subquery shape; we only swap the
-      // alias it's asked to use.
       override def fromFragmentWith(x: String): AppliedFragment = underlying.fromFragmentWith(x)
     }
   }
@@ -66,50 +64,55 @@ extension [Cols <: Tuple](r: Relation[Cols]) {
 
 /**
  * `.alias("name")` on a single-source whole-row [[SelectBuilder]] — promote the query to a joinable [[Relation]] in a
- * FROM position.
+ * FROM position, threading any typed `Args` from the inner query's WHERE / GROUP BY / HAVING into the resulting
+ * relation's `BodyArgs`.
  *
- * Postgres requires every derived table to carry an alias; this extension makes the alias mandatory by construction — a
- * bare `SelectBuilder` does not satisfy `AsRelation`, so the compiler rejects it in JOIN / `.select` position until the
- * user calls `.alias("x")`. The returned `Relation[Cols] { type Alias = A }` is the same shape Table and View produce;
- * after this point, the subquery is indistinguishable from any other relation to the join machinery.
- *
- * The inner SQL is held **lazily** as a thunk — no `AppliedFragment` is rendered until the outer query's `.compile`
- * walks this source. One terminal `.compile` for the whole tree.
+ * The inner SQL is held **lazily** as a typed `Fragment[CombinedInnerArgs]` — no parameters are applied until the outer
+ * query's `.compile` walks this source. One terminal `.compile` for the whole tree.
  *
  * {{{
+ *   // Static subquery: no Params inside, BodyArgs = Void
  *   val active = users.select.where(u => u.deleted_at.isNull).alias("active")
  *   active.innerJoin(orders).on(r => r.active.id ==== r.orders.user_id).compile
- * }}}
  *
- * Available on single-source whole-row builders via `IsSingleSource` evidence. The inner builder must have
- * no typed Args (`WArgs = Void`, `HArgs = Void`, no Params in GROUP BY) — compile-time constraints catch
- * this early. Using [[Param]] in a derived-table subquery requires full Args threading through [[Relation]],
- * which is on the roadmap; for now, move the parameter to the outer query's WHERE instead.
+ *   // Typed subquery: Param inside; BodyArgs = UUID flows into outer Args
+ *   val byId = users.select.where(u => u.id === Param[UUID]).alias("u")
+ *   byId.select.compile  // : QueryTemplate[UUID, NamedRow]
+ * }}}
  */
-extension [Ss <: Tuple, GroupsT <: Tuple, WA, HA](sb: SelectBuilder[Ss, GroupsT, WA, HA])(using
-  ev:  IsSingleSource[Ss],
-  _wv: WA =:= skunk.Void,
-  _hv: HA =:= skunk.Void,
-  _gv: skunk.sharp.dsl.ProjArgsOf.Aux[GroupsT, skunk.Void]
-) {
+extension [Ss <: Tuple, GroupsT <: Tuple, WA, HA](sb: SelectBuilder[Ss, GroupsT, WA, HA]) {
 
-  def alias[A <: String & Singleton](a: A): Relation[ev.Cols] {
-    type Alias = A
-    type Mode  = AliasMode.Explicit
+  def alias[A <: String & Singleton, SArgs, GArgs](a: A)(using
+    ev:   IsSingleSource[Ss],
+    sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
+    g:    ProjArgsOf.Aux[GroupsT, GArgs],
+    cs:   Where.Concat2[SArgs, WA],
+    csg:  Where.Concat2[Where.Concat[SArgs, WA], GArgs],
+    csgh: Where.Concat2[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA]
+  ): TypedBodyRelation[ev.Cols, Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA]] {
+    type Alias    = A
+    type Mode     = AliasMode.Explicit
+    type BodyArgs = Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA]
   } = {
-    val newAlias = a
-    val cols = sb.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].head.effectiveCols.asInstanceOf[ev.Cols]
-    val renderInner: () => AppliedFragment = () => sb.compileFragment(using ev)
-    new Relation[ev.Cols] {
+    type CombinedArgs = Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA]
+    val newAlias  = a
+    val cols      = sb.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]].head.effectiveCols.asInstanceOf[ev.Cols]
+    val innerFrag: Fragment[CombinedArgs] =
+      sb.compileBodyFragment[SArgs, GArgs](using ev, sbOf, g, cs, csg, csgh)
+    new TypedBodyRelation[ev.Cols, CombinedArgs] {
       type Alias = A
       type Mode  = AliasMode.Explicit
+      override def bodyFragmentOpt: Option[Fragment[?]]            = Some(innerFrag)
+      override lazy val starProjFromAfOpt: Option[AppliedFragment] = None
       val currentAlias: A           = newAlias
-      val name: String              = newAlias // derived relations have no separate identity — alias IS the name
+      val name: String              = newAlias
       val schema: Option[String]    = None
       val columns: ev.Cols          = cols
-      val expectedTableType: String = ""       // marker: not validated against `information_schema.tables`
+      val expectedTableType: String = ""
       override def fromFragmentWith(x: String): AppliedFragment =
-        TypedExpr.raw("(") |+| renderInner() |+| TypedExpr.raw(s""") AS "$x"""")
+        throw new UnsupportedOperationException(
+          "skunk-sharp internal: fromFragmentWith called on a typed subquery relation — aliasedFromEntryParts should handle this"
+        )
     }
   }
 
@@ -129,32 +132,64 @@ extension [Ss <: Tuple, GroupsT <: Tuple, WA, HA](sb: SelectBuilder[Ss, GroupsT,
  * there's still only one user-visible `.compile` on the whole tree. `GroupCoverage` is summoned here so the inner
  * rendering is as valid as a standalone `.compile` would be.
  */
+/**
+ * `.alias("sub")` on a [[ProjectedSelect]] — promote a column-list SELECT to a joinable [[Relation]], threading any
+ * typed `Args` from the inner query's WHERE / GROUP BY / HAVING / ORDER BY into the resulting relation's `BodyArgs`.
+ *
+ * Every column in the projection must carry a name — either a bare [[TypedColumn]] or an [[AliasedExpr]] — so the
+ * derived relation's column list is well-defined.
+ */
 extension [Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DA <: Tuple, OA <: Tuple, WA, HA, Row](
   ps: ProjectedSelect[Ss, Proj, Groups, DA, OA, WA, HA, Row]
 )(using
   gc:  GroupCoverage[Proj, Groups],
-  @scala.annotation.unused np: AllNamedProj[Proj],
-  _wv: WA =:= skunk.Void,
-  _hv: HA =:= skunk.Void
+  @scala.annotation.unused np: AllNamedProj[Proj]
 ) {
 
-  def alias[A <: String & Singleton](a: A): Relation[ProjCols[Proj]] {
-    type Alias = A
-    type Mode  = AliasMode.Explicit
+  // Concat-chain evidences (left-fold over slot order):
+  // DA2 ⊕ PA ⊕ SA ⊕ OnA ⊕ WA ⊕ GA ⊕ HA ⊕ OA2 — each name spells the accumulator at that step.
+  def alias[A <: String & Singleton, SA, OnA, DA2, PA, GA, OA2](a: A)(using
+    sbOf:     SourceBodyArgsOf.Aux[Ss, SA],
+    bff:      SourceBodyArgsProj[Ss],
+    onSum:    SourceOnArgsOf.Aux[Ss, OnA],
+    onProj:   SourceOnArgsProj[Ss],
+    d:        ProjArgsOf.Aux[DA, DA2],
+    pa:       ProjArgsOf.Aux[Proj, PA],
+    g:        ProjArgsOf.Aux[Groups, GA],
+    o:        ProjArgsOf.Aux[OA, OA2],
+    dp:       Where.Concat2[DA2, PA],
+    dps:      Where.Concat2[Where.Concat[DA2, PA], SA],
+    dpso:     Where.Concat2[Where.Concat[Where.Concat[DA2, PA], SA], OnA],
+    dpsow:    Where.Concat2[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA],
+    dpsowg:   Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA],
+    dpsowgh:  Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA],
+    dpsowgho: Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA], OA2]
+  ): TypedBodyRelation[ProjCols[Proj], Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA], OA2]] {
+    type Alias    = A
+    type Mode     = AliasMode.Explicit
+    type BodyArgs = Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA], OA2]
   } = {
-    val newAlias                           = a
-    val cols                               = buildProjectedCols(ps.projections).asInstanceOf[ProjCols[Proj]]
-    val renderInner: () => AppliedFragment = () => ps.compileFragment(using gc)
-    new Relation[ProjCols[Proj]] {
+    type CombinedArgs = Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA], OA2]
+    val newAlias = a
+    val cols     = buildProjectedCols(ps.projections).asInstanceOf[ProjCols[Proj]]
+    val innerFrag: Fragment[CombinedArgs] =
+      ps.compileBodyFragment[SA, OnA, DA2, PA, GA, OA2](
+        using gc, sbOf, bff, onSum, onProj, d, pa, g, o, dp, dps, dpso, dpsow, dpsowg, dpsowgh, dpsowgho
+      )
+    new TypedBodyRelation[ProjCols[Proj], CombinedArgs] {
       type Alias = A
       type Mode  = AliasMode.Explicit
-      val currentAlias: A                                       = newAlias
-      val name: String                                          = newAlias
-      val schema: Option[String]                                = None
-      val columns: ProjCols[Proj]                               = cols
-      val expectedTableType: String                             = ""
+      override def bodyFragmentOpt: Option[Fragment[?]]            = Some(innerFrag)
+      override lazy val starProjFromAfOpt: Option[AppliedFragment] = None
+      val currentAlias: A           = newAlias
+      val name: String              = newAlias
+      val schema: Option[String]    = None
+      val columns: ProjCols[Proj]   = cols
+      val expectedTableType: String = ""
       override def fromFragmentWith(x: String): AppliedFragment =
-        TypedExpr.raw("(") |+| renderInner() |+| TypedExpr.raw(s""") AS "$x"""")
+        throw new UnsupportedOperationException(
+          "skunk-sharp internal: fromFragmentWith called on a typed subquery relation — aliasedFromEntryParts should handle this"
+        )
     }
   }
 
@@ -204,7 +239,7 @@ private[sharp] def buildProjectedCols(projections: List[TypedExpr[?, ?]]): Tuple
  */
 extension [Cols <: Tuple, Row <: scala.NamedTuple.AnyNamedTuple](v: Values[Cols, Row]) {
 
-  def alias[A <: String & Singleton](a: A): Relation[Cols] {
+  def alias[A <: String & Singleton](a: A): TypedBodyRelation[Cols, skunk.Void] {
     type Alias = A
     type Mode  = AliasMode.Explicit
   } = {
@@ -212,7 +247,7 @@ extension [Cols <: Tuple, Row <: scala.NamedTuple.AnyNamedTuple](v: Values[Cols,
     val colsVal                            = v.columns
     val colsList                           = v.columnListSql
     val renderInner: () => AppliedFragment = () => v.render
-    new Relation[Cols] {
+    new TypedBodyRelation[Cols, skunk.Void] {
       type Alias = A
       type Mode  = AliasMode.Explicit
       val currentAlias: A                                       = newAlias
@@ -234,14 +269,14 @@ extension [Cols <: Tuple, Row <: scala.NamedTuple.AnyNamedTuple](v: Values[Cols,
  *
  * Lives here because Scala 3 requires overloaded extensions to share a single top-level definition group.
  */
-extension [Cols <: Tuple, Name <: String & Singleton](c: CteRelation[Cols, Name]) {
+extension [Cols <: Tuple, Name <: String & Singleton, BA](c: CteRelation[Cols, Name, BA]) {
 
-  def alias[A <: String & Singleton](a: A): Relation[Cols] {
+  def alias[A <: String & Singleton](a: A): (TypedBodyRelation[Cols, skunk.Void] & IsCte) {
     type Alias = A
     type Mode  = AliasMode.Explicit
   } = {
     val cteRef = c
-    new Relation[Cols] with IsCte {
+    new TypedBodyRelation[Cols, skunk.Void] with IsCte {
       type Alias = A
       type Mode  = AliasMode.Explicit
       val currentAlias: A                                       = a
@@ -329,20 +364,20 @@ private[sharp] def nullabilifyCols(cols: Tuple): Tuple = {
  * flipped column types in its `.where` / `.select` views.
  */
 type NullabilifySources[Ss <: Tuple] <: Tuple = Ss match {
-  case EmptyTuple                       => EmptyTuple
-  case SourceEntry[r, c0, c, a] *: tail =>
-    SourceEntry[r, c0, NullableCols[c], a] *: NullabilifySources[tail]
+  case EmptyTuple                            => EmptyTuple
+  case SourceEntry[r, c0, c, a, oa] *: tail =>
+    SourceEntry[r, c0, NullableCols[c], a, oa] *: NullabilifySources[tail]
 }
 
 private[sharp] def nullabilifySources(sources: Tuple): Tuple = {
-  val wrapped = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].map { s =>
-    new SourceEntry[Relation[Tuple], Tuple, Tuple, "x"](
+  val wrapped = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]].map { s =>
+    new SourceEntry[Relation[Tuple], Tuple, Tuple, "x", Any](
       s.relation.asInstanceOf[Relation[Tuple]],
       s.alias.asInstanceOf["x"],
       s.originalCols,
       nullabilifyCols(s.effectiveCols),
       s.kind,
-      s.onPredOpt
+      s.onPredOpt.asInstanceOf[Option[Where[Any]]]
     )
   }
   Tuple.fromArray(wrapped.toArray[Any])
@@ -451,31 +486,32 @@ final class SourceEntry[
   R <: Relation[Cols0],
   Cols0 <: Tuple,
   Cols <: Tuple,
-  Alias <: String & Singleton
+  Alias <: String & Singleton,
+  OnArgs
 ] private[sharp] (
   val relation: R,
   val alias: Alias,
   val originalCols: Cols0,
   val effectiveCols: Cols,
-  val kind: JoinKind,           // for the base source this is `Inner` (cosmetic — not rendered for index 0)
-  val onPredOpt: Option[Where[?]], // `None` for the base source and CROSS joins; `Some` for INNER/LEFT/RIGHT/FULL
+  val kind: JoinKind,                   // for the base source this is `Inner` (cosmetic — not rendered for index 0)
+  val onPredOpt: Option[Where[OnArgs]], // `None` for the base source and CROSS joins; `Some` for INNER/LEFT/RIGHT/FULL
   val isLateral: Boolean = false
 )
 
 /**
- * Aliases tuple: one alias literal per committed source. Pattern-matches `SourceEntry[?, ?, ?, a]` directly in the `*:`
+ * Aliases tuple: one alias literal per committed source. Pattern-matches `SourceEntry[?, ?, ?, a, ?]` directly in the `*:`
  * arm — going through a separate `AliasOf` helper breaks reduction when `Ss` is constructed through multiple steps
  * because the inner match type stays abstract.
  */
 type AliasesOf[Ss <: Tuple] <: Tuple = Ss match {
   case EmptyTuple                   => EmptyTuple
-  case SourceEntry[?, ?, ?, a] *: t => a *: AliasesOf[t]
+  case SourceEntry[?, ?, ?, a, ?] *: t => a *: AliasesOf[t]
 }
 
 /** Views tuple: `ColumnsView[EffectiveCols]` per committed source. */
 type EffectiveViewsOf[Ss <: Tuple] <: Tuple = Ss match {
   case EmptyTuple                   => EmptyTuple
-  case SourceEntry[?, ?, c, ?] *: t => ColumnsView[c] *: EffectiveViewsOf[t]
+  case SourceEntry[?, ?, c, ?, ?] *: t => ColumnsView[c] *: EffectiveViewsOf[t]
 }
 
 /** The view the `.where` / `.select` / `.orderBy` / `.groupBy` / `.having` lambdas receive. */
@@ -485,13 +521,13 @@ type JoinedView[Ss <: Tuple] =
 /** Aliases tuple for the `.on`-time view — committed aliases + pending alias (appended). */
 type OnAliases[Ss <: Tuple, AR <: String & Singleton] <: Tuple = Ss match {
   case EmptyTuple                   => AR *: EmptyTuple
-  case SourceEntry[?, ?, ?, a] *: t => a *: OnAliases[t, AR]
+  case SourceEntry[?, ?, ?, a, ?] *: t => a *: OnAliases[t, AR]
 }
 
 /** Views tuple for the `.on`-time view — committed effective views + pending original view (appended). */
 type OnViews[Ss <: Tuple, CR0 <: Tuple] <: Tuple = Ss match {
   case EmptyTuple                   => ColumnsView[CR0] *: EmptyTuple
-  case SourceEntry[?, ?, c, ?] *: t => ColumnsView[c] *: OnViews[t, CR0]
+  case SourceEntry[?, ?, c, ?, ?] *: t => ColumnsView[c] *: OnViews[t, CR0]
 }
 
 /**
@@ -504,7 +540,7 @@ type OnView[Ss <: Tuple, PendingCols <: Tuple, PendingAlias <: String & Singleto
 // ---- View builders (runtime) -------------------------------------------------------------------
 
 private[sharp] def buildJoinedView[Ss <: Tuple](sources: Ss): JoinedView[Ss] = {
-  val views = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].map { s =>
+  val views = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]].map { s =>
     ColumnsView.qualified(s.effectiveCols, s.alias)
   }
   Tuple.fromArray(views.toArray[Any]).asInstanceOf[JoinedView[Ss]]
@@ -515,7 +551,7 @@ private[sharp] def buildOnView[Ss <: Tuple, CR0 <: Tuple, AR <: String & Singlet
   pendingOriginalCols: CR0,
   pendingAlias: AR
 ): OnView[Ss, CR0, AR] = {
-  val committedViews = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].map { s =>
+  val committedViews = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]].map { s =>
     ColumnsView.qualified(s.effectiveCols, s.alias)
   }
   val pendingView = ColumnsView.qualified(pendingOriginalCols, pendingAlias)
@@ -558,18 +594,17 @@ final class IncompleteJoin[
    * *original* cols — `ON` is evaluated before `NULL`-padding happens. Transitions to [[SelectBuilder]] with the
    * (possibly nullabilified) committed sources plus the pending source appended.
    *
-   * The predicate must have `A = Void` — i.e. no [[Param]] in the ON expression. Column-to-column comparisons
-   * (`r.a.id ==== r.b.user_id`) and `lit(true)` satisfy this automatically. Threading typed ON-predicate Args
-   * into the outer [[SelectBuilder]] is roadmap.
+   * The predicate's typed `Args` (`A`) is captured as the new source's `OnArgs` type member — outer `.compile`
+   * picks it up via [[SourceOnArgsProj]] and surfaces it in the outer [[QueryTemplate]]'s `Args` so any [[Param]]
+   * in an ON predicate composes statically with WHERE / GROUP BY / HAVING args. Plain column-to-column
+   * comparisons (`r.a.id ==== r.b.user_id`) keep `A = Void` and the slot collapses to `Void`.
    */
-  def on[A](using _av: A =:= skunk.Void)(
+  def on[A](
     f: OnView[Ss, CR0, AR] => skunk.sharp.TypedExpr[Boolean, A]
-  ): SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR]], EmptyTuple, skunk.Void, skunk.Void] = {
+  ): SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR, A]], EmptyTuple, skunk.Void, skunk.Void] = {
     val rawPred = f(buildOnView[Ss, CR0, AR](sources, pendingOriginalCols, pendingAlias))
-    // A `Where[A] = TypedExpr[Boolean, A]` already; this lift is identity. Kept for source compat with
-    // direct boolean-typed exprs from third-party operators.
     val pred: Where[A] = rawPred
-    val entry = new SourceEntry[RR, CR0, CR, AR](
+    val entry = new SourceEntry[RR, CR0, CR, AR, A](
       pendingRelation,
       pendingAlias,
       pendingOriginalCols,
@@ -582,22 +617,206 @@ final class IncompleteJoin[
       case JoinKind.Right | JoinKind.Full => nullabilifySources(sources)
       case _                              => sources
     }
-    val nextSources = (finalCommitted :* entry).asInstanceOf[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR]]]
-    new SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR]], EmptyTuple, skunk.Void, skunk.Void](nextSources)
+    val nextSources = (finalCommitted :* entry).asInstanceOf[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR, A]]]
+    new SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR, A]], EmptyTuple, skunk.Void, skunk.Void](nextSources)
   }
 
 }
 
-// ---- FROM helper --------------------------------------------------------------------------------
+// ---- FROM helpers -------------------------------------------------------------------------------
 
 /**
  * Delegate rendering to each source's own `fromFragmentWith` kernel using the alias we captured when the source was
- * added. Since every `Relation` now carries its own alias, we could also call `entry.relation.fromFragment` — using the
- * explicit alias from the entry keeps the code honest about *which* alias is in scope (future self-joins of the same
- * relation value would want different aliases, and the entry is the source of truth).
+ * added. For plain sources (tables, views, CTEs) this calls `fromFragmentWith` directly. For typed subquery sources
+ * (LATERAL join tail sources whose `bodyFragmentOpt` is set), the body is baked inline — only valid when the inner
+ * query's args are all Void-collapsed (i.e. no `Param` in the LATERAL subquery). Typed-args LATERAL tail sources are
+ * not yet supported and will throw at compile time.
  */
-private[sharp] def aliasedFromEntry(s: SourceEntry[?, ?, ?, ?]): skunk.AppliedFragment =
-  s.relation.fromFragmentWith(s.alias)
+private[sharp] def aliasedFromEntry(s: SourceEntry[?, ?, ?, ?, ?]): skunk.AppliedFragment =
+  s.relation.bodyFragmentOpt match {
+    case Some(bodyFrag) =>
+      val innerAf: skunk.AppliedFragment =
+        if (bodyFrag.encoder.types.isEmpty)
+          bodyFrag.asInstanceOf[skunk.Fragment[skunk.Void]].apply(skunk.Void)
+        else
+          throw new UnsupportedOperationException(
+            "skunk-sharp: LATERAL join tail source with typed (non-Void) body args is not yet supported in multi-source queries"
+          )
+      skunk.sharp.TypedExpr.raw("(") |+| innerAf |+| skunk.sharp.TypedExpr.raw(s""") AS "${s.alias}"""")
+    case None =>
+      s.relation.fromFragmentWith(s.alias)
+  }
+
+/**
+ * Build the FROM body parts for a source, producing a `List[BodyPart]`:
+ *
+ *  - **SRF source** (`IsSrf`): emits `Left("func("), Right(argsFrag), Left(") AS \"alias\" (\"col\")")`. The
+ *    `Right(argsFrag)` slot carries the typed function-call args — `Param`s in `generate_series(start, stop)`
+ *    or `unnest(arr)` thread into the outer query's Args.
+ *  - **Typed subquery** (`bodyFragmentOpt = Some(frag)`): emits `Left("("), Right(innerFrag), Left(") AS alias")`.
+ *    The `Right(innerFrag)` slot carries the typed inner `Fragment[BodyArgs]` — the assembler threads it as a
+ *    positional slot in the outer query's Args chain.
+ *  - **Plain source** (table / view / CTE, `bodyFragmentOpt = None`): emits `Left(fromFragmentWith(alias)),
+ *    Right(emptyVoidSlot)`. The `Right(emptyVoidSlot)` is a positional placeholder (no SQL, no encode) so the
+ *    source-body slot index stays stable regardless of whether the source is plain or typed.
+ */
+private[sharp] def aliasedFromEntryParts(s: SourceEntry[?, ?, ?, ?, ?]): List[SelectBuilder.BodyPart] =
+  s.relation match {
+    case srf: IsSrf =>
+      List(
+        Left(TypedExpr.raw(s"${srf.srfFuncName}(")),
+        Right(srf.srfArgsFragment.asInstanceOf[Fragment[Any]]),
+        Left(TypedExpr.raw(s""") AS "${s.alias}"("${srf.srfColumnName}")"""))
+      )
+    case _ =>
+      s.relation.bodyFragmentOpt match {
+        case Some(bodyFrag) =>
+          List(
+            Left(TypedExpr.raw("(")),
+            Right(bodyFrag),
+            Left(TypedExpr.raw(s""") AS "${s.alias}""""))
+          )
+        case None =>
+          List(
+            Left(s.relation.fromFragmentWith(s.alias)),
+            Right(SelectBuilder.emptyVoidSlot)
+          )
+      }
+  }
+
+/**
+ * Marker trait for set-returning-function relations (`generate_series`, `unnest`, …). Carries the function
+ * name, typed args fragment, and output column name so [[aliasedFromEntryParts]] can render the strict SRF
+ * shape `func(args) AS "alias" ("col")` (no outer parens — Postgres rejects `(func(args)) AS …`).
+ */
+private[sharp] trait IsSrf {
+  def srfFuncName: String
+  def srfArgsFragment: Fragment[?]
+  def srfColumnName: String
+}
+
+// ---- SourceBodyArgs match type + SourceBodyArgsOf typeclass -----------------------------------
+
+/**
+ * Extract the `BodyArgs` type from a relation. Matches on [[TypedBodyRelation]] (which carries `BA` as
+ * a direct class type parameter — not a type-member projection) before falling back to `skunk.Void` for
+ * all plain relations (`Table`, `View`, CTE, re-aliased wrappers) which don't extend `TypedBodyRelation`.
+ *
+ * Using a helper match type (rather than `R#BodyArgs`) avoids the Scala 3 limitation that disallows
+ * type-member projections (`#`) on pattern-bound type variables in match type bodies.
+ */
+private[dsl] type GetBodyArgs[R] = R match {
+  case TypedBodyRelation[_, ba] => ba
+  case _                        => skunk.Void
+}
+
+/**
+ * Combined `BodyArgs` accumulator across all sources — a [[Where.Concat]] right-fold over per-source
+ * `GetBodyArgs[r]`. Plain relations contribute `Void` (collapsed away); typed subquery relations contribute
+ * their inner combined args. Used as the SELECT compile path's `SArgs` slot.
+ */
+type SourceBodyArgs[Ss <: Tuple] = Ss match {
+  case EmptyTuple                      => skunk.Void
+  case SourceEntry[r, ?, ?, ?, ?] *: tail => Where.Concat[GetBodyArgs[r], SourceBodyArgs[tail]]
+}
+
+/**
+ * Project a combined [[SourceBodyArgs]] value back into a per-source list of body-args values. Mirrors the
+ * fold structure of `SourceBodyArgs[Ss]`: at each `cons` step, peel one source's `BodyArgs` off the front via
+ * [[Where.Concat2]] and recurse on the tail. The resulting `List[Any]` has one entry per source — `Void` for
+ * plain sources, the typed inner-args value for typed-subquery sources — feeding the `IArray[Any]` that
+ * `assembleN` consumes positionally.
+ */
+sealed trait SourceBodyArgsProj[Ss <: Tuple] {
+  def project(combined: Any): List[Any]
+}
+
+object SourceBodyArgsProj {
+
+  given empty: SourceBodyArgsProj[EmptyTuple] = new SourceBodyArgsProj[EmptyTuple] {
+    def project(combined: Any): List[Any] = Nil
+  }
+
+  given cons[R <: Relation[C0], C0 <: Tuple, C <: Tuple, A <: String & Singleton, OA, T <: Tuple](using
+    c2:   Where.Concat2[GetBodyArgs[R], SourceBodyArgs[T]],
+    rest: SourceBodyArgsProj[T]
+  ): SourceBodyArgsProj[SourceEntry[R, C0, C, A, OA] *: T] = new SourceBodyArgsProj[SourceEntry[R, C0, C, A, OA] *: T] {
+    def project(combined: Any): List[Any] = {
+      val (h, t) = c2.project(combined.asInstanceOf[Where.Concat[GetBodyArgs[R], SourceBodyArgs[T]]])
+      h :: rest.project(t)
+    }
+  }
+
+}
+
+/**
+ * Combined ON-predicate args accumulator — a [[Where.Concat]] right-fold over per-source `OnArgs`. Sources whose
+ * ON predicate is absent (head source, CROSS joins) carry `Void` and collapse out.
+ */
+type SourceOnArgs[Ss <: Tuple] = Ss match {
+  case EmptyTuple                          => skunk.Void
+  case SourceEntry[?, ?, ?, ?, oa] *: tail => Where.Concat[oa, SourceOnArgs[tail]]
+}
+
+/**
+ * Typeclass wrapper around [[SourceOnArgs]] — gives the standard `Aux[Ss, O]` shape so the compile path can
+ * summon it as a using parameter and read out the combined `OnA` type without writing the match type inline.
+ */
+trait SourceOnArgsOf[Ss <: Tuple] {
+  type Out
+}
+
+object SourceOnArgsOf {
+  type Aux[Ss <: Tuple, O] = SourceOnArgsOf[Ss] { type Out = O }
+
+  given compute[Ss <: Tuple]: (SourceOnArgsOf[Ss] { type Out = SourceOnArgs[Ss] }) =
+    new SourceOnArgsOf[Ss] { type Out = SourceOnArgs[Ss] }
+}
+
+/**
+ * Project a combined [[SourceOnArgs]] value back into a per-source list of ON-pred-args values, in source order.
+ * Used by the SELECT compile path to fill the per-source ON slot in the IArray that `assembleN` consumes.
+ */
+sealed trait SourceOnArgsProj[Ss <: Tuple] {
+  def project(combined: Any): List[Any]
+}
+
+object SourceOnArgsProj {
+
+  given empty: SourceOnArgsProj[EmptyTuple] = new SourceOnArgsProj[EmptyTuple] {
+    def project(combined: Any): List[Any] = Nil
+  }
+
+  given cons[R <: Relation[C0], C0 <: Tuple, C <: Tuple, A <: String & Singleton, OA, T <: Tuple](using
+    c2:   Where.Concat2[OA, SourceOnArgs[T]],
+    rest: SourceOnArgsProj[T]
+  ): SourceOnArgsProj[SourceEntry[R, C0, C, A, OA] *: T] = new SourceOnArgsProj[SourceEntry[R, C0, C, A, OA] *: T] {
+    def project(combined: Any): List[Any] = {
+      val (h, t) = c2.project(combined.asInstanceOf[Where.Concat[OA, SourceOnArgs[T]]])
+      h :: rest.project(t)
+    }
+  }
+
+}
+
+/**
+ * Typeclass wrapper around [[SourceBodyArgs]] — gives the standard `Aux[Ss, O]` pattern expected by
+ * [[SelectBuilder.compile]], [[SelectBuilder.compileBodyFragment]], and the `.alias` extensions.
+ * A single `given compute` always provides `Out = SourceBodyArgs[Ss]`, which the Scala 3 compiler
+ * reduces to a concrete type when `Ss` is known.
+ */
+trait SourceBodyArgsOf[Ss <: Tuple] {
+  type Out
+}
+
+object SourceBodyArgsOf {
+
+  type Aux[Ss <: Tuple, O] = SourceBodyArgsOf[Ss] { type Out = O }
+
+  given compute[Ss <: Tuple]: (SourceBodyArgsOf[Ss] { type Out = SourceBodyArgs[Ss] }) =
+    new SourceBodyArgsOf[Ss] { type Out = SourceBodyArgs[Ss] }
+
+}
 
 // ---- Join entry points -------------------------------------------------------------------------
 
@@ -618,12 +837,12 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
     aR: AsRelation.Aux[R, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
   ): IncompleteJoin[
-    SourceEntry[RL, CL, CL, AL] *: EmptyTuple,
+    SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple,
     RR,
     CR,
     CR,
     AR,
-    SourceEntry[RL, CL, CL, AL] *: EmptyTuple
+    SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple
   ] = {
     val baseEntry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val rel       = aR(right)
@@ -636,12 +855,12 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
     aR: AsRelation.Aux[R, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
   ): IncompleteJoin[
-    SourceEntry[RL, CL, CL, AL] *: EmptyTuple,
+    SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple,
     RR,
     CR,
     NullableCols[CR],
     AR,
-    SourceEntry[RL, CL, CL, AL] *: EmptyTuple
+    SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple
   ] = {
     val baseEntry    = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val rel          = aR(right)
@@ -659,12 +878,12 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
     aR: AsRelation.Aux[R, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
   ): IncompleteJoin[
-    SourceEntry[RL, CL, CL, AL] *: EmptyTuple,
+    SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple,
     RR,
     CR,
     CR,
     AR,
-    NullabilifySources[SourceEntry[RL, CL, CL, AL] *: EmptyTuple]
+    NullabilifySources[SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple]
   ] = {
     val baseEntry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val rel       = aR(right)
@@ -677,12 +896,12 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
     aR: AsRelation.Aux[R, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
   ): IncompleteJoin[
-    SourceEntry[RL, CL, CL, AL] *: EmptyTuple,
+    SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple,
     RR,
     CR,
     NullableCols[CR],
     AR,
-    NullabilifySources[SourceEntry[RL, CL, CL, AL] *: EmptyTuple]
+    NullabilifySources[SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple]
   ] = {
     val baseEntry    = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val rel          = aR(right)
@@ -695,13 +914,13 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
   def crossJoin[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](right: R)(using
     aR: AsRelation.Aux[R, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
-  ): SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR]), EmptyTuple, skunk.Void, skunk.Void] = {
+  ): SelectBuilder[(SourceEntry[RL, CL, CL, AL, Void], SourceEntry[RR, CR, CR, AR, Void]), EmptyTuple, skunk.Void, skunk.Void] = {
     val baseEntry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val rel       = aR(right)
     val rCols     = rel.columns.asInstanceOf[CR]
     val rEntry    =
-      new SourceEntry[RR, CR, CR, AR](rel, aR.aliasValue(right), rCols, rCols, JoinKind.Cross, None)
-    new SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR]), EmptyTuple, skunk.Void, skunk.Void]((baseEntry, rEntry))
+      new SourceEntry[RR, CR, CR, AR, Void](rel, aR.aliasValue(right), rCols, rCols, JoinKind.Cross, None)
+    new SelectBuilder[(SourceEntry[RL, CL, CL, AL, Void], SourceEntry[RR, CR, CR, AR, Void]), EmptyTuple, skunk.Void, skunk.Void]((baseEntry, rEntry))
   }
 
   // ---- LATERAL joins ---------------------------------------------------------------------------
@@ -721,12 +940,12 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
     aR: AsRelation.Aux[T, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
   ): IncompleteJoin[
-    SourceEntry[RL, CL, CL, AL] *: EmptyTuple,
+    SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple,
     RR,
     CR,
     CR,
     AR,
-    SourceEntry[RL, CL, CL, AL] *: EmptyTuple
+    SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple
   ] = {
     val baseEntry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val outer     = ColumnsView.qualified(baseEntry.effectiveCols, baseEntry.alias)
@@ -747,12 +966,12 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
     aR: AsRelation.Aux[T, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
   ): IncompleteJoin[
-    SourceEntry[RL, CL, CL, AL] *: EmptyTuple,
+    SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple,
     RR,
     CR,
     NullableCols[CR],
     AR,
-    SourceEntry[RL, CL, CL, AL] *: EmptyTuple
+    SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple
   ] = {
     val baseEntry    = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val outer        = ColumnsView.qualified(baseEntry.effectiveCols, baseEntry.alias)
@@ -781,14 +1000,14 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
   )(using
     aR: AsRelation.Aux[T, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AL *: EmptyTuple]
-  ): SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR]), EmptyTuple, skunk.Void, skunk.Void] = {
+  ): SelectBuilder[(SourceEntry[RL, CL, CL, AL, Void], SourceEntry[RR, CR, CR, AR, Void]), EmptyTuple, skunk.Void, skunk.Void] = {
     val baseEntry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val outer     = ColumnsView.qualified(baseEntry.effectiveCols, baseEntry.alias)
     val t         = fn(outer)
     val rel       = aR(t)
     val rCols     = rel.columns.asInstanceOf[CR]
     val rEntry    =
-      new SourceEntry[RR, CR, CR, AR](
+      new SourceEntry[RR, CR, CR, AR, Void](
         rel,
         aR.aliasValue(t),
         rCols,
@@ -797,7 +1016,7 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
         None,
         isLateral = true
       )
-    new SelectBuilder[(SourceEntry[RL, CL, CL, AL], SourceEntry[RR, CR, CR, AR]), EmptyTuple, skunk.Void, skunk.Void]((baseEntry, rEntry))
+    new SelectBuilder[(SourceEntry[RL, CL, CL, AL, Void], SourceEntry[RR, CR, CR, AR, Void]), EmptyTuple, skunk.Void, skunk.Void]((baseEntry, rEntry))
   }
 
 }
@@ -805,8 +1024,8 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
 private[sharp] def makeBaseEntry[L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: AliasMode](
   aL: AsRelation.Aux[L, RL, CL, AL, ML],
   left: L
-): SourceEntry[RL, CL, CL, AL] = {
+): SourceEntry[RL, CL, CL, AL, Void] = {
   val rel  = aL(left)
   val cols = rel.columns.asInstanceOf[CL]
-  new SourceEntry[RL, CL, CL, AL](rel, aL.aliasValue(left), cols, cols, JoinKind.Inner, None)
+  new SourceEntry[RL, CL, CL, AL, Void](rel, aL.aliasValue(left), cols, cols, JoinKind.Inner, None)
 }

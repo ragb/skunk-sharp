@@ -53,7 +53,7 @@ class ColumnCodecOverrideSuite extends munit.FunSuite {
 
   test("cast can be used in WHERE comparisons") {
     val users = Table.of[User]("users")
-    val af    = users.select.where(u => u.id.cast[String] === "abc").compile.af
-    assertEquals(af.fragment.sql, """SELECT "id", "email", "age" FROM "users" WHERE "id"::text = $1""")
+    val af    = users.select.where(u => u.id.cast[String] === lit("abc")).compile.af
+    assertEquals(af.fragment.sql, """SELECT "id", "email", "age" FROM "users" WHERE "id"::text = 'abc'""")
   }
 }

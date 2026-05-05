@@ -29,9 +29,9 @@ class CteSuite extends munit.FunSuite {
 
   test("CTE with additional WHERE on the outer query") {
     val active = cte("active_users", users.select.where(u => u.deleted_at.isNull))
-    val af     = active.select.where(u => u.age >= 18).compile.af
+    val af     = active.select.where(u => u.age >= lit(18)).compile.af
     assert(af.fragment.sql.startsWith("""WITH "active_users" AS ("""), af.fragment.sql)
-    assert(af.fragment.sql.contains("""WHERE "age" >= $"""), af.fragment.sql)
+    assert(af.fragment.sql.contains("""WHERE "age" >= 18"""), af.fragment.sql)
   }
 
   test("CTE used as projected SELECT source") {
@@ -59,7 +59,7 @@ class CteSuite extends munit.FunSuite {
 
   test("two independent CTEs appear in the WITH clause") {
     val activeUsers = cte("active_users", users.select.where(u => u.deleted_at.isNull))
-    val published   = cte("published", posts.select.where(p => p.status === "published"))
+    val published   = cte("published", posts.select.where(p => p.status === lit("published")))
     val af          = activeUsers
       .innerJoin(published).on(r => r.active_users.id ==== r.published.user_id)
       .select(r => (r.active_users.email, r.published.title))
@@ -73,7 +73,7 @@ class CteSuite extends munit.FunSuite {
 
   test("chained CTEs — dependency emitted before dependent CTE") {
     val base    = cte("base", users.select.where(u => u.deleted_at.isNull))
-    val derived = cte("derived", base.select.where(u => u.age >= 18))
+    val derived = cte("derived", base.select.where(u => u.age >= lit(18)))
     val af      = derived.select.compile.af
     val sql     = af.fragment.sql
     // "base" must appear before "derived" in the WITH clause

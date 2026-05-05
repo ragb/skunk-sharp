@@ -46,7 +46,7 @@ class GroupBySuite extends PgFixture {
           rows <- users
             .select(u => (u.age, Pg.count(u.id)))
             .groupBy(u => u.age)
-            .having(u => Pg.count(u.id) >= 1L)
+            .having(u => Pg.count(u.id) >= lit(1L))
             .compile
             .run(s)
           byAge = rows.toMap
@@ -72,8 +72,8 @@ class GroupBySuite extends PgFixture {
           (sum, avg, min, max) = stats
           _                    = assert(sum >= 40L, s"sum should include both inserted rows, got $sum")
           _                    = assert(avg >= BigDecimal(0), s"avg should be non-negative, got $avg")
-          _                    = assert(min <= 10, s"min should be <= 10, got $min")
-          _                    = assert(max >= 30, s"max should be >= 30, got $max")
+          _                    = assert(min <= 10, s"min should be <= lit(10), got $min")
+          _                    = assert(max >= 30, s"max should be >= lit(30), got $max")
         } yield ()
       }
     }
@@ -103,7 +103,7 @@ class GroupBySuite extends PgFixture {
           rows <- users
             .select(u => (u.age.as("a"), Pg.count(u.id).as("n")))
             .groupBy(u => u.age)
-            .having(u => Pg.count(u.id) >= 1L)
+            .having(u => Pg.count(u.id) >= lit(1L))
             .compile
             .run(s)
           byAge = rows.toMap
@@ -123,7 +123,7 @@ class GroupBySuite extends PgFixture {
             (id = UUID.randomUUID, email = "cd2@x", age = 99, deleted_at = Option.empty[OffsetDateTime]),
             (id = UUID.randomUUID, email = "cd3@x", age = 100, deleted_at = Option.empty[OffsetDateTime])
           ).compile.run(s)
-          n <- users.select(u => Pg.countDistinct(u.age)).where(u => u.age >= 99).compile.unique(s)
+          n <- users.select(u => Pg.countDistinct(u.age)).where(u => u.age >= lit(99)).compile.unique(s)
           _ = assert(n >= 2L, s"distinct ages ≥ 99 should be ≥ 2, got $n")
         } yield ()
       }
@@ -139,7 +139,7 @@ class GroupBySuite extends PgFixture {
             (id = UUID.randomUUID, email = "sa1@x", age = bucket, deleted_at = Option.empty[OffsetDateTime]),
             (id = UUID.randomUUID, email = "sa2@x", age = bucket, deleted_at = Option.empty[OffsetDateTime])
           ).compile.run(s)
-          concat <- users.select(u => Pg.stringAgg(u.email, ", ")).where(u => u.age === bucket).compile.unique(s)
+          concat <- users.select(u => Pg.stringAgg(u.email, ", ")).where(u => u.age === Param.bind(bucket)).compile.unique(s)
           _ = assert(concat.contains("sa1@x") && concat.contains("sa2@x"), s"got '$concat'")
           _ = assert(concat.contains(", "), s"separator missing: '$concat'")
         } yield ()
@@ -156,26 +156,26 @@ class GroupBySuite extends PgFixture {
             (id = UUID.randomUUID, email = "ba1@x", age = bucket, deleted_at = Option.empty[OffsetDateTime]),
             (id = UUID.randomUUID, email = "ba2@x", age = bucket, deleted_at = Option.empty[OffsetDateTime])
           ).compile.run(s)
-          // All rows in this bucket have age >= 10 — boolAnd should be true.
+          // All rows in this bucket have age >= lit(10) — boolAnd should be true.
           _ <- assertIO(
             users
-              .select(u => Pg.boolAnd(u.age >= 10))
-              .where(u => u.age === bucket)
+              .select(u => Pg.boolAnd(u.age >= lit(10)))
+              .where(u => u.age === Param.bind(bucket))
               .compile.unique(s),
             true
           )
           // Not all are ≥ 100 — boolAnd should be false, boolOr should also be false.
           _ <- assertIO(
             users
-              .select(u => Pg.boolAnd(u.age >= 100))
-              .where(u => u.age === bucket)
+              .select(u => Pg.boolAnd(u.age >= lit(100)))
+              .where(u => u.age === Param.bind(bucket))
               .compile.unique(s),
             false
           )
           _ <- assertIO(
             users
-              .select(u => Pg.boolOr(u.age >= 100))
-              .where(u => u.age === bucket)
+              .select(u => Pg.boolOr(u.age >= lit(100)))
+              .where(u => u.age === Param.bind(bucket))
               .compile.unique(s),
             false
           )

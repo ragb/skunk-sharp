@@ -16,18 +16,18 @@ class WhereSuite extends munit.FunSuite {
   private val cols  = ColumnsView(users.columns)
 
   test("equality renders correctly") {
-    val w = cols.email === "a@b"
-    assertEquals(w.fragment.sql.trim, """"email" = $1""")
+    val w = cols.email === lit("a@b")
+    assertEquals(w.fragment.sql.trim, """"email" = 'a@b'""")
   }
 
   test("AND composes two predicates") {
-    val w = (cols.email === "a@b") && (cols.age >= 18)
-    assertEquals(w.fragment.sql, """("email" = $1 AND "age" >= $2)""")
+    val w = (cols.email === lit("a@b")) && (cols.age >= lit(18))
+    assertEquals(w.fragment.sql, """("email" = 'a@b' AND "age" >= 18)""")
   }
 
   test("OR / NOT compose") {
-    val w = !(cols.age < 18 || cols.age > 100)
-    assertEquals(w.fragment.sql, """NOT (("age" < $1 OR "age" > $2))""")
+    val w = !(cols.age < lit(18) || cols.age > lit(100))
+    assertEquals(w.fragment.sql, """NOT (("age" < 18 OR "age" > 100))""")
   }
 
   test("IN renders comma-separated placeholders (from NonEmptyList)") {
@@ -51,8 +51,8 @@ class WhereSuite extends munit.FunSuite {
   }
 
   test("LIKE on string column") {
-    val w = cols.email.like("%@example.com")
-    assertEquals(w.fragment.sql.trim, """"email" LIKE $1""")
+    val w = cols.email.like(lit("%@example.com"))
+    assertEquals(w.fragment.sql.trim, """"email" LIKE '%@example.com'""")
   }
 
   test("isNull available only on nullable columns") {
@@ -66,51 +66,47 @@ class WhereSuite extends munit.FunSuite {
     // The value-RHS overload no longer auto-strips Option (`Stripped[T]` removed for overload-resolution
     // reasons — see ExprOps); pass `Some(value)` / `None` directly. Most callers use `.isNull` /
     // `.isNotNull` for null-checks anyway.
-    val w = cols.deleted_at === Some(ts)
+    val w = cols.deleted_at === Param.bind(Option(ts))
     assertEquals(w.fragment.sql.trim, """"deleted_at" = $1""")
   }
 
-  test("BETWEEN renders with two bound parameters joined by AND") {
-    val w = cols.age.between(18, 65)
-    assertEquals(w.fragment.sql, """"age" BETWEEN $1 AND $2""")
+  test("BETWEEN with literal bounds renders the bounds inline") {
+    val w = cols.age.between(lit(18), lit(65))
+    assertEquals(w.fragment.sql, """"age" BETWEEN 18 AND 65""")
   }
 
   test("NOT BETWEEN renders the keyword form, not the expanded AND") {
-    val w = cols.age.notBetween(18, 65)
-    assertEquals(w.fragment.sql, """"age" NOT BETWEEN $1 AND $2""")
+    val w = cols.age.notBetween(lit(18), lit(65))
+    assertEquals(w.fragment.sql, """"age" NOT BETWEEN 18 AND 65""")
   }
 
   test("BETWEEN SYMMETRIC — Postgres auto-swap form") {
-    val w = cols.age.betweenSymmetric(100, 0)
-    assertEquals(w.fragment.sql, """"age" BETWEEN SYMMETRIC $1 AND $2""")
+    val w = cols.age.betweenSymmetric(lit(100), lit(0))
+    assertEquals(w.fragment.sql, """"age" BETWEEN SYMMETRIC 100 AND 0""")
   }
 
   test("IS DISTINCT FROM — NULL-safe inequality on a nullable column") {
     val ts = OffsetDateTime.parse("2020-01-01T00:00:00Z")
-    val w  = cols.deleted_at.isDistinctFrom(Some(ts))
+    val w  = cols.deleted_at.isDistinctFrom(Param.bind(Some(ts)))
     assertEquals(w.fragment.sql, """"deleted_at" IS DISTINCT FROM $1""")
   }
 
   test("IS NOT DISTINCT FROM — NULL-safe equality") {
-    val w = cols.age.isNotDistinctFrom(42)
-    assertEquals(w.fragment.sql, """"age" IS NOT DISTINCT FROM $1""")
+    val w = cols.age.isNotDistinctFrom(lit(42))
+    assertEquals(w.fragment.sql, """"age" IS NOT DISTINCT FROM 42""")
   }
 
   test("SIMILAR TO renders the Postgres regex-ish form") {
-    val w = cols.email.similarTo("[a-z]+@[a-z]+")
-    assertEquals(w.fragment.sql, """"email" SIMILAR TO $1""")
+    val w = cols.email.similarTo(lit("[a-z]+@[a-z]+"))
+    assertEquals(w.fragment.sql, """"email" SIMILAR TO '[a-z]+@[a-z]+'""")
   }
 
   test("NOT SIMILAR TO") {
-    val w = cols.email.notSimilarTo("%.test")
-    assertEquals(w.fragment.sql, """"email" NOT SIMILAR TO $1""")
+    val w = cols.email.notSimilarTo(lit("%.test"))
+    assertEquals(w.fragment.sql, """"email" NOT SIMILAR TO '%.test'""")
   }
 
-  test("comparing a nullable column to None typechecks (renders bound NULL via Option codec)") {
-    // The Stripped[T] auto-strip on RHS was removed (Scala 3 overload-resolution friction with match types
-    // in extension parameters); the value-RHS overload now takes the column's literal type, so for
-    // `c.deleted_at: TypedColumn[Option[T]]` the RHS expects `Option[T]` and `None` typechecks. Use
-    // `.isNull` / `.isNotNull` for SQL-NULL-safe comparison.
+  test("`=== None` on a nullable column is a compile error — point users at `.isNull`") {
     import scala.compiletime.testing.*
     val result: List[Error] = typeCheckErrors("""
       import skunk.sharp.*
@@ -121,6 +117,6 @@ class WhereSuite extends munit.FunSuite {
       val c = ColumnsView(t.columns)
       c.deleted_at === None
     """)
-    assert(result.isEmpty, s"expected `=== None` to typecheck on nullable col now; got: ${result.map(_.message).mkString}")
+    assert(result.nonEmpty, "expected `=== None` to be a compile error; the supported form is `.isNull`")
   }
 }

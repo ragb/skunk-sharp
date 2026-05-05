@@ -56,15 +56,15 @@ class SetOpSuite extends munit.FunSuite {
 
   test("chained set ops preserve parameters from every arm") {
     val af = users.select
-      .where(u => u.age >= 18)
-      .union(admins.select.where(a => a.age >= 21))
-      .except(users.select.where(u => u.age >= 65))
+      .where(u => u.age >= lit(18))
+      .union(admins.select.where(a => a.age >= lit(21)))
+      .except(users.select.where(u => u.age >= lit(65)))
       .compile
       .af
 
     assertEquals(
       af.fragment.sql,
-      """(SELECT "id", "email", "age" FROM "users" WHERE "age" >= $1) UNION (SELECT "id", "email", "age" FROM "admins" WHERE "age" >= $2) EXCEPT (SELECT "id", "email", "age" FROM "users" WHERE "age" >= $3)"""
+      """(SELECT "id", "email", "age" FROM "users" WHERE "age" >= 18) UNION (SELECT "id", "email", "age" FROM "admins" WHERE "age" >= 21) EXCEPT (SELECT "id", "email", "age" FROM "users" WHERE "age" >= 65)"""
     )
   }
 

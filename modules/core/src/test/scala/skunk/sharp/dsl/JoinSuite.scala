@@ -37,7 +37,7 @@ class JoinSuite extends munit.FunSuite {
       .innerJoin(posts)
       .on(r => r.users.id ==== r.posts.user_id)
       .select(r => (r.users.email, r.posts.title, r.posts.created_at))
-      .where(r => r.users.age >= 18)
+      .where(r => r.users.age >= lit(18))
       .orderBy(r => r.posts.created_at.desc)
       .limit(10)
       .compile
@@ -45,7 +45,7 @@ class JoinSuite extends munit.FunSuite {
 
     assertEquals(
       af.fragment.sql,
-      """SELECT "users"."email", "posts"."title", "posts"."created_at" FROM "users" INNER JOIN "posts" ON "users"."id" = "posts"."user_id" WHERE "users"."age" >= $1 ORDER BY "posts"."created_at" DESC LIMIT 10"""
+      """SELECT "users"."email", "posts"."title", "posts"."created_at" FROM "users" INNER JOIN "posts" ON "users"."id" = "posts"."user_id" WHERE "users"."age" >= 18 ORDER BY "posts"."created_at" DESC LIMIT 10"""
     )
   }
 
@@ -301,7 +301,7 @@ class JoinSuite extends munit.FunSuite {
   test("projected SELECT `.alias` renders as a derived table in FROM") {
     val af = users
       .select(u => (u.id, u.email))
-      .where(u => u.age >= 18)
+      .where(u => u.age >= lit(18))
       .alias("adults")
       .select
       .compile
@@ -309,7 +309,7 @@ class JoinSuite extends munit.FunSuite {
 
     assertEquals(
       af.fragment.sql,
-      """SELECT "id", "email" FROM (SELECT "id", "email" FROM "users" WHERE "age" >= $1) AS "adults""""
+      """SELECT "id", "email" FROM (SELECT "id", "email" FROM "users" WHERE "age" >= 18) AS "adults""""
     )
   }
 
@@ -330,7 +330,7 @@ class JoinSuite extends munit.FunSuite {
   test("projected SELECT joined with a base table — outer references derived cols by alias") {
     val af = users
       .select(u => (u.id, u.email))
-      .where(u => u.age >= 18)
+      .where(u => u.age >= lit(18))
       .alias("adults")
       .innerJoin(posts).on(r => r.adults.id ==== r.posts.user_id)
       .select(r => (r.adults.email, r.posts.title))
@@ -339,7 +339,7 @@ class JoinSuite extends munit.FunSuite {
 
     assertEquals(
       af.fragment.sql,
-      """SELECT "adults"."email", "posts"."title" FROM (SELECT "id", "email" FROM "users" WHERE "age" >= $1) AS "adults" INNER JOIN "posts" ON "adults"."id" = "posts"."user_id""""
+      """SELECT "adults"."email", "posts"."title" FROM (SELECT "id", "email" FROM "users" WHERE "age" >= 18) AS "adults" INNER JOIN "posts" ON "adults"."id" = "posts"."user_id""""
     )
   }
 

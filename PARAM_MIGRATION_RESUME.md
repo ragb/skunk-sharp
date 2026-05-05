@@ -5,14 +5,100 @@
 
 | module    | tests   | status |
 | --------- | ------- | ------ |
-| core      | 465/465 | ✅     |
+| core      | 472/472 | ✅     |
 | circe     | 10/10   | ✅     |
 | iron      | 4/4     | ✅     |
 | refined   | 5/5     | ✅     |
 | tests     | 159/159 | ✅ (Postgres testcontainers) |
-| **total** | **643/643** | ✅ |
+| **total** | **650/650** | ✅ |
 
-## Latest session (commits `90160ed` → `c12fe90`)
+## Latest session (commits `c12fe90` → current)
+
+- **Static-SQL bake-out**. Closed the remaining sources of fresh runtime AppliedFragment allocation in the standard compile path:
+  - **Projection list always cached.** `SelectBuilder.compileBodyParts` no longer hits a dynamic `mkString` path when `effectiveCols ne rel.columns` (LEFT/RIGHT/FULL JOIN nullabilification). Column names are preserved by `nullabilifyCols`, so `rel.starProjAf` is always safe regardless of the head's effectiveCols identity. The conditional `effectiveCols eq rel.columns` only gates the combined `starProjFromAfOpt` cache (which bakes `FROM "qualifiedName"` without `AS "alias"`); the standalone projection list is now drawn from `starProjAf` in every branch.
+  - **Fully-static fast path in `SelectBuilder.assembleN`**. When every part contributes no typed parameters (`encoder.types.isEmpty`), the assembled Fragment uses the process-wide-shared `Void.codec` directly instead of a freshly-allocated custom Encoder. Saves a per-execute parts walk and matches the "static SQL" goal: a `users.select.where(u => u.age >= lit(18)).compile` produces a `Fragment[Void]` whose encoder is the trivial Void codec, so subsequent `.run(session)` bypasses any encoded-list construction.
+
+  CompileBench (200,000 iterations per scenario) now reports **0 dynamic AFs / compile** across all five scenarios:
+
+  ```text
+  == SELECT u.* WHERE … ORDER BY … LIMIT 20 ==     0,00 per compile
+  == INSERT into users (full row) ==               0,00 per compile
+  == UPDATE users SET email = … WHERE id = … ==    0,00 per compile
+  == DELETE FROM users WHERE id = … ==             0,00 per compile
+  == SELECT … FROM users INNER JOIN posts ON … ==  0,00 per compile
+  ```
+
+- **Typed `Args` threading through UPDATE FROM / DELETE USING tail sources**. The `aliasedFromEntry` AppliedFragment path that threw on typed body args is replaced by `aliasedFromEntryParts` Right-slot emission per tail source. `UpdateFromReady.{compile, returning, returningTuple, returningAll}` and `DeleteUsingReady.{compile, returning, returningTuple, returningAll}` gained a `SArgs` slot summoned via `SourceBodyArgsOf.Aux[Ss, SArgs]` + `SourceBodyArgsProj[Ss]` evidences; per-tail-source body args fold into the outer command's args between the SET-args and WHERE-args slots. Bypassed `MutationAssembly.command` / `withReturningTyped` (fixed-2/3-slot) — these paths now go straight to `SelectBuilder.assembleN` with custom `slotValues` lambdas that stitch per-tail body args between SET, WHERE, and RETURNING. Plain table FROM-tail sources contribute `Void` and collapse cleanly; typed-subquery FROM-tail (e.g. `users.update.from(activePosts.alias("ap"))` where `activePosts` carries a `Param[String]`) surfaces the subquery's args at the outer `CommandTemplate`'s `Args`. ParamSuite: 2 new tests.
+
+- **Typed `Args` threading through SRF args** (`Pg.generateSeries`, `Pg.unnestAsRelation`). `srfRelation1[T, N, BA]` gained a third type parameter `BA` and now takes a typed `Fragment[BA]` for its function args (replacing `List[AppliedFragment]`). The relation extends a new private marker trait `IsSrf` (carries `srfFuncName`, `srfArgsFragment`, `srfColumnName`); [`aliasedFromEntryParts`](modules/core/src/main/scala/skunk/sharp/dsl/Join.scala) checks `IsSrf` first and emits `Left("func("), Right(argsFrag), Left(") AS \"alias\"(\"col\")")` so the typed args fragment threads through the outer query's slot machinery alongside the existing typed-subquery and plain-table cases.
+  - `Pg.generateSeries(start: TypedExpr[Int, A], stop: TypedExpr[Int, B])` (and 3-arg `step` overload) take typed expressions — Param-bearing form `Pg.generateSeries(Param[Int], Param[Int]).select.compile : QueryTemplate[(Int, Int), …]`. Literal form is `Pg.generateSeries(lit(1), lit(10))` — args render inline (`generate_series(1, 10)`).
+  - `Pg.unnestAsRelation[A, E, BA](a: TypedExpr[A, BA])` — array argument's typed `BA` flows out.
+  - SRF's `fromFragmentWith` keeps a Void-args fallback (binds args at Void) for paths that don't go through `aliasedFromEntryParts` (alias-wrapping, cache-warming); typed-args SRFs throw on that path with a clear error.
+  - `starProjFromAfOpt` overridden to `None` on SRF so the cached-FROM optimization doesn't fire (SRFs always carry args, no parameterless-FROM cache).
+  - SrfSuite: 1 new test (`Pg.generateSeries with Param bounds threads typed Args into outer compile`); existing tests adjusted to use `lit(...)` for the Int literal arg form.
+
+- **Typed `Args` threading through CTE bodies** (closes another Void case). `CteRelation` gained a third type parameter `BodyArgs` — the typed args of the captured inner SELECT. `cte()` no longer requires `WA =:= Void` / `HA =:= Void` / Void groups; the inner Param args flow into the CTE's `BodyArgs` and surface in the outer query's `Args` slot.
+  - `CteRelation[Cols, Name, BodyArgs]` — inner body stored as `Fragment[BodyArgs]` instead of pre-applied `AppliedFragment`. The `Relation`-level `BodyArgs = Void` (FROM-site contributes Void via `SourceBodyArgsProj`); the typed `BodyArgs` lives on a new `CteBody` type member, extracted at the outer query by [`GetCteBody`](modules/core/src/main/scala/skunk/sharp/dsl/Cte.scala) and accumulated via [`CteArgs[Ss]`](modules/core/src/main/scala/skunk/sharp/dsl/Cte.scala) — a `Where.Concat` right-fold.
+  - New typeclasses in [Cte.scala](modules/core/src/main/scala/skunk/sharp/dsl/Cte.scala): `CteArgs[Ss]` match-type accumulator, `CteArgsOf[Ss]` typeclass wrapper (`Aux[Ss, O]`), `CteArgsProj[Ss]` recursive projector that splits the combined `CArgs` value back into per-direct-CTE values for the WITH preamble's IArray slots, `CteDepsAllVoid[Ss]` constraint enforcing that all CTE references in a body's source tuple have `BodyArgs = Void` (typed-args CTEs cannot be transitive deps — they must be referenced directly in the outer FROM).
+  - `renderWithPreamble` is now `renderWithPreambleParts` — emits `List[BodyPart]` so each CTE body's typed `Fragment[BA]` flows as a `Right` slot in the outer `assembleN`'s parts list. Preamble structure: `Left("WITH ") Left("\"name1\" AS (") Right(body1) Left(")") Left(", ") Left("\"name2\" AS (") Right(body2) Left(")") Left(" ")`.
+  - Compile path layout: outer query's IArray now leads with N preamble slots (one per collected CTE in dep order — direct-ref CTEs carry their projected args, transitive-dep CTEs carry `Void`), then the existing slots `[DIST, PROJ, body_1, on_1, …, WHERE, GROUP, HAVING, ORDER]`. `SelectBuilder.compile`, `ProjectedSelect.compile`, `Compiled.AsSubquery.fromProjected` and `fromSelectBuilder` all gained a `CArgs` slot at the outermost (leftmost) position.
+
+  Cleanup: replaced ordinal `c12, c123, c1234, …` `Concat2` evidence parameter names with semantic names that spell the accumulator at each step — e.g. `cd, cdp, cdps, cdpso, cdpsow, cdpsowg, cdpsowgh, cdpsowgho` reads left-to-right as the slots being folded together.
+
+  ParamSuite: 2 new positive tests; the obsolete negative `cte rejects Param` and `cte of projected SELECT rejects Param` typeCheckErrors guards replaced with positive assertions:
+  - `cte WHERE Param threads typed Args into outer compile` — `QueryTemplate[UUID, ?]`.
+  - `cte of projected SELECT WHERE Param threads typed Args into outer compile` — `QueryTemplate[UUID, ?]`.
+
+- **Static-by-default operators**. Dropped the value-taking RHS overloads from binary operators (`===`, `!==`, `<`, `<=`, `>`, `>=`, `between`, `notBetween`, `betweenSymmetric`, `isDistinctFrom`, `isNotDistinctFrom`, `like`, `ilike`, `similarTo`, `notSimilarTo`) and from `:=` in UPDATE SET. RHS is always a `TypedExpr[T, ?]`. Three explicit value forms:
+  - `Param[T]` — deferred to execute time, `Args` threads typed.
+  - `lit(v)` — compile-time literal (primitives only), inline SQL with no `$N` placeholder.
+  - `Param.bind(v)` — bake a runtime value into a `Void`-args fragment.
+
+  Rationale: the value form silently chose the runtime-baked path, hiding a meaningful design decision behind ergonomics. Tests now choose explicitly. Internal `SetAssignment.fromValue` retained as `private[sharp]` because `.patch(...)` works on a runtime named tuple of `Option[T]`s with no compile-site value.
+
+- **`GroupCoverage` priority fix**. Split `nonEmpty` into a low-priority trait so `opaque` (set-spec functions like `Pg.rollup` / `Pg.cube` / `Pg.groupingSets`) wins resolution against `nonEmpty` when both could match.
+
+- **Typed `Args` threading through JOIN `.on` predicates** (closes another Void case). `IncompleteJoin.on[A]` no longer requires `A =:= Void`; the predicate's `A` flows into the new source's `OnArgs` type member, accumulates across sources via `SourceOnArgs[Ss]` (a `Where.Concat` right-fold), and surfaces in the outer `QueryTemplate`'s `Args`.
+  - `SourceEntry` gained a 5th type parameter `OnArgs` (defaulting to `Void` for sources created without `.on`). All ~88 reference sites updated; `NullabilifySources` and `SourceBodyArgsProj.cons` propagate `OA`.
+  - New typeclasses in [Join.scala](modules/core/src/main/scala/skunk/sharp/dsl/Join.scala): `SourceOnArgs[Ss]` (match-type accumulator), `SourceOnArgsOf[Ss]` (typeclass wrapper), `SourceOnArgsProj[Ss]` (recursive projector that splits the combined `OnA` value back into per-source values).
+  - `ProjectedSelect.compileBodyParts` now emits a `Right` ON slot per source — `emptyVoidSlot` for head/CROSS sources, the typed predicate (with `" ON "` baked as a static prefix via `SelectBuilder.prefixedFrag`) for sources with `.on`. The IArray layout is `[DIST, PROJ, body_1, on_1, body_2, on_2, …, WHERE, GROUP, HAVING, ORDER]`.
+  - `ProjectedSelect.{compile, compileBodyFragment, compileFragment}` and `ProjectedSelect.alias` thread `SourceOnArgsOf` + `SourceOnArgsProj` evidences. `Compiled.fromProjected` AsSubquery given updated.
+  - `buildSlotIArray` zips per-source body and on lists positionally.
+
+  ParamSuite: 3 new tests; the obsolete negative `on rejects Param in predicate at compile time` removed:
+  - `JOIN ON Param threads typed Args into outer compile` — `QueryTemplate[UUID, ?]`.
+  - `JOIN ON Param + outer WHERE Param accumulates in render order` — `QueryTemplate[(String, Int), ?]`.
+  - `JOIN ON column-only (Void) collapses cleanly: outer Args = WHERE Args only`.
+
+- **Multi-source typed-alias body args** (gap #1 in the resume-doc gap list). `ProjectedSelect.compileBodyParts` now emits one `Right` source-body slot **per source** (head and tail), not just one for the head. Tail sources go through `aliasedFromEntryParts` (the head's emitter) instead of the legacy single-fragment `aliasedFromEntry`.
+  - New typeclass `SourceBodyArgsProj[Ss]` (recursive `Concat2`-based) projects the combined `SArgs` value into a per-source `List[Any]` for the slot IArray. Mirrors `Where.FoldConcatN` but takes its input shape directly from `Ss`, avoiding the Scala 3 limitation where `FoldConcatN[T <: Tuple]` rejects a match-type result whose `<: Tuple` bound can't be reduced abstractly.
+  - `ProjectedSelect.{compile, compileBodyFragment, compileFragment}` and `ProjectedSelect.alias` thread `SourceBodyArgsProj[Ss]` through. Two helpers in `Select.scala`: `sourceSlotCount` (mirrors the parts-emitter branching) and `buildSlotIArray` (the per-source-aware IArray builder).
+  - `Compiled.scala` `AsSubquery.fromProjected` summons and threads the new evidence.
+  - The legacy `aliasedFromEntry` is now used only by Update.scala (UPDATE FROM) and Delete.scala (DELETE USING) — those positions still throw on typed body args, which remains a known limitation.
+
+  ParamSuite: 5 new tests covering:
+  - Typed alias on a JOIN tail surfacing `UUID` outward.
+  - Typed alias on both head and tail accumulating to `(String, UUID)` with `$1` / `$2` in render order.
+  - Typed alias + outer WHERE Param accumulating to `(UUID, String)`.
+  - Nested typed aliases (`inner.alias("inner").select.alias("outer")`).
+  - Typed projected alias as JOIN tail.
+
+- **Typed `Args` threading through subquery `.alias`**. `SelectBuilder.alias` and `ProjectedSelect.alias` now thread their inner `WA` / `HA` / group Args into the resulting `TypedBodyRelation[Cols, CombinedArgs]` — the outer query's `compile` picks them up via `SourceBodyArgsOf` and surfaces them as the outer `QueryTemplate`'s `Args` type.
+
+  The key design pieces:
+  - `GetBodyArgs[R]` match type: matches `TypedBodyRelation[_, ba] => ba`, falls back to `Void`. Extracts the `BA` type parameter (not a type member projection — Scala 3 allows this via class-type-parameter matching).
+  - `SourceBodyArgs[Ss]` match type: folds `GetBodyArgs[r]` over the sources tuple via `Where.Concat`, accumulating `BodyArgs` from all sources.
+  - `SourceBodyArgsOf[Ss]` typeclass: single `given compute` provides `Out = SourceBodyArgs[Ss]`.
+  - All anonymous `new Relation[Cols]` instances in `.alias` extensions (plain `Relation.alias`, `Values.alias`, `CteRelation.alias`) and `srfRelation1` changed to `new TypedBodyRelation[Cols, skunk.Void]` — this is essential so `GetBodyArgs` reduces (structural `Relation` refinements can't be proved disjoint from `TypedBodyRelation[_, ba]`; concrete subtypes can).
+  - `aliasedFromEntry` fix: replaced `bodyFrag.encoder eq Void.codec` (fragile reference equality) with `bodyFrag.encoder.types.isEmpty` (semantic check). The assembled encoder from `assembleN` is never reference-equal to `Void.codec`.
+  - The previous `WA =:= Void` / `HA =:= Void` guards on `SelectBuilder.alias` and `ProjectedSelect.alias` removed — typed inner args now thread through instead of being rejected.
+  - `Cte.scala` guards still require `WA =:= Void` / `HA =:= Void` (CTEs can't carry outer Param args; that constraint is intentional and remains).
+
+  ParamSuite: 2 new tests:
+  - `"SelectBuilder.alias threads Param[UUID] from inner WHERE into outer Args"` — `val _: QueryTemplate[UUID, ?] = qt` asserts type; SQL check confirms inner subquery wrapping.
+  - `"ProjectedSelect.alias threads Param[UUID] from inner WHERE into outer Args"` — same pattern for projected SELECT.
+
+## Previous "latest" session (commits `90160ed` → `c12fe90`)
 
 - `c12fe90` — **Verify and document UPDATE SET `:= Param[T]` and UPDATE
   FROM / DELETE USING typed Args**. Both were already implemented (the

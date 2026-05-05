@@ -17,7 +17,7 @@ class SingleImportSuite extends munit.FunSuite {
 
   test("read, filter, project, order, limit — all from one import") {
     val af = users.select
-      .where(u => u.age >= 18 && u.email.like("%@example.com") && u.deleted_at.isNull)
+      .where(u => u.age >= lit(18) && u.email.like(lit("%@example.com")) && u.deleted_at.isNull)
       .orderBy(u => u.created_at.desc)
       .limit(10)
       .apply(u => (u.id, Pg.lower(u.email)))
@@ -42,9 +42,9 @@ class SingleImportSuite extends munit.FunSuite {
 
   test("update + delete") {
     val id  = UUID.randomUUID
-    val af1 = users.update.set(u => u.email := "new").where(u => u.id === id).compile.af
-    val af2 = users.delete.where(u => u.id === id).compile.af
-    assert(af1.fragment.sql.startsWith("""UPDATE "users" SET "email" = $1"""), clue = af1.fragment.sql)
+    val af1 = users.update.set(u => u.email := lit("new")).where(u => u.id === Param.bind(id)).compile.af
+    val af2 = users.delete.where(u => u.id === Param.bind(id)).compile.af
+    assert(af1.fragment.sql.startsWith("""UPDATE "users" SET "email" = 'new'"""), clue = af1.fragment.sql)
     assertEquals(af2.fragment.sql, """DELETE FROM "users" WHERE "id" = $1""")
   }
 }

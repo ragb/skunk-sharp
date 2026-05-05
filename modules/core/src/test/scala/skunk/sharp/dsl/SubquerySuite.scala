@@ -92,13 +92,13 @@ class SubquerySuite extends munit.FunSuite {
     val af = users
       .alias("u")
       .select(u => u.email)
-      .where(u => u.age >= 18 && Pg.exists(posts.select(_ => lit(1)).where(p => p.user_id ==== u.id)))
+      .where(u => u.age >= lit(18) && Pg.exists(posts.select(_ => lit(1)).where(p => p.user_id ==== u.id)))
       .compile
       .af
 
     assert(
       af.fragment.sql.contains(
-        """WHERE ("u"."age" >= $1 AND EXISTS (SELECT 1 FROM "posts" WHERE "user_id" = "u"."id"))"""
+        """WHERE ("u"."age" >= 18 AND EXISTS (SELECT 1 FROM "posts" WHERE "user_id" = "u"."id"))"""
       ),
       af.fragment.sql
     )

@@ -23,8 +23,9 @@ final case class View[Cols <: Tuple, Name <: String & Singleton](
 ) extends Relation[Cols] {
 
   /** A bare `View` is its own alias — parallel to `Table`. */
-  type Alias = Name
-  type Mode  = AliasMode.Implicit
+  type Alias    = Name
+  type Mode     = AliasMode.Implicit
+  type BodyArgs = skunk.Void
   val currentAlias: Name        = name
   val expectedTableType: String = "VIEW"
 

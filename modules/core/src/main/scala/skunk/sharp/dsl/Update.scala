@@ -71,10 +71,10 @@ final class UpdateBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
   ): UpdateFromBuilder[
     Cols,
     Name,
-    SourceEntry[Table[Cols, Name], Cols, Cols, Name] *: SourceEntry[RR, CR, CR, AR] *: EmptyTuple
+    SourceEntry[Table[Cols, Name], Cols, Cols, Name, Void] *: SourceEntry[RR, CR, CR, AR, Void] *: EmptyTuple
   ] = {
     val targetEntry =
-      new SourceEntry[Table[Cols, Name], Cols, Cols, Name](
+      new SourceEntry[Table[Cols, Name], Cols, Cols, Name, Void](
         table,
         table.currentAlias,
         table.columns,
@@ -85,11 +85,11 @@ final class UpdateBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
     val rel        = aR(other)
     val oCols      = rel.columns.asInstanceOf[CR]
     val otherEntry =
-      new SourceEntry[RR, CR, CR, AR](rel, aR.aliasValue(other), oCols, oCols, JoinKind.Inner, None)
+      new SourceEntry[RR, CR, CR, AR, Void](rel, aR.aliasValue(other), oCols, oCols, JoinKind.Inner, None)
     new UpdateFromBuilder[
       Cols,
       Name,
-      SourceEntry[Table[Cols, Name], Cols, Cols, Name] *: SourceEntry[RR, CR, CR, AR] *: EmptyTuple
+      SourceEntry[Table[Cols, Name], Cols, Cols, Name, Void] *: SourceEntry[RR, CR, CR, AR, Void] *: EmptyTuple
     ](table, targetEntry *: otherEntry *: EmptyTuple)
   }
 
@@ -224,11 +224,11 @@ final class UpdateFromBuilder[Cols <: Tuple, Name <: String & Singleton, Ss <: T
   def from[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](other: R)(using
     aR: AsRelation.Aux[R, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
-  ): UpdateFromBuilder[Cols, Name, Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]] = {
+  ): UpdateFromBuilder[Cols, Name, Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR, Void]]] = {
     val rel   = aR(other)
     val oCols = rel.columns.asInstanceOf[CR]
-    val entry = new SourceEntry[RR, CR, CR, AR](rel, aR.aliasValue(other), oCols, oCols, JoinKind.Inner, None)
-    new UpdateFromBuilder[Cols, Name, Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR]]](
+    val entry = new SourceEntry[RR, CR, CR, AR, Void](rel, aR.aliasValue(other), oCols, oCols, JoinKind.Inner, None)
+    new UpdateFromBuilder[Cols, Name, Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR, Void]]](
       table,
       sources :* entry
     )
@@ -295,15 +295,24 @@ final class UpdateFromReady[
     new UpdateFromReady[Cols, Name, Ss, SetArgs, Any](table, sources, setFragment, Some(combined))
   }
 
+  /**
+   * UPDATE … SET … FROM <tail sources> WHERE — emits per-source body Right slots so typed-subquery FROM
+   * sources thread their inner Args into the outer command's args. Plain tables contribute `emptyVoidSlot`
+   * for their body slot.
+   */
   private def updateFromParts: List[BodyPart] = {
     val buf = scala.collection.mutable.ListBuffer[BodyPart](
       Left(table.updateSetHeader),
       Right(setFragment)
     )
-    val fromEntries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?]]].tail
+    val fromEntries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]].tail
     if (fromEntries.nonEmpty) {
       buf += Left(TypedExpr.raw(" FROM "))
-      buf += Left(TypedExpr.joined(fromEntries.map(aliasedFromEntry), ", "))
+      var first = true
+      fromEntries.foreach { s =>
+        if (first) first = false else buf += Left(TypedExpr.raw(", "))
+        aliasedFromEntryParts(s).foreach(buf += _)
+      }
     }
     whereOpt.foreach { f =>
       buf += Left(RawConstants.WHERE)
@@ -312,44 +321,99 @@ final class UpdateFromReady[
     buf.toList
   }
 
-  def compile(using c2: Where.Concat2[SetArgs, WArgs]): CommandTemplate[Where.Concat[SetArgs, WArgs]] =
-    MutationAssembly.command[SetArgs, WArgs](updateFromParts)
+  /**
+   * Number of FROM-tail body Right slots emitted by [[updateFromParts]] — one per tail source. Matches the
+   * count of values produced by `bff.project(sArgs).tail` (skipping the target table at index 0).
+   */
+  private def fromTailBodyArgs(bff: SourceBodyArgsProj[? <: Tuple], sArgs: Any): List[Any] =
+    bff.project(sArgs) match {
+      case _ :: rest => rest // drop head (target table — always Void)
+      case _         => Nil
+    }
 
-  def returning[T, A](f: JoinedView[Ss] => TypedExpr[T, A])(using
-    c12:  Where.Concat2[SetArgs, WArgs],
-    c123: Where.Concat2[Where.Concat[SetArgs, WArgs], A]
-  ): QueryTemplate[Where.Concat[Where.Concat[SetArgs, WArgs], A], T] = {
-    val expr = f(buildJoinedView(sources))
-    MutationAssembly.withReturningTyped[SetArgs, WArgs, A, T](updateFromParts, expr.fragment, expr.codec)
+  // Concat-chain evidences (left-fold over slot order): SetArgs ⊕ SArgs ⊕ WArgs.
+  def compile[SArgs](using
+    sbOf:    SourceBodyArgsOf.Aux[Ss, SArgs],
+    bff:     SourceBodyArgsProj[Ss],
+    setS:    Where.Concat2[SetArgs, SArgs],
+    setSw:   Where.Concat2[Where.Concat[SetArgs, SArgs], WArgs]
+  ): CommandTemplate[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs]] = {
+    type Out = Where.Concat[Where.Concat[SetArgs, SArgs], WArgs]
+    val slotValues: Out => IArray[Any] = args => {
+      val (setSAcc, wArgs)   = setSw.project(args)
+      val (setArgs, sArgs)   = setS.project(setSAcc.asInstanceOf[Where.Concat[SetArgs, SArgs]])
+      val perTailBody        = fromTailBodyArgs(bff, sArgs)
+      val out = scala.collection.mutable.ArrayBuffer.empty[Any]
+      out += setArgs
+      perTailBody.foreach(out += _)
+      out += wArgs
+      IArray.from(out)
+    }
+    val tpl = SelectBuilder.assembleN[Out, Void](updateFromParts, Nil, Void.codec, slotValues)
+    CommandTemplate.mk[Out](tpl.fragment)
   }
 
-  def returningTuple[T <: NonEmptyTuple](
+  // Concat-chain: SetArgs ⊕ SArgs ⊕ WArgs ⊕ A (RETURNING).
+  def returning[T, A, SArgs](f: JoinedView[Ss] => TypedExpr[T, A])(using
+    sbOf:    SourceBodyArgsOf.Aux[Ss, SArgs],
+    bff:     SourceBodyArgsProj[Ss],
+    setS:    Where.Concat2[SetArgs, SArgs],
+    setSw:   Where.Concat2[Where.Concat[SetArgs, SArgs], WArgs],
+    setSwR:  Where.Concat2[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs], A]
+  ): QueryTemplate[Where.Concat[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs], A], T] = {
+    val expr = f(buildJoinedView(sources))
+    val parts: List[BodyPart] = updateFromParts ++ List[BodyPart](Left(RawConstants.RETURNING), Right(expr.fragment))
+    type Out = Where.Concat[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs], A]
+    val slotValues: Out => IArray[Any] = args => {
+      val (setSwAcc, retArgs) = setSwR.project(args)
+      val (setSAcc, wArgs)    = setSw.project(setSwAcc.asInstanceOf[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs]])
+      val (setArgs, sArgs)    = setS.project(setSAcc.asInstanceOf[Where.Concat[SetArgs, SArgs]])
+      val perTailBody         = fromTailBodyArgs(bff, sArgs)
+      val out = scala.collection.mutable.ArrayBuffer.empty[Any]
+      out += setArgs
+      perTailBody.foreach(out += _)
+      out += wArgs
+      out += retArgs
+      IArray.from(out)
+    }
+    SelectBuilder.assembleN[Out, T](parts, Nil, expr.codec, slotValues)
+  }
+
+  def returningTuple[T <: NonEmptyTuple, SArgs](
     f: JoinedView[Ss] => T
   )(using
-    fc:   FoldConcatN[CollectArgs[T]],
-    c12:  Where.Concat2[SetArgs, WArgs],
-    c123: Where.Concat2[Where.Concat[SetArgs, WArgs], FoldConcat[CollectArgs[T]]]
-  ): QueryTemplate[Where.Concat[Where.Concat[SetArgs, WArgs], FoldConcat[CollectArgs[T]]], ExprOutputs[T]] = {
+    fc:      FoldConcatN[CollectArgs[T]],
+    sbOf:    SourceBodyArgsOf.Aux[Ss, SArgs],
+    bff:     SourceBodyArgsProj[Ss],
+    setS:    Where.Concat2[SetArgs, SArgs],
+    setSw:   Where.Concat2[Where.Concat[SetArgs, SArgs], WArgs],
+    setSwR:  Where.Concat2[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs], FoldConcat[CollectArgs[T]]]
+  ): QueryTemplate[Where.Concat[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs], FoldConcat[CollectArgs[T]]], ExprOutputs[T]] = {
     val exprs    = f(buildJoinedView(sources)).toList.asInstanceOf[List[TypedExpr[?, ?]]]
     val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
     val combined = TypedExpr.combineList[FoldConcat[CollectArgs[T]]](exprs.map(_.fragment), ", ", fc.project)
-    MutationAssembly.withReturningTyped[SetArgs, WArgs, FoldConcat[CollectArgs[T]], ExprOutputs[T]](
-      updateFromParts, combined, codec
-    )
+    returning[ExprOutputs[T], FoldConcat[CollectArgs[T]], SArgs](_ =>
+      TypedExpr[ExprOutputs[T], FoldConcat[CollectArgs[T]]](combined, codec)
+    )(using sbOf, bff, setS, setSw, setSwR)
   }
 
-  def returningAll(using
-    c12:  Where.Concat2[SetArgs, WArgs],
-    c123: Where.Concat2[Where.Concat[SetArgs, WArgs], Void]
-  ): QueryTemplate[Where.Concat[SetArgs, WArgs], NamedRowOf[Cols]] = {
+  def returningAll[SArgs](using
+    sbOf:    SourceBodyArgsOf.Aux[Ss, SArgs],
+    bff:     SourceBodyArgsProj[Ss],
+    setS:    Where.Concat2[SetArgs, SArgs],
+    setSw:   Where.Concat2[Where.Concat[SetArgs, SArgs], WArgs],
+    setSwR:  Where.Concat2[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs], Void]
+  ): QueryTemplate[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs], NamedRowOf[Cols]] = {
     val exprs =
       table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
         TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
       )
     val codec    = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
     val combined = TypedExpr.combineList[Void](exprs.map(_.fragment), ", ", _ => List.fill(exprs.size)(Void))
-    MutationAssembly.withReturningTyped[SetArgs, WArgs, Void, NamedRowOf[Cols]](updateFromParts, combined, codec)
-      .asInstanceOf[QueryTemplate[Where.Concat[SetArgs, WArgs], NamedRowOf[Cols]]]
+    returning[NamedRowOf[Cols], Void, SArgs](_ =>
+      TypedExpr[NamedRowOf[Cols], Void](combined, codec)
+    )(using sbOf, bff, setS, setSw, setSwR)
+      .asInstanceOf[QueryTemplate[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs], NamedRowOf[Cols]]]
   }
 
 }
@@ -368,8 +432,11 @@ final class SetAssignment[T, Args] private[sharp] (
 
 object SetAssignment {
 
-  /** `col := value` — value baked via [[Param.bind]]; Args = Void. */
-  def fromValue[T](col: TypedColumn[T, ?, ?], value: T)(using pf: PgTypeFor[T]): SetAssignment[T, Void] = {
+  /**
+   * Internal-only: bake a runtime value into a Void-args assignment. Used by `.patch(...)` where the runtime
+   * named-tuple of `Option[T]`s genuinely cannot be expressed as a typed expression at the call site.
+   */
+  private[sharp] def fromValue[T](col: TypedColumn[T, ?, ?], value: T)(using pf: PgTypeFor[T]): SetAssignment[T, Void] = {
     val rhs = Param.bind(value)(using pf)
     fromExprAux[T, Void](col, rhs.fragment)
   }
@@ -410,11 +477,11 @@ object SetAssignment {
 
 extension [T, Null <: Boolean, N <: String & Singleton](col: TypedColumn[T, Null, N]) {
 
-  /** `col = value` — value baked via [[Param.bind]]; contributes Void to the SetArgs slot. */
-  def :=(value: T)(using pf: PgTypeFor[T]): SetAssignment[T, Void] =
-    SetAssignment.fromValue(col, value)
-
-  /** `col = <expression>` — RHS is any TypedExpr; its Args thread into the SetArgs slot. */
+  /**
+   * `col = <expression>` — RHS is any TypedExpr; its Args thread into the SetArgs slot. For value RHS pick
+   * `Param[T]` (deferred to execute time, static SQL), `lit(v)` (compile-time literal, primitives only), or
+   * `Param.bind(v)` (bake the runtime value into a Void-args fragment).
+   */
   def :=[A](expr: TypedExpr[T, A]): SetAssignment[T, A] =
     SetAssignment.fromExpr(col, expr)
 

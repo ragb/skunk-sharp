@@ -35,7 +35,7 @@ class SelectRelationSuite extends PgFixture {
           ).compile.run(s)
           // Narrow by email pattern too so this assertion doesn't trip on rows seeded by sibling tests.
           seniors = users.select
-            .where(u => u.age >= 60 && u.email.like(s"%-$tag@x"))
+            .where(u => u.age >= lit(60) && u.email.like(Param.bind(s"%-$tag@x")))
             .alias("seniors")
           _ <- assertIO(
             seniors.select(s0 => s0.email).compile.run(s).map(_.toSet),
@@ -63,7 +63,7 @@ class SelectRelationSuite extends PgFixture {
             (id = UUID.randomUUID, user_id = u2, title = s"minor-post-$tag")
           ).compile.run(s)
           adults = users.select
-            .where(u => u.age >= 18 && u.email.like(s"%-$tag@x"))
+            .where(u => u.age >= lit(18) && u.email.like(Param.bind(s"%-$tag@x")))
             .alias("adults")
           _ <- assertIO(
             adults

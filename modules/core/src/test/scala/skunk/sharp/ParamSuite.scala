@@ -63,7 +63,7 @@ class ParamSuite extends munit.FunSuite {
     val emailLike = "%@example.com"
     val q = users.select
       .where(u => u.id === Param[UUID])
-      .where(u => u.email.like(emailLike))
+      .where(u => u.email.like(Param.bind(emailLike)))
       .compile
     val _: QueryTemplate[UUID, ?] = q
     val af = q.bind(UUID.fromString("22222222-2222-2222-2222-222222222222"))
@@ -95,11 +95,11 @@ class ParamSuite extends munit.FunSuite {
 
   test("UPDATE WHERE: Param[T] threads into Args") {
     val cmd = users.update
-      .set(u => u.email := "fixed@x")
+      .set(u => u.email := lit("fixed@x"))
       .where(u => u.id === Param[UUID])
       .compile
     val _: CommandTemplate[UUID] = cmd
-    assert(cmd.fragment.sql.contains(""""id" = $2"""), cmd.fragment.sql)
+    assert(cmd.fragment.sql.contains(""""id" = $1"""), cmd.fragment.sql)
   }
 
   // -------- DELETE WHERE -------------------------------------------------------
@@ -208,14 +208,14 @@ class ParamSuite extends munit.FunSuite {
     assertEquals(encoded, List("new@x", uid.toString))
   }
 
-  test("UPDATE SET baked + WHERE Param: SetArgs collapses to Void, Args = WHERE only") {
-    val cmd = users.update.set(u => u.email := "fixed").where(u => u.id === Param[UUID]).compile
+  test("UPDATE SET literal + WHERE Param: SetArgs collapses to Void, Args = WHERE only") {
+    val cmd = users.update.set(u => u.email := lit("fixed")).where(u => u.id === Param[UUID]).compile
     val _: CommandTemplate[UUID] = cmd
-    assert(cmd.fragment.sql.contains(""""id" = $2"""), cmd.fragment.sql)
+    assert(cmd.fragment.sql.contains(""""id" = $1"""), cmd.fragment.sql)
   }
 
-  test("UPDATE SET Param + WHERE baked: SetArgs preserved, WArgs = Void") {
-    val cmd = users.update.set(u => u.age := Param[Int]).where(u => u.email === "x@y").compile
+  test("UPDATE SET Param + WHERE literal: SetArgs preserved, WArgs = Void") {
+    val cmd = users.update.set(u => u.age := Param[Int]).where(u => u.email === lit("x@y")).compile
     val _: CommandTemplate[Int] = cmd
   }
 
@@ -227,8 +227,8 @@ class ParamSuite extends munit.FunSuite {
     val _: CommandTemplate[(String, Int)] = cmd
   }
 
-  test("UPDATE SET tuple form: SetArgs widens to Void (use & for typed-Args)") {
-    val cmd = users.update.set(u => (u.email := "x", u.age := 30)).updateAll.compile
+  test("UPDATE SET tuple form with literals: SetArgs widens to Void") {
+    val cmd = users.update.set(u => (u.email := lit("x"), u.age := lit(30))).updateAll.compile
     val _: CommandTemplate[Void] = cmd
   }
 
@@ -278,7 +278,7 @@ class ParamSuite extends munit.FunSuite {
 
   test("UPDATE … RETURNING column (Void RetArgs) collapses RetArgs cleanly") {
     val q = users.update
-      .set(u => u.email := "fixed")
+      .set(u => u.email := lit("fixed"))
       .where(u => u.id === Param[UUID])
       .returning(u => u.email)
     val _: QueryTemplate[UUID, String] = q
@@ -671,7 +671,7 @@ class ParamSuite extends munit.FunSuite {
 
   test("CASE WHEN with all-Void branches collapses Args to Void") {
     val q = users
-      .select(u => caseWhen(u.age < 18, lit("minor")).otherwise(lit("adult")))
+      .select(u => caseWhen(u.age < lit(18), lit("minor")).otherwise(lit("adult")))
       .compile
     val _: QueryTemplate[Void, String] = q
   }
@@ -689,7 +689,7 @@ class ParamSuite extends munit.FunSuite {
   test("CASE WHEN with Param in branch result threads Param's type") {
     val q = users
       .select(u =>
-        caseWhen(u.age < 18, Param[String])
+        caseWhen(u.age < lit(18), Param[String])
           .otherwise(lit("adult"))
       )
       .compile
@@ -748,11 +748,11 @@ class ParamSuite extends munit.FunSuite {
     val _: CommandTemplate[(String, Int)] = cmd
   }
 
-  test("onConflict.doUpdate tuple overload (baked) yields CommandTemplate[Void]") {
+  test("onConflict.doUpdate tuple overload (literal RHS) yields CommandTemplate[Void]") {
     val cmd = tasks.insert
       .apply((id = UUID.randomUUID(), title = "t", priority = 1, due = LocalDate.now()))
       .onConflict(t => t.id)
-      .doUpdate(t => (t.title := "updated", t.priority := 9))
+      .doUpdate(t => (t.title := lit("updated"), t.priority := lit(9)))
       .compile
     val _: CommandTemplate[Void] = cmd
   }
@@ -775,39 +775,15 @@ class ParamSuite extends munit.FunSuite {
     val _: CommandTemplate[Void] = cmd
   }
 
-  // -------- UPDATE SET := Param[T] -------------------------------------------------------
+  // -------- UPDATE SET mixed baked + Param via & -----------------------------------------
 
-  test("UPDATE SET single Param yields CommandTemplate[T]") {
-    val cmd = users.update.set(u => u.email := Param[String]).updateAll.compile
-    val _: CommandTemplate[String] = cmd
-    assertEquals(cmd.fragment.sql.trim, """UPDATE "users" SET "email" = $1""")
-  }
-
-  test("UPDATE SET Param + WHERE Param yields CommandTemplate[(String, UUID)]") {
+  test("UPDATE SET mixed literal + Param yields CommandTemplate[String]") {
     val cmd = users.update
-      .set(u => u.email := Param[String])
-      .where(u => u.id === Param[UUID])
-      .compile
-    val _: CommandTemplate[(String, UUID)] = cmd
-    assertEquals(cmd.fragment.sql.trim, """UPDATE "users" SET "email" = $1 WHERE "id" = $2""")
-  }
-
-  test("UPDATE SET two Params via & yields CommandTemplate[(String, Int)]") {
-    val cmd = users.update
-      .set(u => (u.email := Param[String]) & (u.age := Param[Int]))
-      .updateAll
-      .compile
-    val _: CommandTemplate[(String, Int)] = cmd
-    assertEquals(cmd.fragment.sql.trim, """UPDATE "users" SET "email" = $1, "age" = $2""")
-  }
-
-  test("UPDATE SET mixed baked + Param yields CommandTemplate[String]") {
-    val cmd = users.update
-      .set(u => (u.age := 0) & (u.email := Param[String]))
+      .set(u => (u.age := lit(0)) & (u.email := Param[String]))
       .updateAll
       .compile
     val _: CommandTemplate[String] = cmd
-    assertEquals(cmd.fragment.sql.trim, """UPDATE "users" SET "age" = $1, "email" = $2""")
+    assertEquals(cmd.fragment.sql.trim, """UPDATE "users" SET "age" = 0, "email" = $1""")
   }
 
   // -------- UPDATE … FROM / DELETE … USING typed Args ------------------------------------
@@ -815,13 +791,13 @@ class ParamSuite extends munit.FunSuite {
   test("UPDATE … FROM Param in WHERE yields CommandTemplate[UUID]") {
     val cmd = users.update
       .from(posts)
-      .set(r => r.users.age := 0)
+      .set(r => r.users.age := lit(0))
       .where(r => r.users.id === Param[UUID])
       .compile
     val _: CommandTemplate[UUID] = cmd
     assertEquals(
       cmd.fragment.sql.trim,
-      """UPDATE "users" SET "age" = $1 FROM "posts" WHERE "users"."id" = $2"""
+      """UPDATE "users" SET "age" = 0 FROM "posts" WHERE "users"."id" = $1"""
     )
   }
 
@@ -865,66 +841,200 @@ class ParamSuite extends munit.FunSuite {
 
   // -------- Compile-time guards: Param not allowed in subquery / CTE / ON positions ---------------
 
-  test("SelectBuilder.alias rejects Param in WHERE at compile time") {
-    val errors = compiletime.testing.typeCheckErrors("""
-      import skunk.sharp.*
-      import skunk.sharp.dsl.*
-      import java.util.UUID
-      case class User(id: UUID, email: String, age: Int)
-      val users = Table.of[User]("users")
-      users.select.where(u => u.id === Param[UUID]).alias("u")
-    """)
-    assert(errors.nonEmpty, "expected compile error: Param in alias'd SelectBuilder WHERE")
+  test("SelectBuilder.alias threads Param[UUID] from inner WHERE into outer Args") {
+    case class User(id: UUID, email: String, age: Int)
+    val users = Table.of[User]("users")
+    val sub   = users.select.where(u => u.id === Param[UUID]).alias("u")
+    val qt    = sub.select.compile
+    val _: QueryTemplate[UUID, ?] = qt
+    assertEquals(
+      qt.fragment.sql.trim,
+      """SELECT "id", "email", "age" FROM (SELECT "id", "email", "age" FROM "users" WHERE "id" = $1) AS "u""""
+    )
   }
 
-  test("cte rejects Param in WHERE at compile time") {
-    val errors = compiletime.testing.typeCheckErrors("""
-      import skunk.sharp.*
-      import skunk.sharp.dsl.*
-      import java.util.UUID
-      case class User(id: UUID, email: String, age: Int)
-      val users = Table.of[User]("users")
-      cte("active", users.select.where(u => u.id === Param[UUID]))
-    """)
-    assert(errors.nonEmpty, "expected compile error: Param in cte SelectBuilder WHERE")
+  test("cte WHERE Param threads typed Args into outer compile") {
+    case class User(id: UUID, email: String, age: Int)
+    val users = Table.of[User]("users")
+    val active = cte("active", users.select.where(u => u.id === Param[UUID]))
+    val qt = active.select.compile
+    val _: QueryTemplate[UUID, ?] = qt
+    assert(qt.fragment.sql.startsWith("""WITH "active" AS ("""), qt.fragment.sql)
+    assert(qt.fragment.sql.contains("""WHERE "id" = $1"""), qt.fragment.sql)
   }
 
-  test("ProjectedSelect.alias rejects Param in WHERE at compile time") {
-    val errors = compiletime.testing.typeCheckErrors("""
-      import skunk.sharp.*
-      import skunk.sharp.dsl.*
-      import java.util.UUID
-      case class User(id: UUID, email: String, age: Int)
-      val users = Table.of[User]("users")
-      users.select(u => u.email).where(u => u.id === Param[UUID]).alias("u")
-    """)
-    assert(errors.nonEmpty, "expected compile error: Param in alias'd ProjectedSelect WHERE")
+  test("ProjectedSelect.alias threads Param[UUID] from inner WHERE into outer Args") {
+    case class User(id: UUID, email: String, age: Int)
+    val users = Table.of[User]("users")
+    val sub   = users.select(u => u.email).where(u => u.id === Param[UUID]).alias("u")
+    val qt    = sub.select.compile
+    val _: QueryTemplate[UUID, ?] = qt
+    assertEquals(
+      qt.fragment.sql.trim,
+      """SELECT "email" FROM (SELECT "email" FROM "users" WHERE "id" = $1) AS "u""""
+    )
   }
 
-  test("cte of projected SELECT rejects Param in WHERE at compile time") {
-    val errors = compiletime.testing.typeCheckErrors("""
-      import skunk.sharp.*
-      import skunk.sharp.dsl.*
-      import java.util.UUID
-      case class User(id: UUID, email: String, age: Int)
-      val users = Table.of[User]("users")
-      cte("u", users.select(u => u.email.as("e")).where(u => u.id === Param[UUID]))
-    """)
-    assert(errors.nonEmpty, "expected compile error: Param in cte ProjectedSelect WHERE")
+  test("cte of projected SELECT WHERE Param threads typed Args into outer compile") {
+    case class User(id: UUID, email: String, age: Int)
+    val users = Table.of[User]("users")
+    val byId  = cte("by_id", users.select(u => u.email.as("e")).where(u => u.id === Param[UUID]))
+    val qt    = byId.select.compile
+    val _: QueryTemplate[UUID, ?] = qt
+    assert(qt.fragment.sql.contains("""WITH "by_id" AS ("""), qt.fragment.sql)
+    assert(qt.fragment.sql.contains("""WHERE "id" = $1"""), qt.fragment.sql)
   }
 
-  test("on rejects Param in predicate at compile time") {
-    val errors = compiletime.testing.typeCheckErrors("""
-      import skunk.sharp.*
-      import skunk.sharp.dsl.*
-      import java.util.UUID
-      case class User(id: UUID, email: String, age: Int)
-      case class Post(id: UUID, user_id: UUID, title: String)
-      val users = Table.of[User]("users")
-      val posts = Table.of[Post]("posts")
-      users.innerJoin(posts).on(r => r.users.id === Param[UUID])
-    """)
-    assert(errors.nonEmpty, "expected compile error: Param in JOIN ON predicate")
+  // -------- Typed JOIN ON Args threading ---------------------------------------------------------
+
+  test("JOIN ON Param threads typed Args into outer compile") {
+    case class User(id: UUID, email: String)
+    case class Post(id: UUID, user_id: UUID, title: String)
+    val users = Table.of[User]("users")
+    val posts = Table.of[Post]("posts")
+    val qt = users
+      .innerJoin(posts)
+      .on(r => (r.users.id ==== r.posts.user_id) && (r.posts.id === Param[UUID]))
+      .select(r => (r.users.email, r.posts.title))
+      .compile
+    val _: QueryTemplate[UUID, (String, String)] = qt
+    assert(qt.fragment.sql.contains("""ON ("""), qt.fragment.sql)
+    assert(qt.fragment.sql.contains("""$1"""), qt.fragment.sql)
+  }
+
+  test("JOIN ON Param + outer WHERE Param accumulates in render order") {
+    case class User(id: UUID, email: String, age: Int)
+    case class Post(id: UUID, user_id: UUID, title: String)
+    val users = Table.of[User]("users")
+    val posts = Table.of[Post]("posts")
+    val qt = users
+      .innerJoin(posts)
+      .on(r => (r.users.id ==== r.posts.user_id) && (r.posts.title === Param[String]))
+      .select(r => (r.users.email, r.posts.title))
+      .where(r => r.users.age >= Param[Int])
+      .compile
+    val _: QueryTemplate[(String, Int), (String, String)] = qt
+    assert(qt.fragment.sql.contains("""$1"""), qt.fragment.sql)  // ON pred Param
+    assert(qt.fragment.sql.contains("""$2"""), qt.fragment.sql)  // WHERE Param
+  }
+
+  test("JOIN ON column-only (Void) collapses cleanly: outer Args = WHERE Args only") {
+    case class User(id: UUID, email: String, age: Int)
+    case class Post(id: UUID, user_id: UUID, title: String)
+    val users = Table.of[User]("users")
+    val posts = Table.of[Post]("posts")
+    val qt = users
+      .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
+      .select(r => (r.users.email, r.posts.title))
+      .where(r => r.users.age >= Param[Int])
+      .compile
+    val _: QueryTemplate[Int, (String, String)] = qt
+  }
+
+  // -------- Multi-source typed-alias Args threading -----------------------------------------------
+
+  test("typed alias on join tail thread Param[UUID] into outer Args") {
+    case class User(id: UUID, email: String)
+    case class Post(id: UUID, user_id: UUID, title: String)
+    val users = Table.of[User]("users")
+    val posts = Table.of[Post]("posts")
+    val byId  = posts.select.where(p => p.id === Param[UUID]).alias("p")
+    val qt = users
+      .innerJoin(byId)
+      .on(r => r.users.id ==== r.p.user_id)
+      .select(r => (r.users.email, r.p.title))
+      .compile
+    val _: QueryTemplate[UUID, (String, String)] = qt
+    assertEquals(
+      qt.fragment.sql.trim,
+      """SELECT "users"."email", "p"."title" FROM "users" INNER JOIN (SELECT "id", "user_id", "title" FROM "posts" WHERE "id" = $1) AS "p" ON "users"."id" = "p"."user_id""""
+    )
+  }
+
+  test("typed alias on both head and tail accumulates Params in render order") {
+    case class User(id: UUID, email: String)
+    case class Post(id: UUID, user_id: UUID, title: String)
+    val users  = Table.of[User]("users")
+    val posts  = Table.of[Post]("posts")
+    val byMail = users.select.where(u => u.email === Param[String]).alias("u")
+    val byId   = posts.select.where(p => p.id === Param[UUID]).alias("p")
+    val qt = byMail
+      .innerJoin(byId)
+      .on(r => r.u.id ==== r.p.user_id)
+      .select(r => (r.u.email, r.p.title))
+      .compile
+    val _: QueryTemplate[(String, UUID), (String, String)] = qt
+    assert(qt.fragment.sql.contains("""(SELECT "id", "email" FROM "users" WHERE "email" = $1) AS "u""""), qt.fragment.sql)
+    assert(qt.fragment.sql.contains("""(SELECT "id", "user_id", "title" FROM "posts" WHERE "id" = $2) AS "p""""), qt.fragment.sql)
+  }
+
+  test("typed alias inside outer WHERE Param accumulates in render order [SArgs, WArgs]") {
+    case class User(id: UUID, email: String, age: Int)
+    val users = Table.of[User]("users")
+    val sub   = users.select.where(u => u.id === Param[UUID]).alias("u")
+    val qt    = sub.select.where(u => u.email === Param[String]).compile
+    val _: QueryTemplate[(UUID, String), ?] = qt
+    assert(qt.fragment.sql.contains("WHERE \"id\" = $1"), qt.fragment.sql)
+    assert(qt.fragment.sql.contains("WHERE \"email\" = $2"), qt.fragment.sql)
+  }
+
+  test("nested typed aliases — inner Param surfaces through both alias layers") {
+    case class User(id: UUID, email: String)
+    val users  = Table.of[User]("users")
+    val inner  = users.select.where(u => u.id === Param[UUID]).alias("inner")
+    val outer  = inner.select.alias("outer")
+    val qt     = outer.select.compile
+    val _: QueryTemplate[UUID, ?] = qt
+    assertEquals(
+      qt.fragment.sql.trim,
+      """SELECT "id", "email" FROM (SELECT "id", "email" FROM (SELECT "id", "email" FROM "users" WHERE "id" = $1) AS "inner") AS "outer""""
+    )
+  }
+
+  test("typed projected alias as join tail — Param surfaces via outer compile") {
+    case class User(id: UUID, email: String)
+    case class Post(id: UUID, user_id: UUID, title: String)
+    val users = Table.of[User]("users")
+    val posts = Table.of[Post]("posts")
+    val sub   = posts.select(p => (p.user_id, p.title)).where(p => p.id === Param[UUID]).alias("p")
+    val qt = users
+      .innerJoin(sub)
+      .on(r => r.users.id ==== r.p.user_id)
+      .select(r => (r.users.email, r.p.title))
+      .compile
+    val _: QueryTemplate[UUID, (String, String)] = qt
+    assert(qt.fragment.sql.contains("""(SELECT "user_id", "title" FROM "posts" WHERE "id" = $1) AS "p""""), qt.fragment.sql)
+  }
+
+  // -------- UPDATE FROM / DELETE USING with typed-args FROM tail --------------------------------
+
+  test("UPDATE … FROM <typed-args subquery> threads inner Param into outer Args") {
+    case class User(id: UUID, email: String, age: Int)
+    case class Post(id: UUID, user_id: UUID, status: String)
+    val users = Table.of[User]("users")
+    val posts = Table.of[Post]("posts")
+    val activePosts = posts.select.where(p => p.status === Param[String]).alias("ap")
+    val cmd = users.update
+      .from(activePosts)
+      .set(r => r.users.age := lit(0))
+      .where(r => r.users.id ==== r.ap.user_id)
+      .compile
+    val _: CommandTemplate[String] = cmd
+    assert(cmd.fragment.sql.contains("""FROM (SELECT "id", "user_id", "status" FROM "posts" WHERE "status" = $1) AS "ap""""), cmd.fragment.sql)
+  }
+
+  test("DELETE … USING <typed-args subquery> threads inner Param into outer Args") {
+    case class User(id: UUID, email: String, age: Int)
+    case class Post(id: UUID, user_id: UUID, status: String)
+    val users = Table.of[User]("users")
+    val posts = Table.of[Post]("posts")
+    val activePosts = posts.select.where(p => p.status === Param[String]).alias("ap")
+    val cmd = users.delete
+      .using(activePosts)
+      .where(r => r.users.id ==== r.ap.user_id)
+      .compile
+    val _: CommandTemplate[String] = cmd
+    assert(cmd.fragment.sql.contains("""USING (SELECT "id", "user_id", "status" FROM "posts" WHERE "status" = $1) AS "ap""""), cmd.fragment.sql)
   }
 
 }

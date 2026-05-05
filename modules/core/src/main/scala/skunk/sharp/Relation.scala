@@ -1,6 +1,6 @@
 package skunk.sharp
 
-import skunk.AppliedFragment
+import skunk.{AppliedFragment, Fragment}
 
 /**
  * Marker for whether a relation's alias was defaulted from its own identity (`Implicit` — Table/View using their name)
@@ -46,6 +46,24 @@ trait Relation[Cols <: Tuple] {
 
   /** Implicit (from name) vs Explicit (from `.alias("x")`) — see [[AliasMode]]. */
   type Mode <: AliasMode
+
+  /**
+   * Phantom type: the captured-parameter type of this relation's inner body fragment. `Void` for all
+   * base tables, views, and CTEs. Non-Void only for typed subquery relations produced by
+   * `SelectBuilder.alias` / `ProjectedSelect.alias` — the inner query's `Args` flows here so the outer
+   * `compile` can include them in the outer `QueryTemplate[Args, R]`.
+   *
+   * Abstract so that typed subquery relations can override with a concrete `Args` type. All plain
+   * relations (Table, View, CTE, re-aliased wrappers) declare `type BodyArgs = skunk.Void`.
+   */
+  type BodyArgs
+
+  /**
+   * The typed inner fragment for subquery relations whose `BodyArgs ≠ Void`. Returns `None` for all
+   * base tables, views, CTEs, and any relation that doesn't embed a parameterised subquery. Overridden
+   * in the anonymous Relation produced by `SelectBuilder.alias` / `ProjectedSelect.alias`.
+   */
+  def bodyFragmentOpt: Option[Fragment[?]] = None
 
   /**
    * The alias value carried by this relation. Tables and views default it to their name; subqueries / re-aliased
@@ -139,7 +157,7 @@ trait Relation[Cols <: Tuple] {
    * FROM fragment, so combining the static projection list with the from-AF would lose those parameters —
    * those relations return `None` here and the SELECT compiler falls back to the dynamic build.
    */
-  final lazy val starProjFromAfOpt: Option[AppliedFragment] = {
+  lazy val starProjFromAfOpt: Option[AppliedFragment] = {
     val af = fromFragmentWith(currentAlias)
     if (af.fragment.parts.exists(_.isRight)) None
     else {
@@ -165,6 +183,16 @@ trait Relation[Cols <: Tuple] {
 }
 
 /**
+ * Base class for subquery-backed relations whose inner query carries typed captured parameters (`BodyArgs ≠ Void`).
+ * Making `BA` a type PARAMETER (rather than a type MEMBER of the anonymous class) lets Scala 3's given resolution
+ * directly infer `BA` from `R <: TypedBodyRelation[C0, BA]`, avoiding the structural-type-inference limitation that
+ * plagues `R <: Relation[C0] { type BodyArgs = BA }`.
+ */
+abstract class TypedBodyRelation[Cols <: Tuple, BA] extends Relation[Cols] {
+  final type BodyArgs = BA
+}
+
+/**
  * The empty relation — no columns, no FROM clause. Use this to express queries that return only constants or
  * function-call results (`empty.select(Pg.now)` → `SELECT now()`).
  *
@@ -172,8 +200,9 @@ trait Relation[Cols <: Tuple] {
  * project). The useful form is `empty.select(<expr>)` or `empty.select((<e1>, <e2>))`.
  */
 case object empty extends Relation[EmptyTuple] {
-  type Alias = ""
-  type Mode  = AliasMode.Implicit
+  type Alias    = ""
+  type Mode     = AliasMode.Implicit
+  type BodyArgs = skunk.Void
   val currentAlias: ""                = ""
   val name: String                    = ""
   val schema: Option[String]          = None

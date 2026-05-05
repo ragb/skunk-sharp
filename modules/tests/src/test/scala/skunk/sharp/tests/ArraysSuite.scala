@@ -186,9 +186,9 @@ class ArraysSuite extends PgFixture {
           _    <- posts.insert((id = 901, tags = Arr("x"), score = 1)).compile.run(s)
           rows <- posts
             .alias("p")
-            .crossJoin(Pg.generateSeries(1, 3).alias("g"))
+            .crossJoin(Pg.generateSeries(lit(1), lit(3)).alias("g"))
             .select(r => (r.p.id, r.g.n))
-            .where(r => r.p.id === 901)
+            .where(r => r.p.id === lit(901))
             .compile.run(s).map(_.toSet)
           _ = assertEquals(rows, Set[(Int, Int)]((901, 1), (901, 2), (901, 3)))
         } yield ()
@@ -203,7 +203,7 @@ class ArraysSuite extends PgFixture {
         val vecPosts = Table.of[VecPost]("array_posts").withPrimary("id")
         for {
           _   <- vecPosts.insert((id = 701, tags = Vector("v1", "v2"), score = 7)).compile.run(s)
-          row <- vecPosts.select.where(p => p.id === 701).compile.unique(s)
+          row <- vecPosts.select.where(p => p.id === lit(701)).compile.unique(s)
           _ = assertEquals(row.tags, Vector("v1", "v2"))
         } yield ()
       }
