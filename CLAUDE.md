@@ -137,8 +137,8 @@ Mechanisms in place:
 
 **Still to do** (issue #24's acid test):
 
-- A macro that owns the entire builder chain so a fully-static query (`users.select.where(u => u.id === lit(uuid)).compile`) collapses to a *single interned* `Fragment[Void]` constant at expansion time. Today each leaf macro-bakes its own `parts` list, but they still concatenate at runtime in `assembleN` — the AF references are shared but the parts list is built fresh per compile.
-- Compile-time assertion that fully-static queries are `Fragment` constants (positive) and dynamic queries do NOT collapse (negative). Depends on the owner macro to be meaningful.
+- A macro that owns the entire builder chain so any `.compile` whose structure is compile-time-known collapses to a *single interned* `Fragment[Args]` constant at expansion time. The trivial subcase is `Args = Void` (no `Param` — only `lit` / column refs / `Param.bind`); the general case is a Param-bearing query like `users.select.where(u => u.id === Param[UUID]).compile` that should collapse to an interned `Fragment[UUID]` whose encoder is `uuid` (a singleton codec) and whose parts are constant strings. Today each leaf macro-bakes its own `parts` list, but they still concatenate at runtime in `assembleN` — the AF references are shared but the parts list is built fresh per compile.
+- Compile-time assertion that structurally-static queries are `Fragment` constants (positive) and dynamic-shape queries do NOT collapse (negative). Easiest to express for the `Args = Void` subcase (`Void.codec` reference-equality); the typed case needs to inspect that the encoder is a product of singleton codecs. Depends on the owner macro to be meaningful.
 
 ## Schema validation
 
@@ -183,4 +183,4 @@ Pending:
 
 - Companion modules: `skunk-sharp-refined` (eu.timepit.refined), `skunk-sharp-ltree`, `skunk-sharp-fts` (full-text search), `skunk-sharp-postgis`.
 - Docs site via `sbt-typelevel-site` (Laika) with [**mdoc**](https://scalameta.org/mdoc/) — mdoc is the Typelevel-ecosystem replacement for the old `tut` tool; it type-checks every Scala snippet in the markdown against the live library, so examples can't rot. Published to GitHub Pages via the plugin.
-- Top-level builder-chain owner macro for fully-static query collapse (see *Compile-time SQL goal* above).
+- Top-level builder-chain owner macro for structurally-static query collapse to a single interned `Fragment[Args]` (see *Compile-time SQL goal* above).
