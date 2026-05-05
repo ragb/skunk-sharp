@@ -32,11 +32,10 @@ import scala.annotation.unused
  */
 
 /**
- * Type-level alias: strip outermost `Option[_]` if there is one, otherwise unchanged. **Not** used in the
- * comparison operators below — overloaded extensions whose parameters mention a match type confuse Scala 3's
- * resolution machinery and the value-overload silently fails to apply. Comparison operators take `T` directly
- * for the value-RHS form; nullable-column cases pass `Some(value)` / `None` (or use `.isNull` / `.isNotNull`).
- * Kept exported for source-compat with code that referenced the alias.
+ * Type-level alias: strip outermost `Option[_]` if there is one, otherwise unchanged. Used as an evidence
+ * bound in `like` / `ilike` / `similarTo` / `notSimilarTo` so a nullable-string column (`TypedColumn[Option[String], true, _]`)
+ * accepts those operators — `Stripped[Option[String]] <:< String` resolves cleanly. Also used by
+ * [[skunk.sharp.pg.functions.Shared.StrLike]] and [[skunk.sharp.pg.functions.PgSrf]]'s `nullif`.
  */
 type Stripped[T] = T match {
   case Option[x] => x

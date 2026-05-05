@@ -617,28 +617,6 @@ final class IncompleteJoin[
 // ---- FROM helpers -------------------------------------------------------------------------------
 
 /**
- * Delegate rendering to each source's own `fromFragmentWith` kernel using the alias we captured when the source was
- * added. For plain sources (tables, views, CTEs) this calls `fromFragmentWith` directly. For typed subquery sources
- * (LATERAL join tail sources whose `bodyFragmentOpt` is set), the body is baked inline — only valid when the inner
- * query's args are all Void-collapsed (i.e. no `Param` in the LATERAL subquery). Typed-args LATERAL tail sources are
- * not yet supported and will throw at compile time.
- */
-private[sharp] def aliasedFromEntry(s: SourceEntry[?, ?, ?, ?, ?]): skunk.AppliedFragment =
-  s.relation.bodyFragmentOpt match {
-    case Some(bodyFrag) =>
-      val innerAf: skunk.AppliedFragment =
-        if (bodyFrag.encoder.types.isEmpty)
-          bodyFrag.asInstanceOf[skunk.Fragment[skunk.Void]].apply(skunk.Void)
-        else
-          throw new UnsupportedOperationException(
-            "skunk-sharp: LATERAL join tail source with typed (non-Void) body args is not yet supported in multi-source queries"
-          )
-      skunk.sharp.TypedExpr.raw("(") |+| innerAf |+| skunk.sharp.TypedExpr.raw(s""") AS "${s.alias}"""")
-    case None =>
-      s.relation.fromFragmentWith(s.alias)
-  }
-
-/**
  * Build the FROM body parts for a source, producing a `List[BodyPart]`:
  *
  *  - **SRF source** (`IsSrf`): emits `Left("func("), Right(argsFrag), Left(") AS \"alias\" (\"col\")")`. The

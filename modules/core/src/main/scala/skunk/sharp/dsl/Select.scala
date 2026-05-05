@@ -542,15 +542,10 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
       buf += Left(rel.starProjAf)
       buf += Right(SelectBuilder.emptyVoidSlot) // slot 0 (FROM-less → Void)
     }
-    val tail = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]].tail
-    tail.foreach { s =>
-      buf += Left(if (s.isLateral) s.kind.lateralKeywordAf else s.kind.keywordAf)
-      buf += Left(aliasedFromEntry(s))
-      s.onPredOpt.foreach { p =>
-        buf += Left(RawConstants.ON)
-        buf += Left(SelectBuilder.bindVoid(p.fragment))
-      }
-    }
+    // No tail-source emission here: every caller of `compileBodyParts` (compile, compileBodyFragment,
+    // compileFragment) requires `IsSingleSource[Ss]`, so `Ss = SourceEntry[…] *: EmptyTuple` and there's
+    // no tail. Multi-source SELECT goes through `ProjectedSelect.compileBodyParts` instead, which has its
+    // own tail-source emission via `aliasedFromEntryParts` and per-source ON Right slots.
     // slot 1 = WHERE
     whereOpt match {
       case Some(f) =>
