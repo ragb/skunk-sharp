@@ -27,8 +27,8 @@ object Routes {
   ): HttpRoutes[IO] = {
 
     val roomEndpoints: List[ServerEndpoint[Any, IO]] = List(
-      Endpoints.rooms.list.serverLogic[IO] { _ =>
-        Stream.resource(pool).flatMap(rooms.findAll.run).map(_.toResponse).compile.toList
+      Endpoints.rooms.list.serverLogic[IO] { q =>
+        Stream.resource(pool).flatMap(rooms.findFiltered(q.toFilters).run).map(_.toResponse).compile.toList
           .map(_.asRight[Err])
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },
@@ -74,8 +74,8 @@ object Routes {
     )
 
     val bookingEndpoints: List[ServerEndpoint[Any, IO]] = List(
-      Endpoints.bookings.list.serverLogic[IO] { _ =>
-        Stream.resource(pool).flatMap(bookings.findAll.run).map(_.toResponse).compile.toList
+      Endpoints.bookings.list.serverLogic[IO] { q =>
+        Stream.resource(pool).flatMap(bookings.findFiltered(q.toFilters).run).map(_.toResponse).compile.toList
           .map(_.asRight[Err])
           .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       },

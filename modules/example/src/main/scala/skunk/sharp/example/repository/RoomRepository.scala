@@ -12,7 +12,7 @@ import skunk.sharp.example.domain.RoomRow
 import java.util.UUID
 
 trait RoomRepository {
-  def findAll: Kleisli[Stream[IO, *], Session[IO], RoomRow]
+  def findFiltered(filters: List[RoomFilter]): Kleisli[Stream[IO, *], Session[IO], RoomRow]
   def findById(id: UUID): Kleisli[IO, Session[IO], Option[RoomRow]]
   def create(data: RoomRow.Create): Kleisli[IO, Session[IO], UUID]
   def patch(id: UUID, data: RoomRow.Patch): Kleisli[IO, Session[IO], Option[RoomRow]]
@@ -23,12 +23,25 @@ trait RoomRepository {
  * Static-template repository — every query that has a fixed shape is compiled exactly once at object construction.
  * Calls bind parameters and run; nothing is re-built per request.
  *
- * `.patch` is the lone exception: see [[live.patch]] for why it must stay on captured-args.
+ * Two methods earn an exception: `.patch` (variable SET list per call) and `.findFiltered` (variable WHERE shape
+ * driven by a runtime `List[RoomFilter]`). Both compile a fresh query per call and bake values via `Param.bind`,
+ * so the user-facing `Args` collapses to `Void` and there's nothing to thread at execute time.
  */
 object RoomRepository {
 
   val live: RoomRepository = new RoomRepository {
     private val t = RoomRow.table
+
+    /**
+     * The unaliased columns-view of the table, captured once. Its static type is `ColumnsView[<RoomRow.Cols>]`,
+     * so the named-tuple selectors `cv.id` / `cv.name` / `cv.capacity` resolve outside any builder lambda —
+     * which lets [[toWhere]] live as a normal method instead of being inlined inside `selectRow.where(c => …)`.
+     *
+     * Safe for the single-source unaliased shape we use here. If the relation were aliased (e.g.
+     * `t.alias("r")`), the lambda's `c` would be qualified-prefix-rendered and we'd want to use *that* view
+     * instead of this one.
+     */
+    private val cv = t.columnsView
 
     private val selectRow =
       t.select(r => (r.id, r.name, r.capacity)).to[RoomRow]
@@ -51,8 +64,26 @@ object RoomRepository {
     private val deleteQ =
       t.delete.where(r => r.id === Param[UUID]).compile
 
-    def findAll: Kleisli[Stream[IO, *], Session[IO], RoomRow] =
-      findAllQ.streamKF[IO]()
+    /**
+     * Translate one filter case to a `Where[Void]` against the captured columns view. Every arm bakes its
+     * runtime value via `Param.bind`, so the result's `Args` is `Void` — that's what makes `Where.allOf` /
+     * `Where.anyOf` (Monoid-shaped) applicable downstream.
+     */
+    private def toWhere(f: RoomFilter): Where[skunk.Void] = f match {
+      case RoomFilter.CapacityAtLeast(n) => cv.capacity >= Param.bind(n)
+      case RoomFilter.CapacityAtMost(n)  => cv.capacity <= Param.bind(n)
+      case RoomFilter.NameContains(s)    => cv.name.ilike(Param.bind(s"%$s%"))
+      case RoomFilter.NamesIn(ns)        => cv.name.in(ns.map(Param.bind(_)))
+      case RoomFilter.IdsIn(ids)         => cv.id.in(ids.map(Param.bind(_)))
+    }
+
+    def findFiltered(filters: List[RoomFilter]): Kleisli[Stream[IO, *], Session[IO], RoomRow] =
+      if filters.isEmpty then findAllQ.streamKF[IO]()  // hit the static-cache fast path
+      else
+        // `allOf` AND-folds the per-filter Wheres; empty would have rendered `WHERE TRUE` but we
+        // short-circuit above to keep the static cache.
+        selectRow.where(_ => allOf(filters.map(toWhere)*))
+          .compile.streamKF[IO]()
 
     def findById(id: UUID): Kleisli[IO, Session[IO], Option[RoomRow]] =
       findByIdQ.optionK[IO](id)

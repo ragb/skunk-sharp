@@ -110,6 +110,21 @@ package object dsl {
   // `import skunk.sharp.dsl.*` brings them into scope.
   export skunk.sharp.where.{&&, ||, and, or, not, unary_!}
 
+  /**
+   * Variadic AND-fold over `Where[Void]`. Composes naturally — nest `anyOf` inside `allOf` (or vice versa) to
+   * spell out arbitrary boolean trees: `where(_ => allOf(w1, anyOf(w2, w3), w4))`. Empty argument list folds
+   * to `WHERE TRUE` (the AND identity, optimised away by Postgres).
+   *
+   * For a runtime collection of predicates, splat into the varargs (`allOf(list*)`) — there's no separate
+   * `Foldable` overload to keep the call surface narrow.
+   */
+  def allOf(ws: skunk.sharp.where.Where[skunk.Void]*): skunk.sharp.where.Where[skunk.Void] =
+    skunk.sharp.where.Where.allOf(ws)
+
+  /** Variadic OR-fold over `Where[Void]`. Counterpart to [[allOf]]; empty list folds to `FALSE`. */
+  def anyOf(ws: skunk.sharp.where.Where[skunk.Void]*): skunk.sharp.where.Where[skunk.Void] =
+    skunk.sharp.where.Where.anyOf(ws)
+
   // ---- Schema validation ----
   val SchemaValidator: skunk.sharp.validation.SchemaValidator.type = skunk.sharp.validation.SchemaValidator
   type ValidationReport = skunk.sharp.validation.ValidationReport

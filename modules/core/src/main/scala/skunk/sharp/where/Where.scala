@@ -192,6 +192,49 @@ object Where {
    */
   def fromTypedExpr[A](expr: TypedExpr[Boolean, A]): TypedExpr[Boolean, A] = expr
 
+  // ---- cats-style monoidal folds for Where[Void] ----------------------------------------------
+  //
+  // `Where[Void] && Where[Void]` reduces to `Where[Void]` (since `Concat[Void, Void] = Void`), which makes a
+  // `Monoid[Where[Void]]` lawful for both AND and OR. We don't surface a single auto-discoverable `given`
+  // because two monoids on the same type would clash — instead callers either use the helpers below, or
+  // explicitly summon one of [[andMonoid]] / [[orMonoid]].
+  //
+  // Parameterised `Where[A]` (`A != Void`) intentionally has no `Semigroup` — `&&` returns `Where.Concat[A,B]`
+  // (a different type), which doesn't match the `(A, A) => A` shape. The Concat machinery exists to *thread*
+  // arg slots through the AST; collapsing them via Semigroup would defeat the typed-Args design.
+
+  /** Identity element for [[allOf]] / `andMonoid` — renders as `TRUE` and is optimised away by Postgres. */
+  lazy val trueExpr: TypedExpr[Boolean, skunk.Void]  = TypedExpr.lit(true)
+
+  /** Identity element for [[anyOf]] / `orMonoid` — renders as `FALSE`. */
+  lazy val falseExpr: TypedExpr[Boolean, skunk.Void] = TypedExpr.lit(false)
+
+  /** Monoid combining `Where[Void]`s with `AND`. Empty = `TRUE`. Not a `given` — pick explicitly. */
+  val andMonoid: cats.Monoid[TypedExpr[Boolean, skunk.Void]] =
+    new cats.Monoid[TypedExpr[Boolean, skunk.Void]] {
+      def empty: TypedExpr[Boolean, skunk.Void] = trueExpr
+      def combine(x: TypedExpr[Boolean, skunk.Void], y: TypedExpr[Boolean, skunk.Void]): TypedExpr[Boolean, skunk.Void] = x && y
+    }
+
+  /** Monoid combining `Where[Void]`s with `OR`. Empty = `FALSE`. Not a `given` — pick explicitly. */
+  val orMonoid: cats.Monoid[TypedExpr[Boolean, skunk.Void]] =
+    new cats.Monoid[TypedExpr[Boolean, skunk.Void]] {
+      def empty: TypedExpr[Boolean, skunk.Void] = falseExpr
+      def combine(x: TypedExpr[Boolean, skunk.Void], y: TypedExpr[Boolean, skunk.Void]): TypedExpr[Boolean, skunk.Void] = x || y
+    }
+
+  /**
+   * AND-fold a `Foldable` of `Where[Void]`. Empty input collapses to [[trueExpr]] (`WHERE TRUE`), so callers
+   * don't need to special-case the empty list. Non-empty input avoids prepending the identity — the result
+   * for `List(a, b, c)` is `(a AND b) AND c`, not `((TRUE AND a) AND b) AND c`.
+   */
+  def allOf[F[_]: cats.Foldable](xs: F[TypedExpr[Boolean, skunk.Void]]): TypedExpr[Boolean, skunk.Void] =
+    cats.Foldable[F].reduceLeftOption(xs)((acc, w) => acc && w).getOrElse(trueExpr)
+
+  /** OR-fold counterpart to [[allOf]]. Empty input collapses to [[falseExpr]] (`WHERE FALSE`). */
+  def anyOf[F[_]: cats.Foldable](xs: F[TypedExpr[Boolean, skunk.Void]]): TypedExpr[Boolean, skunk.Void] =
+    cats.Foldable[F].reduceLeftOption(xs)((acc, w) => acc || w).getOrElse(falseExpr)
+
 }
 
 /** Combinator extensions on `TypedExpr[Boolean, A]`. */
