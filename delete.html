@@ -121,7 +121,7 @@
   .</span><span class="identifier">withUnique</span><span>(</span><span class="string-literal">&quot;email&quot;</span><span>)
 
 </span><span class="keyword">val</span><span> </span><span class="identifier">deleteOne</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">delete</span><span>
-  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">id</span><span> === </span><span class="type-name">UUID</span><span>.</span><span class="identifier">randomUUID</span><span>())
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">id</span><span> === </span><span class="type-name">Param</span><span>.</span><span class="identifier">bind</span><span>(</span><span class="type-name">UUID</span><span>.</span><span class="identifier">randomUUID</span><span>()))
   .</span><span class="identifier">compile</span><span>
 
 </span><span class="keyword">val</span><span> </span><span class="identifier">deleteInactive</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">delete</span><span>
@@ -156,7 +156,7 @@
 
 </span><span class="comment">// Return the deleted rows
 </span><span class="keyword">val</span><span> </span><span class="identifier">deleteReturning</span><span> = </span><span class="identifier">posts</span><span>.</span><span class="identifier">delete</span><span>
-  .</span><span class="identifier">where</span><span>(</span><span class="identifier">p</span><span> =&gt; </span><span class="identifier">p</span><span>.</span><span class="identifier">views</span><span> &lt; </span><span class="number-literal">10</span><span>)
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">p</span><span> =&gt; </span><span class="identifier">p</span><span>.</span><span class="identifier">views</span><span> &lt; </span><span class="identifier">lit</span><span>(</span><span class="number-literal">10</span><span>))
   .</span><span class="identifier">returningAll</span><span>
   .</span><span class="identifier">compile</span></code></pre>
         <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">val</span><span> </span><span class="identifier">session</span><span>: </span><span class="identifier">skunk</span><span>.</span><span class="type-name">Session</span><span>[</span><span class="identifier">cats</span><span>.</span><span class="identifier">effect</span><span>.</span><span class="type-name">IO</span><span>] = </span><span class="literal-value">null</span><span>

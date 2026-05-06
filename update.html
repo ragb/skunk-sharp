@@ -124,53 +124,55 @@
 
 </span><span class="comment">// Single column
 </span><span class="keyword">val</span><span> </span><span class="identifier">updateEmail</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">update</span><span>
-  .</span><span class="identifier">set</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span> := </span><span class="string-literal">&quot;new@example.com&quot;</span><span>)
-  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">id</span><span> === </span><span class="type-name">UUID</span><span>.</span><span class="identifier">randomUUID</span><span>())
+  .</span><span class="identifier">set</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span> := </span><span class="identifier">lit</span><span>(</span><span class="string-literal">&quot;new@example.com&quot;</span><span>))
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">id</span><span> === </span><span class="type-name">Param</span><span>.</span><span class="identifier">bind</span><span>(</span><span class="type-name">UUID</span><span>.</span><span class="identifier">randomUUID</span><span>()))
   .</span><span class="identifier">compile</span><span>
 
 </span><span class="comment">// Multiple columns
 </span><span class="keyword">val</span><span> </span><span class="identifier">updateBoth</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">update</span><span>
-  .</span><span class="identifier">set</span><span>(</span><span class="identifier">u</span><span> =&gt; (</span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span> := </span><span class="string-literal">&quot;x@example.com&quot;</span><span>, </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> := </span><span class="number-literal">31</span><span>))
-  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> &lt; </span><span class="number-literal">18</span><span>)
+  .</span><span class="identifier">set</span><span>(</span><span class="identifier">u</span><span> =&gt; (</span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span> := </span><span class="identifier">lit</span><span>(</span><span class="string-literal">&quot;x@example.com&quot;</span><span>), </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> := </span><span class="identifier">lit</span><span>(</span><span class="number-literal">31</span><span>)))
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> &lt; </span><span class="identifier">lit</span><span>(</span><span class="number-literal">18</span><span>))
   .</span><span class="identifier">compile</span></code></pre>
         
         <h2 id="bulk-update" class="section"><a class="anchor-link left" href="#bulk-update"><i class="icofont-laika link">&#xef71;</i></a>Bulk UPDATE</h2>
         <p>Use <code>.updateAll</code> to confirm you intentionally want no WHERE clause:</p>
         <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">val</span><span> </span><span class="identifier">activateAll</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">update</span><span>
-  .</span><span class="identifier">set</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">deleted_at</span><span> := </span><span class="type-name">None</span><span>)
+  .</span><span class="identifier">set</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">deleted_at</span><span> := </span><span class="type-name">Param</span><span>.</span><span class="identifier">bind</span><span>(</span><span class="type-name">Option</span><span>.</span><span class="identifier">empty</span><span>[</span><span class="type-name">OffsetDateTime</span><span>]))
   .</span><span class="identifier">updateAll</span><span>
   .</span><span class="identifier">compile</span></code></pre>
         <p>Missing <code>.where</code> / <code>.updateAll</code>:</p>
-        <pre><code class="nohighlight"><span class="identifier">users</span><span>.</span><span class="identifier">update</span><span>.</span><span class="identifier">set</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> := </span><span class="number-literal">0</span><span>).</span><span class="identifier">compile</span><span>
+        <pre><code class="nohighlight"><span class="identifier">users</span><span>.</span><span class="identifier">update</span><span>.</span><span class="identifier">set</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> := </span><span class="identifier">lit</span><span>(</span><span class="number-literal">0</span><span>)).</span><span class="identifier">compile</span><span>
 </span><span class="comment">// error:
-// value compile is not a member of skunk.sharp.dsl.UpdateWithSet[(
-//   skunk.sharp.Column[java.util.UUID, (&quot;id&quot; : String), (false : Boolean), (
-//     skunk.sharp.ColumnAttr.Pk[(&quot;id&quot; : String) *: EmptyTuple],
-//     skunk.sharp.ColumnAttr.Default)],
-//   skunk.sharp.Column[String, (&quot;email&quot; : String), (false : Boolean),
-//     skunk.sharp.ColumnAttr.Uq[(&quot;email&quot; : String), (&quot;email&quot; : String) *:
-//       EmptyTuple]
-//    *: EmptyTuple],
-//   skunk.sharp.Column[Int, (&quot;age&quot; : String), (false : Boolean), EmptyTuple],
-//   skunk.sharp.Column[java.time.OffsetDateTime, (&quot;created_at&quot; : String),
-//     (false : Boolean), EmptyTuple],
-//   skunk.sharp.Column[Option[java.time.OffsetDateTime], (&quot;deleted_at&quot; : String),
-//     (true : Boolean), EmptyTuple]
-// )]
-// users.update.set(u =&gt; u.age := 0).compile
-//                                  ^</span></code></pre>
+// value compile is not a member of skunk.sharp.dsl.UpdateWithSet[
+//   (
+//     skunk.sharp.Column[java.util.UUID, (&quot;id&quot; : String), (false : Boolean), (
+//       skunk.sharp.ColumnAttr.Pk[(&quot;id&quot; : String) *: EmptyTuple],
+//       skunk.sharp.ColumnAttr.Default)],
+//     skunk.sharp.Column[String, (&quot;email&quot; : String), (false : Boolean),
+//       skunk.sharp.ColumnAttr.Uq[(&quot;email&quot; : String), (&quot;email&quot; : String) *:
+//         EmptyTuple]
+//      *: EmptyTuple],
+//     skunk.sharp.Column[Int, (&quot;age&quot; : String), (false : Boolean), EmptyTuple],
+//     skunk.sharp.Column[java.time.OffsetDateTime, (&quot;created_at&quot; : String),
+//       (false : Boolean), EmptyTuple],
+//     skunk.sharp.Column[Option[java.time.OffsetDateTime],
+//       (&quot;deleted_at&quot; : String), (true : Boolean), EmptyTuple]
+//   ),
+// (&quot;users&quot; : String), skunk.Void]
+// users.update.set(u =&gt; u.age := lit(0)).compile
+//                                       ^</span></code></pre>
         
         <h2 id="returning" class="section"><a class="anchor-link left" href="#returning"><i class="icofont-laika link">&#xef71;</i></a>RETURNING</h2>
         <pre><code class="nohighlight"><span class="keyword">val</span><span> </span><span class="identifier">updateReturning</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">update</span><span>
-  .</span><span class="identifier">set</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> := </span><span class="number-literal">30</span><span>)
-  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">id</span><span> === </span><span class="type-name">UUID</span><span>.</span><span class="identifier">randomUUID</span><span>())
+  .</span><span class="identifier">set</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> := </span><span class="identifier">lit</span><span>(</span><span class="number-literal">30</span><span>))
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">id</span><span> === </span><span class="type-name">Param</span><span>.</span><span class="identifier">bind</span><span>(</span><span class="type-name">UUID</span><span>.</span><span class="identifier">randomUUID</span><span>()))
   .</span><span class="identifier">returningAll</span><span>
   .</span><span class="identifier">compile</span><span>
 
 </span><span class="comment">// Map back to the case class
 </span><span class="keyword">val</span><span> </span><span class="identifier">updateReturningUser</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">update</span><span>
-  .</span><span class="identifier">set</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> := </span><span class="number-literal">30</span><span>)
-  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">id</span><span> === </span><span class="type-name">UUID</span><span>.</span><span class="identifier">randomUUID</span><span>())
+  .</span><span class="identifier">set</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> := </span><span class="identifier">lit</span><span>(</span><span class="number-literal">30</span><span>))
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">id</span><span> === </span><span class="type-name">Param</span><span>.</span><span class="identifier">bind</span><span>(</span><span class="type-name">UUID</span><span>.</span><span class="identifier">randomUUID</span><span>()))
   .</span><span class="identifier">returningAll</span><span>
   .</span><span class="identifier">to</span><span>[</span><span class="type-name">User</span><span>]
   .</span><span class="identifier">compile</span></code></pre>
@@ -185,7 +187,7 @@
 
 </span><span class="keyword">val</span><span> </span><span class="identifier">patch</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">update</span><span>
   .</span><span class="identifier">patch</span><span>(</span><span class="type-name">UserPatch</span><span>(</span><span class="identifier">email</span><span> = </span><span class="type-name">Some</span><span>(</span><span class="string-literal">&quot;patched@example.com&quot;</span><span>), </span><span class="identifier">age</span><span> = </span><span class="type-name">None</span><span>))
-  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">id</span><span> === </span><span class="type-name">UUID</span><span>.</span><span class="identifier">randomUUID</span><span>())
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">id</span><span> === </span><span class="type-name">Param</span><span>.</span><span class="identifier">bind</span><span>(</span><span class="type-name">UUID</span><span>.</span><span class="identifier">randomUUID</span><span>()))
   .</span><span class="identifier">compile</span></code></pre>
         <p>The field names in the patch type must all exist as columns in the table — verified at compile time.</p>
 

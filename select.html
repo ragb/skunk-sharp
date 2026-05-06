@@ -127,7 +127,7 @@
 
 </span><span class="comment">// With WHERE
 </span><span class="keyword">val</span><span> </span><span class="identifier">q2</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>
-  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> &gt;= </span><span class="number-literal">18</span><span> &amp;&amp; </span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span>.</span><span class="identifier">like</span><span>(</span><span class="string-literal">&quot;%@example.com&quot;</span><span>))
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> &gt;= </span><span class="identifier">lit</span><span>(</span><span class="number-literal">18</span><span>) &amp;&amp; </span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span>.</span><span class="identifier">like</span><span>(</span><span class="identifier">lit</span><span>(</span><span class="string-literal">&quot;%@example.com&quot;</span><span>)))
   .</span><span class="identifier">compile</span><span>
 
 </span><span class="comment">// ORDER BY, LIMIT, OFFSET
@@ -187,7 +187,7 @@
 </span><span class="keyword">val</span><span> </span><span class="identifier">popular</span><span> = </span><span class="identifier">posts</span><span>
   .</span><span class="identifier">select</span><span>(</span><span class="identifier">p</span><span> =&gt; (</span><span class="identifier">p</span><span>.</span><span class="identifier">author_id</span><span>, </span><span class="type-name">Pg</span><span>.</span><span class="identifier">sum</span><span>(</span><span class="identifier">p</span><span>.</span><span class="identifier">views</span><span>).</span><span class="identifier">as</span><span>(</span><span class="string-literal">&quot;total_views&quot;</span><span>)))
   .</span><span class="identifier">groupBy</span><span>(</span><span class="identifier">p</span><span> =&gt; </span><span class="identifier">p</span><span>.</span><span class="identifier">author_id</span><span>)
-  .</span><span class="identifier">having</span><span>(</span><span class="identifier">p</span><span> =&gt; </span><span class="type-name">Pg</span><span>.</span><span class="identifier">sum</span><span>(</span><span class="identifier">p</span><span>.</span><span class="identifier">views</span><span>) &gt; </span><span class="number-literal">1000</span><span>)
+  .</span><span class="identifier">having</span><span>(</span><span class="identifier">p</span><span> =&gt; </span><span class="type-name">Pg</span><span>.</span><span class="identifier">sum</span><span>(</span><span class="identifier">p</span><span>.</span><span class="identifier">views</span><span>) &gt; </span><span class="identifier">lit</span><span>(</span><span class="number-literal">1000L</span><span>))
   .</span><span class="identifier">compile</span></code></pre>
         <p>Available aggregates: <code>Pg.countAll</code>, <code>Pg.count</code>, <code>Pg.countDistinct</code>, <code>Pg.sum</code>,
         <code>Pg.avg</code>, <code>Pg.min</code>, <code>Pg.max</code>, <code>Pg.stringAgg</code>, <code>Pg.boolAnd</code>, <code>Pg.boolOr</code>.</p>
@@ -238,7 +238,7 @@
         
         <h2 id="row-locking-tables-only" class="section"><a class="anchor-link left" href="#row-locking-tables-only"><i class="icofont-laika link">&#xef71;</i></a>Row locking (tables only)</h2>
         <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">val</span><span> </span><span class="identifier">locked</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>
-  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">id</span><span> === </span><span class="type-name">UUID</span><span>.</span><span class="identifier">randomUUID</span><span>())
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">id</span><span> === </span><span class="type-name">Param</span><span>.</span><span class="identifier">bind</span><span>(</span><span class="type-name">UUID</span><span>.</span><span class="identifier">randomUUID</span><span>()))
   .</span><span class="identifier">forUpdate</span><span>
   .</span><span class="identifier">skipLocked</span><span>
   .</span><span class="identifier">compile</span></code></pre>

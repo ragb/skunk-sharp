@@ -191,7 +191,7 @@
 </span><span class="comment">// Update with a literal value
 </span><span class="keyword">val</span><span> </span><span class="identifier">upsert2</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">insert</span><span>(</span><span class="identifier">row</span><span>)
   .</span><span class="identifier">onConflict</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span>)
-  .</span><span class="identifier">doUpdate</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> := </span><span class="number-literal">99</span><span>)
+  .</span><span class="identifier">doUpdate</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> := </span><span class="identifier">lit</span><span>(</span><span class="number-literal">99</span><span>))
   .</span><span class="identifier">compile</span></code></pre>
 
         
