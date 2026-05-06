@@ -102,7 +102,7 @@ class RangesSuite extends PgFixture {
           ids <- bookings
             .select(b => b.id)
             .where(b => b.period.overlaps(param(probe)))
-            .where(b => b.id.in(NonEmptyList.of(10, 11, 12)))
+            .where(b => b.id.in(NonEmptyList.of(10, 11, 12).map(Param.bind(_))))
             .compile.run(s)
           _ = assertEquals(ids.toSet, Set(10, 12))
         } yield ()
@@ -130,7 +130,7 @@ class RangesSuite extends PgFixture {
           ids <- bookings
             .select(b => b.id)
             .where(b => b.period.containsElem(param(target)))
-            .where(b => b.id.in(NonEmptyList.of(20, 21)))
+            .where(b => b.id.in(NonEmptyList.of(20, 21).map(Param.bind(_))))
             .compile.run(s)
           _ = assertEquals(ids.toSet, Set(20))
         } yield ()
@@ -160,7 +160,7 @@ class RangesSuite extends PgFixture {
           ids <- bookings
             .select(b => b.id)
             .where(b => b.period.contains(param(sub)))
-            .where(b => b.id.in(NonEmptyList.of(30, 31)))
+            .where(b => b.id.in(NonEmptyList.of(30, 31).map(Param.bind(_))))
             .compile.run(s)
           _ = assertEquals(ids.toSet, Set(30))
         } yield ()
@@ -199,7 +199,7 @@ class RangesSuite extends PgFixture {
           ).compile.run(s)
           rows <- bookings
             .select(b => (b.id, Pg.rangeIsEmpty(b.period), Pg.rangeLowerInf(b.period), Pg.rangeUpperInf(b.period)))
-            .where(b => b.id.in(NonEmptyList.of(50, 51, 52)))
+            .where(b => b.id.in(NonEmptyList.of(50, 51, 52).map(Param.bind(_))))
             .compile.run(s)
             .map(_.sortBy(_._1))
           _ = assertEquals(rows(0)._2, true)  // id=50 is empty

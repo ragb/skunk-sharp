@@ -30,14 +30,26 @@ class WhereSuite extends munit.FunSuite {
     assertEquals(w.fragment.sql, """NOT (("age" < 18 OR "age" > 100))""")
   }
 
-  test("IN renders comma-separated placeholders (from NonEmptyList)") {
-    val w = cols.age.in(cats.data.NonEmptyList.of(1, 2, 3))
-    assertEquals(w.fragment.sql, """"age" IN ($1, $2, $3)""")
+  test("IN renders comma-separated lits (from NonEmptyList)") {
+    val w = cols.age.in(cats.data.NonEmptyList.of(lit(1), lit(2), lit(3)))
+    assertEquals(w.fragment.sql, """"age" IN (1, 2, 3)""")
   }
 
   test("IN accepts any cats.Reducible container (NonEmptyVector here)") {
-    val w = cols.age.in(cats.data.NonEmptyVector.of(1, 2))
+    val w = cols.age.in(cats.data.NonEmptyVector.of(lit(1), lit(2)))
+    assertEquals(w.fragment.sql, """"age" IN (1, 2)""")
+  }
+
+  test("IN with Param.bind values still renders bound placeholders") {
+    val w = cols.age.in(cats.data.NonEmptyList.of(Param.bind(1), Param.bind(2)))
     assertEquals(w.fragment.sql, """"age" IN ($1, $2)""")
+  }
+
+  test("IN with Param.list[T](size) renders N placeholders, one bind slot of List[T] at execute") {
+    val w = cols.age.in(Param.list[Int](3))
+    assertEquals(w.fragment.sql, """"age" IN ($1, $2, $3)""")
+    // The bind type is the `Param.list`'s `List[Int]` — single execute-time slot regardless of size.
+    val _: skunk.sharp.where.Where[List[Int]] = w
   }
 
   test("empty input is a compile error (Seq is no longer accepted; Reducible guarantees non-empty)") {

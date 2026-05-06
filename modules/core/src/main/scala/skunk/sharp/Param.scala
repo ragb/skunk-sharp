@@ -45,6 +45,37 @@ object Param {
   def of[T](codec: Codec[T]): Param[T] = new Param[T](codec)
 
   /**
+   * A `Param[List[T]]` for a fixed-size list — useful for `IN` lists where you want **one** prepared
+   * statement per size and a single `List[T]` bind at execute time, instead of N separate `Param.bind`s
+   * baked at builder-build time.
+   *
+   * {{{
+   *   val byIds = users.select.where(u => u.id.in(Param.list[UUID](3))).compile
+   *   //                                                  ^ size known at compile time
+   *   // val _: QueryTemplate[List[UUID], User] = byIds
+   *   byIds.run(session)(List(uid1, uid2, uid3))
+   * }}}
+   *
+   * The result fragment expands to N comma-separated `$N` placeholders sharing one prepared statement.
+   * Bind a list of exactly `size` elements at execute time — skunk raises if the list length disagrees.
+   *
+   * For lists whose size varies between calls, either rebuild the query per size (different prepared
+   * statement each time) or reach for `col === ANY(Param[Arr[T]])` (single statement, single array bind).
+   */
+  def list[T](size: Int)(using pf: PgTypeFor[T]): Param[List[T]] = {
+    val inner = pf.codec
+    val enc   = inner.list(size)
+    val codec: Codec[List[T]] = new Codec[List[T]] {
+      override def encode(xs: List[T]): List[Option[skunk.data.Encoded]] = enc.encode(xs)
+      override def decode(offset: Int, ss: List[Option[String]]): Either[skunk.Decoder.Error, List[T]] =
+        Left(skunk.Decoder.Error(offset, size, "Param.list[T] is bind-only — IN-list parameters can't appear in a SELECT projection."))
+      override val types: List[skunk.data.Type] = enc.types
+      override val sql: cats.data.State[Int, String] = enc.sql
+    }
+    Param.of(codec)
+  }
+
+  /**
    * Bake a runtime value into a `TypedExpr[T, Void]` — the value is fixed at construction time, not supplied at
    * execute. This is what the value-taking operator overloads (`=== v`, `>= v`, …) call internally; you rarely need it
    * directly unless you are constructing a dynamic expression outside the built-in operators.

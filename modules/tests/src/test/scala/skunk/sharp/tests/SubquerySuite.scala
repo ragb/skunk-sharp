@@ -81,7 +81,7 @@ class SubquerySuite extends PgFixture {
               .alias("u")
               .select(u => u.email)
               .where(u =>
-                u.id.in(cats.data.NonEmptyList.of(uidWith, uidWO)) &&
+                u.id.in(cats.data.NonEmptyList.of(Param.bind(uidWith), Param.bind(uidWO))) &&
                   Pg.notExists(posts.select(_ => lit(1)).where(p => p.user_id ==== u.id))
               )
               .compile.run(s),

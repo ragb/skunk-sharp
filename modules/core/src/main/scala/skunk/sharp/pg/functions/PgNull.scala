@@ -1,7 +1,7 @@
 package skunk.sharp.pg.functions
 
-import skunk.{Fragment, Void}
-import skunk.sharp.{Param, PgFunction, TypedExpr}
+import skunk.Void
+import skunk.sharp.{PgFunction, TypedExpr}
 import skunk.sharp.pg.PgTypeFor
 import skunk.sharp.ops.Stripped
 import skunk.sharp.where.Where
@@ -116,17 +116,14 @@ trait PgNull {
       pf.codec
     )
 
-  /**
-   * `nullif(a, b)` — returns NULL if `a = b`, else `a`. `b` is a runtime value baked via [[Param.bind]];
-   * Args of the result equals Args of `a`.
-   */
-  inline def nullif[T, A](a: TypedExpr[T, A], b: Stripped[T])(using
-    pf: PgTypeFor[Stripped[T]]
-  ): TypedExpr[Option[Stripped[T]], A] = {
-    val bFrag = Param.bind[Stripped[T]](b)(using pf).fragment
-    val inner = TypedExpr.combineSepInl[A, Void](a.fragment, ", ", bFrag).asInstanceOf[Fragment[A]]
+  /** `nullif(a, b)` — returns NULL if `a = b`, else `a`. */
+  inline def nullif[T, A1, A2](
+    a: TypedExpr[T, A1],
+    b: TypedExpr[Stripped[T], A2]
+  )(using pf: PgTypeFor[Stripped[T]]): TypedExpr[Option[Stripped[T]], Where.Concat[A1, A2]] = {
+    val inner = TypedExpr.combineSepInl[A1, A2](a.fragment, ", ", b.fragment)
     val frag  = TypedExpr.wrap("nullif(", inner, ")")
-    TypedExpr[Option[Stripped[T]], A](frag, pf.codec.opt)
+    TypedExpr(frag, pf.codec.opt)
   }
 
 }

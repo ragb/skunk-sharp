@@ -1,9 +1,8 @@
 package skunk.sharp.pg.functions
 
-import skunk.Fragment
 import skunk.codec.all as pg
 import skunk.data.Arr
-import skunk.sharp.{Param, TypedExpr}
+import skunk.sharp.TypedExpr
 import skunk.sharp.pg.{IsArray, PgTypeFor}
 import skunk.sharp.where.Where
 
@@ -13,13 +12,13 @@ import skunk.sharp.where.Where
  */
 trait PgArray {
 
-  def arrayLength[A, X](a: TypedExpr[A, X], dim: Int = 1)(using @annotation.unused ev: IsArray[A]): TypedExpr[Option[Int], X] = {
-    val parts = a.fragment.parts ++ List[Either[String, cats.data.State[Int, String]]](Left(s", $dim)"))
-    val frag  = Fragment[X](
-      List[Either[String, cats.data.State[Int, String]]](Left("array_length(")) ++ parts,
-      a.fragment.encoder, skunk.util.Origin.unknown
-    )
-    TypedExpr[Option[Int], X](frag, pg.int4.opt)
+  inline def arrayLength[A, X, Y](
+    a:   TypedExpr[A, X],
+    dim: TypedExpr[Int, Y]
+  )(using @annotation.unused ev: IsArray[A]): TypedExpr[Option[Int], Where.Concat[X, Y]] = {
+    val inner = TypedExpr.combineSepInl[X, Y](a.fragment, ", ", dim.fragment)
+    val frag  = TypedExpr.wrap("array_length(", inner, ")")
+    TypedExpr(frag, pg.int4.opt)
   }
 
   def cardinality[A, X](a: TypedExpr[A, X])(using @annotation.unused ev: IsArray[A]): TypedExpr[Int, X] = {
@@ -83,31 +82,33 @@ trait PgArray {
     TypedExpr[A, skunk.Void](frag, a.codec)
   }
 
-  def arrayToString[A, X](a: TypedExpr[A, X], sep: String)(using
-    @annotation.unused ev: IsArray[A], pfs: PgTypeFor[String]
-  ): TypedExpr[String, X] = {
-    val sepFrag = Param.bind[String](sep).fragment
-    val s1      = TypedExpr.combineSep(a.fragment, ", ", sepFrag, _.asInstanceOf[(X, skunk.Void)]).asInstanceOf[Fragment[X]]
-    val frag    = TypedExpr.wrap("array_to_string(", s1, ")")
-    TypedExpr[String, X](frag, pg.text)
+  inline def arrayToString[A, X, Y](
+    a:   TypedExpr[A, X],
+    sep: TypedExpr[String, Y]
+  )(using @annotation.unused ev: IsArray[A]): TypedExpr[String, Where.Concat[X, Y]] = {
+    val inner = TypedExpr.combineSepInl[X, Y](a.fragment, ", ", sep.fragment)
+    val frag  = TypedExpr.wrap("array_to_string(", inner, ")")
+    TypedExpr(frag, pg.text)
   }
 
-  def arrayToString[A, X](a: TypedExpr[A, X], sep: String, nullStr: String)(using
-    @annotation.unused ev: IsArray[A], pfs: PgTypeFor[String]
-  ): TypedExpr[String, X] = {
-    val sepFrag  = Param.bind[String](sep).fragment
-    val nullFrag = Param.bind[String](nullStr).fragment
-    val s1       = TypedExpr.combineSep(a.fragment, ", ", sepFrag, _.asInstanceOf[(X, skunk.Void)]).asInstanceOf[Fragment[X]]
-    val s2       = TypedExpr.combineSep(s1, ", ", nullFrag, _.asInstanceOf[(X, skunk.Void)]).asInstanceOf[Fragment[X]]
-    val frag     = TypedExpr.wrap("array_to_string(", s2, ")")
-    TypedExpr[String, X](frag, pg.text)
-  }
+  import skunk.sharp.PgFunction
 
-  def stringToArray[X](s: TypedExpr[String, X], sep: String)(using pfs: PgTypeFor[String]): TypedExpr[Arr[String], X] = {
-    val sepFrag = Param.bind[String](sep).fragment
-    val s1      = TypedExpr.combineSep(s.fragment, ", ", sepFrag, _.asInstanceOf[(X, skunk.Void)]).asInstanceOf[Fragment[X]]
-    val frag    = TypedExpr.wrap("string_to_array(", s1, ")")
-    TypedExpr[Arr[String], X](frag, pg._text)
+  inline def arrayToString[A, X, Y, Z](
+    a:       TypedExpr[A, X],
+    sep:     TypedExpr[String, Y],
+    nullStr: TypedExpr[String, Z]
+  )(using @annotation.unused ev: IsArray[A]): TypedExpr[String, Where.FoldConcat[X *: Y *: Z *: EmptyTuple]] =
+    PgFunction.naryTypedFold[String, X *: Y *: Z *: EmptyTuple](
+      "array_to_string", List(a.fragment, sep.fragment, nullStr.fragment), pg.text
+    )
+
+  inline def stringToArray[X, Y](
+    s:   TypedExpr[String, X],
+    sep: TypedExpr[String, Y]
+  ): TypedExpr[Arr[String], Where.Concat[X, Y]] = {
+    val inner = TypedExpr.combineSepInl[X, Y](s.fragment, ", ", sep.fragment)
+    val frag  = TypedExpr.wrap("string_to_array(", inner, ")")
+    TypedExpr(frag, pg._text)
   }
 
   def arrayAgg[T, X](expr: TypedExpr[T, X])(using pf: PgTypeFor[Arr[T]]): TypedExpr[Arr[T], X] = {
