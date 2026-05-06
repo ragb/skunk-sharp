@@ -1,6 +1,6 @@
 package skunk.sharp.pg.functions
 
-import skunk.{Fragment, Void}
+import skunk.Void
 import skunk.sharp.{PgFunction, TypedExpr}
 import skunk.sharp.pg.PgTypeFor
 import skunk.sharp.where.Where
@@ -20,14 +20,13 @@ trait PgNumeric {
   def round[T, A](e: TypedExpr[T, A]): TypedExpr[T, A] = sameTypeFn("round", e)
 
   /** `round(x, digits)` — Postgres defines this only for `numeric`. */
-  def round[T, A](e: TypedExpr[T, A], digits: Int): TypedExpr[T, A] = {
-    val parts = e.fragment.parts ++ List[Either[String, cats.data.State[Int, String]]](Left(s", $digits)"))
-    val frag  = Fragment[A](
-      List[Either[String, cats.data.State[Int, String]]](Left("round(")) ++ parts,
-      e.fragment.encoder,
-      skunk.util.Origin.unknown
-    )
-    TypedExpr[T, A](frag, e.codec)
+  inline def round[T, A1, A2](
+    e:      TypedExpr[T, A1],
+    digits: TypedExpr[Int, A2]
+  ): TypedExpr[T, Where.Concat[A1, A2]] = {
+    val inner = TypedExpr.combineSepInl[A1, A2](e.fragment, ", ", digits.fragment)
+    val frag  = TypedExpr.wrap("round(", inner, ")")
+    TypedExpr(frag, e.codec)
   }
 
   /** `mod(a, b)` — both arms typed; combined Args. */

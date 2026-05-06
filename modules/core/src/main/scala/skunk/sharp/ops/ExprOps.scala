@@ -1,8 +1,7 @@
 package skunk.sharp.ops
 
 import skunk.{Fragment, Void}
-import skunk.sharp.{Param, TypedExpr}
-import skunk.sharp.pg.PgTypeFor
+import skunk.sharp.TypedExpr
 import skunk.sharp.where.Where
 import skunk.util.Origin
 
@@ -178,13 +177,19 @@ object InRhs {
 
   type Aux[T, Rhs, A0] = InRhs[T, Rhs] { type RA = A0 }
 
-  given reducibleIn[T, F[_]](using R: cats.Reducible[F], pf: PgTypeFor[T]): InRhs.Aux[T, F[T], Void] =
-    new InRhs[T, F[T]] {
+  /**
+   * `lhs IN (e1, e2, …)` over a non-empty `Reducible` of typed expressions. Each item must be a
+   * `TypedExpr[T, Void]` — pass `lit(v)` (compile-time literal), `Param.bind(v)` (bake runtime value), or any
+   * other Void-args expression. For execute-time-deferred lists, prefer `lhs === ANY(Param[Arr[T]])` (see
+   * [[skunk.sharp.pg.ArrayOps.elemOf]]) — `IN` with multiple `Param[T]` would require N execute-time slots
+   * which the API doesn't model.
+   */
+  given reducibleIn[T, F[_]](using R: cats.Reducible[F]): InRhs.Aux[T, F[TypedExpr[T, Void]], Void] =
+    new InRhs[T, F[TypedExpr[T, Void]]] {
       type RA = Void
-      def renderParens(values: F[T]): Fragment[Void] = {
-        val literals = R.toNonEmptyList(values).toList.map(v => Param.bind[T](v).fragment)
-        // Combine all literal fragments via combineSepInl with ", " separator; wrap in parens.
-        val joined = literals.reduceLeft((a, b) =>
+      def renderParens(values: F[TypedExpr[T, Void]]): Fragment[Void] = {
+        val frags = R.toNonEmptyList(values).toList.map(_.fragment)
+        val joined = frags.reduceLeft((a, b) =>
           TypedExpr.combineSepInl[Void, Void](a, ", ", b).asInstanceOf[Fragment[Void]]
         )
         TypedExpr.wrap("(", joined, ")")
@@ -198,6 +203,18 @@ object InRhs {
         val inner: Fragment[A] = ev.fragment(q)
         TypedExpr.wrap("(", inner, ")")
       }
+    }
+
+  /**
+   * `lhs IN (listExpr)` where `listExpr` is a `Param[List[T]]` (built via [[skunk.sharp.Param.list]]) —
+   * expands to N comma-separated `$N` placeholders and binds a single `List[T]` at execute time. Single
+   * prepared statement per size; sidesteps the `Param.bind`-per-element pattern.
+   */
+  given paramListIn[T]: InRhs.Aux[T, skunk.sharp.Param[List[T]], List[T]] =
+    new InRhs[T, skunk.sharp.Param[List[T]]] {
+      type RA = List[T]
+      def renderParens(p: skunk.sharp.Param[List[T]]): Fragment[List[T]] =
+        TypedExpr.wrap("(", p.fragment, ")")
     }
 
 }

@@ -64,8 +64,8 @@ class ArraysSuite extends munit.FunSuite {
     assert(af.fragment.sql.contains("$1 = ANY(\"tags\")"), af.fragment.sql)
   }
 
-  test("Pg.arrayLength renders array_length(col, 1)") {
-    val af = posts.select(p => Pg.arrayLength(p.tags)).compile.af
+  test("Pg.arrayLength renders array_length(col, dim)") {
+    val af = posts.select(p => Pg.arrayLength(p.tags, lit(1))).compile.af
     assertEquals(af.fragment.sql, """SELECT array_length("tags", 1) FROM "posts"""")
   }
 
@@ -95,15 +95,15 @@ class ArraysSuite extends munit.FunSuite {
   }
 
   test("Pg.arrayToString renders with optional null-string") {
-    val af  = posts.select(p => Pg.arrayToString(p.tags, ", ")).compile.af
-    val af2 = posts.select(p => Pg.arrayToString(p.tags, ", ", "∅")).compile.af
-    assertEquals(af.fragment.sql, """SELECT array_to_string("tags", $1) FROM "posts"""")
-    assertEquals(af2.fragment.sql, """SELECT array_to_string("tags", $1, $2) FROM "posts"""")
+    val af  = posts.select(p => Pg.arrayToString(p.tags, lit(", "))).compile.af
+    val af2 = posts.select(p => Pg.arrayToString(p.tags, lit(", "), lit("∅"))).compile.af
+    assertEquals(af.fragment.sql, """SELECT array_to_string("tags", ', ') FROM "posts"""")
+    assertEquals(af2.fragment.sql, """SELECT array_to_string("tags", ', ', '∅') FROM "posts"""")
   }
 
   test("Pg.stringToArray renders as an input-split") {
-    val af = empty.select(Pg.stringToArray(param("a,b,c"), ",")).compile.af
-    assertEquals(af.fragment.sql, """SELECT string_to_array($1, $2)""")
+    val af = empty.select(_ => Pg.stringToArray(param("a,b,c"), lit(","))).compile.af
+    assertEquals(af.fragment.sql, """SELECT string_to_array($1, ',')""")
   }
 
   test("Pg.arrayAgg aggregates rows into an array") {

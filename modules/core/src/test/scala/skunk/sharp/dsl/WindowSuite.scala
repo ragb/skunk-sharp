@@ -56,8 +56,8 @@ class WindowSuite extends munit.FunSuite {
     assertEquals(af.fragment.sql, """SELECT cume_dist() OVER (ORDER BY "age" ASC) FROM "users"""")
   }
 
-  test("ntile(4) OVER (ORDER BY age)") {
-    val af = users.select(u => Pg.ntile(4).over(WindowSpec.orderBy(u.age.asc))).compile.af
+  test("ntile(lit(4)) OVER (ORDER BY age)") {
+    val af = users.select(u => Pg.ntile(lit(4)).over(WindowSpec.orderBy(u.age.asc))).compile.af
     assertEquals(af.fragment.sql, """SELECT ntile(4) OVER (ORDER BY "age" ASC) FROM "users"""")
   }
 
@@ -137,18 +137,18 @@ class WindowSuite extends munit.FunSuite {
     assertEquals(af.fragment.sql, """SELECT lag("age") OVER (ORDER BY "age" ASC) FROM "users"""")
   }
 
-  test("lag(age, 2) OVER (ORDER BY age)") {
+  test("lag(age, lit(2)) OVER (ORDER BY age)") {
     val af = users
-      .select(u => Pg.lag(u.age, 2).over(WindowSpec.orderBy(u.age.asc)))
+      .select(u => Pg.lag(u.age, lit(2)).over(WindowSpec.orderBy(u.age.asc)))
       .compile.af
     assertEquals(af.fragment.sql, """SELECT lag("age", 2) OVER (ORDER BY "age" ASC) FROM "users"""")
   }
 
-  test("lag(age, 1, 0) OVER (ORDER BY age) — with default, non-optional result") {
+  test("lag(age, lit(1), lit(0)) OVER (ORDER BY age) — with default, non-optional result") {
     val af = users
-      .select(u => Pg.lag(u.age, 1, 0).over(WindowSpec.orderBy(u.age.asc)))
+      .select(u => Pg.lag(u.age, lit(1), lit(0)).over(WindowSpec.orderBy(u.age.asc)))
       .compile.af
-    assertEquals(af.fragment.sql, """SELECT lag("age", 1, $1) OVER (ORDER BY "age" ASC) FROM "users"""")
+    assertEquals(af.fragment.sql, """SELECT lag("age", 1, 0) OVER (ORDER BY "age" ASC) FROM "users"""")
   }
 
   test("lead(age) OVER (ORDER BY age)") {
@@ -158,11 +158,11 @@ class WindowSuite extends munit.FunSuite {
     assertEquals(af.fragment.sql, """SELECT lead("age") OVER (ORDER BY "age" ASC) FROM "users"""")
   }
 
-  test("lead(age, 1, 0) OVER (ORDER BY age) — with default") {
+  test("lead(age, lit(1), lit(0)) OVER (ORDER BY age) — with default") {
     val af = users
-      .select(u => Pg.lead(u.age, 1, 0).over(WindowSpec.orderBy(u.age.asc)))
+      .select(u => Pg.lead(u.age, lit(1), lit(0)).over(WindowSpec.orderBy(u.age.asc)))
       .compile.af
-    assertEquals(af.fragment.sql, """SELECT lead("age", 1, $1) OVER (ORDER BY "age" ASC) FROM "users"""")
+    assertEquals(af.fragment.sql, """SELECT lead("age", 1, 0) OVER (ORDER BY "age" ASC) FROM "users"""")
   }
 
   // ---- Value functions -------------------------------------------------------------------------
@@ -181,9 +181,9 @@ class WindowSuite extends munit.FunSuite {
     assertEquals(af.fragment.sql, """SELECT last_value("age") OVER (ORDER BY "age" ASC) FROM "users"""")
   }
 
-  test("nth_value(age, 2) OVER (ORDER BY age)") {
+  test("nth_value(age, lit(2)) OVER (ORDER BY age)") {
     val af = users
-      .select(u => Pg.nthValue(u.age, 2).over(WindowSpec.orderBy(u.age.asc)))
+      .select(u => Pg.nthValue(u.age, lit(2)).over(WindowSpec.orderBy(u.age.asc)))
       .compile.af
     assertEquals(af.fragment.sql, """SELECT nth_value("age", 2) OVER (ORDER BY "age" ASC) FROM "users"""")
   }
@@ -209,7 +209,7 @@ class WindowSuite extends munit.FunSuite {
 
   test("lag with default decodes as Int (non-optional)") {
     val _: QueryTemplate[?, Int] =
-      users.select(u => Pg.lag(u.age, 1, 0).over(WindowSpec.orderBy(u.age.asc))).compile
+      users.select(u => Pg.lag(u.age, lit(1), lit(0)).over(WindowSpec.orderBy(u.age.asc))).compile
   }
 
   test("row_number decodes as Long") {

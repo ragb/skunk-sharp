@@ -1,7 +1,7 @@
 package skunk.sharp.pg.functions
 
 import skunk.{Fragment, Void}
-import skunk.sharp.{Param, TypedExpr}
+import skunk.sharp.TypedExpr
 import skunk.sharp.pg.PgTypeFor
 import skunk.sharp.where.Where
 
@@ -39,15 +39,7 @@ trait PgAggregate {
   def min[T, A](expr: TypedExpr[T, A]): TypedExpr[T, A] = sameTypeFn("min", expr)
   def max[T, A](expr: TypedExpr[T, A]): TypedExpr[T, A] = sameTypeFn("max", expr)
 
-  /** `string_agg(expr, sep)` — sep is a runtime value baked via Param.bind. */
-  def stringAgg[T, A](expr: TypedExpr[T, A], sep: String)(using ev: StrLike[T], pfs: PgTypeFor[String]): TypedExpr[String, A] = {
-    val sepFrag = Param.bind[String](sep).fragment
-    val inner   = TypedExpr.combineSep(expr.fragment, ", ", sepFrag, _.asInstanceOf[(A, Void)])
-    val frag    = TypedExpr.wrap("string_agg(", inner.asInstanceOf[Fragment[A]], ")")
-    TypedExpr[String, A](frag, skunk.codec.all.text)
-  }
-
-  /** `string_agg` taking a TypedExpr separator (Param[String], lit, etc.) — Args propagate from both. */
+  /** `string_agg(expr, sep)` — Args propagate from both. */
   def stringAgg[T, A, B](expr: TypedExpr[T, A], sep: TypedExpr[String, B])(using
     StrLike[T]
   ): TypedExpr[String, Where.Concat[A, B]] = {

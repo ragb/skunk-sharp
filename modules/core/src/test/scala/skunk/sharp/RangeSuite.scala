@@ -66,10 +66,10 @@ class RangeSuite extends munit.FunSuite {
     assert(af.fragment.sql.contains("daterange("), af.fragment.sql)
   }
 
-  test("int4range(lo, hi, bounds) passes bounds as param") {
-    val af = empty.select(_ => Pg.int4range(param(1), param(10), "[]")).compile.af
+  test("int4range(lo, hi, bounds) renders bounds inline") {
+    val af = empty.select(_ => Pg.int4range(param(1), param(10), lit("[]"))).compile.af
     assert(af.fragment.sql.contains("int4range("), af.fragment.sql)
-    assert(af.fragment.sql.contains("$3"), af.fragment.sql) // bounds is the 3rd param
+    assert(af.fragment.sql.contains("'[]'"), af.fragment.sql)
   }
 
   // -------- Operators ---------------------------------------------------------------

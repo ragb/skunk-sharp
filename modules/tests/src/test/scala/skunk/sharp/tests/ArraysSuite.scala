@@ -24,7 +24,7 @@ class ArraysSuite extends PgFixture {
             (id = 102, tags = Arr("scala"), score = 20),
             (id = 103, tags = Arr("sql"), score = 30)
           ).compile.run(s)
-          rows <- posts.select.where(p => p.id.in(NonEmptyList.of(101, 102, 103))).compile.run(s)
+          rows <- posts.select.where(p => p.id.in(NonEmptyList.of(101, 102, 103).map(Param.bind(_)))).compile.run(s)
           _      = assertEquals(rows.map(_.id).toSet, Set(101, 102, 103))
           tag101 = rows.find(_.id == 101).get.tags.flattenTo(List)
           _      = assertEquals(tag101, List("scala", "pg"))
@@ -44,7 +44,7 @@ class ArraysSuite extends PgFixture {
           ids <- posts
             .select(p => p.id)
             .where(p => p.tags.contains(param(Arr("scala"))))
-            .where(p => p.id.in(NonEmptyList.of(201, 202)))
+            .where(p => p.id.in(NonEmptyList.of(201, 202).map(Param.bind(_))))
             .compile.run(s)
           _ = assertEquals(ids.toSet, Set(201))
         } yield ()
@@ -64,7 +64,7 @@ class ArraysSuite extends PgFixture {
           ids <- posts
             .select(p => p.id)
             .where(p => p.tags.containedBy(param(Arr("a", "b"))))
-            .where(p => p.id.in(NonEmptyList.of(301, 302, 303)))
+            .where(p => p.id.in(NonEmptyList.of(301, 302, 303).map(Param.bind(_))))
             .compile.run(s)
           _ = assertEquals(ids.toSet, Set(301, 302))
         } yield ()
@@ -84,7 +84,7 @@ class ArraysSuite extends PgFixture {
           ids <- posts
             .select(p => p.id)
             .where(p => p.tags.overlaps(param(Arr("y"))))
-            .where(p => p.id.in(NonEmptyList.of(401, 402, 403)))
+            .where(p => p.id.in(NonEmptyList.of(401, 402, 403).map(Param.bind(_))))
             .compile.run(s)
           _ = assertEquals(ids.toSet, Set(401, 403))
         } yield ()
@@ -104,7 +104,7 @@ class ArraysSuite extends PgFixture {
           ids <- posts
             .select(p => p.id)
             .where(p => param("alpha").elemOf(p.tags))
-            .where(p => p.id.in(NonEmptyList.of(501, 502, 503)))
+            .where(p => p.id.in(NonEmptyList.of(501, 502, 503).map(Param.bind(_))))
             .compile.run(s)
           _ = assertEquals(ids.toSet, Set(501))
         } yield ()
@@ -121,8 +121,8 @@ class ArraysSuite extends PgFixture {
             (id = 602, tags = Arr("a", "b"), score = 2)
           ).compile.run(s)
           lens <- posts
-            .select(p => (p.id, Pg.arrayLength(p.tags), Pg.cardinality(p.tags)))
-            .where(p => p.id.in(NonEmptyList.of(601, 602)))
+            .select(p => (p.id, Pg.arrayLength(p.tags, lit(1)), Pg.cardinality(p.tags)))
+            .where(p => p.id.in(NonEmptyList.of(601, 602).map(Param.bind(_))))
             .compile.run(s).map(rs => rs.map { case (id, len, card) => id -> (len, card) }.toMap)
           _ = assertEquals(lens(601), (Option(3), 3))
           _ = assertEquals(lens(602), (Option(2), 2))
@@ -141,7 +141,7 @@ class ArraysSuite extends PgFixture {
           ).compile.run(s)
           agg <- posts
             .select(p => Pg.arrayAgg(p.id))
-            .where(p => p.id.in(NonEmptyList.of(611, 612)))
+            .where(p => p.id.in(NonEmptyList.of(611, 612).map(Param.bind(_))))
             .compile
             .unique(s)
           _ = assertEquals(agg.flattenTo(List).toSet, Set(611, 612))
@@ -163,7 +163,7 @@ class ArraysSuite extends PgFixture {
             .innerJoinLateral(p => Pg.unnestAsRelation(p.tags).alias("t"))
             .on(_ => lit(true))
             .select(r => (r.p.id, r.t.v))
-            .where(r => r.p.id.in(NonEmptyList.of(801, 802)))
+            .where(r => r.p.id.in(NonEmptyList.of(801, 802).map(Param.bind(_))))
             .compile.run(s).map(_.toSet)
           _ = assertEquals(
             rows,

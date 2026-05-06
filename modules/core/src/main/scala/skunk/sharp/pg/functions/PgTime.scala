@@ -1,7 +1,7 @@
 package skunk.sharp.pg.functions
 
 import skunk.{Codec, Fragment, Void}
-import skunk.sharp.{Param, PgFunction, TypedExpr}
+import skunk.sharp.{PgFunction, TypedExpr}
 import skunk.sharp.pg.PgTypeFor
 import skunk.sharp.where.Where
 
@@ -69,11 +69,14 @@ trait PgTime {
 
   // -------- Truncation -------------------------------------------------------------------------
 
-  inline def dateTrunc[T, A](precision: String, e: TypedExpr[T, A])(using pfs: PgTypeFor[String]): TypedExpr[T, A] = {
-    val pFrag = Param.bind[String](precision).fragment
-    val s1    = TypedExpr.combineSepInl[Void, A](pFrag, ", ", e.fragment).asInstanceOf[Fragment[A]]
-    val frag  = TypedExpr.wrap("date_trunc(", s1, ")")
-    TypedExpr[T, A](frag, e.codec)
+  /** `date_trunc(precision, e)`. */
+  inline def dateTrunc[T, A1, A2](
+    precision: TypedExpr[String, A1],
+    e:         TypedExpr[T, A2]
+  ): TypedExpr[T, Where.Concat[A1, A2]] = {
+    val inner = TypedExpr.combineSepInl[A1, A2](precision.fragment, ", ", e.fragment)
+    val frag  = TypedExpr.wrap("date_trunc(", inner, ")")
+    TypedExpr(frag, e.codec)
   }
 
   // -------- Interval arithmetic ----------------------------------------------------------------
@@ -159,11 +162,14 @@ trait PgTime {
   def toTimestamp[A](e: TypedExpr[Double, A]): TypedExpr[OffsetDateTime, A] =
     unaryOut("to_timestamp", e, skunk.codec.all.timestamptz)
 
-  inline def toDate[T, A](e: TypedExpr[T, A], fmt: String)(using ev: StrLike[T], pfs: PgTypeFor[String]): TypedExpr[LocalDate, A] = {
-    val fmtFrag = Param.bind[String](fmt).fragment
-    val s1      = TypedExpr.combineSepInl[A, Void](e.fragment, ", ", fmtFrag).asInstanceOf[Fragment[A]]
-    val frag    = TypedExpr.wrap("to_date(", s1, ")")
-    TypedExpr[LocalDate, A](frag, skunk.codec.all.date)
+  /** `to_date(e, fmt)`. */
+  inline def toDate[T, A1, A2](
+    e:   TypedExpr[T, A1],
+    fmt: TypedExpr[String, A2]
+  )(using ev: StrLike[T]): TypedExpr[LocalDate, Where.Concat[A1, A2]] = {
+    val inner = TypedExpr.combineSepInl[A1, A2](e.fragment, ", ", fmt.fragment)
+    val frag  = TypedExpr.wrap("to_date(", inner, ")")
+    TypedExpr(frag, skunk.codec.all.date)
   }
 
   // -------- Helpers -------------------------------------------------------------------------

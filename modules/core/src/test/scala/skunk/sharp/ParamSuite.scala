@@ -672,18 +672,18 @@ class ParamSuite extends munit.FunSuite {
     val _: QueryTemplate[(java.time.LocalDate, java.time.LocalDate, java.time.LocalDate, java.time.LocalDate), ?] = q
   }
 
-  test("Pg.lpad(col, 4, fill) propagates Args from the typed expr only") {
-    val q                              = users.select(u => Pg.lpad(u.email, 4, "*")).compile
+  test("Pg.lpad(col, lit(4), lit(fill)) propagates Args from the typed expr only") {
+    val q                              = users.select(u => Pg.lpad(u.email, lit(4), lit("*"))).compile
     val _: QueryTemplate[Void, String] = q
   }
 
-  test("Pg.rpad(Param, 4, fill) threads Param through expr position") {
-    val q                                = empty.select(_ => Pg.rpad(Param[String], 4, "_")).compile
+  test("Pg.rpad(Param, lit(4), lit(fill)) threads Param through expr position") {
+    val q                                = empty.select(_ => Pg.rpad(Param[String], lit(4), lit("_"))).compile
     val _: QueryTemplate[String, String] = q
   }
 
-  test("Pg.lag(Param, 1, default) threads Param through expr position") {
-    val q                                = users.select(_ => Pg.lag(Param[String], 1, "n/a")).compile
+  test("Pg.lag(Param, lit(1), lit(default)) threads Param through expr position") {
+    val q                                = users.select(_ => Pg.lag(Param[String], lit(1), lit("n/a"))).compile
     val _: QueryTemplate[String, String] = q
   }
 
@@ -1106,10 +1106,10 @@ class ParamSuite extends munit.FunSuite {
     assert(q.fragment.sql.contains("<= ANY") && q.fragment.sql.contains("$1"), q.fragment.sql)
   }
 
-  test("col.in(values) preserves Args = Void (values are Param.bind-baked)") {
+  test("col.in(lits) preserves Args = Void") {
     case class User(id: UUID, email: String, age: Int)
     val users                     = Table.of[User]("users")
-    val q                         = users.select.where(u => u.age.in(cats.data.NonEmptyList.of(20, 21, 22))).compile
+    val q                         = users.select.where(u => u.age.in(cats.data.NonEmptyList.of(lit(20), lit(21), lit(22)))).compile
     val _: QueryTemplate[Void, ?] = q
   }
 

@@ -40,9 +40,9 @@ class GroupBySuite extends munit.FunSuite {
     assertEquals(maxAf.fragment.sql, """SELECT max("age") FROM "users"""")
   }
 
-  test("Pg.stringAgg renders string_agg(expr, sep) and takes sep as a bound parameter") {
-    val af = users.select(u => Pg.stringAgg(u.email, ", ")).compile.af
-    assertEquals(af.fragment.sql, """SELECT string_agg("email", $1) FROM "users"""")
+  test("Pg.stringAgg renders string_agg(expr, sep)") {
+    val af = users.select(u => Pg.stringAgg(u.email, lit(", "))).compile.af
+    assertEquals(af.fragment.sql, """SELECT string_agg("email", ', ') FROM "users"""")
   }
 
   test(".groupBy single column") {

@@ -27,7 +27,7 @@ class PgFunctionSuite extends munit.FunSuite {
   }
 
   test("round with digits") {
-    val af = products.select(p => Pg.round(p.price, 2)).compile.af
+    val af = products.select(p => Pg.round(p.price, lit(2))).compile.af
     assertEquals(af.fragment.sql, """SELECT round("price", 2) FROM "products"""")
   }
 
@@ -67,10 +67,10 @@ class PgFunctionSuite extends munit.FunSuite {
 
   // ---- NULL handling ----
 
-  test("nullif returns an Option and binds b as a literal parameter") {
-    val q                                = products.select(p => Pg.nullif(p.qty, 0)).compile
+  test("nullif renders inline lit value") {
+    val q                                = products.select(p => Pg.nullif(p.qty, lit(0))).compile
     val _: QueryTemplate[?, Option[Int]] = q
-    assertEquals(q.fragment.sql, """SELECT nullif("qty", $1) FROM "products"""")
+    assertEquals(q.fragment.sql, """SELECT nullif("qty", 0) FROM "products"""")
   }
 
   // ---- String (preserve tag) ----
@@ -87,23 +87,23 @@ class PgFunctionSuite extends munit.FunSuite {
   }
 
   test("trim with chars arg — `trim(chars FROM s)`") {
-    val af = products.select(p => Pg.trim(p.name, " \t")).compile.af
-    assertEquals(af.fragment.sql, """SELECT trim($1 FROM "name") FROM "products"""")
+    val af = products.select(p => Pg.trim(lit(" \t"), p.name)).compile.af
+    assertEquals(af.fragment.sql, "SELECT trim(' \t' FROM \"name\") FROM \"products\"")
   }
 
   test("replace / repeat / reverse") {
     val af = products
-      .select(p => (Pg.replace(p.name, "a", "b"), Pg.repeat(p.name, 3), Pg.reverse(p.name)))
+      .select(p => (Pg.replace(p.name, lit("a"), lit("b")), Pg.repeat(p.name, lit(3)), Pg.reverse(p.name)))
       .compile
       .af
-    assert(af.fragment.sql.contains("""replace("name", $1, $2)"""), af.fragment.sql)
+    assert(af.fragment.sql.contains("""replace("name", 'a', 'b')"""), af.fragment.sql)
     assert(af.fragment.sql.contains("""repeat("name", 3)"""), af.fragment.sql)
     assert(af.fragment.sql.contains("""reverse("name")"""), af.fragment.sql)
   }
 
   test("substring — single-arg and with FOR length") {
     val af = products
-      .select(p => (Pg.substring(p.name, 2), Pg.substring(p.name, 2, 3)))
+      .select(p => (Pg.substring(p.name, lit(2)), Pg.substring(p.name, lit(2), lit(3))))
       .compile
       .af
     assertEquals(
@@ -113,7 +113,7 @@ class PgFunctionSuite extends munit.FunSuite {
   }
 
   test("left / right") {
-    val af = products.select(p => (Pg.left(p.name, 5), Pg.right(p.name, 5))).compile.af
+    val af = products.select(p => (Pg.left(p.name, lit(5)), Pg.right(p.name, lit(5)))).compile.af
     assertEquals(
       af.fragment.sql,
       """SELECT left("name", 5), right("name", 5) FROM "products""""
@@ -122,23 +122,23 @@ class PgFunctionSuite extends munit.FunSuite {
 
   test("regexpReplace / splitPart") {
     val af = products
-      .select(p => (Pg.regexpReplace(p.name, "^[a-z]+", ""), Pg.splitPart(p.name, "-", 1)))
+      .select(p => (Pg.regexpReplace(p.name, lit("^[a-z]+"), lit("")), Pg.splitPart(p.name, lit("-"), lit(1))))
       .compile
       .af
-    assert(af.fragment.sql.contains("""regexp_replace("name", $1, $2)"""), af.fragment.sql)
-    assert(af.fragment.sql.contains("""split_part("name", $3, 1)"""), af.fragment.sql)
+    assert(af.fragment.sql.contains("""regexp_replace("name", '^[a-z]+', '')"""), af.fragment.sql)
+    assert(af.fragment.sql.contains("""split_part("name", '-', 1)"""), af.fragment.sql)
   }
 
   // ---- String returning Int via Lift ----
 
   test("charLength / octetLength / position — Lift preserves input nullability") {
     val af = products
-      .select(p => (Pg.charLength(p.name), Pg.octetLength(p.name), Pg.position("x", p.name)))
+      .select(p => (Pg.charLength(p.name), Pg.octetLength(p.name), Pg.position(lit("x"), p.name)))
       .compile
       .af
     assertEquals(
       af.fragment.sql,
-      """SELECT char_length("name"), octet_length("name"), position($1 IN "name") FROM "products""""
+      """SELECT char_length("name"), octet_length("name"), position('x' IN "name") FROM "products""""
     )
   }
 
@@ -193,16 +193,16 @@ class PgFunctionSuite extends munit.FunSuite {
       .select(p =>
         (
           Pg.initcap(p.name),
-          Pg.translate(p.name, "abc", "xyz"),
-          Pg.lpad(p.name, 10),
-          Pg.rpad(p.name, 10, "*")
+          Pg.translate(p.name, lit("abc"), lit("xyz")),
+          Pg.lpad(p.name, lit(10)),
+          Pg.rpad(p.name, lit(10), lit("*"))
         )
       )
       .compile.af
     assert(af.fragment.sql.contains("""initcap("name")"""), af.fragment.sql)
-    assert(af.fragment.sql.contains("""translate("name", $"""), af.fragment.sql)
+    assert(af.fragment.sql.contains("""translate("name", 'abc', 'xyz')"""), af.fragment.sql)
     assert(af.fragment.sql.contains("""lpad("name", 10)"""), af.fragment.sql)
-    assert(af.fragment.sql.contains("""rpad("name", 10, $"""), af.fragment.sql)
+    assert(af.fragment.sql.contains("""rpad("name", 10, '*')"""), af.fragment.sql)
   }
 
   test("md5 returns string via Lift") {
@@ -220,19 +220,19 @@ class PgFunctionSuite extends munit.FunSuite {
     assertEquals(af.fragment.sql, """SELECT chr("qty") FROM "products"""")
   }
 
-  test("toChar renders to_char(e, $fmt)") {
-    val af = products.select(p => Pg.toChar(p.price, "FM999990.00")).compile.af
-    assert(af.fragment.sql.startsWith("""SELECT to_char("price", $"""), af.fragment.sql)
+  test("toChar renders to_char(e, fmt)") {
+    val af = products.select(p => Pg.toChar(p.price, lit("FM999990.00"))).compile.af
+    assert(af.fragment.sql.startsWith("""SELECT to_char("price", 'FM999990.00')"""), af.fragment.sql)
   }
 
-  test("toNumber renders to_number(e, $fmt)") {
-    val af = products.select(p => Pg.toNumber(p.name, "99.99")).compile.af
-    assert(af.fragment.sql.contains("""to_number("name", $"""), af.fragment.sql)
+  test("toNumber renders to_number(e, fmt)") {
+    val af = products.select(p => Pg.toNumber(p.name, lit("99.99"))).compile.af
+    assert(af.fragment.sql.contains("""to_number("name", '99.99')"""), af.fragment.sql)
   }
 
-  test("format renders format($fmt, args…)") {
-    val af = products.select(p => Pg.format("%s-%s", p.name, p.name)).compile.af
-    assert(af.fragment.sql.contains("""format($"""), af.fragment.sql)
+  test("format renders format(fmt, args…)") {
+    val af = products.select(p => Pg.format(lit("%s-%s"), p.name, p.name)).compile.af
+    assert(af.fragment.sql.contains("""format('%s-%s'"""), af.fragment.sql)
     assert(af.fragment.sql.contains(""""name""""), af.fragment.sql)
   }
 
@@ -243,10 +243,9 @@ class PgFunctionSuite extends munit.FunSuite {
     assertEquals(af.fragment.sql, "SELECT extract(year FROM now())")
   }
 
-  test("dateTrunc renders date_trunc($precision, e)") {
-    val af = empty.select(_ => Pg.dateTrunc("month", Pg.now)).compile.af
-    assert(af.fragment.sql.contains("date_trunc($"), af.fragment.sql)
-    assert(af.fragment.sql.contains("now()"), af.fragment.sql)
+  test("dateTrunc renders date_trunc(precision, e)") {
+    val af = empty.select(_ => Pg.dateTrunc(lit("month"), Pg.now)).compile.af
+    assert(af.fragment.sql.contains("date_trunc('month', now())"), af.fragment.sql)
   }
 
   test("age(a, b) renders age(a, b)") {
@@ -264,8 +263,8 @@ class PgFunctionSuite extends munit.FunSuite {
     assertEquals(af.fragment.sql, "SELECT to_timestamp($1)")
   }
 
-  test("toDate renders to_date(e, $fmt)") {
-    val af = empty.select(_ => Pg.toDate(param("2024-01-15"), "YYYY-MM-DD")).compile.af
+  test("toDate renders to_date(e, fmt)") {
+    val af = empty.select(_ => Pg.toDate(param("2024-01-15"), lit("YYYY-MM-DD"))).compile.af
     assert(af.fragment.sql.contains("to_date("), af.fragment.sql)
   }
 
