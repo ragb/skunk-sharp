@@ -13,7 +13,8 @@ extension [A, X](e: TypedExpr[Jsonb[A], X]) {
   /** `jsonb -> 'key'` — get a field as jsonb. */
   inline def get(key: String)(using pfs: skunk.sharp.pg.PgTypeFor[String]): TypedExpr[Jsonb[CirceJson], X] = {
     val keyFrag = Param.bind[String](key).fragment
-    val frag    = TypedExpr.combineSep(e.fragment, " -> ", keyFrag, c => Where.projectConcat[X, Void](c)).asInstanceOf[Fragment[X]]
+    val frag    =
+      TypedExpr.combineSep(e.fragment, " -> ", keyFrag, c => Where.projectConcat[X, Void](c)).asInstanceOf[Fragment[X]]
     TypedExpr[Jsonb[CirceJson], X](frag, summon[skunk.sharp.pg.PgTypeFor[Jsonb[CirceJson]]].codec)
   }
 
@@ -27,7 +28,8 @@ extension [A, X](e: TypedExpr[Jsonb[A], X]) {
   /** `jsonb ->> 'key'` — get a field as text. */
   inline def getText(key: String)(using pfs: skunk.sharp.pg.PgTypeFor[String]): TypedExpr[String, X] = {
     val keyFrag = Param.bind[String](key).fragment
-    val frag    = TypedExpr.combineSep(e.fragment, " ->> ", keyFrag, c => Where.projectConcat[X, Void](c)).asInstanceOf[Fragment[X]]
+    val frag    =
+      TypedExpr.combineSep(e.fragment, " ->> ", keyFrag, c => Where.projectConcat[X, Void](c)).asInstanceOf[Fragment[X]]
     TypedExpr[String, X](frag, skunk.codec.all.text)
   }
 
@@ -40,25 +42,31 @@ extension [A, X](e: TypedExpr[Jsonb[A], X]) {
 
   /** `jsonb #> '{a,b,c}'::text[]` — walk a path, return jsonb. */
   inline def path(keys: String*)(using pfs: skunk.sharp.pg.PgTypeFor[String]): TypedExpr[Jsonb[CirceJson], X] = {
-    val arr     = keys.map(escapePathElem).mkString("{", ",", "}")
-    val arrFrag = Param.bind[String](arr).fragment
+    val arr                      = keys.map(escapePathElem).mkString("{", ",", "}")
+    val arrFrag                  = Param.bind[String](arr).fragment
     val withCast: Fragment[Void] = {
       val parts = arrFrag.parts ++ List[Either[String, cats.data.State[Int, String]]](Left("::text[]"))
       Fragment(parts, arrFrag.encoder, skunk.util.Origin.unknown)
     }
-    val frag = TypedExpr.combineSep(e.fragment, " #> ", withCast, c => Where.projectConcat[X, Void](c)).asInstanceOf[Fragment[X]]
+    val frag =
+      TypedExpr.combineSep(e.fragment, " #> ", withCast, c => Where.projectConcat[X, Void](c)).asInstanceOf[Fragment[X]]
     TypedExpr[Jsonb[CirceJson], X](frag, summon[skunk.sharp.pg.PgTypeFor[Jsonb[CirceJson]]].codec)
   }
 
   /** `jsonb #>> '{a,b,c}'::text[]` — walk a path, return text. */
   inline def pathText(keys: String*)(using pfs: skunk.sharp.pg.PgTypeFor[String]): TypedExpr[String, X] = {
-    val arr     = keys.map(escapePathElem).mkString("{", ",", "}")
-    val arrFrag = Param.bind[String](arr).fragment
+    val arr                      = keys.map(escapePathElem).mkString("{", ",", "}")
+    val arrFrag                  = Param.bind[String](arr).fragment
     val withCast: Fragment[Void] = {
       val parts = arrFrag.parts ++ List[Either[String, cats.data.State[Int, String]]](Left("::text[]"))
       Fragment(parts, arrFrag.encoder, skunk.util.Origin.unknown)
     }
-    val frag = TypedExpr.combineSep(e.fragment, " #>> ", withCast, c => Where.projectConcat[X, Void](c)).asInstanceOf[Fragment[X]]
+    val frag = TypedExpr.combineSep(
+      e.fragment,
+      " #>> ",
+      withCast,
+      c => Where.projectConcat[X, Void](c)
+    ).asInstanceOf[Fragment[X]]
     TypedExpr[String, X](frag, skunk.codec.all.text)
   }
 
@@ -77,7 +85,8 @@ extension [A, X](e: TypedExpr[Jsonb[A], X]) {
   /** `jsonb ? 'key'` — does the top-level have the key? */
   inline def hasKey(key: String)(using pfs: skunk.sharp.pg.PgTypeFor[String]): Where[X] = {
     val keyFrag = Param.bind[String](key).fragment
-    val frag    = TypedExpr.combineSep(e.fragment, " ? ", keyFrag, c => Where.projectConcat[X, Void](c)).asInstanceOf[Fragment[X]]
+    val frag    =
+      TypedExpr.combineSep(e.fragment, " ? ", keyFrag, c => Where.projectConcat[X, Void](c)).asInstanceOf[Fragment[X]]
     Where(frag)
   }
 

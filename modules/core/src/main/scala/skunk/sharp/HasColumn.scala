@@ -232,9 +232,9 @@ object AllCovered {
  * conditionally per generated grouping row.
  */
 type HasOpaqueGroup[G <: Tuple] <: Boolean = G match {
-  case EmptyTuple                  => false
-  case TypedExpr[Unit, ?] *: tail  => true
-  case h *: tail                   => HasOpaqueGroup[tail]
+  case EmptyTuple                 => false
+  case TypedExpr[Unit, ?] *: tail => true
+  case h *: tail                  => HasOpaqueGroup[tail]
 }
 
 /**
@@ -257,7 +257,9 @@ object GroupCoverage extends GroupCoverageLowPrio {
 }
 
 trait GroupCoverageLowPrio {
+
   given nonEmpty[Proj <: Tuple, G <: NonEmptyTuple](using
     ev: AllCovered[Proj, GroupNames[G]]
   ): GroupCoverage[Proj, G] = new GroupCoverage[Proj, G] {}
+
 }

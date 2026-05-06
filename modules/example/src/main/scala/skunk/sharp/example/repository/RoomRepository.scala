@@ -20,8 +20,8 @@ trait RoomRepository {
 }
 
 /**
- * Static-template repository — every query that has a fixed shape is compiled exactly once at object
- * construction. Calls bind parameters and run; nothing is re-built per request.
+ * Static-template repository — every query that has a fixed shape is compiled exactly once at object construction.
+ * Calls bind parameters and run; nothing is re-built per request.
  *
  * `.patch` is the lone exception: see [[live.patch]] for why it must stay on captured-args.
  */
@@ -61,10 +61,10 @@ object RoomRepository {
       createQ.uniqueK[IO]((data.name, data.capacity))
 
     /**
-     * `.patch` builds a different SET list per call depending on which fields are `Some`. There is no
-     * single static SQL that covers every subset of N optional fields, so this method stays on the
-     * captured-args path: each call compiles a fresh `CommandTemplate` shaped to the present fields and
-     * Param.bind-bakes the values. See the "When captured args still earn their keep" note below.
+     * `.patch` builds a different SET list per call depending on which fields are `Some`. There is no single static SQL
+     * that covers every subset of N optional fields, so this method stays on the captured-args path: each call compiles
+     * a fresh `CommandTemplate` shaped to the present fields and Param.bind-bakes the values. See the "When captured
+     * args still earn their keep" note below.
      */
     def patch(id: UUID, data: RoomRow.Patch): Kleisli[IO, Session[IO], Option[RoomRow]] =
       if (data.name.isEmpty && data.capacity.isEmpty) findById(id)

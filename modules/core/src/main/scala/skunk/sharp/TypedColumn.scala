@@ -29,9 +29,9 @@ final class TypedColumn[T, Null <: Boolean, N <: String & Singleton](
     }
 
   /**
-   * Cached `Fragment[Void]` for this column reference. Reused on every operator / function / projection that
-   * references this column — TypedColumn instances live across builders (cached on the relation's `columnsView`)
-   * so this lazy initializes once.
+   * Cached `Fragment[Void]` for this column reference. Reused on every operator / function / projection that references
+   * this column — TypedColumn instances live across builders (cached on the relation's `columnsView`) so this lazy
+   * initializes once.
    */
   lazy val fragment: Fragment[Void] = Fragment(List(Left(sqlRef)), Void.codec, Origin.unknown)
 

@@ -139,7 +139,8 @@ class GroupBySuite extends PgFixture {
             (id = UUID.randomUUID, email = "sa1@x", age = bucket, deleted_at = Option.empty[OffsetDateTime]),
             (id = UUID.randomUUID, email = "sa2@x", age = bucket, deleted_at = Option.empty[OffsetDateTime])
           ).compile.run(s)
-          concat <- users.select(u => Pg.stringAgg(u.email, ", ")).where(u => u.age === Param.bind(bucket)).compile.unique(s)
+          concat <-
+            users.select(u => Pg.stringAgg(u.email, ", ")).where(u => u.age === Param.bind(bucket)).compile.unique(s)
           _ = assert(concat.contains("sa1@x") && concat.contains("sa2@x"), s"got '$concat'")
           _ = assert(concat.contains(", "), s"separator missing: '$concat'")
         } yield ()

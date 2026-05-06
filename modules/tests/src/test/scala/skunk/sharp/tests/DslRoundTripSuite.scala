@@ -42,7 +42,8 @@ class DslRoundTripSuite extends PgFixture {
           _ <- assertIO(users.select.compile.run(s).map(_.size), 2)
           _ <- assertIO(users.select.where(u => u.age >= lit(18)).compile.run(s).map(_.size), 2)
           _ <- users.update.set(u => u.age := lit(31)).where(u => u.id === Param.bind(aliceId)).compile.run(s)
-          _ <- assertIO(users.select.where(u => u.id === Param.bind(aliceId)).compile.run(s).map(_.map(_.age)), List(31))
+          _ <-
+            assertIO(users.select.where(u => u.id === Param.bind(aliceId)).compile.run(s).map(_.map(_.age)), List(31))
           _ <- users.delete.where(u => u.id === Param.bind(bobId)).compile.run(s)
           _ <- assertIO(users.select.compile.run(s).map(_.size), 1)
         } yield ()
@@ -64,13 +65,18 @@ class DslRoundTripSuite extends PgFixture {
             (id = c, email = "ccc@x", age = 20, created_at = now, deleted_at = Option.empty[OffsetDateTime])
           ).compile.run(s)
           _ <- assertIO(
-            users.select.where(u => u.email.like(lit("%@x"))).orderBy(u => u.age.asc).apply(u => u.email).compile.run(s),
+            users.select.where(u => u.email.like(lit("%@x"))).orderBy(u => u.age.asc).apply(u => u.email).compile.run(
+              s
+            ),
             List("bbb@x", "ccc@x", "aaa@x")
           )
-          _ <- assertIO(
-            users.select.where(u => u.email.like(lit("%@x"))).orderBy(u => u.age.desc).apply(u => u.email).compile.run(s),
-            List("aaa@x", "ccc@x", "bbb@x")
-          )
+          _ <-
+            assertIO(
+              users.select.where(u => u.email.like(lit("%@x"))).orderBy(u => u.age.desc).apply(u =>
+                u.email
+              ).compile.run(s),
+              List("aaa@x", "ccc@x", "bbb@x")
+            )
         } yield ()
       }
     }

@@ -49,8 +49,8 @@ trait PgJsonb {
   }
 
   /**
-   * `jsonb_set(target, path, new_value, create_if_missing)`. `path` and `createIfMissing` are baked
-   * runtime values; Args is `Concat[X, Y]` from `target` / `value` (the two TypedExpr inputs).
+   * `jsonb_set(target, path, new_value, create_if_missing)`. `path` and `createIfMissing` are baked runtime values;
+   * Args is `Concat[X, Y]` from `target` / `value` (the two TypedExpr inputs).
    */
   inline def jsonbSet[A, B, X, Y](
     target: TypedExpr[Jsonb[A], X],
@@ -63,8 +63,8 @@ trait PgJsonb {
     jsonbThreeArgFn[A, B, X, Y]("jsonb_set", target, path, value, s", $createIfMissing")
 
   /**
-   * `jsonb_insert(target, path, new_value, insert_after)`. Same shape as [[jsonbSet]] — `path` and
-   * `insertAfter` are baked; Args is `Concat[X, Y]` from `target` / `value`.
+   * `jsonb_insert(target, path, new_value, insert_after)`. Same shape as [[jsonbSet]] — `path` and `insertAfter` are
+   * baked; Args is `Concat[X, Y]` from `target` / `value`.
    */
   inline def jsonbInsert[A, B, X, Y](
     target: TypedExpr[Jsonb[A], X],
@@ -77,8 +77,8 @@ trait PgJsonb {
     jsonbThreeArgFn[A, B, X, Y]("jsonb_insert", target, path, value, s", $insertAfter")
 
   /**
-   * Shared shape for `jsonb_set` / `jsonb_insert`: `name(target, path, value, suffixFlag)`.
-   * `target` / `value` thread typed Args; `path` and `suffix` are baked.
+   * Shared shape for `jsonb_set` / `jsonb_insert`: `name(target, path, value, suffixFlag)`. `target` / `value` thread
+   * typed Args; `path` and `suffix` are baked.
    */
   private inline def jsonbThreeArgFn[A, B, X, Y](
     name: String,
@@ -91,7 +91,7 @@ trait PgJsonb {
   ): TypedExpr[Jsonb[CirceJson], Where.Concat[X, Y]] = {
     val pathLit  = path.map(p => p.replace("\\", "\\\\").replace("\"", "\\\"")).mkString("{", ",", "}")
     val pathFrag = appendCast(Param.bind[String](pathLit).fragment, "::text[]")
-    val parts =
+    val parts    =
       List[Either[String, cats.data.State[Int, String]]](Left(s"$name(")) ++
         target.fragment.parts ++
         List[Either[String, cats.data.State[Int, String]]](Left(", ")) ++
@@ -102,12 +102,15 @@ trait PgJsonb {
     // Combine target's encoder (X) with path (Void) — keep X.
     val targetWithPath =
       TypedExpr.combineEnc[X, Void](
-        target.fragment.encoder, pathFrag.encoder, c => (c.asInstanceOf[X], Void)
+        target.fragment.encoder,
+        pathFrag.encoder,
+        c => (c.asInstanceOf[X], Void)
       )
     // Combine that with value's encoder (Y) — result is Concat[X, Y].
     val combined =
       TypedExpr.combineEnc[X, Y](
-        targetWithPath.asInstanceOf[skunk.Encoder[X]], value.fragment.encoder,
+        targetWithPath.asInstanceOf[skunk.Encoder[X]],
+        value.fragment.encoder,
         c => Where.projectConcat[X, Y](c)
       )
     val frag = Fragment(parts, combined, skunk.util.Origin.unknown)
@@ -121,7 +124,8 @@ trait PgJsonb {
 
   /** `jsonb` concatenation / merge: `a || b`. */
   inline def jsonbConcat[A, B, X, Y](
-    a: TypedExpr[Jsonb[A], X], b: TypedExpr[Jsonb[B], Y]
+    a: TypedExpr[Jsonb[A], X],
+    b: TypedExpr[Jsonb[B], Y]
   ): TypedExpr[Jsonb[CirceJson], Where.Concat[X, Y]] = {
     val frag = TypedExpr.combineSepInl[X, Y](a.fragment, " || ", b.fragment)
     TypedExpr[Jsonb[CirceJson], Where.Concat[X, Y]](frag, rawJsonbCodec)

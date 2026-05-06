@@ -53,10 +53,10 @@ object BookingRepository {
     private val createQ =
       t.insert
         .withParams((
-          room_id     = Param[UUID],
+          room_id = Param[UUID],
           booker_name = Param[String],
-          title       = Param[String],
-          period      = Param[PgRange[LocalDate]]
+          title = Param[String],
+          period = Param[PgRange[LocalDate]]
         ))
         .returning(b => b.id)
         .compile

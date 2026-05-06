@@ -20,7 +20,7 @@ object ParamSuite {
 }
 
 class ParamSuite extends munit.FunSuite {
-  import ParamSuite.{User, Post, Booking, Tagged, Task}
+  import ParamSuite.{Booking, Post, Tagged, Task, User}
 
   private val users    = Table.of[User]("users")
   private val posts    = Table.of[Post]("posts")
@@ -31,7 +31,7 @@ class ParamSuite extends munit.FunSuite {
   // -------- SELECT WHERE -------------------------------------------------------
 
   test("SELECT WHERE: single Param[T] yields QueryTemplate[T, R]") {
-    val q = users.select.where(u => u.id === Param[UUID]).compile
+    val q                         = users.select.where(u => u.id === Param[UUID]).compile
     val _: QueryTemplate[UUID, ?] = q
     assertEquals(q.fragment.sql.trim, """SELECT "id", "email", "age" FROM "users" WHERE "id" = $1""")
   }
@@ -61,13 +61,13 @@ class ParamSuite extends munit.FunSuite {
 
   test("SELECT WHERE: Param mixed with Param.bind value — typed Args includes only the Param slot") {
     val emailLike = "%@example.com"
-    val q = users.select
+    val q         = users.select
       .where(u => u.id === Param[UUID])
       .where(u => u.email.like(Param.bind(emailLike)))
       .compile
     val _: QueryTemplate[UUID, ?] = q
-    val af = q.bind(UUID.fromString("22222222-2222-2222-2222-222222222222"))
-    val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
+    val af                        = q.bind(UUID.fromString("22222222-2222-2222-2222-222222222222"))
+    val encoded                   = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
     assertEquals(encoded.length, 2, s"expected both bind slots populated; got: $encoded")
   }
 
@@ -105,7 +105,7 @@ class ParamSuite extends munit.FunSuite {
   // -------- DELETE WHERE -------------------------------------------------------
 
   test("DELETE WHERE: Param[T] threads into Args") {
-    val cmd = users.delete.where(u => u.id === Param[UUID]).compile
+    val cmd                      = users.delete.where(u => u.id === Param[UUID]).compile
     val _: CommandTemplate[UUID] = cmd
     assertEquals(cmd.fragment.sql.trim, """DELETE FROM "users" WHERE "id" = $1""")
   }
@@ -121,7 +121,7 @@ class ParamSuite extends munit.FunSuite {
   // -------- DELETE … RETURNING ------------------------------------------------
 
   test("DELETE … RETURNING with Param[T]: typed Args preserved across RETURNING") {
-    val q = users.delete.where(u => u.id === Param[UUID]).returning(u => u.email)
+    val q                              = users.delete.where(u => u.id === Param[UUID]).returning(u => u.email)
     val _: QueryTemplate[UUID, String] = q
   }
 
@@ -140,9 +140,9 @@ class ParamSuite extends munit.FunSuite {
   // -------- bind / execute path ------------------------------------------------
 
   test("Encoder produces bound values when invoked with the supplied Param value") {
-    val q   = users.select.where(u => u.id === Param[UUID]).compile
-    val uid = UUID.fromString("11111111-1111-1111-1111-111111111111")
-    val af  = q.bind(uid)
+    val q       = users.select.where(u => u.id === Param[UUID]).compile
+    val uid     = UUID.fromString("11111111-1111-1111-1111-111111111111")
+    val af      = q.bind(uid)
     val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
     assertEquals(encoded, List(uid.toString))
   }
@@ -152,8 +152,8 @@ class ParamSuite extends munit.FunSuite {
       .where(u => u.id === Param[UUID])
       .where(u => u.age >= Param[Int])
       .compile
-    val uid = UUID.fromString("33333333-3333-3333-3333-333333333333")
-    val af  = q.bind((uid, 21))
+    val uid     = UUID.fromString("33333333-3333-3333-3333-333333333333")
+    val af      = q.bind((uid, 21))
     val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
     assertEquals(encoded, List(uid.toString, "21"))
   }
@@ -161,7 +161,7 @@ class ParamSuite extends munit.FunSuite {
   // -------- Limitations the migration knows about ------------------------------
 
   test("INSERT values: Args = Void (values bake via Param.bind)") {
-    val cmd = users.insert((id = UUID.randomUUID, email = "x@y", age = 30))
+    val cmd                      = users.insert((id = UUID.randomUUID, email = "x@y", age = 30))
     val _: CommandTemplate[Void] = cmd.compile
   }
 
@@ -172,9 +172,9 @@ class ParamSuite extends munit.FunSuite {
   }
 
   test("INSERT.withParams: encoder produces all bound values from the supplied tuple") {
-    val cmd = users.insert.withParams((id = Param[UUID], email = Param[String], age = Param[Int])).compile
-    val uid = UUID.fromString("55555555-5555-5555-5555-555555555555")
-    val af  = cmd.bind((uid, "x@y", 30))
+    val cmd     = users.insert.withParams((id = Param[UUID], email = Param[String], age = Param[Int])).compile
+    val uid     = UUID.fromString("55555555-5555-5555-5555-555555555555")
+    val af      = cmd.bind((uid, "x@y", 30))
     val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
     assertEquals(encoded, List(uid.toString, "x@y", "30"))
   }
@@ -182,7 +182,7 @@ class ParamSuite extends munit.FunSuite {
   // -------- UPDATE SET with Param[T] ------------------------------------------
 
   test("UPDATE SET: single Param[T] threads typed Args through SET, no WHERE") {
-    val cmd = users.update.set(u => u.email := Param[String]).updateAll.compile
+    val cmd                        = users.update.set(u => u.email := Param[String]).updateAll.compile
     val _: CommandTemplate[String] = cmd
     assertEquals(cmd.fragment.sql.trim, """UPDATE "users" SET "email" = $1""")
   }
@@ -215,7 +215,7 @@ class ParamSuite extends munit.FunSuite {
   }
 
   test("UPDATE SET Param + WHERE literal: SetArgs preserved, WArgs = Void") {
-    val cmd = users.update.set(u => u.age := Param[Int]).where(u => u.email === lit("x@y")).compile
+    val cmd                     = users.update.set(u => u.age := Param[Int]).where(u => u.email === lit("x@y")).compile
     val _: CommandTemplate[Int] = cmd
   }
 
@@ -228,7 +228,7 @@ class ParamSuite extends munit.FunSuite {
   }
 
   test("UPDATE SET tuple form with literals: SetArgs widens to Void") {
-    val cmd = users.update.set(u => (u.email := lit("x"), u.age := lit(30))).updateAll.compile
+    val cmd                      = users.update.set(u => (u.email := lit("x"), u.age := lit(30))).updateAll.compile
     val _: CommandTemplate[Void] = cmd
   }
 
@@ -256,13 +256,13 @@ class ParamSuite extends munit.FunSuite {
   }
 
   test("ArrayOps.contains: arrCol @> Param[Arr[String]] — Args = Arr[String]") {
-    val q = tagged.select(_.id).where(t => t.tags.contains(Param[Arr[String]])).compile
+    val q                                = tagged.select(_.id).where(t => t.tags.contains(Param[Arr[String]])).compile
     val _: QueryTemplate[Arr[String], ?] = q
     assert(q.fragment.sql.contains("@>"), q.fragment.sql)
   }
 
   test("ArrayOps.elemOf: Param[String] = ANY(arrCol) — Args = String") {
-    val q = tagged.select(_.id).where(t => Param[String].elemOf(t.tags)).compile
+    val q                           = tagged.select(_.id).where(t => Param[String].elemOf(t.tags)).compile
     val _: QueryTemplate[String, ?] = q
     assert(q.fragment.sql.contains("ANY("), q.fragment.sql)
   }
@@ -393,22 +393,22 @@ class ParamSuite extends munit.FunSuite {
   // -------- SELECT projection: typed Args threading --------------------------
 
   test("SELECT projection: plain tuple of column refs collapses ProjArgs to Void") {
-    val q = users.select(u => (u.id, u.email)).compile
+    val q                         = users.select(u => (u.id, u.email)).compile
     val _: QueryTemplate[Void, ?] = q
   }
 
   test("SELECT projection: single column ref collapses ProjArgs to Void") {
-    val q = users.select(u => u.email).compile
+    val q                              = users.select(u => u.email).compile
     val _: QueryTemplate[Void, String] = q
   }
 
   test("SELECT projection: single Param-bearing expr threads ProjArgs") {
-    val q = users.select(u => Pg.power(u.age, Param[Double])).compile
+    val q                                = users.select(u => Pg.power(u.age, Param[Double])).compile
     val _: QueryTemplate[Double, Double] = q
   }
 
   test("SELECT projection: tuple with one Param threads single ProjArgs") {
-    val q = users.select(u => (u.id, Pg.power(u.age, Param[Double]))).compile
+    val q                                        = users.select(u => (u.id, Pg.power(u.age, Param[Double]))).compile
     val _: QueryTemplate[Double, (UUID, Double)] = q
   }
 
@@ -420,7 +420,7 @@ class ParamSuite extends munit.FunSuite {
   }
 
   test("SELECT projection: named tuple (no Param) compiles cleanly") {
-    val q = users.select(u => (email = u.email, age = u.age)).compile
+    val q                         = users.select(u => (email = u.email, age = u.age)).compile
     val _: QueryTemplate[Void, ?] = q
     // SQL render is unchanged from plain tuple
     assert(q.fragment.sql.contains(""""email", "age""""), q.fragment.sql)
@@ -448,7 +448,7 @@ class ParamSuite extends munit.FunSuite {
   // -------- GROUP BY: typed Args threading -----------------------------------
 
   test("SELECT … groupBy(non-Param column) collapses GArgs to Void") {
-    val q = users.select(u => (u.age, Pg.countAll)).groupBy(u => u.age).compile
+    val q                         = users.select(u => (u.age, Pg.countAll)).groupBy(u => u.age).compile
     val _: QueryTemplate[Void, ?] = q
   }
 
@@ -504,7 +504,7 @@ class ParamSuite extends munit.FunSuite {
   // -------- DISTINCT ON: typed Args threading --------------------------------
 
   test("SELECT DISTINCT ON column ref collapses DArgs to Void") {
-    val q = users.select(u => u.email).distinctOn(u => u.email).compile
+    val q                              = users.select(u => u.email).distinctOn(u => u.email).compile
     val _: QueryTemplate[Void, String] = q
   }
 
@@ -544,7 +544,7 @@ class ParamSuite extends munit.FunSuite {
   // -------- ORDER BY: typed Args threading -----------------------------------
 
   test("SELECT … orderBy(column.desc) collapses OArgs to Void") {
-    val q = users.select(u => u.email).orderBy(u => u.age.desc).compile
+    val q                              = users.select(u => u.email).orderBy(u => u.age.desc).compile
     val _: QueryTemplate[Void, String] = q
   }
 
@@ -585,12 +585,12 @@ class ParamSuite extends munit.FunSuite {
   // -------- Variadic-typed: Pg.coalesce / Pg.concat ---------------------------
 
   test("Pg.coalesce(col) preserves Args = Void for column ref") {
-    val q = users.select(u => Pg.coalesce(u.email)).compile
+    val q                              = users.select(u => Pg.coalesce(u.email)).compile
     val _: QueryTemplate[Void, String] = q
   }
 
   test("Pg.coalesce(col, Param) threads Args = Param's type via Concat") {
-    val q = users.select(u => Pg.coalesce(u.email, Param[String])).compile
+    val q                                = users.select(u => Pg.coalesce(u.email, Param[String])).compile
     val _: QueryTemplate[String, String] = q
   }
 
@@ -627,7 +627,7 @@ class ParamSuite extends munit.FunSuite {
   }
 
   test("Pg.concat(col, Param) threads typed Args") {
-    val q = users.select(u => Pg.concat(u.email, Param[String])).compile
+    val q                                = users.select(u => Pg.concat(u.email, Param[String])).compile
     val _: QueryTemplate[String, String] = q
   }
 
@@ -643,12 +643,12 @@ class ParamSuite extends munit.FunSuite {
   }
 
   test("Pg.greatest at arity 2 threads typed Args") {
-    val q = users.select(u => Pg.greatest(u.age, Param[Int])).compile
+    val q                          = users.select(u => Pg.greatest(u.age, Param[Int])).compile
     val _: QueryTemplate[Int, Int] = q
   }
 
   test("Pg.least at arity 3 threads typed Args flat as (Int, Int)") {
-    val q = users.select(u => Pg.least(Param[Int], u.age, Param[Int])).compile
+    val q                                 = users.select(u => Pg.least(Param[Int], u.age, Param[Int])).compile
     val _: QueryTemplate[(Int, Int), Int] = q
   }
 
@@ -673,17 +673,17 @@ class ParamSuite extends munit.FunSuite {
   }
 
   test("Pg.lpad(col, 4, fill) propagates Args from the typed expr only") {
-    val q = users.select(u => Pg.lpad(u.email, 4, "*")).compile
+    val q                              = users.select(u => Pg.lpad(u.email, 4, "*")).compile
     val _: QueryTemplate[Void, String] = q
   }
 
   test("Pg.rpad(Param, 4, fill) threads Param through expr position") {
-    val q = empty.select(_ => Pg.rpad(Param[String], 4, "_")).compile
+    val q                                = empty.select(_ => Pg.rpad(Param[String], 4, "_")).compile
     val _: QueryTemplate[String, String] = q
   }
 
   test("Pg.lag(Param, 1, default) threads Param through expr position") {
-    val q = users.select(_ => Pg.lag(Param[String], 1, "n/a")).compile
+    val q                                = users.select(_ => Pg.lag(Param[String], 1, "n/a")).compile
     val _: QueryTemplate[String, String] = q
   }
 
@@ -863,9 +863,9 @@ class ParamSuite extends munit.FunSuite {
 
   test("SelectBuilder.alias threads Param[UUID] from inner WHERE into outer Args") {
     case class User(id: UUID, email: String, age: Int)
-    val users = Table.of[User]("users")
-    val sub   = users.select.where(u => u.id === Param[UUID]).alias("u")
-    val qt    = sub.select.compile
+    val users                     = Table.of[User]("users")
+    val sub                       = users.select.where(u => u.id === Param[UUID]).alias("u")
+    val qt                        = sub.select.compile
     val _: QueryTemplate[UUID, ?] = qt
     assertEquals(
       qt.fragment.sql.trim,
@@ -875,9 +875,9 @@ class ParamSuite extends munit.FunSuite {
 
   test("cte WHERE Param threads typed Args into outer compile") {
     case class User(id: UUID, email: String, age: Int)
-    val users = Table.of[User]("users")
-    val active = cte("active", users.select.where(u => u.id === Param[UUID]))
-    val qt = active.select.compile
+    val users                     = Table.of[User]("users")
+    val active                    = cte("active", users.select.where(u => u.id === Param[UUID]))
+    val qt                        = active.select.compile
     val _: QueryTemplate[UUID, ?] = qt
     assert(qt.fragment.sql.startsWith("""WITH "active" AS ("""), qt.fragment.sql)
     assert(qt.fragment.sql.contains("""WHERE "id" = $1"""), qt.fragment.sql)
@@ -885,9 +885,9 @@ class ParamSuite extends munit.FunSuite {
 
   test("ProjectedSelect.alias threads Param[UUID] from inner WHERE into outer Args") {
     case class User(id: UUID, email: String, age: Int)
-    val users = Table.of[User]("users")
-    val sub   = users.select(u => u.email).where(u => u.id === Param[UUID]).alias("u")
-    val qt    = sub.select.compile
+    val users                     = Table.of[User]("users")
+    val sub                       = users.select(u => u.email).where(u => u.id === Param[UUID]).alias("u")
+    val qt                        = sub.select.compile
     val _: QueryTemplate[UUID, ?] = qt
     assertEquals(
       qt.fragment.sql.trim,
@@ -897,9 +897,9 @@ class ParamSuite extends munit.FunSuite {
 
   test("cte of projected SELECT WHERE Param threads typed Args into outer compile") {
     case class User(id: UUID, email: String, age: Int)
-    val users = Table.of[User]("users")
-    val byId  = cte("by_id", users.select(u => u.email.as("e")).where(u => u.id === Param[UUID]))
-    val qt    = byId.select.compile
+    val users                     = Table.of[User]("users")
+    val byId                      = cte("by_id", users.select(u => u.email.as("e")).where(u => u.id === Param[UUID]))
+    val qt                        = byId.select.compile
     val _: QueryTemplate[UUID, ?] = qt
     assert(qt.fragment.sql.contains("""WITH "by_id" AS ("""), qt.fragment.sql)
     assert(qt.fragment.sql.contains("""WHERE "id" = $1"""), qt.fragment.sql)
@@ -911,8 +911,8 @@ class ParamSuite extends munit.FunSuite {
     val byId  = cte("by_id", users.select.where(u => u.id === Param[UUID]))
     // `.alias("x")` returns a new CteRelation with cteName = "by_id" and aliasName = "x" —
     // BodyArgs (UUID) survives the re-alias and surfaces in the outer Args.
-    val aliased = byId.alias("x")
-    val qt = aliased.select.compile
+    val aliased                   = byId.alias("x")
+    val qt                        = aliased.select.compile
     val _: QueryTemplate[UUID, ?] = qt
     assert(qt.fragment.sql.contains("""WITH "by_id" AS ("""), qt.fragment.sql)
     assert(qt.fragment.sql.contains(""""by_id" AS "x""""), qt.fragment.sql)
@@ -926,7 +926,7 @@ class ParamSuite extends munit.FunSuite {
     case class Post(id: UUID, user_id: UUID, title: String)
     val users = Table.of[User]("users")
     val posts = Table.of[Post]("posts")
-    val qt = users
+    val qt    = users
       .innerJoin(posts)
       .on(r => (r.users.id ==== r.posts.user_id) && (r.posts.id === Param[UUID]))
       .select(r => (r.users.email, r.posts.title))
@@ -941,15 +941,15 @@ class ParamSuite extends munit.FunSuite {
     case class Post(id: UUID, user_id: UUID, title: String)
     val users = Table.of[User]("users")
     val posts = Table.of[Post]("posts")
-    val qt = users
+    val qt    = users
       .innerJoin(posts)
       .on(r => (r.users.id ==== r.posts.user_id) && (r.posts.title === Param[String]))
       .select(r => (r.users.email, r.posts.title))
       .where(r => r.users.age >= Param[Int])
       .compile
     val _: QueryTemplate[(String, Int), (String, String)] = qt
-    assert(qt.fragment.sql.contains("""$1"""), qt.fragment.sql)  // ON pred Param
-    assert(qt.fragment.sql.contains("""$2"""), qt.fragment.sql)  // WHERE Param
+    assert(qt.fragment.sql.contains("""$1"""), qt.fragment.sql) // ON pred Param
+    assert(qt.fragment.sql.contains("""$2"""), qt.fragment.sql) // WHERE Param
   }
 
   test("JOIN ON column-only (Void) collapses cleanly: outer Args = WHERE Args only") {
@@ -957,7 +957,7 @@ class ParamSuite extends munit.FunSuite {
     case class Post(id: UUID, user_id: UUID, title: String)
     val users = Table.of[User]("users")
     val posts = Table.of[Post]("posts")
-    val qt = users
+    val qt    = users
       .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
       .select(r => (r.users.email, r.posts.title))
       .where(r => r.users.age >= Param[Int])
@@ -973,7 +973,7 @@ class ParamSuite extends munit.FunSuite {
     val users = Table.of[User]("users")
     val posts = Table.of[Post]("posts")
     val byId  = posts.select.where(p => p.id === Param[UUID]).alias("p")
-    val qt = users
+    val qt    = users
       .innerJoin(byId)
       .on(r => r.users.id ==== r.p.user_id)
       .select(r => (r.users.email, r.p.title))
@@ -992,21 +992,27 @@ class ParamSuite extends munit.FunSuite {
     val posts  = Table.of[Post]("posts")
     val byMail = users.select.where(u => u.email === Param[String]).alias("u")
     val byId   = posts.select.where(p => p.id === Param[UUID]).alias("p")
-    val qt = byMail
+    val qt     = byMail
       .innerJoin(byId)
       .on(r => r.u.id ==== r.p.user_id)
       .select(r => (r.u.email, r.p.title))
       .compile
     val _: QueryTemplate[(String, UUID), (String, String)] = qt
-    assert(qt.fragment.sql.contains("""(SELECT "id", "email" FROM "users" WHERE "email" = $1) AS "u""""), qt.fragment.sql)
-    assert(qt.fragment.sql.contains("""(SELECT "id", "user_id", "title" FROM "posts" WHERE "id" = $2) AS "p""""), qt.fragment.sql)
+    assert(
+      qt.fragment.sql.contains("""(SELECT "id", "email" FROM "users" WHERE "email" = $1) AS "u""""),
+      qt.fragment.sql
+    )
+    assert(
+      qt.fragment.sql.contains("""(SELECT "id", "user_id", "title" FROM "posts" WHERE "id" = $2) AS "p""""),
+      qt.fragment.sql
+    )
   }
 
   test("typed alias inside outer WHERE Param accumulates in render order [SArgs, WArgs]") {
     case class User(id: UUID, email: String, age: Int)
-    val users = Table.of[User]("users")
-    val sub   = users.select.where(u => u.id === Param[UUID]).alias("u")
-    val qt    = sub.select.where(u => u.email === Param[String]).compile
+    val users                               = Table.of[User]("users")
+    val sub                                 = users.select.where(u => u.id === Param[UUID]).alias("u")
+    val qt                                  = sub.select.where(u => u.email === Param[String]).compile
     val _: QueryTemplate[(UUID, String), ?] = qt
     assert(qt.fragment.sql.contains("WHERE \"id\" = $1"), qt.fragment.sql)
     assert(qt.fragment.sql.contains("WHERE \"email\" = $2"), qt.fragment.sql)
@@ -1014,10 +1020,10 @@ class ParamSuite extends munit.FunSuite {
 
   test("nested typed aliases — inner Param surfaces through both alias layers") {
     case class User(id: UUID, email: String)
-    val users  = Table.of[User]("users")
-    val inner  = users.select.where(u => u.id === Param[UUID]).alias("inner")
-    val outer  = inner.select.alias("outer")
-    val qt     = outer.select.compile
+    val users                     = Table.of[User]("users")
+    val inner                     = users.select.where(u => u.id === Param[UUID]).alias("inner")
+    val outer                     = inner.select.alias("outer")
+    val qt                        = outer.select.compile
     val _: QueryTemplate[UUID, ?] = qt
     assertEquals(
       qt.fragment.sql.trim,
@@ -1031,13 +1037,16 @@ class ParamSuite extends munit.FunSuite {
     val users = Table.of[User]("users")
     val posts = Table.of[Post]("posts")
     val sub   = posts.select(p => (p.user_id, p.title)).where(p => p.id === Param[UUID]).alias("p")
-    val qt = users
+    val qt    = users
       .innerJoin(sub)
       .on(r => r.users.id ==== r.p.user_id)
       .select(r => (r.users.email, r.p.title))
       .compile
     val _: QueryTemplate[UUID, (String, String)] = qt
-    assert(qt.fragment.sql.contains("""(SELECT "user_id", "title" FROM "posts" WHERE "id" = $1) AS "p""""), qt.fragment.sql)
+    assert(
+      qt.fragment.sql.contains("""(SELECT "user_id", "title" FROM "posts" WHERE "id" = $1) AS "p""""),
+      qt.fragment.sql
+    )
   }
 
   // -------- Named-tuple RETURNING typed Args -----------------------------------------------------
@@ -1045,7 +1054,7 @@ class ParamSuite extends munit.FunSuite {
   test("DELETE.returningNamed threads typed Args + projects to NamedTuple row") {
     case class User(id: UUID, email: String, age: Int)
     val users = Table.of[User]("users")
-    val q = users.delete
+    val q     = users.delete
       .where(u => u.id === Param[UUID])
       .returningNamed(u => (id = u.id, email = u.email))
     type Row = (id: UUID, email: String)
@@ -1057,7 +1066,7 @@ class ParamSuite extends munit.FunSuite {
     case class User(id: UUID, email: String, age: Int)
     val users = Table.of[User]("users")
     val uid   = UUID.fromString("11111111-1111-1111-1111-111111111111")
-    val q = users
+    val q     = users
       .insert((id = uid, email = "a@b", age = 30))
       .returningNamed(u => (id = u.id, p = Pg.power(u.age, Param[Double])))
     type Row = (id: UUID, p: Double)
@@ -1067,7 +1076,7 @@ class ParamSuite extends munit.FunSuite {
   test("UPDATE.returningNamed with multiple Params + named labels") {
     case class User(id: UUID, email: String, age: Int)
     val users = Table.of[User]("users")
-    val q = users.update
+    val q     = users.update
       .set(u => u.email := Param[String])
       .where(u => u.id === Param[UUID])
       .returningNamed(u => (powered = Pg.power(u.age, Param[Double]), modded = Pg.mod(u.age, Param[Int])))
@@ -1080,27 +1089,27 @@ class ParamSuite extends munit.FunSuite {
   test("col.in(<Param-bearing subquery>) threads inner Args via Concat") {
     case class User(id: UUID, email: String, age: Int)
     case class Post(id: UUID, user_id: UUID, status: String)
-    val users = Table.of[User]("users")
-    val posts = Table.of[Post]("posts")
-    val activeUsers = posts.select(p => p.user_id).where(p => p.status === Param[String])
-    val q = users.select.where(u => u.id.in(activeUsers)).compile
+    val users                       = Table.of[User]("users")
+    val posts                       = Table.of[Post]("posts")
+    val activeUsers                 = posts.select(p => p.user_id).where(p => p.status === Param[String])
+    val q                           = users.select.where(u => u.id.in(activeUsers)).compile
     val _: QueryTemplate[String, ?] = q
     assert(q.fragment.sql.contains("\"status\" = $1"), q.fragment.sql)
   }
 
   test("col.lteAny(<Param-bearing subquery>) threads inner Args via Concat") {
     case class User(id: UUID, email: String, age: Int)
-    val users = Table.of[User]("users")
-    val ages  = users.select(u => u.age).where(u => u.email === Param[String])
-    val q     = users.select.where(u => u.age.lteAny(ages)).compile
+    val users                       = Table.of[User]("users")
+    val ages                        = users.select(u => u.age).where(u => u.email === Param[String])
+    val q                           = users.select.where(u => u.age.lteAny(ages)).compile
     val _: QueryTemplate[String, ?] = q
     assert(q.fragment.sql.contains("<= ANY") && q.fragment.sql.contains("$1"), q.fragment.sql)
   }
 
   test("col.in(values) preserves Args = Void (values are Param.bind-baked)") {
     case class User(id: UUID, email: String, age: Int)
-    val users = Table.of[User]("users")
-    val q     = users.select.where(u => u.age.in(cats.data.NonEmptyList.of(20, 21, 22))).compile
+    val users                     = Table.of[User]("users")
+    val q                         = users.select.where(u => u.age.in(cats.data.NonEmptyList.of(20, 21, 22))).compile
     val _: QueryTemplate[Void, ?] = q
   }
 
@@ -1109,16 +1118,19 @@ class ParamSuite extends munit.FunSuite {
   test("UPDATE … FROM <typed-args subquery> threads inner Param into outer Args") {
     case class User(id: UUID, email: String, age: Int)
     case class Post(id: UUID, user_id: UUID, status: String)
-    val users = Table.of[User]("users")
-    val posts = Table.of[Post]("posts")
+    val users       = Table.of[User]("users")
+    val posts       = Table.of[Post]("posts")
     val activePosts = posts.select.where(p => p.status === Param[String]).alias("ap")
-    val cmd = users.update
+    val cmd         = users.update
       .from(activePosts)
       .set(r => r.users.age := lit(0))
       .where(r => r.users.id ==== r.ap.user_id)
       .compile
     val _: CommandTemplate[String] = cmd
-    assert(cmd.fragment.sql.contains("""FROM (SELECT "id", "user_id", "status" FROM "posts" WHERE "status" = $1) AS "ap""""), cmd.fragment.sql)
+    assert(
+      cmd.fragment.sql.contains("""FROM (SELECT "id", "user_id", "status" FROM "posts" WHERE "status" = $1) AS "ap""""),
+      cmd.fragment.sql
+    )
   }
 
   // -------- Window OVER (…) typed Args ----------------------------------------------------------
@@ -1126,15 +1138,15 @@ class ParamSuite extends munit.FunSuite {
   test("WindowSpec.partitionBy(Param) threads typed Args via Concat") {
     case class User(id: UUID, email: String, age: Int)
     val users = Table.of[User]("users")
-    val q = users.select(_ => Pg.rowNumber.over(WindowSpec.partitionBy(Param[String]))).compile
+    val q     = users.select(_ => Pg.rowNumber.over(WindowSpec.partitionBy(Param[String]))).compile
     val _: QueryTemplate[String, Long] = q
     assert(q.fragment.sql.contains("PARTITION BY $1"), q.fragment.sql)
   }
 
   test("WindowSpec.orderBy(Param.desc) threads typed Args via Concat") {
     case class User(id: UUID, email: String, age: Int)
-    val users = Table.of[User]("users")
-    val q = users.select(_ => Pg.rank.over(WindowSpec.orderBy(Param[Int].desc))).compile
+    val users                       = Table.of[User]("users")
+    val q                           = users.select(_ => Pg.rank.over(WindowSpec.orderBy(Param[Int].desc))).compile
     val _: QueryTemplate[Int, Long] = q
     assert(q.fragment.sql.contains("ORDER BY $1 DESC"), q.fragment.sql)
   }
@@ -1142,7 +1154,7 @@ class ParamSuite extends munit.FunSuite {
   test("WindowSpec partitionBy(Param) + orderBy(Param.asc) threads both Args") {
     case class User(id: UUID, email: String, age: Int)
     val users = Table.of[User]("users")
-    val q = users
+    val q     = users
       .select(u => Pg.sum(u.age).over(WindowSpec.partitionBy(Param[String]).orderBy(Param[Int].asc)))
       .compile
     val _: QueryTemplate[(String, Int), Long] = q
@@ -1152,7 +1164,7 @@ class ParamSuite extends munit.FunSuite {
   test("WindowSpec chained partitionBy(col).partitionBy(Param) threads Param's Args only") {
     case class User(id: UUID, email: String, age: Int)
     val users = Table.of[User]("users")
-    val q = users
+    val q     = users
       .select(u => Pg.rowNumber.over(WindowSpec.partitionBy(u.email).partitionBy(Param[Int])))
       .compile
     val _: QueryTemplate[Int, Long] = q
@@ -1162,15 +1174,20 @@ class ParamSuite extends munit.FunSuite {
   test("DELETE … USING <typed-args subquery> threads inner Param into outer Args") {
     case class User(id: UUID, email: String, age: Int)
     case class Post(id: UUID, user_id: UUID, status: String)
-    val users = Table.of[User]("users")
-    val posts = Table.of[Post]("posts")
+    val users       = Table.of[User]("users")
+    val posts       = Table.of[Post]("posts")
     val activePosts = posts.select.where(p => p.status === Param[String]).alias("ap")
-    val cmd = users.delete
+    val cmd         = users.delete
       .using(activePosts)
       .where(r => r.users.id ==== r.ap.user_id)
       .compile
     val _: CommandTemplate[String] = cmd
-    assert(cmd.fragment.sql.contains("""USING (SELECT "id", "user_id", "status" FROM "posts" WHERE "status" = $1) AS "ap""""), cmd.fragment.sql)
+    assert(
+      cmd.fragment.sql.contains(
+        """USING (SELECT "id", "user_id", "status" FROM "posts" WHERE "status" = $1) AS "ap""""
+      ),
+      cmd.fragment.sql
+    )
   }
 
 }

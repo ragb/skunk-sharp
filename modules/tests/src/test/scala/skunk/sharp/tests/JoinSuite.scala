@@ -388,7 +388,9 @@ class JoinSuite extends PgFixture {
             .fullJoin(inbox)
             .on(r => r.users.email ==== r.users_inbox.email)
             .select(r => (r.users.email, r.users_inbox.email))
-            .where(r => r.users.email.like(Param.bind(s"%-$tag@x")) || r.users_inbox.email.like(Param.bind(s"%-$tag@x")))
+            .where(r =>
+              r.users.email.like(Param.bind(s"%-$tag@x")) || r.users_inbox.email.like(Param.bind(s"%-$tag@x"))
+            )
             .compile.run(s).map(_.toSet)
           _ = assertEquals(
             pairs,

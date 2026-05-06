@@ -128,7 +128,7 @@ class UpdateDeleteReturningSuite extends PgFixture {
   test("UPDATE SET Param[T] + WHERE Param[T] round-trips through Postgres") {
     withContainers { containers =>
       session(containers).use { s =>
-        val id = UUID.fromString("44444444-4444-4444-4444-444444444444")
+        val id  = UUID.fromString("44444444-4444-4444-4444-444444444444")
         val tpl = users.update
           .set(u => u.email := Param[String])
           .where(u => u.id === Param[UUID])
@@ -144,9 +144,9 @@ class UpdateDeleteReturningSuite extends PgFixture {
             created_at = OffsetDateTime.now(),
             deleted_at = None
           )).compile.run(s)
-          _ <- assertIO(tpl.unique(s)(("after@x", id)), "after@x")
+          _   <- assertIO(tpl.unique(s)(("after@x", id)), "after@x")
           row <- users.select.where(u => u.id === Param.bind(id)).compile.unique(s)
-          _    = assertEquals(row.email, "after@x")
+          _ = assertEquals(row.email, "after@x")
         } yield ()
       }
     }

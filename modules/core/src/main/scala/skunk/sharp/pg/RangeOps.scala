@@ -19,7 +19,9 @@ object IsRange {
 
 }
 
-/** Range operators as extension methods on `TypedExpr[R, X]` where `IsRange[R]` holds. Args from both arms propagate. */
+/**
+ * Range operators as extension methods on `TypedExpr[R, X]` where `IsRange[R]` holds. Args from both arms propagate.
+ */
 object RangeOps {
 
   private inline def boolOp[R, X, Y](op: String, l: TypedExpr[R, X], r: TypedExpr[R, Y]): Where[Where.Concat[X, Y]] = {
@@ -27,25 +29,29 @@ object RangeOps {
     Where(frag)
   }
 
-  private inline def rangeOp[R, X, Y](op: String, l: TypedExpr[R, X], r: TypedExpr[R, Y]): TypedExpr[R, Where.Concat[X, Y]] = {
+  private inline def rangeOp[R, X, Y](
+    op: String,
+    l: TypedExpr[R, X],
+    r: TypedExpr[R, Y]
+  ): TypedExpr[R, Where.Concat[X, Y]] = {
     val frag = TypedExpr.combineSepInl[X, Y](l.fragment, s" $op ", r.fragment)
     TypedExpr[R, Where.Concat[X, Y]](frag, l.codec)
   }
 
   extension [R, X](lhs: TypedExpr[R, X])(using @annotation.unused ev: IsRange[R]) {
 
-    inline def contains[Y](rhs: TypedExpr[R, Y]):           Where[Where.Concat[X, Y]] = boolOp("@>",  lhs, rhs)
-    inline def containedBy[Y](rhs: TypedExpr[R, Y]):        Where[Where.Concat[X, Y]] = boolOp("<@",  lhs, rhs)
-    inline def overlaps[Y](rhs: TypedExpr[R, Y]):           Where[Where.Concat[X, Y]] = boolOp("&&",  lhs, rhs)
-    inline def strictlyLeft[Y](rhs: TypedExpr[R, Y]):       Where[Where.Concat[X, Y]] = boolOp("<<",  lhs, rhs)
-    inline def strictlyRight[Y](rhs: TypedExpr[R, Y]):      Where[Where.Concat[X, Y]] = boolOp(">>",  lhs, rhs)
-    inline def doesNotExtendRight[Y](rhs: TypedExpr[R, Y]): Where[Where.Concat[X, Y]] = boolOp("&<",  lhs, rhs)
-    inline def doesNotExtendLeft[Y](rhs: TypedExpr[R, Y]):  Where[Where.Concat[X, Y]] = boolOp("&>",  lhs, rhs)
-    inline def adjacent[Y](rhs: TypedExpr[R, Y]):           Where[Where.Concat[X, Y]] = boolOp("-|-", lhs, rhs)
+    inline def contains[Y](rhs: TypedExpr[R, Y]): Where[Where.Concat[X, Y]]           = boolOp("@>", lhs, rhs)
+    inline def containedBy[Y](rhs: TypedExpr[R, Y]): Where[Where.Concat[X, Y]]        = boolOp("<@", lhs, rhs)
+    inline def overlaps[Y](rhs: TypedExpr[R, Y]): Where[Where.Concat[X, Y]]           = boolOp("&&", lhs, rhs)
+    inline def strictlyLeft[Y](rhs: TypedExpr[R, Y]): Where[Where.Concat[X, Y]]       = boolOp("<<", lhs, rhs)
+    inline def strictlyRight[Y](rhs: TypedExpr[R, Y]): Where[Where.Concat[X, Y]]      = boolOp(">>", lhs, rhs)
+    inline def doesNotExtendRight[Y](rhs: TypedExpr[R, Y]): Where[Where.Concat[X, Y]] = boolOp("&<", lhs, rhs)
+    inline def doesNotExtendLeft[Y](rhs: TypedExpr[R, Y]): Where[Where.Concat[X, Y]]  = boolOp("&>", lhs, rhs)
+    inline def adjacent[Y](rhs: TypedExpr[R, Y]): Where[Where.Concat[X, Y]]           = boolOp("-|-", lhs, rhs)
 
-    inline def rangeUnion[Y](rhs: TypedExpr[R, Y]):     TypedExpr[R, Where.Concat[X, Y]] = rangeOp("+", lhs, rhs)
+    inline def rangeUnion[Y](rhs: TypedExpr[R, Y]): TypedExpr[R, Where.Concat[X, Y]]     = rangeOp("+", lhs, rhs)
     inline def rangeIntersect[Y](rhs: TypedExpr[R, Y]): TypedExpr[R, Where.Concat[X, Y]] = rangeOp("*", lhs, rhs)
-    inline def rangeDiff[Y](rhs: TypedExpr[R, Y]):      TypedExpr[R, Where.Concat[X, Y]] = rangeOp("-", lhs, rhs)
+    inline def rangeDiff[Y](rhs: TypedExpr[R, Y]): TypedExpr[R, Where.Concat[X, Y]]      = rangeOp("-", lhs, rhs)
 
   }
 

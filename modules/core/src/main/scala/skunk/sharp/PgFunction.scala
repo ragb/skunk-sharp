@@ -4,37 +4,39 @@ import skunk.{Codec, Fragment, Void}
 import skunk.sharp.pg.PgTypeFor
 import skunk.sharp.where.Where
 
-
 /**
- * Typed constructors for Postgres functions and operators. Args of inputs propagate to the result expression
- * via [[where.Where.Concat]] (Void-aware pair).
+ * Typed constructors for Postgres functions and operators. Args of inputs propagate to the result expression via
+ * [[where.Where.Concat]] (Void-aware pair).
  *
  * Extension hooks third-party modules and user code lean on:
  *
- *   - `nullary`        — zero-argument function (`now()`, `current_date`). Produces `TypedExpr[R, Void]`.
- *   - `unary`          — one-argument function (`lower(x)`). Returns `TypedExpr[A, X] => TypedExpr[R, X]` (Args of
- *                        input propagates).
- *   - `binary`         — two-argument function. Result Args is `Concat[X, Y]`.
- *   - `naryTypedFold`  — N-argument helper used by variadic builders (`coalesce`, `greatest`, `least`, `concat`)
- *                        to thread each input's typed Args via [[Where.FoldConcat]] (inline-projected).
+ *   - `nullary` — zero-argument function (`now()`, `current_date`). Produces `TypedExpr[R, Void]`.
+ *   - `unary` — one-argument function (`lower(x)`). Returns `TypedExpr[A, X] => TypedExpr[R, X]` (Args of input
+ *     propagates).
+ *   - `binary` — two-argument function. Result Args is `Concat[X, Y]`.
+ *   - `naryTypedFold` — N-argument helper used by variadic builders (`coalesce`, `greatest`, `least`, `concat`) to
+ *     thread each input's typed Args via [[Where.FoldConcat]] (inline-projected).
  */
 object PgFunction {
 
   /**
-   * Typed N-ary helper: render `name(item, item, …)` with each item's typed `Args` threaded into a single
-   * `Args` slot via [[Where.FoldConcat]]. Because `Where.Concat` is smart-flat, the resulting `Args` is the
-   * non-Void slots flattened into a single tuple (e.g. `coalesce(Param[String], col, Param[String])` →
-   * `(String, String)`). Used by variadic builders (`coalesce` / `greatest` / `least` / `concat`) at every
-   * arity. Inline so the per-slot `projectFoldConcat` dispatch reduces with the concrete `Tup` shape at the
-   * caller's site.
+   * Typed N-ary helper: render `name(item, item, …)` with each item's typed `Args` threaded into a single `Args` slot
+   * via [[Where.FoldConcat]]. Because `Where.Concat` is smart-flat, the resulting `Args` is the non-Void slots
+   * flattened into a single tuple (e.g. `coalesce(Param[String], col, Param[String])` → `(String, String)`). Used by
+   * variadic builders (`coalesce` / `greatest` / `least` / `concat`) at every arity. Inline so the per-slot
+   * `projectFoldConcat` dispatch reduces with the concrete `Tup` shape at the caller's site.
    */
   private[sharp] inline def naryTypedFold[T, Tup <: NonEmptyTuple](
-    name: String, items: List[Fragment[?]], codec: Codec[T]
+    name: String,
+    items: List[Fragment[?]],
+    codec: Codec[T]
   ): TypedExpr[T, Where.FoldConcat[Tup]] = {
     val combined = TypedExpr.combineList[Where.FoldConcat[Tup]](
-      items, ", ", c => Where.projectFoldConcat[Tup](c)
+      items,
+      ", ",
+      c => Where.projectFoldConcat[Tup](c)
     )
-    val frag     = TypedExpr.wrap(s"$name(", combined, ")")
+    val frag = TypedExpr.wrap(s"$name(", combined, ")")
     TypedExpr(frag, codec)
   }
 
@@ -65,8 +67,8 @@ object PgFunction {
 }
 
 /**
- * Typed constructors for Postgres infix operators. Third-party modules (jsonb `->>`, ltree `~`, …) use this to
- * expose operator extensions without touching core. Args of operands propagate via `Concat`.
+ * Typed constructors for Postgres infix operators. Third-party modules (jsonb `->>`, ltree `~`, …) use this to expose
+ * operator extensions without touching core. Args of operands propagate via `Concat`.
  */
 object PgOperator {
 

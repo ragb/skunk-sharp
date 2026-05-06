@@ -48,20 +48,20 @@ trait Relation[Cols <: Tuple] {
   type Mode <: AliasMode
 
   /**
-   * Phantom type: the captured-parameter type of this relation's inner body fragment. `Void` for all
-   * base tables, views, and CTEs. Non-Void only for typed subquery relations produced by
-   * `SelectBuilder.alias` / `ProjectedSelect.alias` — the inner query's `Args` flows here so the outer
-   * `compile` can include them in the outer `QueryTemplate[Args, R]`.
+   * Phantom type: the captured-parameter type of this relation's inner body fragment. `Void` for all base tables,
+   * views, and CTEs. Non-Void only for typed subquery relations produced by `SelectBuilder.alias` /
+   * `ProjectedSelect.alias` — the inner query's `Args` flows here so the outer `compile` can include them in the outer
+   * `QueryTemplate[Args, R]`.
    *
-   * Abstract so that typed subquery relations can override with a concrete `Args` type. All plain
-   * relations (Table, View, CTE, re-aliased wrappers) declare `type BodyArgs = skunk.Void`.
+   * Abstract so that typed subquery relations can override with a concrete `Args` type. All plain relations (Table,
+   * View, CTE, re-aliased wrappers) declare `type BodyArgs = skunk.Void`.
    */
   type BodyArgs
 
   /**
-   * The typed inner fragment for subquery relations whose `BodyArgs ≠ Void`. Returns `None` for all
-   * base tables, views, CTEs, and any relation that doesn't embed a parameterised subquery. Overridden
-   * in the anonymous Relation produced by `SelectBuilder.alias` / `ProjectedSelect.alias`.
+   * The typed inner fragment for subquery relations whose `BodyArgs ≠ Void`. Returns `None` for all base tables, views,
+   * CTEs, and any relation that doesn't embed a parameterised subquery. Overridden in the anonymous Relation produced
+   * by `SelectBuilder.alias` / `ProjectedSelect.alias`.
    */
   def bodyFragmentOpt: Option[Fragment[?]] = None
 
@@ -112,9 +112,9 @@ trait Relation[Cols <: Tuple] {
     else TypedExpr.raw(s"""$qualifiedName AS "$a"""")
 
   /**
-   * Cached `<qualifiedName>` AppliedFragment — reused on every compile that references this relation under
-   * its default alias (the typical `users.select` / `users.innerJoin(posts)` path). Initialises once per
-   * Relation instance and stays constant for its lifetime; aliased rewrites (`alias != name`) build fresh.
+   * Cached `<qualifiedName>` AppliedFragment — reused on every compile that references this relation under its default
+   * alias (the typical `users.select` / `users.innerJoin(posts)` path). Initialises once per Relation instance and
+   * stays constant for its lifetime; aliased rewrites (`alias != name`) build fresh.
    */
   protected lazy val fromFragmentDefault: AppliedFragment = TypedExpr.raw(qualifiedName)
 
@@ -122,24 +122,23 @@ trait Relation[Cols <: Tuple] {
   final def fromFragment: AppliedFragment = fromFragmentWith(currentAlias)
 
   /**
-   * Cached `ColumnsView[Cols]` — the named-tuple of `TypedColumn`s passed to WHERE / SELECT / ORDER BY
-   * lambdas when the source's alias matches this relation's own (no qualifier rewrite). Built once per
-   * Relation instance and reused across every builder that fronts this relation, so the per-builder
-   * `buildSelectView` path doesn't construct a fresh `Array` + N `TypedColumn`s on each `.where` /
-   * `.orderBy` / `.select(lambda)` call. Aliased rewrites (`alias != currentAlias`) build fresh via
-   * `ColumnsView.qualified(...)` since the qualifier can vary.
+   * Cached `ColumnsView[Cols]` — the named-tuple of `TypedColumn`s passed to WHERE / SELECT / ORDER BY lambdas when the
+   * source's alias matches this relation's own (no qualifier rewrite). Built once per Relation instance and reused
+   * across every builder that fronts this relation, so the per-builder `buildSelectView` path doesn't construct a fresh
+   * `Array` + N `TypedColumn`s on each `.where` / `.orderBy` / `.select(lambda)` call. Aliased rewrites (`alias !=
+   * currentAlias`) build fresh via `ColumnsView.qualified(...)` since the qualifier can vary.
    */
   final lazy val columnsView: ColumnsView[Cols] = ColumnsView(columns)
 
   /**
-   * Cached `<col1>, <col2>, …` SELECT projection list — interned once per Relation. The whole-row
-   * projection of `users.select.compile` reuses this AppliedFragment, skipping the per-compile column-name
-   * `mkString` + interpolation. Sources whose `effectiveCols` differ from the relation's `columns` (LEFT /
-   * RIGHT / FULL JOIN nullabilification) build fresh.
+   * Cached `<col1>, <col2>, …` SELECT projection list — interned once per Relation. The whole-row projection of
+   * `users.select.compile` reuses this AppliedFragment, skipping the per-compile column-name `mkString` +
+   * interpolation. Sources whose `effectiveCols` differ from the relation's `columns` (LEFT / RIGHT / FULL JOIN
+   * nullabilification) build fresh.
    */
   final lazy val starProjAf: AppliedFragment = {
-    val cols = columns.toList.asInstanceOf[List[skunk.sharp.Column[?, ?, ?, ?]]]
-    val sb   = new StringBuilder
+    val cols  = columns.toList.asInstanceOf[List[skunk.sharp.Column[?, ?, ?, ?]]]
+    val sb    = new StringBuilder
     var first = true
     cols.foreach { c =>
       if (first) first = false else sb ++= ", "
@@ -151,18 +150,18 @@ trait Relation[Cols <: Tuple] {
   }
 
   /**
-   * Cached `<col1>, …, <colN> FROM <qualifiedName>` AppliedFragment — the entire projection-plus-FROM body
-   * of a default `users.select.compile` collapses to this single interned AF when the relation has a
-   * parameterless FROM fragment (Table / View). Subquery-derived relations carry `$N` placeholders in their
-   * FROM fragment, so combining the static projection list with the from-AF would lose those parameters —
-   * those relations return `None` here and the SELECT compiler falls back to the dynamic build.
+   * Cached `<col1>, …, <colN> FROM <qualifiedName>` AppliedFragment — the entire projection-plus-FROM body of a default
+   * `users.select.compile` collapses to this single interned AF when the relation has a parameterless FROM fragment
+   * (Table / View). Subquery-derived relations carry `$N` placeholders in their FROM fragment, so combining the static
+   * projection list with the from-AF would lose those parameters — those relations return `None` here and the SELECT
+   * compiler falls back to the dynamic build.
    */
   lazy val starProjFromAfOpt: Option[AppliedFragment] = {
     val af = fromFragmentWith(currentAlias)
     if (af.fragment.parts.exists(_.isRight)) None
     else {
-      val cols = columns.toList.asInstanceOf[List[skunk.sharp.Column[?, ?, ?, ?]]]
-      val sb   = new StringBuilder
+      val cols  = columns.toList.asInstanceOf[List[skunk.sharp.Column[?, ?, ?, ?]]]
+      val sb    = new StringBuilder
       var first = true
       cols.foreach { c =>
         if (first) first = false else sb ++= ", "

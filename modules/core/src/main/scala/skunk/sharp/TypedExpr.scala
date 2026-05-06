@@ -10,16 +10,16 @@ import skunk.util.Origin
  * A typed SQL expression — the universal vocabulary of the DSL.
  *
  * `T` is the Scala value type the expression decodes to. `Args` is the tuple of values that must be supplied at
- * **execute time** for any `$N` parameter placeholders the expression carries. A column reference contributes no
- * params — its `Args` is `skunk.Void`. A `Param[Int]` contributes one — its `Args` is `Int`. A composed expression
+ * **execute time** for any `$N` parameter placeholders the expression carries. A column reference contributes no params
+ * — its `Args` is `skunk.Void`. A `Param[Int]` contributes one — its `Args` is `Int`. A composed expression
  * (`Pg.lower(col1) ++ col2 || Param[String]`) accumulates the inputs' Args via the [[Where.Concat]] type-level pair
  * reduction (drops `Void` placeholders).
  *
- * Everything operators, functions, WHERE clauses, SELECT projections, INSERT VALUES, UPDATE SET RHS produce and
- * consume is a `TypedExpr[T, A]`. The primitive leaves are [[TypedColumn]] (a column reference,
- * `TypedExpr[T, Void]`), `TypedExpr.lit` (an inline primitive literal, `TypedExpr[T, Void]`), and [[Param]] (a
- * deferred parameter, `TypedExpr[T, T]`). Third-party modules add new operators and functions by returning
- * `TypedExpr[..., A]` whose Args reflect what their inputs contribute.
+ * Everything operators, functions, WHERE clauses, SELECT projections, INSERT VALUES, UPDATE SET RHS produce and consume
+ * is a `TypedExpr[T, A]`. The primitive leaves are [[TypedColumn]] (a column reference, `TypedExpr[T, Void]`),
+ * `TypedExpr.lit` (an inline primitive literal, `TypedExpr[T, Void]`), and [[Param]] (a deferred parameter,
+ * `TypedExpr[T, T]`). Third-party modules add new operators and functions by returning `TypedExpr[..., A]` whose Args
+ * reflect what their inputs contribute.
  */
 trait TypedExpr[T, Args] {
 
@@ -27,19 +27,19 @@ trait TypedExpr[T, Args] {
   def fragment: Fragment[Args]
 
   /** Codec for decoding the resulting Postgres value into `T`. */
-  def codec:    Codec[T]
+  def codec: Codec[T]
 }
 
 object TypedExpr {
 
   /**
    * Construct a `TypedExpr` whose `fragment` is computed **lazily** — by-name argument plus `lazy val` inside.
-   * Operators, functions, and subquery lifters (`.asExpr`, `Pg.exists`, …) compose other `TypedExpr`s by touching
-   * their `fragment`; chaining off this one means nothing is materialised until the outermost
-   * `SelectBuilder.compile` / `ProjectedSelect.compile` walks the expression tree and pulls on `fragment`.
+   * Operators, functions, and subquery lifters (`.asExpr`, `Pg.exists`, …) compose other `TypedExpr`s by touching their
+   * `fragment`; chaining off this one means nothing is materialised until the outermost `SelectBuilder.compile` /
+   * `ProjectedSelect.compile` walks the expression tree and pulls on `fragment`.
    *
-   * The laziness matters most for correlated subquery uses (`Pg.exists(inner)`) where `inner` is a
-   * `SelectBuilder` whose own `.compile` only works once the outer view has been fixed.
+   * The laziness matters most for correlated subquery uses (`Pg.exists(inner)`) where `inner` is a `SelectBuilder`
+   * whose own `.compile` only works once the outer view has been fixed.
    */
   def apply[T, A](frag: => Fragment[A], codec0: Codec[T]): TypedExpr[T, A] = {
     val c = codec0
@@ -50,13 +50,12 @@ object TypedExpr {
   }
 
   /**
-   * Lift a **compile-time primitive literal** into a `TypedExpr[T, Void]`. Supported literal types: `Boolean`,
-   * `Int`, `Long`, `Short`, `Byte`, `Float`, `Double`. The literal is rendered inline in the SQL text
-   * (`TRUE` / `42` / `'Infinity'::float8` / …), never as a bound `$N` parameter. Args is `Void` (no execute-time
-   * input needed).
+   * Lift a **compile-time primitive literal** into a `TypedExpr[T, Void]`. Supported literal types: `Boolean`, `Int`,
+   * `Long`, `Short`, `Byte`, `Float`, `Double`. The literal is rendered inline in the SQL text (`TRUE` / `42` /
+   * `'Infinity'::float8` / …), never as a bound `$N` parameter. Args is `Void` (no execute-time input needed).
    *
-   * Anything else — runtime variables, strings, UUIDs, timestamps, arrays, refined / tag types, user-defined — is
-   * a **compile error**. The error message points at:
+   * Anything else — runtime variables, strings, UUIDs, timestamps, arrays, refined / tag types, user-defined — is a
+   * **compile error**. The error message points at:
    *
    *   - WHERE / SELECT / SET operators with a [[Param]] arg for execute-time-bound values, OR
    *   - [[Param.bind]] for the rare "I want this runtime value baked into a Void-args fragment right now" path.
@@ -65,15 +64,15 @@ object TypedExpr {
     ${ litMacro.impl[T]('value, 'pf) }
 
   /**
-   * Build a `Fragment[Void]` whose parts are the supplied SQL with `Right(codec.sql)` placeholders, and whose
-   * encoder bakes `value` via contramap. Returns `TypedExpr[T, Void]` — the value is fixed at construction time
-   * and isn't supplied at execute. Used by the [[lit]] macro for runtime fallbacks and by [[Param.bind]] as the
-   * "treat this runtime value as already-baked" escape hatch. **Most users want [[Param]] instead.**
+   * Build a `Fragment[Void]` whose parts are the supplied SQL with `Right(codec.sql)` placeholders, and whose encoder
+   * bakes `value` via contramap. Returns `TypedExpr[T, Void]` — the value is fixed at construction time and isn't
+   * supplied at execute. Used by the [[lit]] macro for runtime fallbacks and by [[Param.bind]] as the "treat this
+   * runtime value as already-baked" escape hatch. **Most users want [[Param]] instead.**
    */
   def parameterised[T](value: T)(using pf: PgTypeFor[T]): TypedExpr[T, Void] = {
-    val enc: Encoder[T]            = pf.codec
-    val voidEnc: Encoder[Void]     = enc.contramap[Void](_ => value)
-    val frag: Fragment[Void]       = Fragment(List(Right(enc.sql)), voidEnc, Origin.unknown)
+    val enc: Encoder[T]        = pf.codec
+    val voidEnc: Encoder[Void] = enc.contramap[Void](_ => value)
+    val frag: Fragment[Void]   = Fragment(List(Right(enc.sql)), voidEnc, Origin.unknown)
     apply[T, Void](frag, pf.codec)
   }
 
@@ -96,9 +95,9 @@ object TypedExpr {
   /**
    * Build an `AppliedFragment` from a SQL string — the structural-token escape hatch.
    *
-   * Compile-time-constant arguments intern through a process-wide table at first call; runtime-built strings
-   * always allocate fresh. **Used for SQL keywords / structural pieces** (parens, separators, `FROM`, `WHERE`)
-   * that don't carry user-supplied parameters. For typed expression nodes, use [[apply]] / [[lit]] / [[Param]].
+   * Compile-time-constant arguments intern through a process-wide table at first call; runtime-built strings always
+   * allocate fresh. **Used for SQL keywords / structural pieces** (parens, separators, `FROM`, `WHERE`) that don't
+   * carry user-supplied parameters. For typed expression nodes, use [[apply]] / [[lit]] / [[Param]].
    */
   inline def raw(inline sql: String): AppliedFragment =
     ${ skunk.sharp.internal.RawMacro.impl('sql) }
@@ -110,8 +109,8 @@ object TypedExpr {
    */
   def joined(parts: List[AppliedFragment], sep: String): AppliedFragment =
     parts match {
-      case Nil         => AppliedFragment.empty
-      case head :: Nil => head
+      case Nil                                      => AppliedFragment.empty
+      case head :: Nil                              => head
       case head :: tail if parts.forall(isStaticAf) =>
         val sb = new StringBuilder
         sb ++= staticString(head)
@@ -119,7 +118,7 @@ object TypedExpr {
           sb ++= sep
           sb ++= staticString(p)
         }
-        val str = sb.result()
+        val str                  = sb.result()
         val frag: Fragment[Void] = Fragment(List(Left(str)), Void.codec, Origin.unknown)
         frag(Void)
       case head :: tail =>
@@ -142,15 +141,17 @@ object TypedExpr {
   // ---- Fragment composition helpers --------------------------------------------------------------
 
   /**
-   * Pair two typed Fragments into a single one whose Args is `Where.Concat[A, B]`. The combined encoder
-   * always products both sub-encoders (so any baked values riding on either side flow through), then
-   * contramaps the user's `Concat[A, B]` input back into the `(A, B)` tuple the product consumes — via the
-   * caller-supplied `proj` (typically `c => Where.projectConcat[A, B](c)` materialised at the caller's inline
-   * site so dispatch reduces). The `eq Void.codec` shortcuts skip the product when one side is the literal
-   * Void encoder (no params at all on that side).
+   * Pair two typed Fragments into a single one whose Args is `Where.Concat[A, B]`. The combined encoder always products
+   * both sub-encoders (so any baked values riding on either side flow through), then contramaps the user's
+   * `Concat[A, B]` input back into the `(A, B)` tuple the product consumes — via the caller-supplied `proj` (typically
+   * `c => Where.projectConcat[A, B](c)` materialised at the caller's inline site so dispatch reduces). The
+   * `eq Void.codec` shortcuts skip the product when one side is the literal Void encoder (no params at all on that
+   * side).
    */
   private[sharp] def combine[A, B](
-    a: Fragment[A], b: Fragment[B], proj: Where.Concat[A, B] => (A, B)
+    a: Fragment[A],
+    b: Fragment[B],
+    proj: Where.Concat[A, B] => (A, B)
   ): Fragment[Where.Concat[A, B]] = {
     val parts = a.parts ++ b.parts
     val enc   = combineEnc[A, B](a.encoder, b.encoder, proj)
@@ -162,44 +163,50 @@ object TypedExpr {
    * `combine(a, combine(separatorFragment, b))` but allocates fewer intermediate fragments.
    */
   private[sharp] def combineSep[A, B](
-    a: Fragment[A], sepSql: String, b: Fragment[B], proj: Where.Concat[A, B] => (A, B)
+    a: Fragment[A],
+    sepSql: String,
+    b: Fragment[B],
+    proj: Where.Concat[A, B] => (A, B)
   ): Fragment[Where.Concat[A, B]] = {
     val sepLeft: Either[String, cats.data.State[Int, String]] = Left(sepSql)
-    val parts = a.parts ++ List(sepLeft) ++ b.parts
-    val enc   = combineEnc[A, B](a.encoder, b.encoder, proj)
+    val parts                                                 = a.parts ++ List(sepLeft) ++ b.parts
+    val enc                                                   = combineEnc[A, B](a.encoder, b.encoder, proj)
     Fragment(parts, enc, Origin.unknown)
   }
 
   /** Inline sugar: `combineSep(a, sep, b)` with `Where.projectConcat[A, B]` as the projection. */
   private[sharp] inline def combineSepInl[A, B](
-    a: Fragment[A], sepSql: String, b: Fragment[B]
+    a: Fragment[A],
+    sepSql: String,
+    b: Fragment[B]
   ): Fragment[Where.Concat[A, B]] =
     combineSep[A, B](a, sepSql, b, c => Where.projectConcat[A, B](c))
 
   /** Inline sugar: `combine(a, b)` with `Where.projectConcat[A, B]` as the projection. */
   private[sharp] inline def combineInl[A, B](
-    a: Fragment[A], b: Fragment[B]
+    a: Fragment[A],
+    b: Fragment[B]
   ): Fragment[Where.Concat[A, B]] =
     combine[A, B](a, b, c => Where.projectConcat[A, B](c))
 
   /**
-   * Combine N typed `Fragment`s into one whose `Args` is the caller-claimed `Combined`. The encoder walks
-   * `items` in render order: each non-`Void`-encoder item consumes one entry from `projector(args)`;
-   * Void-encoder items emit nothing. `parts` are interleaved with `sep`.
+   * Combine N typed `Fragment`s into one whose `Args` is the caller-claimed `Combined`. The encoder walks `items` in
+   * render order: each non-`Void`-encoder item consumes one entry from `projector(args)`; Void-encoder items emit
+   * nothing. `parts` are interleaved with `sep`.
    *
-   * Used by variadic builders, RETURNING tuples, SELECT projections, GROUP BY / ORDER BY / DISTINCT ON
-   * lists — anywhere N typed slots need to fold into one. The caller supplies a `projector` matching
-   * `Combined` to the per-item values list; typically `c => Where.projectFoldConcat[Tup](c)` materialised at
-   * the caller's inline expansion site so the per-slot dispatch reduces.
+   * Used by variadic builders, RETURNING tuples, SELECT projections, GROUP BY / ORDER BY / DISTINCT ON lists — anywhere
+   * N typed slots need to fold into one. The caller supplies a `projector` matching `Combined` to the per-item values
+   * list; typically `c => Where.projectFoldConcat[Tup](c)` materialised at the caller's inline expansion site so the
+   * per-slot dispatch reduces.
    */
   def combineList[Combined](
-    items:     List[Fragment[?]],
-    sep:       String,
+    items: List[Fragment[?]],
+    sep: String,
     projector: Combined => List[Any]
   ): Fragment[Combined] = {
     if (items.isEmpty) voidFragment("").asInstanceOf[Fragment[Combined]]
     else {
-      val sepLeft: Either[String, cats.data.State[Int, String]] = Left(sep)
+      val sepLeft: Either[String, cats.data.State[Int, String]]     = Left(sep)
       val parts: List[Either[String, cats.data.State[Int, String]]] =
         items.zipWithIndex.flatMap { case (f, i) =>
           if (i == 0) f.parts
@@ -235,10 +242,10 @@ object TypedExpr {
   }
 
   /**
-   * Variadic Void-aware combine. Treats every input as `Fragment[Void]` (whether structurally Void or
-   * Param.bind-baked Void), interleaves with `sep` between, returns `Fragment[Void]`. Used by variadic
-   * function builders (`Pg.concat`, `Pg.coalesce`, `Pg.greatest`, `Pg.makeDate`, …) where mixing typed
-   * `Param[T]` inputs is roadmap; for now everything must be Void-input on the inside.
+   * Variadic Void-aware combine. Treats every input as `Fragment[Void]` (whether structurally Void or Param.bind-baked
+   * Void), interleaves with `sep` between, returns `Fragment[Void]`. Used by variadic function builders (`Pg.concat`,
+   * `Pg.coalesce`, `Pg.greatest`, `Pg.makeDate`, …) where mixing typed `Param[T]` inputs is roadmap; for now everything
+   * must be Void-input on the inside.
    */
   private[sharp] def joinedVoid(sep: String, parts: List[Fragment[?]]): Fragment[Void] =
     parts match {
@@ -257,13 +264,15 @@ object TypedExpr {
    * `c => Where.projectConcat[A, B](c)`).
    */
   private[sharp] def combineEnc[A, B](
-    a: Encoder[A], b: Encoder[B], proj: Where.Concat[A, B] => (A, B)
+    a: Encoder[A],
+    b: Encoder[B],
+    proj: Where.Concat[A, B] => (A, B)
   ): Encoder[Where.Concat[A, B]] = {
     val voidLeft  = a eq Void.codec
     val voidRight = b eq Void.codec
     if (voidLeft && voidRight) Void.codec.asInstanceOf[Encoder[Where.Concat[A, B]]]
-    else if (voidLeft)         b.asInstanceOf[Encoder[Where.Concat[A, B]]]
-    else if (voidRight)        a.asInstanceOf[Encoder[Where.Concat[A, B]]]
+    else if (voidLeft) b.asInstanceOf[Encoder[Where.Concat[A, B]]]
+    else if (voidRight) a.asInstanceOf[Encoder[Where.Concat[A, B]]]
     else {
       val productEnc: Encoder[(A, B)] = a.product(b)
       productEnc.contramap[Where.Concat[A, B]](proj)
@@ -281,8 +290,8 @@ object TypedExpr {
     Fragment(List(Left(sql)), Void.codec, Origin.unknown)
 
   /**
-   * Lift an `AppliedFragment` to a `Fragment[Void]` by baking its args via `contramap`. Used when bridging
-   * structural / pre-applied pieces (subquery results, `whereRaw` payloads) into typed-Args composition.
+   * Lift an `AppliedFragment` to a `Fragment[Void]` by baking its args via `contramap`. Used when bridging structural /
+   * pre-applied pieces (subquery results, `whereRaw` payloads) into typed-Args composition.
    */
   private[sharp] def liftAfToVoid(af: AppliedFragment): Fragment[Void] = {
     val srcEnc: Encoder[Any] = af.fragment.encoder.asInstanceOf[Encoder[Any]]
@@ -297,8 +306,8 @@ object TypedExpr {
 }
 
 /**
- * Postgres-side cast: `expr::<type>`. Turns a `TypedExpr[T, A]` into a `TypedExpr[U, A]` (Args unchanged — a cast
- * adds no parameters).
+ * Postgres-side cast: `expr::<type>`. Turns a `TypedExpr[T, A]` into a `TypedExpr[U, A]` (Args unchanged — a cast adds
+ * no parameters).
  */
 extension [T, A](expr: TypedExpr[T, A]) {
 
@@ -311,13 +320,13 @@ extension [T, A](expr: TypedExpr[T, A]) {
 
   /** Render the expression with a SQL column alias: `<expr> AS "<name>"`. */
   def as[N <: String & Singleton](name: N): AliasedExpr[T, N, A] = {
-    val parts    = expr.fragment.parts ++ List(Left(s""" AS "$name""""))
-    val frag     = Fragment(parts, expr.fragment.encoder, Origin.unknown)
-    val c        = expr.codec
+    val parts = expr.fragment.parts ++ List(Left(s""" AS "$name""""))
+    val frag  = Fragment(parts, expr.fragment.encoder, Origin.unknown)
+    val c     = expr.codec
     new AliasedExpr[T, N, A] {
-      val aliasName: N            = name
-      val fragment:  Fragment[A]  = frag
-      val codec:     Codec[T]     = c
+      val aliasName: N          = name
+      val fragment: Fragment[A] = frag
+      val codec: Codec[T]       = c
     }
   }
 

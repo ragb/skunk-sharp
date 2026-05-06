@@ -68,7 +68,7 @@ class PgFunctionSuite extends munit.FunSuite {
   // ---- NULL handling ----
 
   test("nullif returns an Option and binds b as a literal parameter") {
-    val q                             = products.select(p => Pg.nullif(p.qty, 0)).compile
+    val q                                = products.select(p => Pg.nullif(p.qty, 0)).compile
     val _: QueryTemplate[?, Option[Int]] = q
     assertEquals(q.fragment.sql, """SELECT nullif("qty", $1) FROM "products"""")
   }

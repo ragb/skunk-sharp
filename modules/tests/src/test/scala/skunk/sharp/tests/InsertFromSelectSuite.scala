@@ -34,7 +34,9 @@ class InsertFromSelectSuite extends PgFixture {
             (id = u3, email = s"old-$tag@x", age = 70, deleted_at = no)
           ).compile.run(s)
           // Backfill: promote only adults from the inbox into the live users table.
-          _ <- users.insert.from(inbox.select.where(u => u.age >= lit(18) && u.email.like(Param.bind(s"%-$tag@x")))).compile.run(s)
+          _ <- users.insert.from(inbox.select.where(u =>
+            u.age >= lit(18) && u.email.like(Param.bind(s"%-$tag@x"))
+          )).compile.run(s)
           _ <- assertIO(
             users.select(u => u.email).where(u => u.email.like(Param.bind(s"%-$tag@x"))).compile.run(s).map(_.toSet),
             Set(s"young-$tag@x", s"mid-$tag@x", s"old-$tag@x")

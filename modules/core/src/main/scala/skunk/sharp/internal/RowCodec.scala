@@ -6,11 +6,11 @@ import skunk.data.{Encoded, Type}
 import skunk.sharp.{Column, ValuesOf}
 
 /**
- * Holds `rowCodec` and `tupleCodec`. Wrapped in an explicit object (rather than top-level `def`s) because
- * Scala 3 represents top-level defs in a synthetic "module class" named after the package; inline methods
- * that reference these from outside the package emit TASTy references to that module class. Test compiles
- * then see "Warning: mocking up superclass for module class internal" and fail at runtime with
- * `NoClassDefFoundError: skunk/sharp/internal`. An explicit object avoids the synthetic module class entirely.
+ * Holds `rowCodec` and `tupleCodec`. Wrapped in an explicit object (rather than top-level `def`s) because Scala 3
+ * represents top-level defs in a synthetic "module class" named after the package; inline methods that reference these
+ * from outside the package emit TASTy references to that module class. Test compiles then see "Warning: mocking up
+ * superclass for module class internal" and fail at runtime with `NoClassDefFoundError: skunk/sharp/internal`. An
+ * explicit object avoids the synthetic module class entirely.
  */
 object RowCodecs {
 
