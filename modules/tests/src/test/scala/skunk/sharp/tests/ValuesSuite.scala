@@ -36,7 +36,7 @@ class ValuesSuite extends PgFixture {
           _ <- assertIO(
             users
               .select(u => u.email)
-              .where(u => u.email.like(s"%-$tag@x"))
+              .where(u => u.email.like(Param.bind(s"%-$tag@x")))
               .compile.run(s).map(_.toSet),
             Set(s"a-$tag@x", s"b-$tag@x")
           )
@@ -67,7 +67,7 @@ class ValuesSuite extends PgFixture {
             .innerJoin(buckets)
             .on(r => r.u.age ==== r.buckets.age)
             .select(r => (r.u.email, r.buckets.bucket))
-            .where(r => r.u.email.like(s"%-$tag@x"))
+            .where(r => r.u.email.like(Param.bind(s"%-$tag@x")))
             .compile.run(s).map(_.toSet)
           _ = assertEquals(
             labelled,

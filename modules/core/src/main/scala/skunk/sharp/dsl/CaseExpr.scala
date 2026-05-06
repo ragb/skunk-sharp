@@ -1,72 +1,115 @@
 package skunk.sharp.dsl
 
-import skunk.Codec
+import skunk.{Codec, Encoder, Fragment, Void}
 import skunk.sharp.TypedExpr
-import skunk.sharp.where.Where
 
 /**
- * `CASE WHEN … THEN … [ELSE …] END` — the universal conditional primitive. Usable in SELECT projections, WHERE, ORDER
- * BY, UPDATE SET right-hand sides, GROUP BY — anywhere a [[TypedExpr]] is accepted.
+ * `CASE WHEN … THEN … [ELSE …] END` — the universal conditional primitive. Usable in SELECT projections,
+ * WHERE, ORDER BY, UPDATE SET right-hand sides, GROUP BY — anywhere a [[TypedExpr]] is accepted.
  *
- * {{{
- *   caseWhen(u.age < 18, lit("minor"))
- *     .when(u.age < 65, lit("adult"))
- *     .otherwise(lit("senior"))        // TypedExpr[String]
- * }}}
+ * Branch predicates and bodies may carry their own `Args` (e.g. `Param[T]`). `CaseWhen` carries `Items <:
+ * Tuple` accumulating each `(cond, branch)` pair as `TypedExpr[Boolean, A1] *: TypedExpr[T, A2] *: …`;
+ * `.otherwise` / `.end` summon [[ProjArgsOf]] over the full item list (with ELSE appended for `.otherwise`)
+ * to derive the result's typed `Args`. Branches with all `Args = Void` collapse cleanly to `Void`.
  *
- * Terminate with either `.otherwise(elseBranch)` (returns `TypedExpr[T]`) or `.end` (returns `TypedExpr[Option[T]]` —
- * Postgres returns NULL when no branch matches and there's no ELSE).
- *
- * We ship only the **searched** form (arbitrary boolean per branch). SQL also has a **simple** switch-style form (`CASE
- * target WHEN v1 THEN … END`) but it's strict sugar — `CASE target WHEN v THEN b END` is exactly
- * `CASE WHEN target = v THEN b END`, and Postgres plans them identically. One verb keeps the DSL surface small.
- *
- * The branch output type `T` is inferred from the first `(condition, branch)` pair; subsequent `.when(..., b)` calls
- * require `b: TypedExpr[T]`. A mismatched branch is a plain Scala type error — no match type needed.
- *
- * CASE is a SQL keyword-expression, not a function, so the entry point `caseWhen` lives at the top of the DSL surface
- * (`import skunk.sharp.dsl.*`) alongside `lit` / `param` / `Table`, rather than under `Pg.…`.
+ * Terminate with `.otherwise(elseBranch)` (returns `TypedExpr[T, OutA]`) or `.end` (returns
+ * `TypedExpr[Option[T], OutA]`).
  */
-final class CaseWhen[T] private[sharp] (
-  private val branches: List[(Where, TypedExpr[T])],
-  private val branchCodec: Codec[T]
+final class CaseWhen[T, Items <: Tuple] private[sharp] (
+  private[sharp] val branches:    List[(TypedExpr[Boolean, ?], TypedExpr[T, ?])],
+  private[sharp] val branchCodec: Codec[T]
 ) {
 
-  /** Append another `WHEN` branch. Branch type must match the first branch's `T`. */
-  def when(cond: Where, branch: TypedExpr[T]): CaseWhen[T] =
-    new CaseWhen[T](branches :+ (cond, branch), branchCodec)
+  /** Append another `WHEN` branch. */
+  def when[A1, A2](cond: TypedExpr[Boolean, A1], branch: TypedExpr[T, A2])
+    : CaseWhen[T, Tuple.Concat[Items, TypedExpr[Boolean, A1] *: TypedExpr[T, A2] *: EmptyTuple]] =
+    new CaseWhen(branches :+ (cond, branch), branchCodec)
 
   /** `ELSE <branch> END` — all paths covered, result is always a value of `T`. */
-  def otherwise(branch: TypedExpr[T]): TypedExpr[T] =
-    renderCaseWhen[T](branches, Some(branch), branchCodec)
+  def otherwise[ElseA, OutA](elseBranch: TypedExpr[T, ElseA])(using
+    pa: ProjArgsOf.Aux[Tuple.Concat[Items, TypedExpr[T, ElseA] *: EmptyTuple], OutA]
+  ): TypedExpr[T, OutA] =
+    renderCaseWhen[T, OutA](branches, Some(elseBranch), branchCodec, pa.project.asInstanceOf[Any => List[Any]])
 
   /** `END` without an ELSE — Postgres returns NULL when no branch matches, so result is `Option[T]`. */
-  def end: TypedExpr[Option[T]] =
-    renderCaseWhen[Option[T]](
-      branches.map { case (c, b) =>
-        (c, TypedExpr(b.render, b.codec.asInstanceOf[Codec[T]]).asInstanceOf[TypedExpr[Option[T]]])
-      },
-      None,
-      branchCodec.opt
+  def end[OutA](using pa: ProjArgsOf.Aux[Items, OutA]): TypedExpr[Option[T], OutA] = {
+    val coercedBranches = branches.map { case (c, b) => (c, b.asInstanceOf[TypedExpr[Option[T], ?]]) }
+    renderCaseWhen[Option[T], OutA](
+      coercedBranches, None, branchCodec.opt, pa.project.asInstanceOf[Any => List[Any]]
     )
+  }
 
 }
 
-private def renderCaseWhen[R](
-  branches: List[(Where, TypedExpr[?])],
-  elseOpt: Option[TypedExpr[?]],
-  codec0: Codec[R]
-): TypedExpr[R] =
-  TypedExpr(
-    {
-      val head      = TypedExpr.raw("CASE")
-      val whenParts = branches.foldLeft(head) { case (acc, (cond, br)) =>
-        acc |+|
-          TypedExpr.raw(" WHEN ") |+| cond.render |+|
-          TypedExpr.raw(" THEN ") |+| br.render
+/**
+ * Build the CASE expression's parts list and a custom encoder that walks the typed slots in render
+ * order — `[cond1, branch1, cond2, branch2, ..., (elseBranch?)]` — dispatching the user-supplied `OutA`
+ * value through the [[ProjArgsOf]]-derived projector.
+ */
+private def renderCaseWhen[R, OutA](
+  branches:  List[(TypedExpr[Boolean, ?], TypedExpr[R, ?])],
+  elseOpt:   Option[TypedExpr[R, ?]],
+  codec0:    Codec[R],
+  projector: Any => List[Any]
+): TypedExpr[R, OutA] = {
+  val typedItems: List[Fragment[?]] =
+    branches.flatMap { case (c, b) => List(c.fragment, b.fragment) } ++
+      elseOpt.toList.map(_.fragment)
+
+  val partsBuf = scala.collection.mutable.ListBuffer[Either[String, cats.data.State[Int, String]]]()
+  partsBuf += Left("CASE")
+  branches.foreach { case (c, b) =>
+    partsBuf += Left(" WHEN ")
+    partsBuf ++= c.fragment.parts
+    partsBuf += Left(" THEN ")
+    partsBuf ++= b.fragment.parts
+  }
+  elseOpt.foreach { e =>
+    partsBuf += Left(" ELSE ")
+    partsBuf ++= e.fragment.parts
+  }
+  partsBuf += Left(" END")
+
+  val enc: Encoder[OutA] = new Encoder[OutA] {
+    override val types: List[skunk.data.Type] = typedItems.flatMap(_.encoder.types)
+
+    override val sql: cats.data.State[Int, String] =
+      cats.data.State { (n0: Int) =>
+        val sb = new StringBuilder("CASE")
+        var n  = n0
+        branches.foreach { case (c, b) =>
+          sb ++= " WHEN "
+          val (n1, cs) = c.fragment.encoder.sql.run(n).value
+          sb ++= cs
+          sb ++= " THEN "
+          val (n2, bs) = b.fragment.encoder.sql.run(n1).value
+          sb ++= bs
+          n = n2
+        }
+        elseOpt.foreach { e =>
+          sb ++= " ELSE "
+          val (n3, es) = e.fragment.encoder.sql.run(n).value
+          sb ++= es
+          n = n3
+        }
+        sb ++= " END"
+        (n, sb.result())
       }
-      val withElse = elseOpt.fold(whenParts)(e => whenParts |+| TypedExpr.raw(" ELSE ") |+| e.render)
-      withElse |+| TypedExpr.raw(" END")
-    },
-    codec0
-  )
+
+    override def encode(args: OutA): List[Option[skunk.data.Encoded]] = {
+      val values = projector(args)
+      if (values.size != typedItems.size)
+        throw new IllegalStateException(
+          s"skunk-sharp: CASE projector arity mismatch — got ${values.size}, expected ${typedItems.size}"
+        )
+      typedItems.zip(values).flatMap { case (f, v) =>
+        val e = f.encoder.asInstanceOf[Encoder[Any]]
+        if (e eq Void.codec) Nil
+        else e.encode(v)
+      }
+    }
+  }
+
+  val frag: Fragment[OutA] = Fragment(partsBuf.toList, enc, skunk.util.Origin.unknown)
+  TypedExpr[R, OutA](frag, codec0)
+}

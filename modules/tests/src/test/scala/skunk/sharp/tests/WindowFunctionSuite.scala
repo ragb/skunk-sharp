@@ -33,12 +33,12 @@ class WindowFunctionSuite extends PgFixture {
           _    <- seed(s, pfx)
           rows <- users
             .select(u => (u.email, Pg.rowNumber.over(WindowSpec.orderBy(u.age.asc))))
-            .where(u => u.email.like(s"$pfx-%"))
+            .where(u => u.email.like(Param.bind(s"$pfx-%")))
             .orderBy(u => u.age.asc)
             .compile.run(s)
           nums = rows.map(_._2)
           _    = assert(nums.nonEmpty, "expected results")
-          _    = assert(nums.forall(_ > 0L), s"all row_numbers must be > 0, got $nums")
+          _    = assert(nums.forall(_ > 0L), s"all row_numbers must be > lit(0), got $nums")
           _    = assertEquals(nums.toSet.size, nums.size, s"row_numbers must be unique, got $nums")
         } yield ()
       }
@@ -53,7 +53,7 @@ class WindowFunctionSuite extends PgFixture {
           _    <- seed(s, pfx)
           rows <- users
             .select(u => (u.age, Pg.sum(u.age).over(WindowSpec.partitionBy(u.age))))
-            .where(u => u.email.like(s"$pfx-%"))
+            .where(u => u.email.like(Param.bind(s"$pfx-%")))
             .compile.run(s)
           // age=10 has 2 rows → partition sum = 20; age=30 has 1 → sum=30
           age10Rows = rows.filter(_._1 == 10)
@@ -81,7 +81,7 @@ class WindowFunctionSuite extends PgFixture {
                 )
               )
             )
-            .where(u => u.email.like(s"$pfx-%"))
+            .where(u => u.email.like(Param.bind(s"$pfx-%")))
             .orderBy(u => u.age.asc)
             .compile.run(s)
           _      = assert(rows.nonEmpty, "expected rows")
@@ -101,8 +101,8 @@ class WindowFunctionSuite extends PgFixture {
         for {
           _    <- seed(s, pfx)
           rows <- users
-            .select(u => (u.age, Pg.lag(u.age).over(WindowSpec.orderBy(u.age.asc, u.email.asc))))
-            .where(u => u.email.like(s"$pfx-%"))
+            .select(u => (u.age, Pg.lag(u.age).over(WindowSpec.orderBy(u.age.asc).orderBy(u.email.asc))))
+            .where(u => u.email.like(Param.bind(s"$pfx-%")))
             .orderBy(u => (u.age.asc, u.email.asc))
             .compile.run(s)
           _ = assert(rows.nonEmpty, "expected rows")
@@ -120,8 +120,8 @@ class WindowFunctionSuite extends PgFixture {
         for {
           _    <- seed(s, pfx)
           rows <- users
-            .select(u => (u.age, Pg.lag(u.age, 1, 0).over(WindowSpec.orderBy(u.age.asc, u.email.asc))))
-            .where(u => u.email.like(s"$pfx-%"))
+            .select(u => (u.age, Pg.lag(u.age, 1, 0).over(WindowSpec.orderBy(u.age.asc).orderBy(u.email.asc))))
+            .where(u => u.email.like(Param.bind(s"$pfx-%")))
             .orderBy(u => (u.age.asc, u.email.asc))
             .compile.run(s)
           _ = assert(rows.nonEmpty, "expected rows")
@@ -141,7 +141,7 @@ class WindowFunctionSuite extends PgFixture {
             .select(u =>
               (u.age, Pg.rank.over(WindowSpec.orderBy(u.age.asc)), Pg.denseRank.over(WindowSpec.orderBy(u.age.asc)))
             )
-            .where(u => u.email.like(s"$pfx-%"))
+            .where(u => u.email.like(Param.bind(s"$pfx-%")))
             .orderBy(u => u.age.asc)
             .compile.run(s)
           _ = assert(rows.nonEmpty, "expected rows")
@@ -149,7 +149,7 @@ class WindowFunctionSuite extends PgFixture {
           age20Rows                = rows.filter(_._1 == 20)
           _                        = assert(age20Rows.nonEmpty, "need age=20 rows")
           (_, rank20, denseRank20) = age20Rows.head
-          _ = assert(rank20 >= 3L, s"rank for age=20 (after 2 age=10 ties) should be >= 3, got $rank20")
+          _ = assert(rank20 >= 3L, s"rank for age=20 (after 2 age=10 ties) should be >= lit(3), got $rank20")
           _ = assert(denseRank20 == 2L, s"dense_rank for age=20 should be 2, got $denseRank20")
         } yield ()
       }
@@ -176,7 +176,7 @@ class WindowFunctionSuite extends PgFixture {
                 ))
               )
             )
-            .where(u => u.email.like(s"$pfx-%"))
+            .where(u => u.email.like(Param.bind(s"$pfx-%")))
             .compile.run(s)
           _ = assert(rows.nonEmpty, "expected rows")
           _ = assert(rows.forall(_._2 == 10), s"first_value should always be 10 (min age), got ${rows.map(_._2)}")

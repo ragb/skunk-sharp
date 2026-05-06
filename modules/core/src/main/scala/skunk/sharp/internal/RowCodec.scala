@@ -6,30 +6,30 @@ import skunk.data.{Encoded, Type}
 import skunk.sharp.{Column, ValuesOf}
 
 /**
- * Compose the per-column skunk codecs declared in `Cols` into a single codec over the tuple `ValuesOf[Cols]`.
- *
- * Runs once at query-build time (not per row), so walking the tuple at runtime is acceptable. The static shape is
- * preserved via a single `asInstanceOf` at each return path — all of `ValuesOf`, `EmptyTuple`, and `*:` are compatible
- * with the runtime tuple representation.
+ * Holds `rowCodec` and `tupleCodec`. Wrapped in an explicit object (rather than top-level `def`s) because Scala 3
+ * represents top-level defs in a synthetic "module class" named after the package; inline methods that reference these
+ * from outside the package emit TASTy references to that module class. Test compiles then see "Warning: mocking up
+ * superclass for module class internal" and fail at runtime with `NoClassDefFoundError: skunk/sharp/internal`. An
+ * explicit object avoids the synthetic module class entirely.
  */
-def rowCodec[Cols <: Tuple](cols: Cols): Codec[ValuesOf[Cols]] =
-  (cols: Tuple) match {
-    case EmptyTuple =>
-      RowCodec.empty.asInstanceOf[Codec[ValuesOf[Cols]]]
-    case head *: tail =>
-      val col       = head.asInstanceOf[Column[?, ?, ?, ?]]
-      val tailCodec = rowCodec(tail)
-      RowCodec.cons(col.codec, tailCodec).asInstanceOf[Codec[ValuesOf[Cols]]]
-  }
+object RowCodecs {
 
-/**
- * Compose a runtime list of codecs into a tuple-typed codec. Used by projection builders that operate on a
- * `List[TypedExpr[?]]` rather than a typed `Cols` tuple.
- */
-def tupleCodec(codecs: List[Codec[?]]): Codec[Tuple] =
-  codecs.foldRight(RowCodec.empty.asInstanceOf[Codec[Tuple]]) { (c, acc) =>
-    RowCodec.cons(c.asInstanceOf[Codec[Any]], acc).asInstanceOf[Codec[Tuple]]
-  }
+  def rowCodec[Cols <: Tuple](cols: Cols): Codec[ValuesOf[Cols]] =
+    (cols: Tuple) match {
+      case EmptyTuple =>
+        RowCodec.empty.asInstanceOf[Codec[ValuesOf[Cols]]]
+      case head *: tail =>
+        val col       = head.asInstanceOf[Column[?, ?, ?, ?]]
+        val tailCodec = rowCodec(tail)
+        RowCodec.cons(col.codec, tailCodec).asInstanceOf[Codec[ValuesOf[Cols]]]
+    }
+
+  def tupleCodec(codecs: List[Codec[?]]): Codec[Tuple] =
+    codecs.foldRight(RowCodec.empty.asInstanceOf[Codec[Tuple]]) { (c, acc) =>
+      RowCodec.cons(c.asInstanceOf[Codec[Any]], acc).asInstanceOf[Codec[Tuple]]
+    }
+
+}
 
 private object RowCodec {
 

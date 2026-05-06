@@ -23,7 +23,7 @@ class SetOpSuite extends PgFixture {
    * collide on the `users.email` UNIQUE index. The returned `Fixture` bundles the insert command, the three ids, and a
    * tag-scoped age filter to isolate queries from other tests' rows.
    */
-  private case class Fixture(insert: CompiledCommand, old: UUID, mid: UUID, young: UUID, tag: String)
+  private case class Fixture(insert: CommandTemplate[skunk.Void], old: UUID, mid: UUID, young: UUID, tag: String)
 
   private def fixtureFor(tag: String): Fixture = {
     val old    = UUID.randomUUID
@@ -45,8 +45,8 @@ class SetOpSuite extends PgFixture {
         for {
           _ <- f.insert.run(s)
           // Both arms match "mid-<tag>@x"; UNION should return it once. `like` filter narrows to this test's rows.
-          result <- users.select(u => u.email).where(u => u.age >= 40 && u.email.like(s"%-${f.tag}@x"))
-            .union(users.select(u => u.email).where(u => u.id === f.mid))
+          result <- users.select(u => u.email).where(u => u.age >= lit(40) && u.email.like(Param.bind(s"%-${f.tag}@x")))
+            .union(users.select(u => u.email).where(u => u.id === Param.bind(f.mid)))
             .compile.run(s).map(_.toSet)
           _ = assertEquals(result, Set(s"old-${f.tag}@x", s"mid-${f.tag}@x"))
         } yield ()
@@ -60,8 +60,8 @@ class SetOpSuite extends PgFixture {
         val f = fixtureFor("union-all")
         for {
           _      <- f.insert.run(s)
-          result <- users.select(u => u.email).where(u => u.age >= 40 && u.email.like(s"%-${f.tag}@x"))
-            .unionAll(users.select(u => u.email).where(u => u.id === f.mid))
+          result <- users.select(u => u.email).where(u => u.age >= lit(40) && u.email.like(Param.bind(s"%-${f.tag}@x")))
+            .unionAll(users.select(u => u.email).where(u => u.id === Param.bind(f.mid)))
             .compile.run(s)
           _ = assertEquals(result.count(_ == s"mid-${f.tag}@x"), 2)
           _ = assertEquals(result.toSet, Set(s"old-${f.tag}@x", s"mid-${f.tag}@x"))
@@ -76,8 +76,8 @@ class SetOpSuite extends PgFixture {
         val f = fixtureFor("intersect")
         for {
           _      <- f.insert.run(s)
-          result <- users.select(u => u.email).where(u => u.age >= 30 && u.email.like(s"%-${f.tag}@x"))
-            .intersect(users.select(u => u.email).where(u => u.age <= 50 && u.email.like(s"%-${f.tag}@x")))
+          result <- users.select(u => u.email).where(u => u.age >= lit(30) && u.email.like(Param.bind(s"%-${f.tag}@x")))
+            .intersect(users.select(u => u.email).where(u => u.age <= lit(50) && u.email.like(Param.bind(s"%-${f.tag}@x"))))
             .compile.run(s).map(_.toSet)
           _ = assertEquals(result, Set(s"mid-${f.tag}@x"))
         } yield ()
@@ -91,8 +91,8 @@ class SetOpSuite extends PgFixture {
         val f = fixtureFor("except")
         for {
           _      <- f.insert.run(s)
-          result <- users.select(u => u.email).where(u => u.age >= 30 && u.email.like(s"%-${f.tag}@x"))
-            .except(users.select(u => u.email).where(u => u.age >= 50 && u.email.like(s"%-${f.tag}@x")))
+          result <- users.select(u => u.email).where(u => u.age >= lit(30) && u.email.like(Param.bind(s"%-${f.tag}@x")))
+            .except(users.select(u => u.email).where(u => u.age >= lit(50) && u.email.like(Param.bind(s"%-${f.tag}@x"))))
             .compile.run(s).map(_.toSet)
           _ = assertEquals(result, Set(s"mid-${f.tag}@x"))
         } yield ()
@@ -107,9 +107,9 @@ class SetOpSuite extends PgFixture {
         for {
           _ <- f.insert.run(s)
           // UNION of (>=30) and (<=50) = all three; EXCEPT (==70) → two rows.
-          result <- users.select(u => u.email).where(u => u.age >= 30 && u.email.like(s"%-${f.tag}@x"))
-            .union(users.select(u => u.email).where(u => u.age <= 50 && u.email.like(s"%-${f.tag}@x")))
-            .except(users.select(u => u.email).where(u => u.age === 70 && u.email.like(s"%-${f.tag}@x")))
+          result <- users.select(u => u.email).where(u => u.age >= lit(30) && u.email.like(Param.bind(s"%-${f.tag}@x")))
+            .union(users.select(u => u.email).where(u => u.age <= lit(50) && u.email.like(Param.bind(s"%-${f.tag}@x"))))
+            .except(users.select(u => u.email).where(u => u.age === lit(70) && u.email.like(Param.bind(s"%-${f.tag}@x"))))
             .compile.run(s).map(_.toSet)
           _ = assertEquals(result, Set(s"mid-${f.tag}@x", s"young-${f.tag}@x"))
         } yield ()
@@ -123,8 +123,8 @@ class SetOpSuite extends PgFixture {
         val f = fixtureFor("in-sub")
         for {
           _ <- f.insert.run(s)
-          ids = users.select(u => u.id).where(u => u.age >= 60 && u.email.like(s"%-${f.tag}@x"))
-            .union(users.select(u => u.id).where(u => u.age <= 30 && u.email.like(s"%-${f.tag}@x")))
+          ids = users.select(u => u.id).where(u => u.age >= lit(60) && u.email.like(Param.bind(s"%-${f.tag}@x")))
+            .union(users.select(u => u.id).where(u => u.age <= lit(30) && u.email.like(Param.bind(s"%-${f.tag}@x"))))
           _ <- assertIO(
             users.select(u => u.email).where(u => u.id.in(ids)).compile.run(s).map(_.toSet),
             Set(s"old-${f.tag}@x", s"young-${f.tag}@x")

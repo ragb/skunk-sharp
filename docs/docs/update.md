@@ -31,14 +31,14 @@ val users = Table.of[User]("users")
 
 // Single column
 val updateEmail = users.update
-  .set(u => u.email := "new@example.com")
-  .where(u => u.id === UUID.randomUUID())
+  .set(u => u.email := lit("new@example.com"))
+  .where(u => u.id === Param.bind(UUID.randomUUID()))
   .compile
 
 // Multiple columns
 val updateBoth = users.update
-  .set(u => (u.email := "x@example.com", u.age := 31))
-  .where(u => u.age < 18)
+  .set(u => (u.email := lit("x@example.com"), u.age := lit(31)))
+  .where(u => u.age < lit(18))
   .compile
 ```
 
@@ -48,7 +48,7 @@ Use `.updateAll` to confirm you intentionally want no WHERE clause:
 
 ```scala mdoc:silent
 val activateAll = users.update
-  .set(u => u.deleted_at := None)
+  .set(u => u.deleted_at := Param.bind(Option.empty[OffsetDateTime]))
   .updateAll
   .compile
 ```
@@ -56,22 +56,22 @@ val activateAll = users.update
 Missing `.where` / `.updateAll`:
 
 ```scala mdoc:fail
-users.update.set(u => u.age := 0).compile
+users.update.set(u => u.age := lit(0)).compile
 ```
 
 ## RETURNING
 
 ```scala mdoc:silent
 val updateReturning = users.update
-  .set(u => u.age := 30)
-  .where(u => u.id === UUID.randomUUID())
+  .set(u => u.age := lit(30))
+  .where(u => u.id === Param.bind(UUID.randomUUID()))
   .returningAll
   .compile
 
 // Map back to the case class
 val updateReturningUser = users.update
-  .set(u => u.age := 30)
-  .where(u => u.id === UUID.randomUUID())
+  .set(u => u.age := lit(30))
+  .where(u => u.id === Param.bind(UUID.randomUUID()))
   .returningAll
   .to[User]
   .compile
@@ -93,7 +93,7 @@ case class UserPatch(email: Option[String], age: Option[Int])
 
 val patch = users.update
   .patch(UserPatch(email = Some("patched@example.com"), age = None))
-  .where(u => u.id === UUID.randomUUID())
+  .where(u => u.id === Param.bind(UUID.randomUUID()))
   .compile
 ```
 

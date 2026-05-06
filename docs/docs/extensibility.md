@@ -45,14 +45,15 @@ No module needed — just a value:
 ```scala mdoc:silent
 import skunk.sharp.dsl.*
 
-val lower  = PgFunction.unary[String, String]("lower")
-val length = PgFunction.unary[String, Int]("length")
+// Generic in `X` so the function preserves the input's `Args` slot.
+def lower[X](e: TypedExpr[String, X]): TypedExpr[String, X]  = PgFunction.unary[String, String, X]("lower")(e)
+def length[X](e: TypedExpr[String, X]): TypedExpr[Int, X]    = PgFunction.unary[String, Int, X]("length")(e)
 
 case class User(id: java.util.UUID, email: String, age: Int, created_at: java.time.OffsetDateTime, deleted_at: Option[java.time.OffsetDateTime])
 val users = Table.of[User]("users").withPrimary("id").withDefault("id").withUnique("email")
 
 val q = users.select(u => lower(u.email))
-             .where(u => length(u.email) > 5)
+             .where(u => length(u.email) > lit(5))
              .compile
 ```
 

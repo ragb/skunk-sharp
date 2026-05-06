@@ -3,7 +3,7 @@ package skunk.sharp.dsl
 import cats.Reducible
 import skunk.{AppliedFragment, Codec, Fragment}
 import skunk.sharp.*
-import skunk.sharp.internal.{rowCodec, tupleCodec, DeriveColumns}
+import skunk.sharp.internal.{DeriveColumns, RowCodecs}, RowCodecs.{rowCodec, tupleCodec}
 import skunk.util.Origin
 
 import scala.NamedTuple

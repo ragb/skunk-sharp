@@ -27,7 +27,7 @@ class ProjectionsSuite extends PgFixture {
             deleted_at = None
           )).compile.run(s)
           _ <- assertIO(
-            users.select.where(u => u.id === id).apply(u => u.email).compile.run(s),
+            users.select.where(u => u.id === Param.bind(id)).apply(u => u.email).compile.run(s),
             List("proj-single@example.com")
           )
         } yield ()
@@ -48,7 +48,7 @@ class ProjectionsSuite extends PgFixture {
             deleted_at = None
           )).compile.run(s)
           _ <- assertIO(
-            users.select.where(u => u.id === id).apply(u => (u.email, u.age)).compile.run(s),
+            users.select.where(u => u.id === Param.bind(id)).apply(u => (u.email, u.age)).compile.run(s),
             List(("proj-tuple@example.com", 42))
           )
         } yield ()
@@ -69,7 +69,7 @@ class ProjectionsSuite extends PgFixture {
             deleted_at = None
           )).compile.run(s)
           _ <- assertIO(
-            users.select.where(u => u.id === id).apply(u => Pg.lower(u.email)).compile.run(s),
+            users.select.where(u => u.id === Param.bind(id)).apply(u => Pg.lower(u.email)).compile.run(s),
             List("uppercase@example.com")
           )
         } yield ()

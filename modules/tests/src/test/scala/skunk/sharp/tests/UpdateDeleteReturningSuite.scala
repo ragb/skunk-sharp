@@ -1,6 +1,7 @@
 package skunk.sharp.tests
 
 import cats.effect.IO
+import skunk.sharp.*
 import skunk.sharp.dsl.*
 
 import java.time.OffsetDateTime
@@ -29,8 +30,8 @@ class UpdateDeleteReturningSuite extends PgFixture {
           )).compile.run(s)
           _ <- assertIO(
             users.update
-              .set(u => u.email := "new@example.com")
-              .where(u => u.id === id)
+              .set(u => u.email := lit("new@example.com"))
+              .where(u => u.id === Param.bind(id))
               .returning(u => u.email)
               .compile.unique(s),
             "new@example.com"
@@ -54,8 +55,8 @@ class UpdateDeleteReturningSuite extends PgFixture {
           )).compile.run(s)
           _ <- assertIO(
             users.update
-              .set(u => u.age := 99)
-              .where(u => u.id === id)
+              .set(u => u.age := lit(99))
+              .where(u => u.id === Param.bind(id))
               .returningTuple(u => (u.id, u.age))
               .compile.unique(s),
             (id, 99)
@@ -80,9 +81,9 @@ class UpdateDeleteReturningSuite extends PgFixture {
           // Patch the email; leave age alone.
           _ <- users.update
             .patch((email = Some("patch-new@x"), age = Option.empty[Int]))
-            .where(u => u.id === id)
+            .where(u => u.id === Param.bind(id))
             .compile.run(s)
-          row <- users.select.where(u => u.id === id).compile.unique(s)
+          row <- users.select.where(u => u.id === Param.bind(id)).compile.unique(s)
           _ = assertEquals(row.email, "patch-new@x")
           _ = assertEquals(row.age, 20) // untouched
           _ = assertEquals(row.deleted_at, Option.empty[OffsetDateTime])
@@ -108,17 +109,44 @@ class UpdateDeleteReturningSuite extends PgFixture {
           // Set to NULL via Some(None)
           _ <- users.update
             .patch((deleted_at = Some(no)))
-            .where(u => u.id === id)
+            .where(u => u.id === Param.bind(id))
             .compile.run(s)
-          after1 <- users.select.where(u => u.id === id).compile.unique(s)
+          after1 <- users.select.where(u => u.id === Param.bind(id)).compile.unique(s)
           _ = assertEquals(after1.deleted_at, no)
           // Now restore to a value via Some(Some(v))
           _ <- users.update
             .patch((deleted_at = Some(Some(ts))))
-            .where(u => u.id === id)
+            .where(u => u.id === Param.bind(id))
             .compile.run(s)
-          after2 <- users.select.where(u => u.id === id).compile.unique(s)
+          after2 <- users.select.where(u => u.id === Param.bind(id)).compile.unique(s)
           _ = assertEquals(after2.deleted_at, Some(ts))
+        } yield ()
+      }
+    }
+  }
+
+  test("UPDATE SET Param[T] + WHERE Param[T] round-trips through Postgres") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        val id  = UUID.fromString("44444444-4444-4444-4444-444444444444")
+        val tpl = users.update
+          .set(u => u.email := Param[String])
+          .where(u => u.id === Param[UUID])
+          .returning(u => u.email)
+          .compile
+        // Static type assertion: typed Args = (String, UUID).
+        val _: QueryTemplate[(String, UUID), String] = tpl
+        for {
+          _ <- users.insert((
+            id = id,
+            email = "before@x",
+            age = 5,
+            created_at = OffsetDateTime.now(),
+            deleted_at = None
+          )).compile.run(s)
+          _   <- assertIO(tpl.unique(s)(("after@x", id)), "after@x")
+          row <- users.select.where(u => u.id === Param.bind(id)).compile.unique(s)
+          _ = assertEquals(row.email, "after@x")
         } yield ()
       }
     }
@@ -137,7 +165,7 @@ class UpdateDeleteReturningSuite extends PgFixture {
             deleted_at = None
           )).compile.run(s)
           _ <- assertIO(
-            users.delete.where(u => u.id === id).returning(u => u.email).compile.unique(s),
+            users.delete.where(u => u.id === Param.bind(id)).returning(u => u.email).compile.unique(s),
             "gone@example.com"
           )
         } yield ()

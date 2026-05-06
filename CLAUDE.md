@@ -4,9 +4,18 @@ Compile-time-checked Postgres query DSL on top of [skunk](https://typelevel.org/
 
 ## Modules
 
-- `modules/core` — the DSL (published artefact `skunk-sharp-core`).
-- `modules/iron` — optional Iron refinement support (`skunk-sharp-iron`). Depends on core.
-- `modules/tests` — integration tests; not published. Uses testcontainers-postgresql and **dumbo** for migrations (see [modules/tests/src/test/resources/migrations/](modules/tests/src/test/resources/migrations/)).
+Published artefacts:
+
+- `modules/core` — the DSL (`skunk-sharp-core`).
+- `modules/iron` — Iron refinement support (`skunk-sharp-iron`). Depends on core.
+- `modules/refined` — eu.timepit.refined refinement support (`skunk-sharp-refined`). Depends on core.
+- `modules/circe` — Circe-backed `json` / `jsonb` support (`skunk-sharp-circe`). Depends on core.
+
+Not published:
+
+- `modules/tests` — integration tests. Uses testcontainers-postgresql and **dumbo** for migrations (see [modules/tests/src/test/resources/migrations/](modules/tests/src/test/resources/migrations/)).
+- `modules/example` — runnable end-to-end example (tapir + http4s + ciris + ducktape on top of core + circe).
+- `docs/` — Typelevel-site (Laika + mdoc) scaffold; sources under [docs/docs/](docs/docs/) are type-checked against the live library at compile.
 
 ## Key design decisions
 
@@ -40,11 +49,11 @@ The [schema validator](modules/core/src/main/scala/skunk/sharp/validation/Schema
 
 ## WHERE DSL
 
-- [`TypedExpr[T]`](modules/core/src/main/scala/skunk/sharp/TypedExpr.scala): `render: AppliedFragment` + `codec: Codec[T]`. `TypedExpr.lit(v)` for bound-param literals, `TypedExpr.raw(sql)` for raw SQL bits, `TypedExpr.joined(parts, sep)` for `", "`-style joining.
-- [`TypedColumn[T, Null]`](modules/core/src/main/scala/skunk/sharp/TypedColumn.scala): leaf `TypedExpr`.
-- [`Where`](modules/core/src/main/scala/skunk/sharp/where/Where.scala): thin wrapper around `TypedExpr[Boolean]`; has `.and`/`&&`, `.or`/`||`, `.not`/`unary_!`. Open by design — any third-party `TypedExpr[Boolean]` slots in via `Where(expr)`.
-- [`where/Ops.scala`](modules/core/src/main/scala/skunk/sharp/where/Ops.scala): v0 operators as `extension` methods — `===, !==, <, <=, >, >=, in, like, ilike, isNull, isNotNull`. Ordering ops require `cats.Order[T]`. `isNull`/`isNotNull` gated to `TypedColumn[T, true]`.
-- [`ColumnsView[Cols]`](modules/core/src/main/scala/skunk/sharp/ColumnsView.scala): the named-tuple typed view passed to WHERE/ORDER BY/SET lambdas. `cols.<columnName>` resolves to `TypedColumn[T, Null]` via Scala 3 named-tuple Selectable support.
+- [`TypedExpr[T, Args]`](modules/core/src/main/scala/skunk/sharp/TypedExpr.scala): typed `Fragment[Args]` + `codec: Codec[T]`. The `Args` type parameter is the captured-parameter tuple: `Void` for static expressions (literals, column refs, value-baked via `Param.bind`), `T` for `Param[T]` (deferred to execute time), `Concat[A, B]` for combinators. `TypedExpr.lit(v)` for compile-time-constant primitives (inline SQL, `Args = Void`); `TypedExpr.raw(sql)` for raw SQL bits; `TypedExpr.joined(parts, sep)` for `", "`-style joining.
+- [`TypedColumn[T, Null, N]`](modules/core/src/main/scala/skunk/sharp/TypedColumn.scala): leaf `TypedExpr[T, Void]`.
+- [`Where[A]`](modules/core/src/main/scala/skunk/sharp/where/Where.scala) = `TypedExpr[Boolean, A]`. `.and`/`&&`, `.or`/`||`, `.not`/`unary_!` combinators. Open by design — any third-party `TypedExpr[Boolean, A]` slots in via `Where(expr)`.
+- [`ops/ExprOps.scala`](modules/core/src/main/scala/skunk/sharp/ops/ExprOps.scala): operators as `extension` methods — `===, !==, <, <=, >, >=, between, in, like, ilike, isNull, isNotNull`. **RHS is always a `TypedExpr`** (no value-overload — pick `Param[T]`, `lit(v)`, or `Param.bind(v)` explicitly). Ordering ops require `cats.Order[T]`. `isNull`/`isNotNull` gated to `TypedColumn[T, true, _]`.
+- [`ColumnsView[Cols]`](modules/core/src/main/scala/skunk/sharp/ColumnsView.scala): the named-tuple typed view passed to WHERE/ORDER BY/SET lambdas. `cols.<columnName>` resolves to `TypedColumn[T, Null, N]` via Scala 3 named-tuple Selectable support.
 
 ## DSL builders
 
@@ -85,27 +94,51 @@ Aggregates live on `Pg` in [PgFunction.scala](modules/core/src/main/scala/skunk/
 
 Every builder's `.compile` returns one of two types — defined in [Compiled.scala](modules/core/src/main/scala/skunk/sharp/dsl/Compiled.scala):
 
-- `CompiledQuery[R]` — for SELECT, `RETURNING`-variants. Extensions: `.run`, `.unique`, `.option`, `.stream`, `.cursor`.
-- `CompiledCommand` — for INSERT/UPDATE/DELETE without RETURNING. Extensions: `.run`.
+- `CompiledQuery[Args, R]` — for SELECT, `RETURNING`-variants. Extensions: `.run`, `.unique`, `.option`, `.stream`, `.cursor`, `.prepared`.
+- `CompiledCommand[Args]` — for INSERT/UPDATE/DELETE without RETURNING. Extensions: `.run`, `.prepared`.
 
-All session-facing operations live as `inline` extensions on these two types, defined once — so every verb (including `RETURNING` variants) shares the full [`skunk.Session`](https://github.com/typelevel/skunk) execution surface (list-fetch, single-row, option, streaming, cursor). Usage: `users.select.where(…).compile.stream(session)`, `users.delete.where(…).compile.run(session)`, `users.insert(…).returning(u => u.id).compile.unique(session)`.
+`Args` is the captured-parameter tuple — visible at the call site for typed builder chains. A `users.select.where(u => u.age >= 18 && u.email === "x").compile` produces `CompiledQuery[(Int, String), NamedRow]`; users can ascribe the type, build the query once, and re-bind values via `q.prepared(session): F[PreparedQuery[F, Args, R]]`.
 
-`.prepare` / `.prepareR` are deliberately *not* exposed here — skunk's `PreparedQuery` takes differing argument values on each call, but our `AppliedFragment` has arguments baked in. Users who need true reusable prepared queries build a `skunk.Query[A, B]` directly.
+The fragment is held as `Fragment[Args]` + `args: Args` internally; `.af: AppliedFragment` is a derived `lazy val` for subquery embedding.
 
-## Compile-time SQL goal (design aspiration)
+All session-facing operations live as `inline` extensions on these two types, defined once — so every verb (including `RETURNING` variants) shares the full [`skunk.Session`](https://github.com/typelevel/skunk) execution surface. Usage: `users.select.where(…).compile.stream(session)`, `users.delete.where(…).compile.run(session)`, `users.insert(…).returning(u => u.id).compile.unique(session)`.
 
-**Non-trivial goal for v0.1+**: compile as much SQL structure as possible at compile time, so only the actual query
-parameters (user-supplied values) are emitted at runtime. Today the DSL builds `AppliedFragment`s at runtime by
-composing via `|+|`. The target shape:
+## `Args` threading — typed captured parameters
 
-- Column names, table names, projection lists, operator symbols, `ORDER BY` / `LIMIT` / `OFFSET` literals → known at
-  compile time from `Cols` and the lambda AST. Emit them into the static `parts` of a `skunk.Fragment` via a macro.
-- Only the user-supplied parameter values flow through encoders at runtime. These are the `AppliedFragment.argument`.
-- `inline` + quoted macros let us generate the `Fragment[A]` structure per query type, specialised per `Cols`/lambda,
-  so `sbt compile` carries most of the cost and runtime is a tight parameter-binding path.
+Every builder threads typed captured-args parameters end-to-end. `Args` is the tuple of `Param[T]` types deferred to execute time; values baked via `Param.bind(v)` or `lit(v)` collapse their slot to `Void` and drop out of `Args`.
 
-This is a substantial refactor; the current runtime assembly is easier to maintain and already correct, so we land
-features first and revisit assembly strategy once the DSL surface stabilises.
+- `SelectBuilder[Ss, GroupsT, WArgs, HArgs]` — `WArgs` from `.where`, `HArgs` from `.having`. `.groupBy` shifts into `GroupsT`. `.orderBy`, `.limit`, `.offset`, `.distinctRows`, locking are Args-neutral.
+- `ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, HArgs, Row]` — same `WArgs` / `HArgs` story; projection / distinct / order args fold in at compile.
+- `DeleteReady[Cols, Name, Args]` — `Args` from `.where(_ => Where[A])`.
+- `UpdateReady[Cols, Name, SetArgs, WArgs]` — `SetArgs` from `.set(_ => col := expr)` (combine with `&` for typed multi-assignment).
+- `InsertCommand[Cols, Args, CA]` — `Args` is the row-values tuple; `CA` is the `ON CONFLICT DO UPDATE` set-clause args.
+- `CteRelation[Cols, Name, Alias, BodyArgs]` — typed body args (Param in CTE WHERE/HAVING/groups) bind at the WITH preamble, surface via [`CteArgs[Ss]`](modules/core/src/main/scala/skunk/sharp/dsl/Cte.scala) at outer compile.
+- `SourceEntry[R, Cols0, Cols, Alias, OnArgs]` — JOIN sources carry `OnArgs` (Param in `.on` predicate) and contribute to outer `Args` via [`SourceOnArgsProj`](modules/core/src/main/scala/skunk/sharp/dsl/Join.scala). Typed-subquery aliases produce a `TypedBodyRelation[Cols, BA]`; their `BA` flows via [`SourceBodyArgsProj`](modules/core/src/main/scala/skunk/sharp/dsl/Join.scala).
+
+The `Where.Concat[A, B]` match type is **smart-flat**: it normalises both arms via `AsTuple[X]` (`Void → EmptyTuple`, `Tuple → X`, scalar → `X *: EmptyTuple`), concatenates with `Tuple.Concat`, then re-unwraps via `FromTuple[T]` (`EmptyTuple → Void`, `T *: EmptyTuple → T`, otherwise `T`). So `a && b && c` produces `CompiledQuery[(A, B, C), R]` — a single flat user-facing tuple — not nested pairs. A no-Param query stays `CompiledQuery[Void, R]`, a single-Param `CompiledQuery[T, R]`. The compile-time projection is `Where.projectConcat[A, B](c)`: an `inline def` that dispatches on `IsVoidTag` / `IsTupleTag` via `inline constValue` and splits the flat tuple at `Tuple.Size[AsTuple[A]]`, applying `productElement(0)` for scalar-shaped sides.
+
+**Operators** in [`ops/ExprOps.scala`](modules/core/src/main/scala/skunk/sharp/ops/ExprOps.scala) take `TypedExpr` RHS only — the value-RHS overload was deliberately dropped to force an explicit pick between `Param[T]` (deferred), `lit(v)` (compile-time literal), and `Param.bind(v)` (bake-now Void-args opt-in). Each operator returns `Where[Concat[A, B]]` where `A` is the LHS Args and `B` the RHS Args. Macro-baked SQL: every `===`, `<=`, `BETWEEN`, etc. with a `TypedColumn` LHS produces a single `Fragment[Args]` whose `parts` is compile-time-constant strings.
+
+**Escape hatches** for genuinely runtime-built predicates:
+
+- `.whereRaw(af: AppliedFragment)` / `.havingRaw(af)` on `SelectBuilder`/`ProjectedSelect`/mutation builders — accept a pre-applied `AppliedFragment` and widen the slot's `Args` to `?`. Subsequent typed `.where`/`.having` calls compose normally.
+- `Where(typedExpr: TypedExpr[Boolean, A])` — lift any boolean-typed `TypedExpr` (subquery `Pg.exists(...)`, jsonb `@>`, range `<<`, …) to `Where[A]`. Used by extension modules.
+
+**Static-by-default**: `column === "x"` does NOT compile. Pick `=== Param[String]` (deferred), `=== lit("x")` (compile-time literal, inlined as `'x'`), or `=== Param.bind("x")` (explicit Void-bake). Same rule for `:=` in UPDATE SET, `between`, `like`, `in`, `isDistinctFrom`, `similarTo`.
+
+## Compile-time SQL assembly
+
+**Invariant**: every `.compile` in the standard query shapes (SELECT/INSERT/UPDATE/DELETE/JOIN, with WHERE/HAVING/GROUP BY/ORDER BY/LIMIT/OFFSET/RETURNING/CTE) allocates **0 fresh `AppliedFragment`s** per call. Verified by [CompileBench](modules/core/src/test/scala/skunk/sharp/bench/CompileBench.scala): 200,000 iterations × 5 scenarios, `dynamic AFs: 0,00 per compile`. Don't regress this — if a new feature would force a dynamic AF, find a way to intern it.
+
+The pieces that hold the invariant:
+
+- **Operator macro baking** — every `===`, `>=`, `between`, `in`, `like`, `isNull`, `:=`, … with a `TypedColumn` LHS produces a single `Fragment` whose `parts` are compile-time-constant strings.
+- **Structural-token intern table** ([`RawConstants`](modules/core/src/main/scala/skunk/sharp/internal/RawConstants.scala)) — process-wide-shared `AppliedFragment`s for SQL keywords and separators (`SELECT`, `FROM`, `WHERE`, `AND`, `GROUP BY`, `HAVING`, `ORDER BY`, `ASC`, `DESC`, `NULLS FIRST`/`NULLS LAST`, `ON`, `USING`, `RETURNING`, comma-space, parentheses, …) including their leading/trailing whitespace. The `TypedExpr.raw` macro routes every compile-time-constant call site here so identical strings resolve to the same instance.
+- **LIMIT/OFFSET literal cache** — `RawConstants.limitAf(n)` / `offsetAf(n)` cache the first 1024 integer values; larger values fall back to `rawDynamic` (counted by the bench).
+- **Projection-list cache** — `Relation.starProjAf` (`"col1", "col2", …`) and `Relation.starProjFromAfOpt` (`"col1", "col2", … FROM "qualifiedName"`) are per-Relation `lazy val`s. Column names are preserved by `nullabilifyCols`, so RIGHT/LEFT/FULL JOIN nullabilification doesn't force a dynamic projection rebuild.
+- **`lazy val` caching** on `TypedColumn.render`, `Table.columnsView`, `Table.deleteFromHeader`, `Table.updateSetHeader`.
+- **Fully-static fast path in `assembleN`** — when every part contributes no typed parameters (`encoder.types.isEmpty`), the assembled `Fragment` reuses `Void.codec` directly instead of constructing a custom `Encoder`. Saves the per-execute parts-walk for fully-static queries.
+- **Typed `Args` end-to-end** — every builder threads its captured-parameter tuple type as a type parameter; `Where.Concat` collapses the chain to a flat user-facing tuple at the boundary (see *Args threading* above).
 
 ## Schema validation
 
@@ -113,11 +146,12 @@ features first and revisit assembly strategy once the DSL surface stabilises.
 
 ## Build
 
-- `build.sbt`: sbt-typelevel 0.8.5, sbt 1.12.9, `tlFatalWarnings := true` — **compile must be clean, no warnings**.
-- Versions pinned in one block near the top of `build.sbt` (skunk 1.0.0, cats-effect 3.7.0, munit 1.2.4, munit-cats-effect 2.1.0, Iron 3.0.2, testcontainers-scala 0.41.0, dumbo 0.8.1, otel4s 0.16.0).
+- `build.sbt` is the single source of truth for versions — pinned in one block near the top. `tlFatalWarnings := true` (`-Werror`); compile must be warning-free.
 - Common sbt commands:
-  - `sbt core/test` — unit tests only (~250 ms).
-  - `sbt tests/test` — integration tests (spins up a Postgres container per suite, runs dumbo migrations from `modules/tests/src/test/resources/migrations/`).
+  - `sbt core/test` — core unit tests (no DB, fast).
+  - `sbt iron/test` / `sbt circe/test` / `sbt refined/test` — per-extension unit tests.
+  - `sbt tests/test` — integration tests (spins up a Postgres container per suite, runs dumbo migrations from [modules/tests/src/test/resources/migrations/](modules/tests/src/test/resources/migrations/)).
+  - `sbt docs/mdoc` — type-check the documentation snippets against the live library.
   - `sbt +test` — everything.
   - `SBT_TPOLECAT_CI=1 sbt compile` — CI-mode flags (`-Werror` plus stricter).
 
@@ -127,17 +161,29 @@ features first and revisit assembly strategy once the DSL surface stabilises.
 - Every DSL feature must render to `AppliedFragment` via `TypedExpr.render` — no side channels. Extensions hook in through the same interface.
 - Tests that render SQL compare against `.fragment.sql` exact strings; whitespace is load-bearing, keep it consistent.
 - Prefer `extension` methods on `TypedExpr[T]` over adding methods to `TypedExpr` itself — that's what keeps the surface extensible.
-- When adding a new module (iron, jsonb, ltree, …), ship: a `PgTypeFor[MyType]` instance, codec, and extension methods. That's it. Do not touch core.
+- Adding a new extension module (refined, jsonb, ltree, …): ship a `PgTypeFor[MyType]` instance, codec, and extension methods. Don't touch core.
+- Do not regress the 0-dynamic-AFs invariant. CompileBench is the canary; run it after substrate changes.
+- No file copyright/SPDX headers — `headerCreate` / `headerCheck` are disabled in `build.sbt`.
 
-## Planned roadmap (v0.1+)
+## Feature surface
 
-1. Multi-source SELECT for JOINs — `Select.from(a, b)` producing a two-source builder; gradual rollout (INNER → LEFT/RIGHT → FULL).
-2. `GROUP BY` / `HAVING`.
-3. Subqueries (scalar + `IN`/`EXISTS`).
-4. Window functions (`OVER (…)`).
-5. ORDER BY `NULLS FIRST / LAST`.
-6. Companion modules:
-   - `skunk-sharp-json` — **based on skunk-circe**, covering `json` and `jsonb` columns with typed operators (`->`, `->>`, `@>`, `?`, …).
-   - `skunk-sharp-refined` — companion to `skunk-sharp-iron`, using [eu.timepit.refined](https://github.com/fthomas/refined) for users on the pre-Iron stack.
-   - `skunk-sharp-ltree`, `skunk-sharp-arrays`, `skunk-sharp-fts` (full-text search), and eventually PostGIS via `skunk-sharp-postgis`.
-7. Docs site via `sbt-typelevel-site` (Laika) with [**mdoc**](https://scalameta.org/mdoc/) — mdoc is the Typelevel-ecosystem replacement for the old `tut` tool; it type-checks every Scala snippet in the markdown against the live library, so examples can't rot. Published to GitHub Pages via the plugin.
+Shipped:
+
+- Multi-source SELECT for JOINs (INNER / LEFT / RIGHT / FULL / CROSS, plus LATERAL).
+- `GROUP BY` / `HAVING`, set-spec functions (`Pg.rollup` / `Pg.cube` / `Pg.groupingSets`).
+- Subqueries (scalar + `IN` / `EXISTS` + `ANY` / `ALL`).
+- Window functions (`OVER (…)`).
+- `ORDER BY NULLS FIRST/LAST`.
+- CTEs (incl. typed-args, transitive deps via [`CteDepsAllVoid`](modules/core/src/main/scala/skunk/sharp/dsl/Cte.scala)).
+- SET operations (`UNION` / `INTERSECT` / `EXCEPT`, with `ALL` variants).
+- `INSERT … VALUES`, `INSERT … FROM SELECT`, `ON CONFLICT … DO NOTHING/UPDATE/UPDATE FROM EXCLUDED`.
+- `UPDATE … FROM` / `DELETE … USING` (with typed-args FROM/USING tail sources).
+- Set-returning functions (`Pg.generateSeries`, `Pg.unnestAsRelation`) with typed args.
+- Iron + refined refinement bridges; Circe-backed `json` / `jsonb`.
+- Docs site (Typelevel-site / mdoc) under [docs/docs/](docs/docs/) — every snippet type-checks against the live library at compile.
+
+Open extension points (no scheduled date — pick one when motivation arrives):
+
+- Companion modules: `skunk-sharp-ltree`, `skunk-sharp-fts` (full-text search), `skunk-sharp-postgis`.
+- Compile-time enforcement that all bare SELECT columns appear in GROUP BY (currently caught at runtime by Postgres). Requires `TypedColumn` to carry its singleton column-name type param into projections.
+- Owner-macro for structurally-static query collapse to a single interned `Fragment[Args]`. Substrate is ready (smart-flat `Concat`, Fragment-only `BodyPart`, inline cascade), but the payoff is narrow — real workloads build queries as top-level `val`s, so per-`.compile` allocation rarely dominates. Treat this as a research item, not a scheduled deliverable.

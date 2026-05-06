@@ -29,7 +29,7 @@ class JsonbSuite extends PgFixture {
           // get field as jsonb (wrapped in a Jsonb value) and as text
           row <- docs
             .select(d => (d.body.get("name"), d.body.getText("name"), d.body.getText("age")))
-            .where(d => d.id === id)
+            .where(d => d.id === Param.bind(id))
             .compile.unique(s)
           (nameAsJson, nameAsText, ageAsText) = row
           _                                   = assertEquals(nameAsJson.asString, Some("alice"))
@@ -108,7 +108,7 @@ class JsonbSuite extends PgFixture {
           _   <- typedDocs.insert((id = id, body = Jsonb(prefs))).compile.run(s)
           row <- typedDocs
             .select(d => d.body)
-            .where(d => d.id === id)
+            .where(d => d.id === Param.bind(id))
             .compile.unique(s)
           decoded: Preferences = row // compiles — no .asInstanceOf, just the opaque-type unwrap
           _                    = assertEquals(decoded, prefs)
@@ -143,7 +143,7 @@ class JsonbSuite extends PgFixture {
           _ <- assertIO(
             pdocs
               .select(d => d.body)
-              .where(d => d.body.getText("name") === "jb-alice")
+              .where(d => d.body.getText("name") === lit("jb-alice"))
               .compile.run(s)
               .map(xs => xs: List[Profile]),
             List(alice)
@@ -162,7 +162,7 @@ class JsonbSuite extends PgFixture {
           _ <- assertIO(
             pdocs
               .select(d => (d.id, d.body.getText("name"), d.body.hasKey("tags")))
-              .where(d => d.id === idA)
+              .where(d => d.id === Param.bind(idA))
               .compile.unique(s),
             (idA, "jb-alice", true)
           )
@@ -183,7 +183,7 @@ class JsonbSuite extends PgFixture {
             .select(d =>
               (Jsonb.jsonbSet(d.body, Seq("version"), param(Jsonb(CirceJson.fromInt(2)))), Jsonb.jsonbTypeof(d.body))
             )
-            .where(d => d.id === id)
+            .where(d => d.id === Param.bind(id))
             .compile.unique(s)
           _ = assertEquals(patched.asObject.flatMap(_("version")).flatMap(_.asNumber).flatMap(_.toInt), Some(2))
           _ = assertEquals(kind, "object")

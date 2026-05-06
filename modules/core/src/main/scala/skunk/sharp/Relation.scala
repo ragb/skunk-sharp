@@ -1,6 +1,6 @@
 package skunk.sharp
 
-import skunk.AppliedFragment
+import skunk.{AppliedFragment, Fragment}
 
 /**
  * Marker for whether a relation's alias was defaulted from its own identity (`Implicit` — Table/View using their name)
@@ -48,6 +48,24 @@ trait Relation[Cols <: Tuple] {
   type Mode <: AliasMode
 
   /**
+   * Phantom type: the captured-parameter type of this relation's inner body fragment. `Void` for all base tables,
+   * views, and CTEs. Non-Void only for typed subquery relations produced by `SelectBuilder.alias` /
+   * `ProjectedSelect.alias` — the inner query's `Args` flows here so the outer `compile` can include them in the outer
+   * `QueryTemplate[Args, R]`.
+   *
+   * Abstract so that typed subquery relations can override with a concrete `Args` type. All plain relations (Table,
+   * View, CTE, re-aliased wrappers) declare `type BodyArgs = skunk.Void`.
+   */
+  type BodyArgs
+
+  /**
+   * The typed inner fragment for subquery relations whose `BodyArgs ≠ Void`. Returns `None` for all base tables, views,
+   * CTEs, and any relation that doesn't embed a parameterised subquery. Overridden in the anonymous Relation produced
+   * by `SelectBuilder.alias` / `ProjectedSelect.alias`.
+   */
+  def bodyFragmentOpt: Option[Fragment[?]] = None
+
+  /**
    * The alias value carried by this relation. Tables and views default it to their name; subqueries / re-aliased
    * wrappers carry the name given at creation. Named `currentAlias` (not just `alias`) so the no-arg member accessor
    * doesn't shadow the `.alias(name)` extension — `relation.alias` would otherwise resolve to this accessor and then
@@ -89,16 +107,88 @@ trait Relation[Cols <: Tuple] {
    * A `String` is taken (not `self.alias`) so re-aliasing wrappers can pass their own alias into the underlying's
    * kernel without cloning rendering logic. The no-argument [[fromFragment]] below specialises to `self.alias`.
    */
-  def fromFragmentWith(a: String): AppliedFragment = {
-    val qn = qualifiedName
-    if (a == name) TypedExpr.raw(qn)
-    else TypedExpr.raw(s"""$qn AS "$a"""")
-  }
+  def fromFragmentWith(a: String): AppliedFragment =
+    if (a == name) fromFragmentDefault
+    else TypedExpr.raw(s"""$qualifiedName AS "$a"""")
+
+  /**
+   * Cached `<qualifiedName>` AppliedFragment — reused on every compile that references this relation under its default
+   * alias (the typical `users.select` / `users.innerJoin(posts)` path). Initialises once per Relation instance and
+   * stays constant for its lifetime; aliased rewrites (`alias != name`) build fresh.
+   */
+  protected lazy val fromFragmentDefault: AppliedFragment = TypedExpr.raw(qualifiedName)
 
   /** Convenience: render using this relation's own carried alias. The SELECT compiler calls this on each source. */
   final def fromFragment: AppliedFragment = fromFragmentWith(currentAlias)
 
+  /**
+   * Cached `ColumnsView[Cols]` — the named-tuple of `TypedColumn`s passed to WHERE / SELECT / ORDER BY lambdas when the
+   * source's alias matches this relation's own (no qualifier rewrite). Built once per Relation instance and reused
+   * across every builder that fronts this relation, so the per-builder `buildSelectView` path doesn't construct a fresh
+   * `Array` + N `TypedColumn`s on each `.where` / `.orderBy` / `.select(lambda)` call. Aliased rewrites (`alias !=
+   * currentAlias`) build fresh via `ColumnsView.qualified(...)` since the qualifier can vary.
+   */
+  final lazy val columnsView: ColumnsView[Cols] = ColumnsView(columns)
+
+  /**
+   * Cached `<col1>, <col2>, …` SELECT projection list — interned once per Relation. The whole-row projection of
+   * `users.select.compile` reuses this AppliedFragment, skipping the per-compile column-name `mkString` +
+   * interpolation. Sources whose `effectiveCols` differ from the relation's `columns` (LEFT / RIGHT / FULL JOIN
+   * nullabilification) build fresh.
+   */
+  final lazy val starProjAf: AppliedFragment = {
+    val cols  = columns.toList.asInstanceOf[List[skunk.sharp.Column[?, ?, ?, ?]]]
+    val sb    = new StringBuilder
+    var first = true
+    cols.foreach { c =>
+      if (first) first = false else sb ++= ", "
+      sb += '"'
+      sb ++= c.name
+      sb += '"'
+    }
+    TypedExpr.raw(sb.result())
+  }
+
+  /**
+   * Cached `<col1>, …, <colN> FROM <qualifiedName>` AppliedFragment — the entire projection-plus-FROM body of a default
+   * `users.select.compile` collapses to this single interned AF when the relation has a parameterless FROM fragment
+   * (Table / View). Subquery-derived relations carry `$N` placeholders in their FROM fragment, so combining the static
+   * projection list with the from-AF would lose those parameters — those relations return `None` here and the SELECT
+   * compiler falls back to the dynamic build.
+   */
+  lazy val starProjFromAfOpt: Option[AppliedFragment] = {
+    val af = fromFragmentWith(currentAlias)
+    if (af.fragment.parts.exists(_.isRight)) None
+    else {
+      val cols  = columns.toList.asInstanceOf[List[skunk.sharp.Column[?, ?, ?, ?]]]
+      val sb    = new StringBuilder
+      var first = true
+      cols.foreach { c =>
+        if (first) first = false else sb ++= ", "
+        sb += '"'
+        sb ++= c.name
+        sb += '"'
+      }
+      sb ++= " FROM "
+      af.fragment.parts.foreach {
+        case Left(s)  => sb ++= s
+        case Right(_) => // unreachable per outer guard
+      }
+      Some(TypedExpr.raw(sb.result()))
+    }
+  }
+
   protected def quoteIdent(s: String): String = s""""$s""""
+}
+
+/**
+ * Base class for subquery-backed relations whose inner query carries typed captured parameters (`BodyArgs ≠ Void`).
+ * Making `BA` a type PARAMETER (rather than a type MEMBER of the anonymous class) lets Scala 3's given resolution
+ * directly infer `BA` from `R <: TypedBodyRelation[C0, BA]`, avoiding the structural-type-inference limitation that
+ * plagues `R <: Relation[C0] { type BodyArgs = BA }`.
+ */
+abstract class TypedBodyRelation[Cols <: Tuple, BA] extends Relation[Cols] {
+  final type BodyArgs = BA
 }
 
 /**
@@ -109,8 +199,9 @@ trait Relation[Cols <: Tuple] {
  * project). The useful form is `empty.select(<expr>)` or `empty.select((<e1>, <e2>))`.
  */
 case object empty extends Relation[EmptyTuple] {
-  type Alias = ""
-  type Mode  = AliasMode.Implicit
+  type Alias    = ""
+  type Mode     = AliasMode.Implicit
+  type BodyArgs = skunk.Void
   val currentAlias: ""                = ""
   val name: String                    = ""
   val schema: Option[String]          = None

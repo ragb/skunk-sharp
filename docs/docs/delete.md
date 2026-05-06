@@ -29,7 +29,7 @@ val users = Table.of[User]("users")
   .withUnique("email")
 
 val deleteOne = users.delete
-  .where(u => u.id === UUID.randomUUID())
+  .where(u => u.id === Param.bind(UUID.randomUUID()))
   .compile
 
 val deleteInactive = users.delete
@@ -57,7 +57,7 @@ val posts = Table.of[Post]("posts").withPrimary("id").withDefault("id")
 
 // Return the deleted rows
 val deleteReturning = posts.delete
-  .where(p => p.views < 10)
+  .where(p => p.views < lit(10))
   .returningAll
   .compile
 ```

@@ -226,17 +226,37 @@ object AllCovered {
 }
 
 /**
- * Compile-time GROUP BY coverage gate. Summons iff either no GROUP BY is declared (vacuous) or every bare column in the
+ * `true` iff `G` contains a "set-spec" entry — `ROLLUP(...)`, `CUBE(...)`, `GROUPING SETS(...)`. All three return
+ * `TypedExpr[Unit, _]` (only set-spec functions return `Unit`); detecting them lets [[GroupCoverage]] vacate coverage
+ * when the GROUP BY uses one. Coverage is meaningless for set-specs because the columns they wrap are projected
+ * conditionally per generated grouping row.
+ */
+type HasOpaqueGroup[G <: Tuple] <: Boolean = G match {
+  case EmptyTuple                 => false
+  case TypedExpr[Unit, ?] *: tail => true
+  case h *: tail                  => HasOpaqueGroup[tail]
+}
+
+/**
+ * Compile-time GROUP BY coverage gate. Summons iff either no GROUP BY is declared (vacuous), the GROUP BY uses a
+ * set-spec function (ROLLUP / CUBE / GROUPING SETS — coverage is meaningless there), or every bare column in the
  * projection also appears in the GROUP BY. Aggregates, literals, function-call expressions, aliased expressions pass
- * unconditionally. GROUP BY expressions that are not bare columns (e.g.
- * `.groupBy(u => Pg.dateTrunc("day", u.created))`) don't contribute names; queries relying on that form aren't helped
- * by this check and should drop to hand SQL.
+ * unconditionally. Plain non-bare-column GROUP BY entries (e.g. `.groupBy(u => Pg.dateTrunc("day", u.created))`) don't
+ * contribute names; queries relying on that form aren't helped by this check and should drop to hand SQL.
  */
 sealed trait GroupCoverage[Proj <: Tuple, G <: Tuple]
 
-object GroupCoverage {
+object GroupCoverage extends GroupCoverageLowPrio {
 
   given empty[Proj <: Tuple]: GroupCoverage[Proj, EmptyTuple] = new GroupCoverage[Proj, EmptyTuple] {}
+
+  given opaque[Proj <: Tuple, G <: NonEmptyTuple](using
+    ev: HasOpaqueGroup[G] =:= true
+  ): GroupCoverage[Proj, G] = new GroupCoverage[Proj, G] {}
+
+}
+
+trait GroupCoverageLowPrio {
 
   given nonEmpty[Proj <: Tuple, G <: NonEmptyTuple](using
     ev: AllCovered[Proj, GroupNames[G]]

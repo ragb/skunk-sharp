@@ -59,12 +59,12 @@ class GroupBySuite extends munit.FunSuite {
     val af = users
       .select(u => (u.age, Pg.count(u.id)))
       .groupBy(u => u.age)
-      .having(u => Pg.count(u.id) > 5L)
+      .having(u => Pg.count(u.id) > lit(5L))
       .compile
       .af
     assertEquals(
       af.fragment.sql,
-      """SELECT "age", count("id") FROM "users" GROUP BY "age" HAVING count("id") > $1"""
+      """SELECT "age", count("id") FROM "users" GROUP BY "age" HAVING count("id") > 5"""
     )
   }
 
@@ -73,7 +73,7 @@ class GroupBySuite extends munit.FunSuite {
       .select(u => (u.age, Pg.count(u.id)))
       .where(u => u.deleted_at.isNull)
       .groupBy(u => u.age)
-      .having(u => Pg.count(u.id) >= 1L)
+      .having(u => Pg.count(u.id) >= lit(1L))
       .orderBy(u => u.age.desc)
       .limit(10)
       .offset(5)
@@ -82,7 +82,7 @@ class GroupBySuite extends munit.FunSuite {
 
     assertEquals(
       af.fragment.sql,
-      """SELECT "age", count("id") FROM "users" WHERE "deleted_at" IS NULL GROUP BY "age" HAVING count("id") >= $1 ORDER BY "age" DESC LIMIT 10 OFFSET 5"""
+      """SELECT "age", count("id") FROM "users" WHERE "deleted_at" IS NULL GROUP BY "age" HAVING count("id") >= 1 ORDER BY "age" DESC LIMIT 10 OFFSET 5"""
     )
   }
 
@@ -92,8 +92,8 @@ class GroupBySuite extends munit.FunSuite {
   }
 
   test(".having on SelectBuilder works with or without an explicit .groupBy (implicit grouping)") {
-    val af = users.select.having(_ => Pg.countAll > 0L).compile.af
-    assert(af.fragment.sql.contains("""HAVING count(*) > $1"""), af.fragment.sql)
+    val af = users.select.having(_ => Pg.countAll > lit(0L)).compile.af
+    assert(af.fragment.sql.contains("""HAVING count(*) > 0"""), af.fragment.sql)
   }
 
   test("TypedExpr.as aliases an aggregate in the projection") {
@@ -110,7 +110,7 @@ class GroupBySuite extends munit.FunSuite {
   }
 
   test("TypedExpr.as return type captures the alias name as a singleton") {
-    val aliased: skunk.sharp.AliasedExpr[Long, "cnt"] = Pg.countAll.as("cnt")
+    val aliased: skunk.sharp.AliasedExpr[Long, "cnt", skunk.Void] = Pg.countAll.as("cnt")
     assertEquals(aliased.aliasName, "cnt")
   }
 

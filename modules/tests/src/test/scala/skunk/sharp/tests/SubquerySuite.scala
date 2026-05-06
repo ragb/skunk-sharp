@@ -113,7 +113,7 @@ class SubquerySuite extends PgFixture {
                   posts.select(_ => Pg.countAll).where(p => p.user_id ==== u.id).asExpr
                 )
               )
-              .where(u => u.id === uid)
+              .where(u => u.id === Param.bind(uid))
               .compile.run(s),
             List(("scalar@x", 2L))
           )
@@ -136,9 +136,9 @@ class SubquerySuite extends PgFixture {
           ).compile.run(s)
           younger <- users
             .select(u => u.email)
-            .where(u => u.age.ltAny(users.select(x => x.age).where(x => x.email.like(s"prem-%-$tag@x"))))
-            .where(u => u.email.like(s"%-$tag@x"))
-            .where(u => u.email.notSimilarTo(s"prem-%-$tag@x"))
+            .where(u => u.age.ltAny(users.select(x => x.age).where(x => x.email.like(Param.bind(s"prem-%-$tag@x")))))
+            .where(u => u.email.like(Param.bind(s"%-$tag@x")))
+            .where(u => u.email.notSimilarTo(Param.bind(s"prem-%-$tag@x")))
             .compile.run(s).map(_.toSet)
           // anyone younger than at least one premium (premium ages = 25, 40) = 20, 30
           _ = assertEquals(younger, Set(s"a-$tag@x", s"b-$tag@x"))
@@ -159,8 +159,8 @@ class SubquerySuite extends PgFixture {
           ).compile.run(s)
           oldest <- users
             .select(u => u.email)
-            .where(u => u.age.gteAll(users.select(x => x.age).where(x => x.email.like(s"u%-$tag@x"))))
-            .where(u => u.email.like(s"u%-$tag@x"))
+            .where(u => u.age.gteAll(users.select(x => x.age).where(x => x.email.like(Param.bind(s"u%-$tag@x")))))
+            .where(u => u.email.like(Param.bind(s"u%-$tag@x")))
             .compile.run(s).map(_.toSet)
           _ = assertEquals(oldest, Set(s"u3-$tag@x"))
         } yield ()
@@ -192,7 +192,7 @@ class SubquerySuite extends PgFixture {
           rows <- posts
             .select
             .distinctOn(p => p.user_id)
-            .where(p => p.title.like(s"u%-$tag"))
+            .where(p => p.title.like(Param.bind(s"u%-$tag")))
             .orderBy(p => (p.user_id.asc, p.created_at.desc))
             .apply(p => (p.user_id, p.title))
             .compile.run(s).map(_.toSet)
@@ -220,7 +220,7 @@ class SubquerySuite extends PgFixture {
           ).compile.run(s)
           hits <- posts.select(p => p.title)
             .where(p => Pg.overlaps(p.created_at, p.created_at, param(probeLo), param(probeHi)))
-            .where(p => p.title.like(s"%-$tag"))
+            .where(p => p.title.like(Param.bind(s"%-$tag")))
             .compile.run(s).map(_.toSet)
           _ = assertEquals(hits, Set(s"fresh-$tag"))
         } yield ()

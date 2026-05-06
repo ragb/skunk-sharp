@@ -21,13 +21,13 @@ class UpdateFromDeleteUsingSuite extends munit.FunSuite {
   test("UPDATE … FROM one extra source renders correct SQL") {
     val af = users.update
       .from(posts)
-      .set(r => r.users.age := 1)
+      .set(r => r.users.age := lit(1))
       .where(r => r.users.id ==== r.posts.user_id)
       .compile.af
 
     assertEquals(
       af.fragment.sql,
-      """UPDATE "users" SET "age" = $1 FROM "posts" WHERE "users"."id" = "posts"."user_id""""
+      """UPDATE "users" SET "age" = 1 FROM "posts" WHERE "users"."id" = "posts"."user_id""""
     )
   }
 
@@ -35,53 +35,53 @@ class UpdateFromDeleteUsingSuite extends munit.FunSuite {
     val af = users.update
       .from(posts)
       .from(tags)
-      .set(r => r.users.age := 1)
+      .set(r => r.users.age := lit(1))
       .where(r => r.users.id ==== r.posts.user_id && r.posts.id ==== r.tags.post_id)
       .compile.af
 
     assertEquals(
       af.fragment.sql,
-      """UPDATE "users" SET "age" = $1 FROM "posts", "tags" WHERE ("users"."id" = "posts"."user_id" AND "posts"."id" = "tags"."post_id")"""
+      """UPDATE "users" SET "age" = 1 FROM "posts", "tags" WHERE ("users"."id" = "posts"."user_id" AND "posts"."id" = "tags"."post_id")"""
     )
   }
 
   test("UPDATE … FROM with RETURNING renders correctly") {
     val af = users.update
       .from(posts)
-      .set(r => r.users.age := 1)
+      .set(r => r.users.age := lit(1))
       .where(r => r.users.id ==== r.posts.user_id)
       .returning(r => r.users.email)
       .compile.af
 
     assertEquals(
       af.fragment.sql,
-      """UPDATE "users" SET "age" = $1 FROM "posts" WHERE "users"."id" = "posts"."user_id" RETURNING "users"."email""""
+      """UPDATE "users" SET "age" = 1 FROM "posts" WHERE "users"."id" = "posts"."user_id" RETURNING "users"."email""""
     )
   }
 
   test("UPDATE … FROM .updateAll renders without WHERE") {
     val af = users.update
       .from(posts)
-      .set(r => r.users.age := 1)
+      .set(r => r.users.age := lit(1))
       .updateAll
       .compile.af
 
     assertEquals(
       af.fragment.sql,
-      """UPDATE "users" SET "age" = $1 FROM "posts""""
+      """UPDATE "users" SET "age" = 1 FROM "posts""""
     )
   }
 
   test("UPDATE … FROM with aliased source uses alias in FROM clause") {
     val af = users.update
       .from(posts.alias("p"))
-      .set(r => r.users.age := 1)
+      .set(r => r.users.age := lit(1))
       .where(r => r.users.id ==== r.p.user_id)
       .compile.af
 
     assertEquals(
       af.fragment.sql,
-      """UPDATE "users" SET "age" = $1 FROM "posts" AS "p" WHERE "users"."id" = "p"."user_id""""
+      """UPDATE "users" SET "age" = 1 FROM "posts" AS "p" WHERE "users"."id" = "p"."user_id""""
     )
   }
 
@@ -149,8 +149,8 @@ class UpdateFromDeleteUsingSuite extends munit.FunSuite {
 
   test("single-table update still compiles — Name on UpdateBuilder is backward-compatible") {
     val af = users.update
-      .set(u => u.age := 1)
-      .where(u => u.id === UUID.randomUUID())
+      .set(u => u.age := lit(1))
+      .where(u => u.id === Param.bind(UUID.randomUUID()))
       .compile.af
 
     assert(af.fragment.sql.startsWith("""UPDATE "users" SET "age" = """))
@@ -158,7 +158,7 @@ class UpdateFromDeleteUsingSuite extends munit.FunSuite {
 
   test("single-table delete still compiles — Name on DeleteBuilder is backward-compatible") {
     val af = users.delete
-      .where(u => u.id === UUID.randomUUID())
+      .where(u => u.id === Param.bind(UUID.randomUUID()))
       .compile.af
 
     assert(af.fragment.sql.startsWith("""DELETE FROM "users" WHERE """))

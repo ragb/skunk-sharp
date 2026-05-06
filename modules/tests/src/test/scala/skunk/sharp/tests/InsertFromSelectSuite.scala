@@ -34,9 +34,11 @@ class InsertFromSelectSuite extends PgFixture {
             (id = u3, email = s"old-$tag@x", age = 70, deleted_at = no)
           ).compile.run(s)
           // Backfill: promote only adults from the inbox into the live users table.
-          _ <- users.insert.from(inbox.select.where(u => u.age >= 18 && u.email.like(s"%-$tag@x"))).compile.run(s)
+          _ <- users.insert.from(inbox.select.where(u =>
+            u.age >= lit(18) && u.email.like(Param.bind(s"%-$tag@x"))
+          )).compile.run(s)
           _ <- assertIO(
-            users.select(u => u.email).where(u => u.email.like(s"%-$tag@x")).compile.run(s).map(_.toSet),
+            users.select(u => u.email).where(u => u.email.like(Param.bind(s"%-$tag@x"))).compile.run(s).map(_.toSet),
             Set(s"young-$tag@x", s"mid-$tag@x", s"old-$tag@x")
           )
         } yield ()
@@ -53,19 +55,19 @@ class InsertFromSelectSuite extends PgFixture {
         for {
           _ <- inbox.insert((id = u1, email = s"dupe-$tag@x", age = 25, deleted_at = no)).compile.run(s)
           // First promotion: the row lands in users.
-          _ <- users.insert.from(inbox.select.where(u => u.email.like(s"%-$tag@x")))
+          _ <- users.insert.from(inbox.select.where(u => u.email.like(Param.bind(s"%-$tag@x"))))
             .onConflict(u => u.id)
             .doNothing
             .compile
             .run(s)
           // Second promotion: nothing changes — the ID conflict is silently skipped.
-          _ <- users.insert.from(inbox.select.where(u => u.email.like(s"%-$tag@x")))
+          _ <- users.insert.from(inbox.select.where(u => u.email.like(Param.bind(s"%-$tag@x"))))
             .onConflict(u => u.id)
             .doNothing
             .compile
             .run(s)
           _ <- assertIO(
-            users.select(u => u.email).where(u => u.email.like(s"%-$tag@x")).compile.run(s),
+            users.select(u => u.email).where(u => u.email.like(Param.bind(s"%-$tag@x"))).compile.run(s),
             List(s"dupe-$tag@x")
           )
         } yield ()
@@ -81,7 +83,7 @@ class InsertFromSelectSuite extends PgFixture {
         val u1  = UUID.randomUUID
         for {
           _   <- inbox.insert((id = u1, email = s"ret-$tag@x", age = 33, deleted_at = no)).compile.run(s)
-          ids <- users.insert.from(inbox.select.where(u => u.email.like(s"%-$tag@x")))
+          ids <- users.insert.from(inbox.select.where(u => u.email.like(Param.bind(s"%-$tag@x"))))
             .returning(u => u.id)
             .compile.run(s)
           _ = assertEquals(ids, List(u1))

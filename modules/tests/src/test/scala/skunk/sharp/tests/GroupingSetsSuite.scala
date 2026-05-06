@@ -29,7 +29,7 @@ class GroupingSetsSuite extends PgFixture {
         for {
           _    <- seedSales(s, idBase = 100)
           rows <- sales.select
-            .where(ss => ss.id >= 100 && ss.id <= 103)
+            .where(ss => ss.id >= lit(100) && ss.id <= lit(103))
             .groupBy(ss => Pg.rollup(ss.year, ss.quarter))
             .select(ss => (Pg.grouping(ss.year, ss.quarter), Pg.countAll))
             .compile
@@ -51,7 +51,7 @@ class GroupingSetsSuite extends PgFixture {
         for {
           _    <- seedSales(s, idBase = 200)
           rows <- sales.select
-            .where(ss => ss.id >= 200 && ss.id <= 203)
+            .where(ss => ss.id >= lit(200) && ss.id <= lit(203))
             .groupBy(ss => Pg.cube(ss.year, ss.quarter))
             .select(ss => (Pg.grouping(ss.year, ss.quarter), Pg.countAll))
             .compile
@@ -74,7 +74,7 @@ class GroupingSetsSuite extends PgFixture {
         for {
           _    <- seedSales(s, idBase = 300)
           rows <- sales.select
-            .where(ss => ss.id >= 300 && ss.id <= 303)
+            .where(ss => ss.id >= lit(300) && ss.id <= lit(303))
             .groupBy(ss =>
               Pg.groupingSets(
                 Seq(ss.year, ss.quarter),
@@ -102,7 +102,7 @@ class GroupingSetsSuite extends PgFixture {
         for {
           _    <- seedSales(s, idBase = 400)
           rows <- sales.select
-            .where(ss => ss.id >= 400 && ss.id <= 403)
+            .where(ss => ss.id >= lit(400) && ss.id <= lit(403))
             .groupBy(ss => Pg.rollup(ss.year))
             .select(ss => (Pg.grouping(ss.year), Pg.countAll))
             .compile

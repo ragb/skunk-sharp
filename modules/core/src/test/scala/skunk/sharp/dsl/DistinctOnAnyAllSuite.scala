@@ -72,12 +72,12 @@ class DistinctOnAnyAllSuite extends munit.FunSuite {
   // ---- ANY / ALL over a subquery ----------------------------------------------------------------
 
   test("ltAny renders `< ANY (<subquery>)`") {
-    val inner = users.select(x => x.age).where(x => x.email.like("%@x"))
+    val inner = users.select(x => x.age).where(x => x.email.like(lit("%@x")))
     val af    = users.select(u => u.email).where(u => u.age.ltAny(inner)).compile.af
 
     assertEquals(
       af.fragment.sql,
-      """SELECT "email" FROM "users" WHERE "age" < ANY (SELECT "age" FROM "users" WHERE "email" LIKE $1)"""
+      """SELECT "email" FROM "users" WHERE "age" < ANY (SELECT "age" FROM "users" WHERE "email" LIKE '%@x')"""
     )
   }
 
@@ -92,7 +92,7 @@ class DistinctOnAnyAllSuite extends munit.FunSuite {
   }
 
   test("ANY / ALL accept a ProjectedSelect subquery (single-column projection)") {
-    val inner = users.select(x => x.age).where(x => x.email.like("admin-%"))
+    val inner = users.select(x => x.age).where(x => x.email.like(lit("admin-%")))
     val af    = users.select(u => u.email).where(u => u.age.gtAll(inner)).compile.af
 
     assert(af.fragment.sql.contains("""> ALL ("""), af.fragment.sql)
@@ -102,12 +102,14 @@ class DistinctOnAnyAllSuite extends munit.FunSuite {
   // ---- OVERLAPS -----------------------------------------------------------------------------------
 
   test("Pg.overlaps renders the (a, b) OVERLAPS (c, d) shape") {
+    // `Pg.overlaps` returns `Where[Any]` (variadic-args widening). Inspect SQL via `.fragment.sql` —
+    // `.compile.af` is only on `QueryTemplate[Void, _]`.
     val tsA = lit(42) // placeholder; real use is with time-typed expressions (below)
-    val af  = users.select(u => u.email).where(u => Pg.overlaps(u.created_at, u.created_at, u.created_at, u.created_at))
-      .compile.af
+    val sql = users.select(u => u.email).where(u => Pg.overlaps(u.created_at, u.created_at, u.created_at, u.created_at))
+      .compile.fragment.sql
 
     assertEquals(
-      af.fragment.sql,
+      sql,
       """SELECT "email" FROM "users" WHERE ("created_at", "created_at") OVERLAPS ("created_at", "created_at")"""
     )
     val _ = tsA // unused
@@ -116,12 +118,12 @@ class DistinctOnAnyAllSuite extends munit.FunSuite {
   test("Pg.overlaps with two parameterised time bounds") {
     val t1 = OffsetDateTime.parse("2020-01-01T00:00:00Z")
     val t2 = OffsetDateTime.parse("2020-12-31T00:00:00Z")
-    val af = users.select(u => u.email)
+    val sql = users.select(u => u.email)
       .where(u => Pg.overlaps(u.created_at, u.created_at, param(t1), param(t2)))
-      .compile.af
+      .compile.fragment.sql
 
     assertEquals(
-      af.fragment.sql,
+      sql,
       """SELECT "email" FROM "users" WHERE ("created_at", "created_at") OVERLAPS ($1, $2)"""
     )
   }

@@ -318,7 +318,7 @@ class PgFunctionSuite extends PgFixture {
 
   // ---- Tier 2: date / time ----
 
-  test("extract year from current_date returns BigDecimal >= 2024") {
+  test("extract year from current_date returns BigDecimal >= lit(2024)") {
     withContainers { containers =>
       session(containers).use { s =>
         for {
@@ -382,10 +382,10 @@ class PgFunctionSuite extends PgFixture {
     withContainers { containers =>
       session(containers).use { s =>
         for {
-          sd  <- Pg.generateSeries(1, 5).select(g => Pg.stddev(g.n)).compile.unique(s)
-          vr  <- Pg.generateSeries(1, 5).select(g => Pg.variance(g.n)).compile.unique(s)
-          sdp <- Pg.generateSeries(1, 5).select(g => Pg.stddevPop(g.n)).compile.unique(s)
-          vrp <- Pg.generateSeries(1, 5).select(g => Pg.varPop(g.n)).compile.unique(s)
+          sd  <- Pg.generateSeries(lit(1), lit(5)).select(g => Pg.stddev(g.n)).compile.unique(s)
+          vr  <- Pg.generateSeries(lit(1), lit(5)).select(g => Pg.variance(g.n)).compile.unique(s)
+          sdp <- Pg.generateSeries(lit(1), lit(5)).select(g => Pg.stddevPop(g.n)).compile.unique(s)
+          vrp <- Pg.generateSeries(lit(1), lit(5)).select(g => Pg.varPop(g.n)).compile.unique(s)
           _ = assert(sd > BigDecimal(0), s"stddev = $sd")
           _ = assert(vr > BigDecimal(0), s"variance = $vr")
           _ = assert(sdp > BigDecimal(0), s"stddev_pop = $sdp")

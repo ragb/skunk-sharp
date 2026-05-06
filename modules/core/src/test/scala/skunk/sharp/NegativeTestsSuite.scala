@@ -57,7 +57,7 @@ class NegativeTestsSuite extends munit.FunSuite {
     assert(msg.contains("nullable columns"), s"expected friendly error mentioning nullable columns; got: $msg")
   }
 
-  test("=== None on a nullable column does not compile (use isNull)") {
+  test("=== None on a nullable column does not compile — supported form is `.isNull`") {
     val errs = typeCheckErrors("""
       import skunk.sharp.*
       import skunk.sharp.ops.*, skunk.sharp.where.*
@@ -65,7 +65,7 @@ class NegativeTestsSuite extends munit.FunSuite {
       val c = ColumnsView(Table.of[User]("users").columns)
       c.deleted_at === None
     """)
-    assert(errs.nonEmpty)
+    assert(errs.nonEmpty, "expected `=== None` to be a compile error")
   }
 
   test("LIKE on a non-string column does not compile") {
@@ -74,7 +74,7 @@ class NegativeTestsSuite extends munit.FunSuite {
       import skunk.sharp.ops.*, skunk.sharp.where.*
       import NegativeTestsSuite.User
       val c = ColumnsView(Table.of[User]("users").columns)
-      c.age.like("%")
+      c.age.like(lit("%"))
     """)
     assert(errs.nonEmpty)
   }
@@ -561,7 +561,7 @@ class NegativeTestsSuite extends munit.FunSuite {
       msg.contains("compile-time literal"),
       s"error should mention the literal-only rule; got: $msg"
     )
-    assert(msg.contains("param"), s"error should suggest `param` as the runtime escape hatch; got: $msg")
+    assert(msg.contains("Param"), s"error should mention `Param` as the runtime escape hatch; got: $msg")
   }
 
   test("lit(\"string literal\") compiles — compile-time strings are safe to inline") {
@@ -583,7 +583,6 @@ class NegativeTestsSuite extends munit.FunSuite {
 
   test("lit(String) renders the SQL single-quoted literal with `'` doubled") {
     import skunk.sharp.dsl.*
-    val af = lit("it's").render
-    assertEquals(af.fragment.sql, "'it''s'")
+    assertEquals(lit("it's").fragment.sql, "'it''s'")
   }
 }

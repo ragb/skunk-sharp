@@ -29,9 +29,9 @@ class CteSuite extends PgFixture {
             (id = uid1, email = s"$pfx-a@x", age = 25, deleted_at = Option.empty[OffsetDateTime]),
             (id = uid2, email = s"$pfx-b@x", age = 15, deleted_at = Option.empty[OffsetDateTime])
           )).compile.run(s)
-          // CTE: users with age >= 18
-          young = cte("adults", users.select.where(u => u.age >= 18))
-          rows <- young.select(u => u.email).where(u => u.email.like(s"$pfx-%")).compile.run(s)
+          // CTE: users with age >= lit(18)
+          young = cte("adults", users.select.where(u => u.age >= lit(18)))
+          rows <- young.select(u => u.email).where(u => u.email.like(Param.bind(s"$pfx-%"))).compile.run(s)
           _ = assertEquals(rows, List(s"$pfx-a@x"), s"only adult should appear, got $rows")
         } yield ()
       }
@@ -54,7 +54,7 @@ class CteSuite extends PgFixture {
           rows <- active
             .innerJoin(posts).on(r => r.active_users.id ==== r.posts.user_id)
             .select(r => (r.active_users.email, r.posts.title))
-            .where(r => r.active_users.email === s"$pfx-join@x")
+            .where(r => r.active_users.email === Param.bind(s"$pfx-join@x"))
             .compile.run(s)
           _ = assertEquals(rows.map(_._2), List("Hello CTE"), s"got $rows")
         } yield ()
@@ -101,9 +101,9 @@ class CteSuite extends PgFixture {
             (id = UUID.randomUUID, email = s"$pfx-ch3@x", age = 30, deleted_at = Option.empty[OffsetDateTime])
           )).compile.run(s)
           // base: users matching prefix
-          base = cte("base_users", users.select.where(u => u.email.like(s"$pfx-ch%")))
+          base = cte("base_users", users.select.where(u => u.email.like(Param.bind(s"$pfx-ch%"))))
           // derived: from base, only adults
-          derived = cte("adults_only", base.select.where(u => u.age >= 18))
+          derived = cte("adults_only", base.select.where(u => u.age >= lit(18)))
           rows <- derived.select(u => u.email).orderBy(u => u.email.asc).compile.run(s)
           _ = assertEquals(rows.toSet, Set(s"$pfx-ch1@x", s"$pfx-ch3@x"), s"got $rows")
         } yield ()

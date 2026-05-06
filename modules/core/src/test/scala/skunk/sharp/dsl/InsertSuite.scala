@@ -102,12 +102,12 @@ class InsertSuite extends munit.FunSuite {
     val af = tasks
       .insert((id = UUID.randomUUID, title = "x", priority = 1, due = Option.empty[OffsetDateTime]))
       .onConflict(t => t.id)
-      .doUpdate(t => (t.title := "updated", t.priority := 9))
+      .doUpdate(t => (t.title := lit("updated"), t.priority := lit(9)))
       .compile.af
 
     assertEquals(
       af.fragment.sql,
-      """INSERT INTO "tasks" ("id", "title", "priority", "due") VALUES ($1, $2, $3, $4) ON CONFLICT ("id") DO UPDATE SET "title" = $5, "priority" = $6"""
+      """INSERT INTO "tasks" ("id", "title", "priority", "due") VALUES ($1, $2, $3, $4) ON CONFLICT ("id") DO UPDATE SET "title" = 'updated', "priority" = 9"""
     )
   }
 
@@ -237,11 +237,11 @@ class InsertSuite extends munit.FunSuite {
 
   test("insert.from + inner WHERE — single outer .compile, inner parameters flow through") {
     val src = Table.of[Task]("tasks_inbox")
-    val af  = tasks.insert.from(src.select.where(t => t.priority >= 3)).compile.af
+    val af  = tasks.insert.from(src.select.where(t => t.priority >= lit(3))).compile.af
 
     assertEquals(
       af.fragment.sql,
-      """INSERT INTO "tasks" ("id", "title", "priority", "due") SELECT "id", "title", "priority", "due" FROM "tasks_inbox" WHERE "priority" >= $1"""
+      """INSERT INTO "tasks" ("id", "title", "priority", "due") SELECT "id", "title", "priority", "due" FROM "tasks_inbox" WHERE "priority" >= 3"""
     )
   }
 

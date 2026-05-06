@@ -40,22 +40,26 @@ val users = Table.of[User]("users")
 
 With the table in scope, the DSL entry points are extension methods directly on `users`:
 
+Static-by-default: literal values go through `lit(v)` (compile-time constant, inlined as `'v'`)
+or `Param.bind(v)` (bake the value into a Void-args fragment). Use `Param[T]` for deferred
+parameters that get supplied at execute time.
+
 ```scala mdoc:silent
 // SELECT — compiles to a CompiledQuery[...]
 val allAdults = users.select
-  .where(u => u.age >= 18)
+  .where(u => u.age >= lit(18))
   .orderBy(u => u.created_at.desc)
   .compile
 
-// INSERT — defaulted columns (id) can be omitted
+// INSERT — defaulted columns (id, created_at) can be omitted
 val insertUser = users
   .insert((email = "alice@example.com", age = 30, deleted_at = None))
   .compile
 
 // UPDATE
 val updateEmail = users.update
-  .set(u => u.email := "new@example.com")
-  .where(u => u.id === UUID.randomUUID())
+  .set(u => u.email := lit("new@example.com"))
+  .where(u => u.id === Param.bind(UUID.randomUUID()))
   .compile
 
 // DELETE
@@ -65,8 +69,8 @@ val deleteInactive = users.delete
 ```
 
 All four calls above are **pure** — they build an `AppliedFragment` at compile time, bind
-the user-supplied values, and return a `CompiledQuery[R]` or `CompiledCommand`. Nothing
-touches the network until you call an execution method with a session:
+the user-supplied values, and return a `CompiledQuery[Args, R]` or `CompiledCommand[Args]`.
+Nothing touches the network until you call an execution method with a session:
 
 ```scala mdoc:compile-only
 val session: skunk.Session[cats.effect.IO] = null
@@ -82,7 +86,7 @@ The compiler catches misuse before it reaches the database:
 
 ```scala mdoc:fail
 // Wrong type — Int column compared to String
-users.select.where(u => u.age === "not a number")
+users.select.where(u => u.age === lit("not a number"))
 ```
 
 ```scala mdoc:fail

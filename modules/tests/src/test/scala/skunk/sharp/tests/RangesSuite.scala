@@ -28,7 +28,7 @@ class RangesSuite extends PgFixture {
           PgRange[LocalDate](lower = Some(LocalDate.of(2024, 1, 1)), upper = Some(LocalDate.of(2024, 12, 31)))
         for {
           _    <- bookings.insert((id = 1, period = period)).compile.run(s)
-          rows <- bookings.select.where(b => b.id === 1).compile.run(s)
+          rows <- bookings.select.where(b => b.id === lit(1)).compile.run(s)
           row = rows.head
           // Postgres canonicalises daterange to [lower, upper) — upper becomes 2025-01-01
           _      = assertEquals(row.id, 1)
@@ -49,7 +49,7 @@ class RangesSuite extends PgFixture {
         val slot = PgRange[OffsetDateTime](lower = Some(t1), upper = Some(t2))
         for {
           _    <- reservations.insert((id = 1, slot = slot)).compile.run(s)
-          rows <- reservations.select.where(r => r.id === 1).compile.run(s)
+          rows <- reservations.select.where(r => r.id === lit(1)).compile.run(s)
           row    = rows.head
           _      = assertEquals(row.id, 1)
           bounds = row.slot.asInstanceOf[Range.Bounds[OffsetDateTime]]
@@ -66,7 +66,7 @@ class RangesSuite extends PgFixture {
         val empty = PgRange.empty[LocalDate]
         for {
           _    <- bookings.insert((id = 2, period = empty)).compile.run(s)
-          rows <- bookings.select.where(b => b.id === 2).compile.run(s)
+          rows <- bookings.select.where(b => b.id === lit(2)).compile.run(s)
           row = rows.head
           _   = assert(row.period == Range.Empty, s"expected Empty, got ${row.period}")
         } yield ()
@@ -178,7 +178,7 @@ class RangesSuite extends PgFixture {
           _    <- bookings.insert((id = 40, period = period)).compile.run(s)
           rows <- bookings
             .select(b => (Pg.rangeLower(b.period), Pg.rangeUpper(b.period)))
-            .where(b => b.id === 40)
+            .where(b => b.id === lit(40))
             .compile.run(s)
           (lo, hi) = rows.head
           _        = assertEquals(lo, Some(LocalDate.of(2024, 3, 1)))
@@ -225,7 +225,7 @@ class RangesSuite extends PgFixture {
           ids <- bookings
             .select(b => b.id)
             .where(b => b.period.overlaps(Pg.daterange(param(lo), param(hi))))
-            .where(b => b.id === 60)
+            .where(b => b.id === lit(60))
             .compile.run(s)
           _ = assertEquals(ids.toList, List(60))
         } yield ()

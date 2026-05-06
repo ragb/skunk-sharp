@@ -23,24 +23,24 @@ class SelectSuite extends munit.FunSuite {
   }
 
   test("where appends a WHERE clause") {
-    val af = users.select.where(u => u.email === "a@b").compile.af
+    val af = users.select.where(u => u.email === lit("a@b")).compile.af
     assertEquals(
       af.fragment.sql,
-      """SELECT "id", "email", "age", "created_at", "deleted_at" FROM "users" WHERE "email" = $1"""
+      """SELECT "id", "email", "age", "created_at", "deleted_at" FROM "users" WHERE "email" = 'a@b'"""
     )
   }
 
   test("chained .where combines with AND") {
     val af = users.select
-      .where(u => u.age >= 18)
+      .where(u => u.age >= lit(18))
       .where(u => u.deleted_at.isNull)
       .compile.af
-    assert(af.fragment.sql.contains("""WHERE ("age" >= $1 AND "deleted_at" IS NULL)"""))
+    assert(af.fragment.sql.contains("""WHERE ("age" >= 18 AND "deleted_at" IS NULL)"""), af.fragment.sql)
   }
 
   test("limit and offset appear after WHERE") {
     val af = users.select
-      .where(u => u.age >= 18)
+      .where(u => u.age >= lit(18))
       .limit(10)
       .offset(5)
       .compile.af
@@ -105,7 +105,7 @@ class SelectSuite extends munit.FunSuite {
   }
 
   test("FOR UPDATE appears after WHERE / ORDER BY / LIMIT / OFFSET") {
-    val af = users.select.where(u => u.age >= 18).orderBy(u => u.id.asc).limit(5).forUpdate.compile.af
+    val af = users.select.where(u => u.age >= lit(18)).orderBy(u => u.id.asc).limit(5).forUpdate.compile.af
     assert(af.fragment.sql.endsWith(" FOR UPDATE"), clue = af.fragment.sql)
   }
 
@@ -120,9 +120,9 @@ class SelectSuite extends munit.FunSuite {
   }
 
   test("FOR SHARE / FOR NO KEY UPDATE / FOR KEY SHARE") {
-    assert(users.select.forShare.compile.af.fragment.sql.endsWith(" FOR SHARE"))
-    assert(users.select.forNoKeyUpdate.compile.af.fragment.sql.endsWith(" FOR NO KEY UPDATE"))
-    assert(users.select.forKeyShare.compile.af.fragment.sql.endsWith(" FOR KEY SHARE"))
+    assert(users.select.forShare.compile.fragment.sql.endsWith(" FOR SHARE"))
+    assert(users.select.forNoKeyUpdate.compile.fragment.sql.endsWith(" FOR NO KEY UPDATE"))
+    assert(users.select.forKeyShare.compile.fragment.sql.endsWith(" FOR KEY SHARE"))
   }
 
   test("locking carries through to ProjectedSelect") {
@@ -167,21 +167,21 @@ class SelectSuite extends munit.FunSuite {
   // slot into projections, HAVING, ORDER BY, function arguments, etc. These tests lock the cross-position property in.
 
   test("comparison operator in a SELECT projection — renders as a boolean column") {
-    val af = users.select(u => u.age >= 18).compile.af
+    val af = users.select(u => u.age >= lit(18)).compile.af
     assertEquals(
       af.fragment.sql,
-      """SELECT "age" >= $1 FROM "users""""
+      """SELECT "age" >= 18 FROM "users""""
     )
   }
 
   test("comparison operator as one projection among many — decoded row type includes Boolean") {
-    val q: CompiledQuery[(String, Boolean)] = users
-      .select(u => (u.email, u.age >= 18))
+    val q: QueryTemplate[?, (String, Boolean)] = users
+      .select(u => (u.email, u.age >= lit(18)))
       .compile
 
     assertEquals(
-      q.af.fragment.sql,
-      """SELECT "email", "age" >= $1 FROM "users""""
+      q.fragment.sql,
+      """SELECT "email", "age" >= 18 FROM "users""""
     )
   }
 
@@ -193,13 +193,11 @@ class SelectSuite extends munit.FunSuite {
     )
   }
 
-  test("ORDER BY a boolean comparison expression — parameters in the ORDER BY clause flow through") {
-    // Postgres orders by a boolean treating FALSE < TRUE; useful for "give me matched rows last" style sorts.
-    // The `18` on the RHS of `>=` becomes `$1`, and the OrderBy carries that bound parameter via AppliedFragment.
-    val af = users.select(u => u.email).orderBy(u => (u.age >= 18).asc).compile.af
+  test("ORDER BY a boolean comparison expression — literal RHS inlines into the ORDER BY clause") {
+    val af = users.select(u => u.email).orderBy(u => (u.age >= lit(18)).asc).compile.af
     assertEquals(
       af.fragment.sql,
-      """SELECT "email" FROM "users" ORDER BY "age" >= $1 ASC"""
+      """SELECT "email" FROM "users" ORDER BY "age" >= 18 ASC"""
     )
   }
 

@@ -16,17 +16,17 @@ class SelectRelationSuite extends munit.FunSuite {
   private val posts = Table.of[Post]("posts")
 
   test(".asRelation emits `(<inner>) AS \"<alias>\"` in FROM — single outer .compile") {
-    val active = users.select.where(u => u.age >= 18).alias("active")
+    val active = users.select.where(u => u.age >= lit(18)).alias("active")
     val af     = active.select.compile.af
 
     assertEquals(
       af.fragment.sql,
-      """SELECT "id", "email", "age" FROM (SELECT "id", "email", "age" FROM "users" WHERE "age" >= $1) AS "active""""
+      """SELECT "id", "email", "age" FROM (SELECT "id", "email", "age" FROM "users" WHERE "age" >= 18) AS "active""""
     )
   }
 
   test("derived relation joins a base table — outer .compile walks both sources") {
-    val active = users.select.where(u => u.age >= 18).alias("active")
+    val active = users.select.where(u => u.age >= lit(18)).alias("active")
     val af     = active
       .innerJoin(posts)
       .on(r => r.active.id ==== r.posts.user_id)
@@ -36,17 +36,17 @@ class SelectRelationSuite extends munit.FunSuite {
 
     assertEquals(
       af.fragment.sql,
-      """SELECT "active"."email", "posts"."title" FROM (SELECT "id", "email", "age" FROM "users" WHERE "age" >= $1) AS "active" INNER JOIN "posts" ON "active"."id" = "posts"."user_id""""
+      """SELECT "active"."email", "posts"."title" FROM (SELECT "id", "email", "age" FROM "users" WHERE "age" >= 18) AS "active" INNER JOIN "posts" ON "active"."id" = "posts"."user_id""""
     )
   }
 
   test("inner parameters flow into the outer-query argument list in declaration order") {
-    val active = users.select.where(u => u.age >= 18).alias("active")
-    val af     = active.select.where(a => a.email === "x@y.z").compile.af
+    val active = users.select.where(u => u.age >= lit(18)).alias("active")
+    val af     = active.select.where(a => a.email === lit("x@y.z")).compile.af
 
     assertEquals(
       af.fragment.sql,
-      """SELECT "id", "email", "age" FROM (SELECT "id", "email", "age" FROM "users" WHERE "age" >= $1) AS "active" WHERE "email" = $2"""
+      """SELECT "id", "email", "age" FROM (SELECT "id", "email", "age" FROM "users" WHERE "age" >= 18) AS "active" WHERE "email" = 'x@y.z'"""
     )
   }
 }

@@ -33,7 +33,7 @@ class JoinSuite extends PgFixture {
               .innerJoin(posts)
               .on(r => r.users.id ==== r.posts.user_id)
               .select(r => (r.users.email, r.posts.title))
-              .where(r => r.posts.id === pid)
+              .where(r => r.posts.id === Param.bind(pid))
               .compile
               .run(s),
             List(("join-u@x", "hello"))
@@ -56,7 +56,7 @@ class JoinSuite extends PgFixture {
               .leftJoin(posts)
               .on(r => r.users.id ==== r.posts.user_id)
               .select(r => (r.users.email, r.posts.title))
-              .where(r => r.users.id === uid)
+              .where(r => r.users.id === Param.bind(uid))
               .compile
               .run(s),
             List(("solo@x", Option.empty[String]))
@@ -84,7 +84,7 @@ class JoinSuite extends PgFixture {
               .leftJoin(posts)
               .on(r => r.users.id ==== r.posts.user_id)
               .select(r => (r.users.email, Pg.count(r.posts.id).as("n")))
-              .where(r => r.users.id === uid)
+              .where(r => r.users.id === Param.bind(uid))
               .groupBy(r => r.users.email)
               .compile
               .run(s),
@@ -114,7 +114,7 @@ class JoinSuite extends PgFixture {
               .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
               .leftJoin(tags).on(r => r.posts.id ==== r.tags.post_id)
               .select(r => (r.users.email, r.posts.title, r.tags.name))
-              .where(r => r.users.id === uid)
+              .where(r => r.users.id === Param.bind(uid))
               .orderBy(r => r.tags.name.asc)
               .compile
               .run(s),
@@ -142,7 +142,7 @@ class JoinSuite extends PgFixture {
             users
               .crossJoin(posts)
               .select(r => (r.users.email, r.posts.title))
-              .where(r => r.users.id ==== r.posts.user_id && r.users.id === uid)
+              .where(r => r.users.id ==== r.posts.user_id && r.users.id === Param.bind(uid))
               .compile
               .run(s),
             List(("cross@x", "cross-post"))
@@ -168,7 +168,7 @@ class JoinSuite extends PgFixture {
               .innerJoin(posts.alias("p"))
               .on(r => r.u.id ==== r.p.user_id)
               .select(r => (r.u.email, r.p.title))
-              .where(r => r.p.id === pid)
+              .where(r => r.p.id === Param.bind(pid))
               .compile
               .run(s),
             List(("aliased@x", "aliased-hello"))
@@ -216,7 +216,7 @@ class JoinSuite extends PgFixture {
             .rightJoin(inbox)
             .on(r => r.users.email ==== r.users_inbox.email)
             .select(r => (r.users.email, r.users_inbox.email))
-            .where(r => r.users_inbox.email.like(s"%-$tag@x"))
+            .where(r => r.users_inbox.email.like(Param.bind(s"%-$tag@x")))
             .compile.run(s).map(_.toSet)
           _ = assertEquals(
             pairs,
@@ -262,7 +262,7 @@ class JoinSuite extends PgFixture {
                 .alias("recent")
             )
             .select(r => (r.u.email, r.recent.title))
-            .where(r => r.u.email.like(s"%-$tag@x"))
+            .where(r => r.u.email.like(Param.bind(s"%-$tag@x")))
             .compile.run(s).map(_.toSet)
           _ = assertEquals(pairs.size, 4) // 2 users × top 2 posts each
           _ = assert(pairs.forall((email, _) => email.endsWith(s"-$tag@x")), s"unexpected emails: $pairs")
@@ -303,7 +303,7 @@ class JoinSuite extends PgFixture {
             )
             .on(_ => lit(true))
             .select(r => (r.u.email, r.recent.title))
-            .where(r => r.u.email.like(s"%-$tag@x"))
+            .where(r => r.u.email.like(Param.bind(s"%-$tag@x")))
             .compile.run(s).map(_.toSet)
           _ = assertEquals(pairs.size, 2) // one top post per user
           _ = assert(pairs.forall((email, _) => email.endsWith(s"-$tag@x")), s"unexpected: $pairs")
@@ -337,7 +337,7 @@ class JoinSuite extends PgFixture {
             )
             .on(_ => lit(true))
             .select(r => (r.u.email, r.latest.title))
-            .where(r => r.u.email.like(s"%-$tag@x"))
+            .where(r => r.u.email.like(Param.bind(s"%-$tag@x")))
             .compile.run(s).map(_.toSet)
           _ = assertEquals(
             rows,
@@ -388,7 +388,9 @@ class JoinSuite extends PgFixture {
             .fullJoin(inbox)
             .on(r => r.users.email ==== r.users_inbox.email)
             .select(r => (r.users.email, r.users_inbox.email))
-            .where(r => r.users.email.like(s"%-$tag@x") || r.users_inbox.email.like(s"%-$tag@x"))
+            .where(r =>
+              r.users.email.like(Param.bind(s"%-$tag@x")) || r.users_inbox.email.like(Param.bind(s"%-$tag@x"))
+            )
             .compile.run(s).map(_.toSet)
           _ = assertEquals(
             pairs,
