@@ -15,7 +15,7 @@ import java.time.LocalDate
 import java.util.UUID
 
 trait BookingRepository {
-  def findAll: Kleisli[Stream[IO, *], Session[IO], BookingRow]
+  def findFiltered(filters: List[BookingFilter]): Kleisli[Stream[IO, *], Session[IO], BookingRow]
   def findById(id: UUID): Kleisli[IO, Session[IO], Option[BookingRow]]
   def findByRoom(roomId: UUID): Kleisli[Stream[IO, *], Session[IO], BookingRow]
   def findOverlapping(roomId: UUID, start: LocalDate, end: LocalDate): Kleisli[IO, Session[IO], List[BookingRow]]
@@ -27,6 +27,9 @@ object BookingRepository {
 
   val live: BookingRepository = new BookingRepository {
     private val t = BookingRow.table
+
+    /** Captured columns view — see RoomRepository's `cv` for the rationale. */
+    private val cv = t.columnsView
 
     private val selectRow =
       t.select(b => (b.id, b.room_id, b.booker_name, b.title, b.period, b.created_at))
@@ -65,8 +68,38 @@ object BookingRepository {
     private val deleteQ =
       t.delete.where(b => b.id === Param[UUID]).compile
 
-    def findAll: Kleisli[Stream[IO, *], Session[IO], BookingRow] =
-      findAllQ.streamKF[IO]()
+    /**
+     * Per-filter to-Where translation. The half-bounded ranges for "starts on or after" / "ends on or before"
+     * use `<@` (containedBy) against an open-ended probe range — that lets Postgres use the GiST index on
+     * `period` if one exists.
+     */
+    private def toWhere(f: BookingFilter): Where[skunk.Void] = f match {
+      case BookingFilter.RoomsIn(ids) =>
+        cv.room_id.in(ids.map(Param.bind(_)))
+
+      case BookingFilter.BookerNameContains(s) =>
+        cv.booker_name.ilike(Param.bind(s"%$s%"))
+
+      case BookingFilter.TitleContains(s) =>
+        cv.title.ilike(Param.bind(s"%$s%"))
+
+      case BookingFilter.OverlapsPeriod(from, to) =>
+        cv.period.overlaps(Param.bind(PgRange[LocalDate](lower = Some(from), upper = Some(to))))
+
+      case BookingFilter.StartsOnOrAfter(date) =>
+        // booking period sits within `[date, +∞)` — i.e. the booking starts on/after `date`.
+        cv.period.containedBy(Param.bind(PgRange[LocalDate](lower = Some(date))))
+
+      case BookingFilter.EndsOnOrBefore(date) =>
+        // booking period sits within `(−∞, date]` — i.e. the booking ends on/before `date`.
+        cv.period.containedBy(Param.bind(PgRange[LocalDate](upper = Some(date), upperInclusive = true)))
+    }
+
+    def findFiltered(filters: List[BookingFilter]): Kleisli[Stream[IO, *], Session[IO], BookingRow] =
+      if filters.isEmpty then findAllQ.streamKF[IO]()
+      else
+        selectRow.where(_ => allOf(filters.map(toWhere)*))
+          .compile.streamKF[IO]()
 
     def findById(id: UUID): Kleisli[IO, Session[IO], Option[BookingRow]] =
       findByIdQ.optionK[IO](id)

@@ -118,6 +118,32 @@ class WhereSuite extends munit.FunSuite {
     assertEquals(w.fragment.sql, """"email" NOT SIMILAR TO '%.test'""")
   }
 
+  test("Where.allOf folds a List[Where[Void]] with AND (no leading TRUE for non-empty input)") {
+    val w = Where.allOf(List(
+      cols.email === lit("a@b"),
+      cols.age >= lit(18),
+      cols.age <= lit(65)
+    ))
+    assertEquals(w.fragment.sql, """(("email" = 'a@b' AND "age" >= 18) AND "age" <= 65)""")
+    val _: skunk.sharp.where.Where[skunk.Void] = w
+  }
+
+  test("Where.allOf on empty input collapses to TRUE (the AND identity)") {
+    val w = Where.allOf(List.empty[skunk.sharp.where.Where[skunk.Void]])
+    assertEquals(w.fragment.sql, "TRUE")
+  }
+
+  test("Where.anyOf folds with OR; empty input is FALSE") {
+    val w = Where.anyOf(List(cols.age === lit(10), cols.age === lit(20)))
+    assertEquals(w.fragment.sql, """("age" = 10 OR "age" = 20)""")
+    assertEquals(Where.anyOf(List.empty[skunk.sharp.where.Where[skunk.Void]]).fragment.sql, "FALSE")
+  }
+
+  test("Where.allOf works with any cats.Foldable (NonEmptyList here)") {
+    val w = Where.allOf(cats.data.NonEmptyList.of(cols.age >= lit(0), cols.age <= lit(100)))
+    assertEquals(w.fragment.sql, """("age" >= 0 AND "age" <= 100)""")
+  }
+
   test("`=== None` on a nullable column is a compile error — point users at `.isNull`") {
     import scala.compiletime.testing.*
     val result: List[Error] = typeCheckErrors("""
