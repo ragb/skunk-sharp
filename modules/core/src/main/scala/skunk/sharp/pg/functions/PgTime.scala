@@ -19,8 +19,8 @@ trait PgTime {
   val localTime:        TypedExpr[LocalTime, Void]      = TypedExpr(TypedExpr.voidFragment("localtime"),         skunk.codec.all.time)
 
   /**
-   * `(aStart, aEnd) OVERLAPS (bStart, bEnd)` — 4 typed positions; Args is the left-fold
-   * `Concat[Concat[Concat[A1, A2], A3], A4]`. Custom separator pattern (`, ` inside each pair,
+   * `(aStart, aEnd) OVERLAPS (bStart, bEnd)` — 4 typed positions; `Args` flattens to the non-Void slots of
+   * `(A1, A2, A3, A4)` via `Where.Concat`. Custom separator pattern (`, ` inside each pair,
    * `) OVERLAPS (` between pairs) is handled by manually constructing the parts list while still
    * delegating slot dispatch to a per-position projector.
    */
@@ -92,7 +92,7 @@ trait PgTime {
 
   // -------- Construction -----------------------------------------------------------------------
 
-  /** `make_date(year, month, day)` — 3 typed positions; Args = `Concat[Concat[Y, M], D]`. */
+  /** `make_date(year, month, day)` — 3 typed positions; `Args` flattens to the non-Void slots of `(Y, M, D)`. */
   inline def makeDate[Y, M, D](
     year: TypedExpr[Int, Y], month: TypedExpr[Int, M], day: TypedExpr[Int, D]
   ): TypedExpr[LocalDate, Where.Concat[Where.Concat[Y, M], D]] = {
@@ -108,7 +108,7 @@ trait PgTime {
     TypedExpr[LocalDate, Where.Concat[Where.Concat[Y, M], D]](frag, skunk.codec.all.date)
   }
 
-  /** `make_time(h, m, s)` — 3 typed positions; Args = `Concat[Concat[H, M], S]`. */
+  /** `make_time(h, m, s)` — 3 typed positions; `Args` flattens to the non-Void slots of `(H, M, S)`. */
   inline def makeTime[H, MM, S](
     h: TypedExpr[Int, H], m: TypedExpr[Int, MM], s: TypedExpr[Double, S]
   ): TypedExpr[LocalTime, Where.Concat[Where.Concat[H, MM], S]] = {
@@ -125,8 +125,8 @@ trait PgTime {
   }
 
   /**
-   * `make_timestamp(year, month, day, h, m, s)` — 6 typed positions threaded as
-   * `Concat[Concat[Concat[Concat[Concat[Y, MO], D], H], MI], S]` (left-fold).
+   * `make_timestamp(year, month, day, h, m, s)` — 6 typed positions; `Args` flattens to the non-Void slots
+   * of `(Y, MO, D, H, MI, S)` via `Where.Concat`.
    */
   inline def makeTimestamp[Y, MO, D, H, MI, S](
     year:  TypedExpr[Int, Y],

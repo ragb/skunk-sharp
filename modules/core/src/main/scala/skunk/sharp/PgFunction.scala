@@ -22,9 +22,11 @@ object PgFunction {
 
   /**
    * Typed N-ary helper: render `name(item, item, …)` with each item's typed `Args` threaded into a single
-   * `Args` slot via [[Where.FoldConcat]] (right-fold over `Concat`, dropping `Void` slots cleanly). Used by
-   * variadic builders (`coalesce` / `greatest` / `least` / `concat`) at every arity. Inline so the per-slot
-   * `projectFoldConcat` dispatch reduces with the concrete `Tup` shape at the caller's site.
+   * `Args` slot via [[Where.FoldConcat]]. Because `Where.Concat` is smart-flat, the resulting `Args` is the
+   * non-Void slots flattened into a single tuple (e.g. `coalesce(Param[String], col, Param[String])` →
+   * `(String, String)`). Used by variadic builders (`coalesce` / `greatest` / `least` / `concat`) at every
+   * arity. Inline so the per-slot `projectFoldConcat` dispatch reduces with the concrete `Tup` shape at the
+   * caller's site.
    */
   private[sharp] inline def naryTypedFold[T, Tup <: NonEmptyTuple](
     name: String, items: List[Fragment[?]], codec: Codec[T]

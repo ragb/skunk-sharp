@@ -48,7 +48,7 @@ class ParamSuite extends munit.FunSuite {
     )
   }
 
-  test("SELECT WHERE: Param mixed with && in one lambda composes via Concat2") {
+  test("SELECT WHERE: Param mixed with && in one lambda composes via Where.Concat") {
     val q = users.select
       .where(u => u.age >= Param[Int] && u.email === Param[String])
       .compile
@@ -523,8 +523,8 @@ class ParamSuite extends munit.FunSuite {
       .where(u => u.id === Param[UUID])
       .groupBy(u => Pg.mod(u.age, Param[Int]))
       .compile
-    // Args = Concat[Concat[Concat[Concat[DArgs=Int, ProjArgs=Double], WArgs=UUID], GArgs=Int], HArgs=Void]
-    // collapses to flat (Int, Double, UUID, Int) at the user-facing site.
+    // Slot order DArgs=Int, ProjArgs=Double, WArgs=UUID, GArgs=Int, HArgs=Void; smart-flat Concat
+    // collapses to (Int, Double, UUID, Int) at the user-facing site.
     val _: QueryTemplate[(Int, Double, UUID, Int), Double] = q
   }
 
@@ -594,9 +594,9 @@ class ParamSuite extends munit.FunSuite {
     val _: QueryTemplate[String, String] = q
   }
 
-  test("Pg.coalesce(Param, col, Param) at arity 3 threads (A1, A3) via left-fold Concat") {
+  test("Pg.coalesce(Param, col, Param) at arity 3 threads non-Void slots flat as (String, String)") {
     val q = users.select(u => Pg.coalesce(Param[String], u.email, Param[String])).compile
-    // (((String, Void), String) collapsed = (String, String)
+    // FoldConcat over (String, Void, String) flattens to (String, String).
     val _: QueryTemplate[(String, String), String] = q
   }
 
@@ -647,7 +647,7 @@ class ParamSuite extends munit.FunSuite {
     val _: QueryTemplate[Int, Int] = q
   }
 
-  test("Pg.least at arity 3 threads typed Args via left-fold Concat") {
+  test("Pg.least at arity 3 threads typed Args flat as (Int, Int)") {
     val q = users.select(u => Pg.least(Param[Int], u.age, Param[Int])).compile
     val _: QueryTemplate[(Int, Int), Int] = q
   }

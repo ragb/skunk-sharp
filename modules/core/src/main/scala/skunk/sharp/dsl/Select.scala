@@ -82,8 +82,7 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
   /**
    * `GROUP BY …` on a pre-projection builder. `Groups` accumulates the projection shape via
    * `Tuple.Concat[Groups, NormProj[G]]`, so a downstream `.select` carries the typed `GArgs` through
-   * to `ProjectedSelect.compile` (the runtime size-fallback that handled the old `Groups = EmptyTuple`
-   * path is no longer needed for this shape).
+   * to `ProjectedSelect.compile`.
    */
   transparent inline def groupBy[G](inline f: SelectView[Ss] => G)
     : SelectBuilder[Ss, Tuple.Concat[Groups, NormProj[G]], WArgs, HArgs] = {
@@ -381,16 +380,16 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
   ) = select[X](f)
 
   /**
-   * Whole-row `.compile` — only on single-source builders. Threads `SArgs` (from any inner
-   * subquery body), `WArgs` (WHERE), `GArgs` (GROUP BY via [[ProjArgsOf]]), and `HArgs`
-   * (HAVING) in render order: `[SArgs, WArgs, GArgs, HArgs]`.
-   *
-   * For plain table / view sources `SArgs = Void` and the return type reduces to the same
-   * `QueryTemplate[Concat[Concat[WArgs, GArgs], HArgs], Row]` as before this change.
+   * Whole-row `.compile` — only on single-source builders. Threads `CArgs` (CTE preamble), `SArgs` (from any
+   * inner subquery body), `WArgs` (WHERE), `GArgs` (GROUP BY via [[ProjArgsOf]]), and `HArgs` (HAVING) in
+   * render order: `[CArgs, SArgs, WArgs, GArgs, HArgs]`. The combined `Args` collapses Void slots and
+   * flattens via `Where.Concat`, so a query with one Param[T] returns `QueryTemplate[T, Row]`, two Params
+   * `QueryTemplate[(T1, T2), Row]`, and so on at the user site.
    */
-  // Concat-chain evidences are named after the accumulator they peel from. `cs` = (CArgs, SArgs); `csw` =
-  // ((CArgs, SArgs), WArgs); etc. The chain matches the slot order at runtime: the slotValues lambda
-  // unfolds outermost-first.
+  // Concat-chain evidences are named after the accumulator they peel from at slot-extraction time. The
+  // chain is built left-to-right (CArgs, SArgs, WArgs, GArgs, HArgs); `slotValues` unwraps it
+  // outermost-first via repeated `Where.projectConcat`, recovering each slot's value to feed into
+  // `IArray[Any]` for `assembleN`.
   inline def compile[SArgs, GArgs, CArgs](using
     ev:      IsSingleSource[Ss],
     sbOf:    SourceBodyArgsOf.Aux[Ss, SArgs],
@@ -955,10 +954,11 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
    *   - `HArgs`    — HAVING clause.
    *   - `OArgs`    — ORDER BY items (via [[ProjArgsOf]] over `Orders`).
    *
-   * For plain table / view sources `SArgs = Void` and the result type is identical to the prior
-   * 6-slot form: `Concat[Concat[Concat[Concat[Concat[DArgs, ProjArgs], WArgs], GArgs], HArgs], OArgs]`.
+   * `Where.Concat` is smart-flat, so the user-facing `Args` is the non-Void slots flattened into a single
+   * tuple — e.g. a query carrying only a WHERE Param[UUID] returns `QueryTemplate[UUID, Row]`; one with
+   * Param[Int] in DISTINCT ON and Param[String] in WHERE returns `QueryTemplate[(Int, String), Row]`.
    */
-  // Concat-chain evidences. Each name spells the accumulator at that step (left-fold over the slot order):
+  // Concat-chain evidences. Each name spells the accumulator at that step (left-to-right over the slot order):
   // CArgs ⊕ DArgs ⊕ ProjArgs ⊕ SArgs ⊕ OnA ⊕ WArgs ⊕ GArgs ⊕ HArgs ⊕ OArgs.
   //   cd   = CArgs ⊕ DArgs                                          → CD
   //   cdp  = CD ⊕ ProjArgs                                          → CDP

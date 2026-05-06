@@ -50,7 +50,7 @@ trait PgNumeric {
     TypedExpr[T, Where.Concat[A1, A2]](frag, a.codec)
   }
 
-  /** `greatest(a, b, c)` — Args = `Concat[Concat[A1, A2], A3]` (left-fold). */
+  /** `greatest(a, b, c)` — `Args` flattens to `(A1, A2, A3)` via `Where.Concat` (Void slots dropped). */
   inline def greatest[T, A1, A2, A3](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3]
   ): TypedExpr[T, Where.Concat[Where.Concat[A1, A2], A3]] = {
@@ -66,7 +66,7 @@ trait PgNumeric {
     TypedExpr[T, Where.Concat[Where.Concat[A1, A2], A3]](frag, a.codec)
   }
 
-  /** `greatest(a, b, c, d)` — Args is the right-folded `Concat` of all four inputs. */
+  /** `greatest(a, b, c, d)` — `Args` flattens to the non-Void slots of `(A1, A2, A3, A4)` via `Where.Concat`.  */
   inline def greatest[T, A1, A2, A3, A4](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4]
   ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: EmptyTuple]] =
@@ -74,7 +74,7 @@ trait PgNumeric {
       "greatest", List(a.fragment, b.fragment, c.fragment, d.fragment), a.codec
     )
 
-  /** `greatest(a, b, c, d, e)` — Args is the right-folded `Concat` of all five inputs. */
+  /** `greatest(a, b, c, d, e)` — `Args` flattens to the non-Void slots of `(A1…A5)` via `Where.Concat`.  */
   inline def greatest[T, A1, A2, A3, A4, A5](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4], e: TypedExpr[T, A5]
   ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple]] =
@@ -82,7 +82,7 @@ trait PgNumeric {
       "greatest", List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment), a.codec
     )
 
-  /** `greatest(a, b, c, d, e, f)` — Args is the right-folded `Concat` of all six inputs. */
+  /** `greatest(a, b, c, d, e, f)` — `Args` flattens to the non-Void slots of `(A1…A6)` via `Where.Concat`.  */
   inline def greatest[T, A1, A2, A3, A4, A5, A6](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
     e: TypedExpr[T, A5], f: TypedExpr[T, A6]
@@ -91,7 +91,7 @@ trait PgNumeric {
       "greatest", List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment), a.codec
     )
 
-  /** `greatest(a, b, c, d, e, f, g)` — Args is the right-folded `Concat` of all seven inputs. */
+  /** `greatest(a, b, c, d, e, f, g)` — `Args` flattens to the non-Void slots of `(A1…A7)` via `Where.Concat`.  */
   inline def greatest[T, A1, A2, A3, A4, A5, A6, A7](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
     e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7]
@@ -102,7 +102,7 @@ trait PgNumeric {
       a.codec
     )
 
-  /** `greatest(a, b, c, d, e, f, g, h)` — Args is the right-folded `Concat` of all eight inputs. */
+  /** `greatest(a, b, c, d, e, f, g, h)` — `Args` flattens to the non-Void slots of `(A1…A8)` via `Where.Concat`.  */
   inline def greatest[T, A1, A2, A3, A4, A5, A6, A7, A8](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
     e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7], h: TypedExpr[T, A8]
@@ -113,7 +113,7 @@ trait PgNumeric {
       a.codec
     )
 
-  /** `greatest(a, b, c, d, e, f, g, h, i)` — Args is the right-folded `Concat` of all nine inputs. */
+  /** `greatest(a, b, c, d, e, f, g, h, i)` — `Args` flattens to the non-Void slots of `(A1…A9)` via `Where.Concat`.  */
   inline def greatest[T, A1, A2, A3, A4, A5, A6, A7, A8, A9](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
     e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7], h: TypedExpr[T, A8], i: TypedExpr[T, A9]
@@ -137,7 +137,7 @@ trait PgNumeric {
     TypedExpr[T, Where.Concat[A1, A2]](frag, a.codec)
   }
 
-  /** `least(a, b, c)` — Args = `Concat[Concat[A1, A2], A3]` (left-fold). */
+  /** `least(a, b, c)` — `Args` flattens to `(A1, A2, A3)` via `Where.Concat` (Void slots dropped). */
   inline def least[T, A1, A2, A3](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3]
   ): TypedExpr[T, Where.Concat[Where.Concat[A1, A2], A3]] = {
@@ -153,7 +153,7 @@ trait PgNumeric {
     TypedExpr[T, Where.Concat[Where.Concat[A1, A2], A3]](frag, a.codec)
   }
 
-  /** `least(a, b, c, d)` — Args is the right-folded `Concat` of all four inputs. */
+  /** `least(a, b, c, d)` — `Args` flattens to the non-Void slots of `(A1, A2, A3, A4)` via `Where.Concat`.  */
   inline def least[T, A1, A2, A3, A4](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4]
   ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: EmptyTuple]] =
@@ -161,7 +161,7 @@ trait PgNumeric {
       "least", List(a.fragment, b.fragment, c.fragment, d.fragment), a.codec
     )
 
-  /** `least(a, b, c, d, e)` — Args is the right-folded `Concat` of all five inputs. */
+  /** `least(a, b, c, d, e)` — `Args` flattens to the non-Void slots of `(A1…A5)` via `Where.Concat`.  */
   inline def least[T, A1, A2, A3, A4, A5](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4], e: TypedExpr[T, A5]
   ): TypedExpr[T, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: A5 *: EmptyTuple]] =
@@ -169,7 +169,7 @@ trait PgNumeric {
       "least", List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment), a.codec
     )
 
-  /** `least(a, b, c, d, e, f)` — Args is the right-folded `Concat` of all six inputs. */
+  /** `least(a, b, c, d, e, f)` — `Args` flattens to the non-Void slots of `(A1…A6)` via `Where.Concat`.  */
   inline def least[T, A1, A2, A3, A4, A5, A6](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
     e: TypedExpr[T, A5], f: TypedExpr[T, A6]
@@ -178,7 +178,7 @@ trait PgNumeric {
       "least", List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment), a.codec
     )
 
-  /** `least(a, b, c, d, e, f, g)` — Args is the right-folded `Concat` of all seven inputs. */
+  /** `least(a, b, c, d, e, f, g)` — `Args` flattens to the non-Void slots of `(A1…A7)` via `Where.Concat`.  */
   inline def least[T, A1, A2, A3, A4, A5, A6, A7](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
     e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7]
@@ -189,7 +189,7 @@ trait PgNumeric {
       a.codec
     )
 
-  /** `least(a, b, c, d, e, f, g, h)` — Args is the right-folded `Concat` of all eight inputs. */
+  /** `least(a, b, c, d, e, f, g, h)` — `Args` flattens to the non-Void slots of `(A1…A8)` via `Where.Concat`.  */
   inline def least[T, A1, A2, A3, A4, A5, A6, A7, A8](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
     e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7], h: TypedExpr[T, A8]
@@ -200,7 +200,7 @@ trait PgNumeric {
       a.codec
     )
 
-  /** `least(a, b, c, d, e, f, g, h, i)` — Args is the right-folded `Concat` of all nine inputs. */
+  /** `least(a, b, c, d, e, f, g, h, i)` — `Args` flattens to the non-Void slots of `(A1…A9)` via `Where.Concat`.  */
   inline def least[T, A1, A2, A3, A4, A5, A6, A7, A8, A9](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
     e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7], h: TypedExpr[T, A8], i: TypedExpr[T, A9]

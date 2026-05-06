@@ -28,7 +28,7 @@ trait PgNull {
     TypedExpr[T, Where.Concat[A1, A2]](frag, pf.codec)
   }
 
-  /** `coalesce(a, b, c)` — Args = `Concat[Concat[A1, A2], A3]` (left-fold). */
+  /** `coalesce(a, b, c)` — `Args` flattens to `(A1, A2, A3)` via `Where.Concat` (Void slots dropped). */
   inline def coalesce[T, A1, A2, A3](a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3])(using
     pf: PgTypeFor[T]
   ): TypedExpr[T, Where.Concat[Where.Concat[A1, A2], A3]] = {
@@ -46,7 +46,7 @@ trait PgNull {
     TypedExpr[T, Where.Concat[Where.Concat[A1, A2], A3]](frag, pf.codec)
   }
 
-  /** `coalesce(a, b, c, d)` — Args is the right-folded `Concat` of all four inputs. */
+  /** `coalesce(a, b, c, d)` — `Args` flattens to the non-Void slots of `(A1, A2, A3, A4)` via `Where.Concat`.  */
   inline def coalesce[T, A1, A2, A3, A4](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4]
   )(using
@@ -56,7 +56,7 @@ trait PgNull {
       "coalesce", List(a.fragment, b.fragment, c.fragment, d.fragment), pf.codec
     )
 
-  /** `coalesce(a, b, c, d, e)` — Args is the right-folded `Concat` of all five inputs. */
+  /** `coalesce(a, b, c, d, e)` — `Args` flattens to the non-Void slots of `(A1…A5)` via `Where.Concat`.  */
   inline def coalesce[T, A1, A2, A3, A4, A5](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4], e: TypedExpr[T, A5]
   )(using
@@ -66,7 +66,7 @@ trait PgNull {
       "coalesce", List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment), pf.codec
     )
 
-  /** `coalesce(a, b, c, d, e, f)` — Args is the right-folded `Concat` of all six inputs. */
+  /** `coalesce(a, b, c, d, e, f)` — `Args` flattens to the non-Void slots of `(A1…A6)` via `Where.Concat`.  */
   inline def coalesce[T, A1, A2, A3, A4, A5, A6](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
     e: TypedExpr[T, A5], f: TypedExpr[T, A6]
@@ -77,7 +77,7 @@ trait PgNull {
       "coalesce", List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment, f.fragment), pf.codec
     )
 
-  /** `coalesce(a, b, c, d, e, f, g)` — Args is the right-folded `Concat` of all seven inputs. */
+  /** `coalesce(a, b, c, d, e, f, g)` — `Args` flattens to the non-Void slots of `(A1…A7)` via `Where.Concat`.  */
   inline def coalesce[T, A1, A2, A3, A4, A5, A6, A7](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
     e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7]
@@ -90,7 +90,7 @@ trait PgNull {
       pf.codec
     )
 
-  /** `coalesce(a, b, c, d, e, f, g, h)` — Args is the right-folded `Concat` of all eight inputs. */
+  /** `coalesce(a, b, c, d, e, f, g, h)` — `Args` flattens to the non-Void slots of `(A1…A8)` via `Where.Concat`.  */
   inline def coalesce[T, A1, A2, A3, A4, A5, A6, A7, A8](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
     e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7], h: TypedExpr[T, A8]
@@ -103,7 +103,7 @@ trait PgNull {
       pf.codec
     )
 
-  /** `coalesce(a, b, c, d, e, f, g, h, i)` — Args is the right-folded `Concat` of all nine inputs. */
+  /** `coalesce(a, b, c, d, e, f, g, h, i)` — `Args` flattens to the non-Void slots of `(A1…A9)` via `Where.Concat`.  */
   inline def coalesce[T, A1, A2, A3, A4, A5, A6, A7, A8, A9](
     a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3], d: TypedExpr[T, A4],
     e: TypedExpr[T, A5], f: TypedExpr[T, A6], g: TypedExpr[T, A7], h: TypedExpr[T, A8], i: TypedExpr[T, A9]

@@ -133,7 +133,7 @@ trait PgString {
     TypedExpr[String, Where.Concat[A1, A2]](frag, skunk.codec.all.text)
   }
 
-  /** `concat(a, b, c)` — Args = `Concat[Concat[A1, A2], A3]` (left-fold). */
+  /** `concat(a, b, c)` — `Args` flattens to `(A1, A2, A3)` via `Where.Concat` (Void slots dropped). */
   inline def concat[A1, A2, A3](
     a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3]
   ): TypedExpr[String, Where.Concat[Where.Concat[A1, A2], A3]] = {
@@ -151,7 +151,7 @@ trait PgString {
     TypedExpr[String, Where.Concat[Where.Concat[A1, A2], A3]](frag, skunk.codec.all.text)
   }
 
-  /** `concat(a, b, c, d)` — Args is the right-folded `Concat` of all four inputs. */
+  /** `concat(a, b, c, d)` — `Args` flattens to the non-Void slots of `(A1, A2, A3, A4)` via `Where.Concat`.  */
   inline def concat[A1, A2, A3, A4](
     a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3], d: TypedExpr[String, A4]
   ): TypedExpr[String, Where.FoldConcat[A1 *: A2 *: A3 *: A4 *: EmptyTuple]] =
@@ -159,7 +159,7 @@ trait PgString {
       "concat", List(a.fragment, b.fragment, c.fragment, d.fragment), skunk.codec.all.text
     )
 
-  /** `concat(a, b, c, d, e)` — Args is the right-folded `Concat` of all five inputs. */
+  /** `concat(a, b, c, d, e)` — `Args` flattens to the non-Void slots of `(A1…A5)` via `Where.Concat`.  */
   inline def concat[A1, A2, A3, A4, A5](
     a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3],
     d: TypedExpr[String, A4], e: TypedExpr[String, A5]
@@ -168,7 +168,7 @@ trait PgString {
       "concat", List(a.fragment, b.fragment, c.fragment, d.fragment, e.fragment), skunk.codec.all.text
     )
 
-  /** `concat(a, b, c, d, e, f)` — Args is the right-folded `Concat` of all six inputs. */
+  /** `concat(a, b, c, d, e, f)` — `Args` flattens to the non-Void slots of `(A1…A6)` via `Where.Concat`.  */
   inline def concat[A1, A2, A3, A4, A5, A6](
     a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3],
     d: TypedExpr[String, A4], e: TypedExpr[String, A5], f: TypedExpr[String, A6]
@@ -179,7 +179,7 @@ trait PgString {
       skunk.codec.all.text
     )
 
-  /** `concat(a, b, c, d, e, f, g)` — Args is the right-folded `Concat` of all seven inputs. */
+  /** `concat(a, b, c, d, e, f, g)` — `Args` flattens to the non-Void slots of `(A1…A7)` via `Where.Concat`.  */
   inline def concat[A1, A2, A3, A4, A5, A6, A7](
     a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3],
     d: TypedExpr[String, A4], e: TypedExpr[String, A5], f: TypedExpr[String, A6], g: TypedExpr[String, A7]
@@ -190,7 +190,7 @@ trait PgString {
       skunk.codec.all.text
     )
 
-  /** `concat(a, b, c, d, e, f, g, h)` — Args is the right-folded `Concat` of all eight inputs. */
+  /** `concat(a, b, c, d, e, f, g, h)` — `Args` flattens to the non-Void slots of `(A1…A8)` via `Where.Concat`.  */
   inline def concat[A1, A2, A3, A4, A5, A6, A7, A8](
     a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3], d: TypedExpr[String, A4],
     e: TypedExpr[String, A5], f: TypedExpr[String, A6], g: TypedExpr[String, A7], h: TypedExpr[String, A8]
@@ -201,7 +201,7 @@ trait PgString {
       skunk.codec.all.text
     )
 
-  /** `concat(a, b, c, d, e, f, g, h, i)` — Args is the right-folded `Concat` of all nine inputs. */
+  /** `concat(a, b, c, d, e, f, g, h, i)` — `Args` flattens to the non-Void slots of `(A1…A9)` via `Where.Concat`.  */
   inline def concat[A1, A2, A3, A4, A5, A6, A7, A8, A9](
     a: TypedExpr[String, A1], b: TypedExpr[String, A2], c: TypedExpr[String, A3], d: TypedExpr[String, A4],
     e: TypedExpr[String, A5], f: TypedExpr[String, A6], g: TypedExpr[String, A7],
