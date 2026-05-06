@@ -3,7 +3,6 @@ package skunk.sharp.pg.functions
 import skunk.{Fragment, Void}
 import skunk.sharp.{Param, TypedExpr}
 import skunk.sharp.pg.PgTypeFor
-import skunk.sharp.where.Where
 
 /** Window-only functions. Args of input expression(s) propagate. */
 trait PgWindow {

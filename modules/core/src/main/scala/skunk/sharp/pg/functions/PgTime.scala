@@ -41,33 +41,17 @@ trait PgTime {
         List(sep) ++ bEnd.fragment.parts ++
         List(closeParen)
 
-    val enc: skunk.Encoder[Out] = new skunk.Encoder[Out] {
-      override val types: List[skunk.data.Type] = items.flatMap(_.encoder.types)
-      override val sql: cats.data.State[Int, String] =
-        cats.data.State { (n0: Int) =>
-          items.zipWithIndex.foldLeft((n0, "")) { case ((n, acc), (f, i)) =>
-            val (n1, s) = f.encoder.sql.run(n).value
-            val sepStr = i match {
-              case 0 => "("
-              case 1 => ", "
-              case 2 => ") OVERLAPS ("
-              case _ => ", "
-            }
-            (n1, acc + sepStr + s)
-          } match { case (n, acc) => (n, acc + ")") }
-        }
-
-      override def encode(args: Out): List[Option[skunk.data.Encoded]] = {
-        val (a123, a4v) = Where.projectConcat[Where.Concat[Where.Concat[A1, A2], A3], A4](args)
-        val (a12, a3v)  = Where.projectConcat[Where.Concat[A1, A2], A3](a123.asInstanceOf[Where.Concat[Where.Concat[A1, A2], A3]])
-        val (a1v, a2v)  = Where.projectConcat[A1, A2](a12.asInstanceOf[Where.Concat[A1, A2]])
-        val values: List[Any] = List(a1v, a2v, a3v, a4v)
-        items.zip(values).flatMap { case (f, v) =>
-          val e = f.encoder.asInstanceOf[skunk.Encoder[Any]]
-          if (e eq Void.codec) Nil else e.encode(v)
-        }
+    val encodeFn: Out => List[Option[skunk.data.Encoded]] = args => {
+      val (a123, a4v) = Where.projectConcat[Where.Concat[Where.Concat[A1, A2], A3], A4](args)
+      val (a12, a3v)  = Where.projectConcat[Where.Concat[A1, A2], A3](a123)
+      val (a1v, a2v)  = Where.projectConcat[A1, A2](a12)
+      val values: List[Any] = List(a1v, a2v, a3v, a4v)
+      items.zip(values).flatMap { case (f, v) =>
+        val e = f.encoder.asInstanceOf[skunk.Encoder[Any]]
+        if (e eq Void.codec) Nil else e.encode(v)
       }
     }
+    val enc: skunk.Encoder[Out] = new OverlapsEncoder[Out](items, encodeFn)
     val frag: Fragment[Out] = Fragment(parts, enc, skunk.util.Origin.unknown)
     Where(frag)
   }
@@ -189,4 +173,25 @@ trait PgTime {
     TypedExpr[R, A](frag, outCodec)
   }
 
+}
+
+private[functions] final class OverlapsEncoder[Out](
+  items:    List[skunk.Fragment[?]],
+  encodeFn: Out => List[Option[skunk.data.Encoded]]
+) extends skunk.Encoder[Out] {
+  override val types: List[skunk.data.Type] = items.flatMap(_.encoder.types)
+  override val sql: cats.data.State[Int, String] =
+    cats.data.State { (n0: Int) =>
+      items.zipWithIndex.foldLeft((n0, "")) { case ((n, acc), (f, i)) =>
+        val (n1, s) = f.encoder.sql.run(n).value
+        val sepStr = i match {
+          case 0 => "("
+          case 1 => ", "
+          case 2 => ") OVERLAPS ("
+          case _ => ", "
+        }
+        (n1, acc + sepStr + s)
+      } match { case (n, acc) => (n, acc + ")") }
+    }
+  override def encode(args: Out): List[Option[skunk.data.Encoded]] = encodeFn(args)
 }

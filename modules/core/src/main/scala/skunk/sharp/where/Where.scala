@@ -25,37 +25,101 @@ object Where {
     TypedExpr[Boolean, A](fragment, skunk.codec.all.bool)
 
   /**
-   * Type-level concat: drop `Void` placeholders so `(Void, A)` collapses to `A`, `(A, Void)` to `A`, and
-   * `(Void, Void)` to `Void`. Used by builders / operators to keep their `Args` parameter clean when one of the
-   * arms contributes no params.
+   * Normalise an `Args` type into a flat tuple shape: `Void` → `EmptyTuple`, an existing `Tuple` stays as-is,
+   * and any other scalar `X` becomes `X *: EmptyTuple`. The "every Args is a tuple" intermediate form lets
+   * [[Concat]] flatten via `Tuple.Concat` and produces flat user-facing tuples.
+   *
+   * Caveat: a leaf with tuple-typed Args (e.g. a hypothetical `Param[(Int, String)]`) is treated by `AsTuple`
+   * as an already-flattened 2-slot contribution. That matches its encoder's column structure, so it composes
+   * uniformly — but it means the user-facing call shape sees the tuple's elements, not the tuple itself.
    */
-  type Concat[A, B] = (A, B) match {
-    case (Void, Void) => Void
-    case (Void, b)    => b
-    case (a, Void)    => a
-    case _            => (A, B)
+  type AsTuple[X] <: Tuple = X match {
+    case Void  => EmptyTuple
+    case Tuple => X & Tuple
+    case _     => X *: EmptyTuple
+  }
+
+  /**
+   * Inverse of [[AsTuple]] for the visible `Args` type: empty tuple → `Void`, single-element tuple → its
+   * element, otherwise the tuple itself. Composed with `AsTuple` and `Tuple.Concat`, this gives the
+   * flat-but-Void-eliding visible shape callers see at `.compile`.
+   */
+  type FromTuple[T <: Tuple] = T match {
+    case EmptyTuple      => Void
+    case h *: EmptyTuple => h
+    case _               => T
+  }
+
+  /**
+   * Type-level concat with `Void` elision and **flat tuple flattening**. The lhs and rhs are each normalised
+   * to tuple shape via [[AsTuple]], concatenated, and unwrapped via [[FromTuple]]. Examples:
+   *   - `Concat[Void, Void]              = Void`
+   *   - `Concat[Void, T]                 = T`
+   *   - `Concat[T, Void]                 = T`
+   *   - `Concat[Int, String]             = (Int, String)`
+   *   - `Concat[(Int, String), Boolean]  = (Int, String, Boolean)` ← flat (was nested before)
+   *   - `Concat[Int, (String, Boolean)]  = (Int, String, Boolean)`
+   *
+   * Used by builders / operators to thread the combined `Args` parameter; chained `&&`/`combine` always
+   * collapses to a single flat user-facing tuple.
+   */
+  type Concat[A, B] = FromTuple[Tuple.Concat[AsTuple[A], AsTuple[B]]]
+
+  /**
+   * Singleton-Boolean tag indicating whether `T` reduces to `Void`. Used as the scrutinee of
+   * `inline scala.compiletime.constValue[IsVoidTag[T]]` to dispatch on `T`'s reduction — the upper-bound
+   * `<: Boolean` and the [[constValue]] wrapper force the compiler to fully reduce nested match types
+   * (`FoldConcat[(Void, Void)] = Void`, `Concat[Void, Void] = Void`, …) to a singleton `true` or `false`.
+   *
+   * Plain `inline erasedValue[T] match { case _: Void => … }` does NOT trigger this reduction — it
+   * pattern-matches on the un-reduced match-type form and falls through to the default arm whenever `T`
+   * isn't syntactically `Void`, even when it semantically reduces to `Void`.
+   */
+  type IsVoidTag[T] <: Boolean = T match {
+    case Void => true
+    case _    => false
+  }
+
+  /**
+   * Companion to [[IsVoidTag]] for tuple-shape detection. `true` if `T` is a `Tuple` (including `EmptyTuple`,
+   * `Tuple1[_]`, `(A, B)`, …), `false` otherwise. Used by [[projectConcat]] to choose between scalar/tuple
+   * slicing of the flat result.
+   */
+  type IsTupleTag[T] <: Boolean = T match {
+    case Tuple => true
+    case _     => false
   }
 
   /**
    * Project a `Concat[A, B]` value (whatever shape it reduced to) back into a `(A, B)` tuple — the input shape
-   * an `Encoder[A].product(Encoder[B])` actually expects at execute time. Without this, an `Encoder[(A, B)]`
-   * cast as `Encoder[Concat[A, B]]` would receive the wrong shape (e.g. raw `Void` when `Concat[Void, Void] =
-   * Void` reduced) and ClassCastException deep in Skunk's encoder chain.
-   *
-   * The four arms mirror the [[Concat]] match type. Inline-dispatched on `A` / `B` shape via
-   * `compiletime.erasedValue` — caller must therefore be `inline` (or have `A`/`B` concrete in its scope) so
-   * the dispatch reduces.
+   * an `Encoder[A].product(Encoder[B])` actually expects at execute time. With the smart-flat `Concat`, the
+   * runtime value is a flat tuple of `Tuple.Size[AsTuple[A]] + Tuple.Size[AsTuple[B]]` elements (or `Void`,
+   * or one of `A` / `B` if the other side is `Void`). Splitting requires knowing `A`'s arity at compile time
+   * — so this is an `inline def`, dispatched on `IsVoidTag[A]` / `IsVoidTag[B]` / `IsTupleTag[A]` /
+   * `IsTupleTag[B]` via `inline constValue`. Caller must be `inline` (or have `A`/`B` concrete) so the
+   * dispatch reduces.
    */
   inline def projectConcat[A, B](c: Concat[A, B]): (A, B) =
-    inline scala.compiletime.erasedValue[A] match
-      case _: Void =>
-        inline scala.compiletime.erasedValue[B] match
-          case _: Void => (Void, Void).asInstanceOf[(A, B)]
-          case _       => (Void, c).asInstanceOf[(A, B)]
-      case _ =>
-        inline scala.compiletime.erasedValue[B] match
-          case _: Void => (c, Void).asInstanceOf[(A, B)]
-          case _       => c.asInstanceOf[(A, B)]
+    inline scala.compiletime.constValue[IsVoidTag[A]] match
+      case true =>
+        inline scala.compiletime.constValue[IsVoidTag[B]] match
+          case true  => (Void, Void).asInstanceOf[(A, B)]
+          case false => (Void, c).asInstanceOf[(A, B)]
+      case false =>
+        inline scala.compiletime.constValue[IsVoidTag[B]] match
+          case true  => (c, Void).asInstanceOf[(A, B)]
+          case false =>
+            // Both A, B non-Void. Concat reduces to a flat Tuple of size sizeA + sizeB (>= 2).
+            val sizeA = scala.compiletime.constValue[Tuple.Size[AsTuple[A]]]
+            val flat  = c.asInstanceOf[Tuple]
+            val (aTup, bTup) = flat.splitAt(sizeA)
+            val aOut = inline scala.compiletime.constValue[IsTupleTag[A]] match
+              case true  => aTup
+              case false => aTup.productElement(0)
+            val bOut = inline scala.compiletime.constValue[IsTupleTag[B]] match
+              case true  => bTup
+              case false => bTup.productElement(0)
+            (aOut, bOut).asInstanceOf[(A, B)]
 
   /**
    * Right-fold of [[Concat]] over a tuple of Args types. Drops `Void` slots cleanly so

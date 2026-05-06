@@ -82,13 +82,10 @@ extension [Cols <: Tuple](r: Relation[Cols]) {
  */
 extension [Ss <: Tuple, GroupsT <: Tuple, WA, HA](sb: SelectBuilder[Ss, GroupsT, WA, HA]) {
 
-  def alias[A <: String & Singleton, SArgs, GArgs](a: A)(using
+  inline def alias[A <: String & Singleton, SArgs, GArgs](a: A)(using
     ev:   IsSingleSource[Ss],
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
-    g:    ProjArgsOf.Aux[GroupsT, GArgs],
-    cs:   Where.Concat2[SArgs, WA],
-    csg:  Where.Concat2[Where.Concat[SArgs, WA], GArgs],
-    csgh: Where.Concat2[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA]
+    g:    ProjArgsOf.Aux[GroupsT, GArgs]
   ): TypedBodyRelation[ev.Cols, Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA]] {
     type Alias    = A
     type Mode     = AliasMode.Explicit
@@ -98,24 +95,36 @@ extension [Ss <: Tuple, GroupsT <: Tuple, WA, HA](sb: SelectBuilder[Ss, GroupsT,
     val newAlias  = a
     val cols      = sb.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]].head.effectiveCols.asInstanceOf[ev.Cols]
     val innerFrag: Fragment[CombinedArgs] =
-      sb.compileBodyFragment[SArgs, GArgs](using ev, sbOf, g, cs, csg, csgh)
-    new TypedBodyRelation[ev.Cols, CombinedArgs] {
-      type Alias = A
-      type Mode  = AliasMode.Explicit
-      override def bodyFragmentOpt: Option[Fragment[?]]            = Some(innerFrag)
-      override lazy val starProjFromAfOpt: Option[AppliedFragment] = None
-      val currentAlias: A           = newAlias
-      val name: String              = newAlias
-      val schema: Option[String]    = None
-      val columns: ev.Cols          = cols
-      val expectedTableType: String = ""
-      override def fromFragmentWith(x: String): AppliedFragment =
-        throw new UnsupportedOperationException(
-          "skunk-sharp internal: fromFragmentWith called on a typed subquery relation — aliasedFromEntryParts should handle this"
-        )
-    }
+      sb.compileBodyFragment[SArgs, GArgs](using ev, sbOf, g)
+    new SelectAliasedRelation[ev.Cols, CombinedArgs, A](newAlias, cols, innerFrag).asInstanceOf[
+      TypedBodyRelation[ev.Cols, CombinedArgs] {
+        type Alias    = A
+        type Mode     = AliasMode.Explicit
+        type BodyArgs = CombinedArgs
+      }
+    ]
   }
 
+}
+
+private[dsl] final class SelectAliasedRelation[Cols0 <: Tuple, CombinedArgs, A <: String & Singleton](
+  newAlias:  A,
+  cols0:     Cols0,
+  innerFrag: Fragment[CombinedArgs]
+) extends TypedBodyRelation[Cols0, CombinedArgs] {
+  type Alias = A
+  type Mode  = AliasMode.Explicit
+  override def bodyFragmentOpt: Option[Fragment[?]]            = Some(innerFrag)
+  override lazy val starProjFromAfOpt: Option[AppliedFragment] = None
+  val currentAlias: A           = newAlias
+  val name: String              = newAlias
+  val schema: Option[String]    = None
+  val columns: Cols0            = cols0
+  val expectedTableType: String = ""
+  override def fromFragmentWith(x: String): AppliedFragment =
+    throw new UnsupportedOperationException(
+      "skunk-sharp internal: fromFragmentWith called on a typed subquery relation — aliasedFromEntryParts should handle this"
+    )
 }
 
 /**
@@ -148,22 +157,15 @@ extension [Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DA <: Tuple, OA <: Tuple
 
   // Concat-chain evidences (left-fold over slot order):
   // DA2 ⊕ PA ⊕ SA ⊕ OnA ⊕ WA ⊕ GA ⊕ HA ⊕ OA2 — each name spells the accumulator at that step.
-  def alias[A <: String & Singleton, SA, OnA, DA2, PA, GA, OA2](a: A)(using
-    sbOf:     SourceBodyArgsOf.Aux[Ss, SA],
-    bff:      SourceBodyArgsProj[Ss],
-    onSum:    SourceOnArgsOf.Aux[Ss, OnA],
-    onProj:   SourceOnArgsProj[Ss],
-    d:        ProjArgsOf.Aux[DA, DA2],
-    pa:       ProjArgsOf.Aux[Proj, PA],
-    g:        ProjArgsOf.Aux[Groups, GA],
-    o:        ProjArgsOf.Aux[OA, OA2],
-    dp:       Where.Concat2[DA2, PA],
-    dps:      Where.Concat2[Where.Concat[DA2, PA], SA],
-    dpso:     Where.Concat2[Where.Concat[Where.Concat[DA2, PA], SA], OnA],
-    dpsow:    Where.Concat2[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA],
-    dpsowg:   Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA],
-    dpsowgh:  Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA],
-    dpsowgho: Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA], OA2]
+  inline def alias[A <: String & Singleton, SA, OnA, DA2, PA, GA, OA2](a: A)(using
+    sbOf:   SourceBodyArgsOf.Aux[Ss, SA],
+    bff:    SourceBodyArgsProj[Ss],
+    onSum:  SourceOnArgsOf.Aux[Ss, OnA],
+    onProj: SourceOnArgsProj[Ss],
+    d:      ProjArgsOf.Aux[DA, DA2],
+    pa:     ProjArgsOf.Aux[Proj, PA],
+    g:      ProjArgsOf.Aux[Groups, GA],
+    o:      ProjArgsOf.Aux[OA, OA2]
   ): TypedBodyRelation[ProjCols[Proj], Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA], OA2]] {
     type Alias    = A
     type Mode     = AliasMode.Explicit
@@ -173,24 +175,14 @@ extension [Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DA <: Tuple, OA <: Tuple
     val newAlias = a
     val cols     = buildProjectedCols(ps.projections).asInstanceOf[ProjCols[Proj]]
     val innerFrag: Fragment[CombinedArgs] =
-      ps.compileBodyFragment[SA, OnA, DA2, PA, GA, OA2](
-        using gc, sbOf, bff, onSum, onProj, d, pa, g, o, dp, dps, dpso, dpsow, dpsowg, dpsowgh, dpsowgho
-      )
-    new TypedBodyRelation[ProjCols[Proj], CombinedArgs] {
-      type Alias = A
-      type Mode  = AliasMode.Explicit
-      override def bodyFragmentOpt: Option[Fragment[?]]            = Some(innerFrag)
-      override lazy val starProjFromAfOpt: Option[AppliedFragment] = None
-      val currentAlias: A           = newAlias
-      val name: String              = newAlias
-      val schema: Option[String]    = None
-      val columns: ProjCols[Proj]   = cols
-      val expectedTableType: String = ""
-      override def fromFragmentWith(x: String): AppliedFragment =
-        throw new UnsupportedOperationException(
-          "skunk-sharp internal: fromFragmentWith called on a typed subquery relation — aliasedFromEntryParts should handle this"
-        )
-    }
+      ps.compileBodyFragment[SA, OnA, DA2, PA, GA, OA2](using gc, sbOf, bff, onSum, onProj, d, pa, g, o)
+    new SelectAliasedRelation[ProjCols[Proj], CombinedArgs, A](newAlias, cols, innerFrag).asInstanceOf[
+      TypedBodyRelation[ProjCols[Proj], CombinedArgs] {
+        type Alias    = A
+        type Mode     = AliasMode.Explicit
+        type BodyArgs = CombinedArgs
+      }
+    ]
   }
 
 }
@@ -633,21 +625,21 @@ private[sharp] def aliasedFromEntryParts(s: SourceEntry[?, ?, ?, ?, ?]): List[Se
   s.relation match {
     case srf: IsSrf =>
       List(
-        Left(TypedExpr.raw(s"${srf.srfFuncName}(")),
+        SelectBuilder.bake(TypedExpr.raw(s"${srf.srfFuncName}(")),
         Right(srf.srfArgsFragment.asInstanceOf[Fragment[Any]]),
-        Left(TypedExpr.raw(s""") AS "${s.alias}"("${srf.srfColumnName}")"""))
+        SelectBuilder.bake(TypedExpr.raw(s""") AS "${s.alias}"("${srf.srfColumnName}")"""))
       )
     case _ =>
       s.relation.bodyFragmentOpt match {
         case Some(bodyFrag) =>
           List(
-            Left(TypedExpr.raw("(")),
+            SelectBuilder.bake(TypedExpr.raw("(")),
             Right(bodyFrag),
-            Left(TypedExpr.raw(s""") AS "${s.alias}""""))
+            SelectBuilder.bake(TypedExpr.raw(s""") AS "${s.alias}""""))
           )
         case None =>
           List(
-            Left(s.relation.fromFragmentWith(s.alias)),
+            SelectBuilder.bake(s.relation.fromFragmentWith(s.alias)),
             Right(SelectBuilder.emptyVoidSlot)
           )
       }
@@ -692,7 +684,7 @@ type SourceBodyArgs[Ss <: Tuple] = Ss match {
 /**
  * Project a combined [[SourceBodyArgs]] value back into a per-source list of body-args values. Mirrors the
  * fold structure of `SourceBodyArgs[Ss]`: at each `cons` step, peel one source's `BodyArgs` off the front via
- * [[Where.Concat2]] and recurse on the tail. The resulting `List[Any]` has one entry per source — `Void` for
+ * [[Where.projectConcat]] and recurse on the tail. The resulting `List[Any]` has one entry per source — `Void` for
  * plain sources, the typed inner-args value for typed-subquery sources — feeding the `IArray[Any]` that
  * `assembleN` consumes positionally.
  */
@@ -706,16 +698,24 @@ object SourceBodyArgsProj {
     def project(combined: Any): List[Any] = Nil
   }
 
-  given cons[R <: Relation[C0], C0 <: Tuple, C <: Tuple, A <: String & Singleton, OA, T <: Tuple](using
-    c2:   Where.Concat2[GetBodyArgs[R], SourceBodyArgs[T]],
+  inline given cons[R <: Relation[C0], C0 <: Tuple, C <: Tuple, A <: String & Singleton, OA, T <: Tuple](using
     rest: SourceBodyArgsProj[T]
-  ): SourceBodyArgsProj[SourceEntry[R, C0, C, A, OA] *: T] = new SourceBodyArgsProj[SourceEntry[R, C0, C, A, OA] *: T] {
-    def project(combined: Any): List[Any] = {
-      val (h, t) = c2.project(combined.asInstanceOf[Where.Concat[GetBodyArgs[R], SourceBodyArgs[T]]])
-      h :: rest.project(t)
-    }
+  ): SourceBodyArgsProj[SourceEntry[R, C0, C, A, OA] *: T] = {
+    val proj: Where.Concat[GetBodyArgs[R], SourceBodyArgs[T]] => (GetBodyArgs[R], SourceBodyArgs[T]) =
+      c => Where.projectConcat[GetBodyArgs[R], SourceBodyArgs[T]](c)
+    new SourceBodyArgsConsProj[R, C0, C, A, OA, T](rest, proj)
   }
 
+}
+
+private[dsl] final class SourceBodyArgsConsProj[R <: Relation[C0], C0 <: Tuple, C <: Tuple, A <: String & Singleton, OA, T <: Tuple](
+  rest: SourceBodyArgsProj[T],
+  proj: Where.Concat[GetBodyArgs[R], SourceBodyArgs[T]] => (GetBodyArgs[R], SourceBodyArgs[T])
+) extends SourceBodyArgsProj[SourceEntry[R, C0, C, A, OA] *: T] {
+  def project(combined: Any): List[Any] = {
+    val (h, t) = proj(combined.asInstanceOf[Where.Concat[GetBodyArgs[R], SourceBodyArgs[T]]])
+    h :: rest.project(t)
+  }
 }
 
 /**
@@ -756,16 +756,24 @@ object SourceOnArgsProj {
     def project(combined: Any): List[Any] = Nil
   }
 
-  given cons[R <: Relation[C0], C0 <: Tuple, C <: Tuple, A <: String & Singleton, OA, T <: Tuple](using
-    c2:   Where.Concat2[OA, SourceOnArgs[T]],
+  inline given cons[R <: Relation[C0], C0 <: Tuple, C <: Tuple, A <: String & Singleton, OA, T <: Tuple](using
     rest: SourceOnArgsProj[T]
-  ): SourceOnArgsProj[SourceEntry[R, C0, C, A, OA] *: T] = new SourceOnArgsProj[SourceEntry[R, C0, C, A, OA] *: T] {
-    def project(combined: Any): List[Any] = {
-      val (h, t) = c2.project(combined.asInstanceOf[Where.Concat[OA, SourceOnArgs[T]]])
-      h :: rest.project(t)
-    }
+  ): SourceOnArgsProj[SourceEntry[R, C0, C, A, OA] *: T] = {
+    val proj: Where.Concat[OA, SourceOnArgs[T]] => (OA, SourceOnArgs[T]) =
+      c => Where.projectConcat[OA, SourceOnArgs[T]](c)
+    new SourceOnArgsConsProj[R, C0, C, A, OA, T](rest, proj)
   }
 
+}
+
+private[dsl] final class SourceOnArgsConsProj[R <: Relation[C0], C0 <: Tuple, C <: Tuple, A <: String & Singleton, OA, T <: Tuple](
+  rest: SourceOnArgsProj[T],
+  proj: Where.Concat[OA, SourceOnArgs[T]] => (OA, SourceOnArgs[T])
+) extends SourceOnArgsProj[SourceEntry[R, C0, C, A, OA] *: T] {
+  def project(combined: Any): List[Any] = {
+    val (h, t) = proj(combined.asInstanceOf[Where.Concat[OA, SourceOnArgs[T]]])
+    h :: rest.project(t)
+  }
 }
 
 /**

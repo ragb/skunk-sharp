@@ -192,7 +192,7 @@ object TypedExpr {
    * `Combined` to the per-item values list; typically `c => Where.projectFoldConcat[Tup](c)` materialised at
    * the caller's inline expansion site so the per-slot dispatch reduces.
    */
-  private[sharp] def combineList[Combined](
+  def combineList[Combined](
     items:     List[Fragment[?]],
     sep:       String,
     projector: Combined => List[Any]
@@ -271,7 +271,7 @@ object TypedExpr {
   }
 
   /** Wrap a typed Fragment with a literal prefix and suffix string (e.g. `"foo("`, `")"`). Args unchanged. */
-  private[sharp] def wrap[A](prefix: String, inner: Fragment[A], suffix: String): Fragment[A] = {
+  def wrap[A](prefix: String, inner: Fragment[A], suffix: String): Fragment[A] = {
     val parts = List[Either[String, cats.data.State[Int, String]]](Left(prefix)) ++ inner.parts ++ List(Left(suffix))
     Fragment(parts, inner.encoder, Origin.unknown)
   }

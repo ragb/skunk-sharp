@@ -242,68 +242,71 @@ object AsSubquery {
       def fragment(q: QueryTemplate[Args, T]): Fragment[Args] = q.fragment
     }
 
-  given fromProjected[
+  inline given fromProjected[
     Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DistinctOn <: Tuple, Orders <: Tuple,
     SA, OnA, CArgs, DA, PA, GA, OA, WA, HA, T
   ](using
-    ev:        skunk.sharp.GroupCoverage[Proj, Groups],
-    sbOf:      skunk.sharp.dsl.SourceBodyArgsOf.Aux[Ss, SA],
-    bff:       skunk.sharp.dsl.SourceBodyArgsProj[Ss],
-    onSum:     skunk.sharp.dsl.SourceOnArgsOf.Aux[Ss, OnA],
-    onProj:    skunk.sharp.dsl.SourceOnArgsProj[Ss],
-    cteSum:    skunk.sharp.dsl.CteArgsOf.Aux[Ss, CArgs],
-    cteProj:   skunk.sharp.dsl.CteArgsProj[Ss],
-    d:         skunk.sharp.dsl.ProjArgsOf.Aux[DistinctOn, DA],
-    pa:        skunk.sharp.dsl.ProjArgsOf.Aux[Proj, PA],
-    g:         skunk.sharp.dsl.ProjArgsOf.Aux[Groups, GA],
-    o:         skunk.sharp.dsl.ProjArgsOf.Aux[Orders, OA],
-    cd:        Where.Concat2[CArgs, DA],
-    cdp:       Where.Concat2[Where.Concat[CArgs, DA], PA],
-    cdps:      Where.Concat2[Where.Concat[Where.Concat[CArgs, DA], PA], SA],
-    cdpso:     Where.Concat2[Where.Concat[Where.Concat[Where.Concat[CArgs, DA], PA], SA], OnA],
-    cdpsow:    Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DA], PA], SA], OnA], WA],
-    cdpsowg:   Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DA], PA], SA], OnA], WA], GA],
-    cdpsowgh:  Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DA], PA], SA], OnA], WA], GA], HA],
-    cdpsowgho: Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DA], PA], SA], OnA], WA], GA], HA], OA]
+    ev:      skunk.sharp.GroupCoverage[Proj, Groups],
+    sbOf:    skunk.sharp.dsl.SourceBodyArgsOf.Aux[Ss, SA],
+    bff:     skunk.sharp.dsl.SourceBodyArgsProj[Ss],
+    onSum:   skunk.sharp.dsl.SourceOnArgsOf.Aux[Ss, OnA],
+    onProj:  skunk.sharp.dsl.SourceOnArgsProj[Ss],
+    cteSum:  skunk.sharp.dsl.CteArgsOf.Aux[Ss, CArgs],
+    cteProj: skunk.sharp.dsl.CteArgsProj[Ss],
+    d:       skunk.sharp.dsl.ProjArgsOf.Aux[DistinctOn, DA],
+    pa:      skunk.sharp.dsl.ProjArgsOf.Aux[Proj, PA],
+    g:       skunk.sharp.dsl.ProjArgsOf.Aux[Groups, GA],
+    o:       skunk.sharp.dsl.ProjArgsOf.Aux[Orders, OA]
   ): AsSubquery[
     ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T],
     T,
     Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DA], PA], SA], OnA], WA], GA], HA], OA]
-  ] =
-    new AsSubquery[
-      ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T],
-      T,
-      Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DA], PA], SA], OnA], WA], GA], HA], OA]
-    ] {
-      def codec(q: ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T]): Codec[T] = q.codec
-      def fragment(q: ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T])
-        : Fragment[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DA], PA], SA], OnA], WA], GA], HA], OA]] =
-        q.compile[SA, OnA, CArgs, DA, PA, GA, OA](using ev, sbOf, bff, onSum, onProj, cteSum, cteProj, d, pa, g, o, cd, cdp, cdps, cdpso, cdpsow, cdpsowg, cdpsowgh, cdpsowgho).fragment
-    }
+  ] = {
+    type Out = Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DA], PA], SA], OnA], WA], GA], HA], OA]
+    val frag: ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T] => Fragment[Out] =
+      q => q.compile[SA, OnA, CArgs, DA, PA, GA, OA](using ev, sbOf, bff, onSum, onProj, cteSum, cteProj, d, pa, g, o).fragment
+    new ProjectedAsSubquery[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T, Out](frag)
+  }
 
   /**
    * Whole-row SelectBuilder → subquery of NamedRow. Relies on the same `IsSingleSource` evidence `.compile` uses.
    */
-  given fromSelectBuilder[Ss <: Tuple, GroupsT <: Tuple, SA, GA, CArgs, WA, HA, C <: Tuple, R](using
+  inline given fromSelectBuilder[Ss <: Tuple, GroupsT <: Tuple, SA, GA, CArgs, WA, HA, C <: Tuple, R](using
     ev:      IsSingleSource.Aux[Ss, C],
     sbOf:    skunk.sharp.dsl.SourceBodyArgsOf.Aux[Ss, SA],
     cteSum:  skunk.sharp.dsl.CteArgsOf.Aux[Ss, CArgs],
     cteProj: skunk.sharp.dsl.CteArgsProj[Ss],
     g:       skunk.sharp.dsl.ProjArgsOf.Aux[GroupsT, GA],
-    c0c:     Where.Concat2[CArgs, SA],
-    c0cs:    Where.Concat2[Where.Concat[CArgs, SA], WA],
-    c0csw:   Where.Concat2[Where.Concat[Where.Concat[CArgs, SA], WA], GA],
-    c0cswg:  Where.Concat2[Where.Concat[Where.Concat[Where.Concat[CArgs, SA], WA], GA], HA],
     eq:      R =:= skunk.sharp.NamedRowOf[C]
-  ): AsSubquery[SelectBuilder[Ss, GroupsT, WA, HA], R, Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SA], WA], GA], HA]] =
-    new AsSubquery[SelectBuilder[Ss, GroupsT, WA, HA], R, Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SA], WA], GA], HA]] {
-      def codec(b: SelectBuilder[Ss, GroupsT, WA, HA]): Codec[R] = {
-        val entries = b.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
-        skunk.sharp.internal.rowCodec(entries.head.effectiveCols).asInstanceOf[Codec[R]]
-      }
-      def fragment(b: SelectBuilder[Ss, GroupsT, WA, HA]): Fragment[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SA], WA], GA], HA]] =
-        b.compile[SA, GA, CArgs](using ev, sbOf, cteSum, cteProj, g, c0c, c0cs, c0csw, c0cswg).fragment
+  ): AsSubquery[SelectBuilder[Ss, GroupsT, WA, HA], R, Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SA], WA], GA], HA]] = {
+    type Out = Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SA], WA], GA], HA]
+    val frag: SelectBuilder[Ss, GroupsT, WA, HA] => Fragment[Out] =
+      b => b.compile[SA, GA, CArgs](using ev, sbOf, cteSum, cteProj, g).fragment
+    new SelectBuilderAsSubquery[Ss, GroupsT, WA, HA, R, Out](frag)
+  }
+
+  /**
+   * Named-class instances for the inline `fromProjected` / `fromSelectBuilder` givens. Avoids E197
+   * (anonymous class duplicated at each inline summon site) — the class definition is shared, only
+   * the captured `frag` lambda differs per summon.
+   */
+  private[dsl] final class ProjectedAsSubquery[
+    Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DistinctOn <: Tuple, Orders <: Tuple, WA, HA, T, Out
+  ](frag: ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T] => Fragment[Out])
+    extends AsSubquery[ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T], T, Out] {
+    def codec(q:    ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T]): Codec[T]    = q.codec
+    def fragment(q: ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T]): Fragment[Out] = frag(q)
+  }
+
+  private[dsl] final class SelectBuilderAsSubquery[Ss <: Tuple, GroupsT <: Tuple, WA, HA, R, Out](
+    frag: SelectBuilder[Ss, GroupsT, WA, HA] => Fragment[Out]
+  ) extends AsSubquery[SelectBuilder[Ss, GroupsT, WA, HA], R, Out] {
+    def codec(b: SelectBuilder[Ss, GroupsT, WA, HA]): Codec[R] = {
+      val entries = b.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
+      skunk.sharp.internal.RowCodecs.rowCodec(entries.head.effectiveCols).asInstanceOf[Codec[R]]
     }
+    def fragment(b: SelectBuilder[Ss, GroupsT, WA, HA]): Fragment[Out] = frag(b)
+  }
 
   given fromSetOp[A, T]: AsSubquery[SetOpQuery[A, T], T, A] =
     new AsSubquery[SetOpQuery[A, T], T, A] {

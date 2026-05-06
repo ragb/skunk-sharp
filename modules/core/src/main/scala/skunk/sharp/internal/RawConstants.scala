@@ -14,7 +14,7 @@ import skunk.util.Origin
  * Constructed via direct `Fragment` / `AppliedFragment` calls — deliberately does NOT route through
  * `TypedExpr.raw`, which now looks up these constants and would circularly initialise as `null`.
  */
-private[sharp] object RawConstants {
+object RawConstants {
 
   /**
    * Process-wide intern table: maps a SQL string to a single shared `AppliedFragment`. Populated by the

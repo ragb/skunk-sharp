@@ -2,7 +2,7 @@ package skunk.sharp.dsl
 
 import skunk.{AppliedFragment, Codec, Encoder, Fragment, Void}
 import skunk.sharp.*
-import skunk.sharp.internal.{rowCodec, tupleCodec, RawConstants}
+import skunk.sharp.internal.{RawConstants, RowCodecs}, RowCodecs.{rowCodec, tupleCodec}
 import skunk.sharp.where.Where
 import skunk.util.Origin
 
@@ -58,25 +58,21 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
   private def view: SelectView[Ss] = buildSelectView[Ss](sources)
 
   /** AND in a typed predicate — `WArgs` extends via `Where.Concat`. */
-  def where[A](f: SelectView[Ss] => Where[A])(using
-    c2: Where.Concat2[WArgs, A]
-  ): SelectBuilder[Ss, Groups, Where.Concat[WArgs, A], HArgs] = {
+  inline def where[A](f: SelectView[Ss] => Where[A]): SelectBuilder[Ss, Groups, Where.Concat[WArgs, A], HArgs] = {
     val pred     = f(view)
-    val combined = SelectBuilder.andInto[WArgs, A](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], pred)
+    val combined = SelectBuilder.andInto[WArgs, A](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], pred, c => Where.projectConcat[WArgs, A](c))
     cp[Where.Concat[WArgs, A], HArgs](whereOpt = Some(combined))
   }
 
   /** Escape hatch — widens `WArgs` to `?`. */
-  def whereRaw(af: AppliedFragment)(using
-    c2: Where.Concat2[WArgs, Void]
-  ): SelectBuilder[Ss, Groups, ?, HArgs] = {
-    val combined = SelectBuilder.andRawInto[WArgs](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], af)
+  inline def whereRaw(af: AppliedFragment): SelectBuilder[Ss, Groups, ?, HArgs] = {
+    val combined = SelectBuilder.andRawInto[WArgs](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], af, c => Where.projectConcat[WArgs, Void](c))
     cp[Any, HArgs](whereOpt = Some(combined))
   }
 
   /** `ORDER BY …` — typed exprs may carry their own Args; absorbed into the assembled fragment encoder. */
   def orderBy(f: SelectView[Ss] => OrderBy[?] | Tuple): SelectBuilder[Ss, Groups, WArgs, HArgs] = {
-    val fresh = f(view) match {
+    val fresh = (f(view): Any) match {
       case ob: OrderBy[?] => List(ob)
       case t: Tuple    => t.toList.asInstanceOf[List[OrderBy[?]]]
     }
@@ -92,7 +88,7 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
   transparent inline def groupBy[G](inline f: SelectView[Ss] => G)
     : SelectBuilder[Ss, Tuple.Concat[Groups, NormProj[G]], WArgs, HArgs] = {
     val v     = view
-    val fresh = f(v) match {
+    val fresh = (f(v): Any) match {
       case e: TypedExpr[?, ?] => List(e)
       case t: Tuple           => t.toList.asInstanceOf[List[TypedExpr[?, ?]]]
     }
@@ -111,19 +107,15 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
   }
 
   /** `HAVING <typed-predicate>`. */
-  def having[H](f: SelectView[Ss] => Where[H])(using
-    c2: Where.Concat2[HArgs, H]
-  ): SelectBuilder[Ss, Groups, WArgs, Where.Concat[HArgs, H]] = {
+  inline def having[H](f: SelectView[Ss] => Where[H]): SelectBuilder[Ss, Groups, WArgs, Where.Concat[HArgs, H]] = {
     val pred     = f(view)
-    val combined = SelectBuilder.andInto[HArgs, H](havingOpt.asInstanceOf[Option[Fragment[HArgs]]], pred)
+    val combined = SelectBuilder.andInto[HArgs, H](havingOpt.asInstanceOf[Option[Fragment[HArgs]]], pred, c => Where.projectConcat[HArgs, H](c))
     cp[WArgs, Where.Concat[HArgs, H]](havingOpt = Some(combined))
   }
 
   /** Escape hatch HAVING — widens `HArgs` to `?`. */
-  def havingRaw(af: AppliedFragment)(using
-    c2: Where.Concat2[HArgs, Void]
-  ): SelectBuilder[Ss, Groups, WArgs, ?] = {
-    val combined = SelectBuilder.andRawInto[HArgs](havingOpt.asInstanceOf[Option[Fragment[HArgs]]], af)
+  inline def havingRaw(af: AppliedFragment): SelectBuilder[Ss, Groups, WArgs, ?] = {
+    val combined = SelectBuilder.andRawInto[HArgs](havingOpt.asInstanceOf[Option[Fragment[HArgs]]], af, c => Where.projectConcat[HArgs, Void](c))
     cp[WArgs, Any](havingOpt = Some(combined))
   }
 
@@ -134,7 +126,7 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
 
   /** `SELECT DISTINCT ON (e1, e2, …) …`. */
   def distinctOn(f: SelectView[Ss] => TypedExpr[?, ?] | Tuple): SelectBuilder[Ss, Groups, WArgs, HArgs] = {
-    val exprs = f(view) match {
+    val exprs = (f(view): Any) match {
       case e: TypedExpr[?, ?] => List(e)
       case t: Tuple           => t.toList.asInstanceOf[List[TypedExpr[?, ?]]]
     }
@@ -399,16 +391,12 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
   // Concat-chain evidences are named after the accumulator they peel from. `cs` = (CArgs, SArgs); `csw` =
   // ((CArgs, SArgs), WArgs); etc. The chain matches the slot order at runtime: the slotValues lambda
   // unfolds outermost-first.
-  def compile[SArgs, GArgs, CArgs](using
+  inline def compile[SArgs, GArgs, CArgs](using
     ev:      IsSingleSource[Ss],
     sbOf:    SourceBodyArgsOf.Aux[Ss, SArgs],
     cteSum:  CteArgsOf.Aux[Ss, CArgs],
     cteProj: CteArgsProj[Ss],
-    g:       ProjArgsOf.Aux[Groups, GArgs],
-    cs:      Where.Concat2[CArgs, SArgs],
-    csw:     Where.Concat2[Where.Concat[CArgs, SArgs], WArgs],
-    cswg:    Where.Concat2[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs],
-    cswgh:   Where.Concat2[Where.Concat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs], HArgs]
+    g:       ProjArgsOf.Aux[Groups, GArgs]
   ): QueryTemplate[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs], HArgs], NamedRowOf[ev.Cols]] = {
     val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
     val head    = entries.head
@@ -420,10 +408,10 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
     }
     type Out = Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs], HArgs]
     val slotValues: Out => IArray[Any] = args => {
-      val (cswgAcc, hArgs)  = cswgh.project(args)
-      val (cswAcc, gArgs)   = cswg.project(cswgAcc.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs]])
-      val (csAcc, wArgs)    = csw.project(cswAcc.asInstanceOf[Where.Concat[Where.Concat[CArgs, SArgs], WArgs]])
-      val (cArgs, sArgs)    = cs.project(csAcc.asInstanceOf[Where.Concat[CArgs, SArgs]])
+      val (cswgAcc, hArgs) = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs], HArgs](args)
+      val (cswAcc, gArgs)  = Where.projectConcat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs](cswgAcc)
+      val (csAcc, wArgs)   = Where.projectConcat[Where.Concat[CArgs, SArgs], WArgs](cswAcc)
+      val (cArgs, sArgs)   = Where.projectConcat[CArgs, SArgs](csAcc)
       buildCteAndSlotIArrayWithEntries(entries, cteProj, cArgs, ctes, IArray[Any](sArgs, wArgs, gArgs, hArgs))
     }
     SelectBuilder.assembleN[Out, NamedRowOf[ev.Cols]](
@@ -441,13 +429,10 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
    *
    * Slot order: `[SArgs=0, WArgs=1, GArgs=2, HArgs=3]`.
    */
-  private[dsl] def compileBodyFragment[SArgs, GArgs](using
+  private[dsl] inline def compileBodyFragment[SArgs, GArgs](using
     ev:   IsSingleSource[Ss],
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
-    g:    ProjArgsOf.Aux[Groups, GArgs],
-    cs:   Where.Concat2[SArgs, WArgs],
-    csg:  Where.Concat2[Where.Concat[SArgs, WArgs], GArgs],
-    csgh: Where.Concat2[Where.Concat[Where.Concat[SArgs, WArgs], GArgs], HArgs]
+    g:    ProjArgsOf.Aux[Groups, GArgs]
   ): Fragment[Where.Concat[Where.Concat[Where.Concat[SArgs, WArgs], GArgs], HArgs]] = {
     // No CTE preamble emitted here — `compileBodyFragment` is used by `.alias` (subquery body) and `cte()`
     // (CTE body) to capture the SELECT body alone. CTEs collected at this nesting level surface in the outer
@@ -462,9 +447,9 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
     }
     type Out = Where.Concat[Where.Concat[Where.Concat[SArgs, WArgs], GArgs], HArgs]
     val slotValues: Out => IArray[Any] = args => {
-      val (swg, hArgs)   = csgh.project(args)
-      val (sw, gArgs)    = csg.project(swg.asInstanceOf[Where.Concat[Where.Concat[SArgs, WArgs], GArgs]])
-      val (sArgs, wArgs) = cs.project(sw.asInstanceOf[Where.Concat[SArgs, WArgs]])
+      val (swgAcc, hArgs) = Where.projectConcat[Where.Concat[Where.Concat[SArgs, WArgs], GArgs], HArgs](args)
+      val (swAcc, gArgs)  = Where.projectConcat[Where.Concat[SArgs, WArgs], GArgs](swgAcc)
+      val (sArgs, wArgs)  = Where.projectConcat[SArgs, WArgs](swAcc)
       IArray[Any](sArgs, wArgs, gArgs, hArgs)
     }
     SelectBuilder.assembleN[Out, NamedRowOf[ev.Cols]](
@@ -490,7 +475,7 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
     val rel          = head.relation
     val selectPrefix = renderSelectPrefix(distinct, distinctOnOpt)
     val buf          = scala.collection.mutable.ListBuffer[BodyPart]()
-    buf += Left(selectPrefix)
+    buf += SelectBuilder.bake(selectPrefix)
     // The projection list (`"col1", "col2"`) depends only on column **names**, which are preserved by
     // `nullabilifyCols` (LEFT/RIGHT/FULL JOIN) and unchanged by re-aliasing. So `rel.starProjAf` is always
     // safe regardless of `effectiveCols` identity or the source's alias. The only thing the alias gates is
@@ -502,11 +487,11 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
         rel.starProjFromAfOpt match {
           case Some(af) =>
             // Pre-cached "cols FROM table" string (plain source only — typed subquery overrides to None).
-            buf += Left(af)
+            buf += SelectBuilder.bake(af)
             buf += Right(SelectBuilder.emptyVoidSlot) // slot 0 placeholder (plain source → Void)
           case None =>
-            buf += Left(rel.starProjAf)
-            buf += Left(RawConstants.FROM)
+            buf += SelectBuilder.bake(rel.starProjAf)
+            buf += SelectBuilder.bake(RawConstants.FROM)
             // slot 0: typed subquery → Right(innerFrag); plain → Left(fromFrag) Right(emptyVoidSlot)
             aliasedFromEntryParts(head).foreach(buf += _)
         }
@@ -514,12 +499,12 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
         // alias != name OR effectiveCols was nullabilified — projection list still uses cached starProjAf
         // (column names match), but the FROM rendering needs the explicit `AS "alias"` form via
         // `aliasedFromEntryParts`.
-        buf += Left(rel.starProjAf)
-        buf += Left(RawConstants.FROM)
+        buf += SelectBuilder.bake(rel.starProjAf)
+        buf += SelectBuilder.bake(RawConstants.FROM)
         aliasedFromEntryParts(head).foreach(buf += _)
       }
     } else {
-      buf += Left(rel.starProjAf)
+      buf += SelectBuilder.bake(rel.starProjAf)
       buf += Right(SelectBuilder.emptyVoidSlot) // slot 0 (FROM-less → Void)
     }
     // No tail-source emission here: every caller of `compileBodyParts` (compile, compileBodyFragment)
@@ -529,7 +514,7 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
     // slot 1 = WHERE
     whereOpt match {
       case Some(f) =>
-        buf += Left(RawConstants.WHERE)
+        buf += SelectBuilder.bake(RawConstants.WHERE)
         buf += Right(f)
       case None =>
         buf += Right(SelectBuilder.emptyVoidSlot)
@@ -537,7 +522,7 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
     // slot 2 = GROUP BY
     if (groupBys.nonEmpty) {
       val combinedGrp = TypedExpr.combineList[Any](groupBys.map(_.fragment), ", ", groupProjector)
-      buf += Left(RawConstants.GROUP_BY)
+      buf += SelectBuilder.bake(RawConstants.GROUP_BY)
       buf += Right(combinedGrp)
     } else {
       buf += Right(SelectBuilder.emptyVoidSlot)
@@ -545,18 +530,18 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
     // slot 3 = HAVING
     havingOpt match {
       case Some(f) =>
-        buf += Left(RawConstants.HAVING)
+        buf += SelectBuilder.bake(RawConstants.HAVING)
         buf += Right(f)
       case None =>
         buf += Right(SelectBuilder.emptyVoidSlot)
     }
     if (orderBys.nonEmpty) {
-      buf += Left(RawConstants.ORDER_BY)
-      buf += Left(TypedExpr.joined(orderBys.map(o => SelectBuilder.bindVoid(o.fragment)), ", "))
+      buf += SelectBuilder.bake(RawConstants.ORDER_BY)
+      buf += SelectBuilder.bake(TypedExpr.joined(orderBys.map(o => SelectBuilder.bindVoid(o.fragment)), ", "))
     }
-    limitOpt.foreach(n => buf += Left(RawConstants.limitAf(n)))
-    offsetOpt.foreach(n => buf += Left(RawConstants.offsetAf(n)))
-    lockingOpt.foreach(l => buf += Left(TypedExpr.raw(" " + l.sql)))
+    limitOpt.foreach(n => buf += SelectBuilder.bake(RawConstants.limitAf(n)))
+    offsetOpt.foreach(n => buf += SelectBuilder.bake(RawConstants.offsetAf(n)))
+    lockingOpt.foreach(l => buf += SelectBuilder.bake(TypedExpr.raw(" " + l.sql)))
     buf.toList
   }
 
@@ -567,12 +552,14 @@ object SelectBuilder {
   // ---- AND-into helpers (typed and raw) --------------------------------------------------------
 
   /**
-   * AND a typed predicate into an existing typed slot. Uses [[Where.Concat2]] so the combined encoder's input
-   * shape matches `Concat[Slot, A]` rather than the raw Tuple2 the underlying product expects.
+   * `proj` re-pairs the `Where.Concat[Slot, A]` runtime value back into `(Slot, A)` for the combined product
+   * encoder's contramap — call site materialises it as `c => Where.projectConcat[Slot, A](c)` where `Slot`/`A`
+   * are concrete (so the inline dispatch reduces). Passing as a parameter keeps `andInto` itself non-inline
+   * — otherwise every chained `.where(...)` would need to be inline too.
    */
   private[dsl] def andInto[Slot, A](
-    slot: Option[Fragment[Slot]], pred: Where[A]
-  )(using c2: Where.Concat2[Slot, A]): Fragment[Where.Concat[Slot, A]] =
+    slot: Option[Fragment[Slot]], pred: Where[A], proj: Where.Concat[Slot, A] => (Slot, A)
+  ): Fragment[Where.Concat[Slot, A]] =
     slot match {
       case None    => pred.fragment.asInstanceOf[Fragment[Where.Concat[Slot, A]]]
       case Some(f) =>
@@ -582,7 +569,7 @@ object SelectBuilder {
             RawConstants.AND.fragment.parts ++
             pred.fragment.parts ++
             RawConstants.CLOSE_PAREN.fragment.parts
-        val enc = TypedExpr.combineEnc[Slot, A](f.encoder, pred.fragment.encoder)
+        val enc = TypedExpr.combineEnc[Slot, A](f.encoder, pred.fragment.encoder, proj)
         Fragment(parts, enc, Origin.unknown)
     }
 
@@ -598,8 +585,8 @@ object SelectBuilder {
 
   /** AND a pre-applied raw `AppliedFragment` into a slot — bakes its args via contramap (treats raw as Void-args). */
   private[dsl] def andRawInto[Slot](
-    slot: Option[Fragment[Slot]], af: AppliedFragment
-  )(using c2: Where.Concat2[Slot, Void]): Fragment[Where.Concat[Slot, Void]] = {
+    slot: Option[Fragment[Slot]], af: AppliedFragment, proj: Where.Concat[Slot, Void] => (Slot, Void)
+  ): Fragment[Where.Concat[Slot, Void]] = {
     val rawFrag: Fragment[Void] = TypedExpr.liftAfToVoid(af)
     slot match {
       case None    => rawFrag.asInstanceOf[Fragment[Where.Concat[Slot, Void]]]
@@ -610,7 +597,7 @@ object SelectBuilder {
             RawConstants.AND.fragment.parts ++
             rawFrag.parts ++
             RawConstants.CLOSE_PAREN.fragment.parts
-        val enc = TypedExpr.combineEnc[Slot, Void](f.encoder, rawFrag.encoder)
+        val enc = TypedExpr.combineEnc[Slot, Void](f.encoder, rawFrag.encoder, proj)
         Fragment(parts, enc, Origin.unknown)
     }
   }
@@ -626,17 +613,22 @@ object SelectBuilder {
   }
 
   /**
-   * Body-part. `Left(af)` is a pre-applied `AppliedFragment` (its args are already baked — typically a
-   * structural piece like " WHERE ", a header, or a row of values applied via `Param.bind`). `Right(f)` is a
-   * typed `Fragment[A]` slot whose encoder takes a typed `A` at execute time (typically a WHERE/HAVING
-   * predicate built from `Param[T]`).
+   * Body-part. `Left(f)` is a `Fragment[Void]` whose encoder is already-baked (its argument flows via
+   * contramap, typically a structural piece like " WHERE ", a header, or a row of values applied via
+   * `Param.bind`). `Right(f)` is a typed `Fragment[A]` slot whose encoder takes a typed `A` at execute
+   * time (typically a WHERE/HAVING predicate built from `Param[T]`).
    *
-   * Splitting baked from typed at this level lets [[assemble]] produce a final encoder that contramaps the
-   * user-claimed `Args` correctly: the baked side is contramapped to discard the user's input and emit its
-   * pre-known values; the typed side receives the user's `Args`. Products inside the same side stay
-   * type-aligned (typed-typed products yield nested tuples that match `Where.Concat` reductions).
+   * Splitting baked from typed at this level lets [[assembleN]] produce a final encoder that contramaps
+   * the user-claimed `Args` correctly: the baked side is encoded with `Void` (its values flow via the
+   * fragment's own contramap); the typed side receives the user's `Args` via `slotValues`.
    */
-  private[dsl] type BodyPart = Either[AppliedFragment, Fragment[?]]
+  private[dsl] type BodyPart = Either[Fragment[Void], Fragment[?]]
+
+  /** Convert a pre-applied `AppliedFragment` into a `BodyPart` (Left). For static AFs whose encoder is
+   * already `Void.codec`, [[TypedExpr.liftAfToVoid]] returns the underlying `Fragment[Void]` directly
+   * with no allocation; for dynamic AFs it constructs a contramapped `Fragment[Void]` once. */
+  private[dsl] inline def bake(af: AppliedFragment): BodyPart =
+    Left(TypedExpr.liftAfToVoid(af))
 
   /** Build the body-parts list for a SELECT or projected SELECT in render order. */
   private[dsl] def bodyPartsAround(
@@ -650,26 +642,26 @@ object SelectBuilder {
     lockingOpt:  Option[Locking]
   ): List[BodyPart] = {
     val buf = scala.collection.mutable.ListBuffer[BodyPart]()
-    headerParts.foreach(af => buf += Left(af))
+    headerParts.foreach(af => buf += SelectBuilder.bake(af))
     whereOpt.foreach { f =>
-      buf += Left(RawConstants.WHERE)
+      buf += SelectBuilder.bake(RawConstants.WHERE)
       buf += Right(f)
     }
     if (groupBys.nonEmpty) {
-      buf += Left(RawConstants.GROUP_BY)
-      buf += Left(TypedExpr.joined(groupBys.map(e => bindVoid(e.fragment)), ", "))
+      buf += SelectBuilder.bake(RawConstants.GROUP_BY)
+      buf += SelectBuilder.bake(TypedExpr.joined(groupBys.map(e => bindVoid(e.fragment)), ", "))
     }
     havingOpt.foreach { f =>
-      buf += Left(RawConstants.HAVING)
+      buf += SelectBuilder.bake(RawConstants.HAVING)
       buf += Right(f)
     }
     if (orderBys.nonEmpty) {
-      buf += Left(RawConstants.ORDER_BY)
-      buf += Left(TypedExpr.joined(orderBys.map(o => bindVoid(o.fragment)), ", "))
+      buf += SelectBuilder.bake(RawConstants.ORDER_BY)
+      buf += SelectBuilder.bake(TypedExpr.joined(orderBys.map(o => bindVoid(o.fragment)), ", "))
     }
-    limitOpt.foreach(n => buf += Left(RawConstants.limitAf(n)))
-    offsetOpt.foreach(n => buf += Left(RawConstants.offsetAf(n)))
-    lockingOpt.foreach(l => buf += Left(TypedExpr.raw(" " + l.sql)))
+    limitOpt.foreach(n => buf += SelectBuilder.bake(RawConstants.limitAf(n)))
+    offsetOpt.foreach(n => buf += SelectBuilder.bake(RawConstants.offsetAf(n)))
+    lockingOpt.foreach(l => buf += SelectBuilder.bake(TypedExpr.raw(" " + l.sql)))
     buf.toList
   }
 
@@ -691,10 +683,7 @@ object SelectBuilder {
   /**
    * Generic N-slot assembler. Each `Right(f)` in `bodyParts` is a typed slot; the i-th Right slot
    * gets its runtime value from `slotValues(args)(i)`. Callers build `slotValues` by unfolding the
-   * `Concat2` chain for their specific slot count.
-   *
-   * Replaces the fixed-N `assemble3/4/5/6` variants for new code paths (SELECT compile with source
-   * body args). The fixed-N variants are retained for mutation builders that predate this helper.
+   * nested `Where.Concat` chain via `Where.projectConcat` for their specific slot count.
    */
   private[dsl] def assembleN[Args, R](
     bodyParts:  List[BodyPart],
@@ -706,7 +695,7 @@ object SelectBuilder {
     val allParts: List[BodyPart]         = ctePreambleParts ++ bodyParts
     val sqlParts: List[Either[String, cats.data.State[Int, String]]] =
       allParts.flatMap {
-        case Left(af) => af.fragment.parts
+        case Left(f)  => f.parts
         case Right(f) => f.parts
       }
     // Fully-static fast path: if every part contributes no typed parameters (all encoders have empty
@@ -716,7 +705,7 @@ object SelectBuilder {
     // the trivial process-wide-shared `Void.codec`, so subsequent `.run(session)` calls bypass any
     // build-the-encoded-list work.
     val isFullyStatic: Boolean = allParts.forall {
-      case Left(af) => af.fragment.encoder.types.isEmpty
+      case Left(f)  => f.encoder.types.isEmpty
       case Right(f) => f.encoder.types.isEmpty
     }
     if (isFullyStatic) {
@@ -726,14 +715,14 @@ object SelectBuilder {
     val finalEnc: Encoder[Args] = new Encoder[Args] {
       override val types: List[skunk.data.Type] =
         allParts.flatMap {
-          case Left(af) => af.fragment.encoder.types
+          case Left(f)  => f.encoder.types
           case Right(f) => f.encoder.types
         }
       override val sql: cats.data.State[Int, String] =
         cats.data.State { (n0: Int) =>
           allParts.foldLeft((n0, "")) { case ((n, acc), part) =>
             val (n1, s) = part match {
-              case Left(af) => af.fragment.encoder.sql.run(n).value
+              case Left(f)  => f.encoder.sql.run(n).value
               case Right(f) => f.encoder.sql.run(n).value
             }
             (n1, acc + s)
@@ -743,8 +732,8 @@ object SelectBuilder {
         val slots = slotValues(args)
         var typedIdx = 0
         allParts.flatMap {
-          case Left(af) =>
-            af.fragment.encoder.asInstanceOf[Encoder[Any]].encode(af.argument)
+          case Left(f) =>
+            f.encoder.asInstanceOf[Encoder[Void]].encode(Void)
           case Right(f) =>
             val enc = f.encoder.asInstanceOf[Encoder[Any]]
             val v   = slots(typedIdx)
@@ -755,332 +744,6 @@ object SelectBuilder {
     }
     val frag: Fragment[Args] = Fragment(sqlParts, finalEnc, Origin.unknown)
     QueryTemplate.mk[Args, R](frag, codec)
-  }
-
-  /**
-   * Glue body parts into a single `Fragment[Concat[A1, A2]]`. Crucially, the final encoder preserves SQL
-   * render order — Postgres binds positionally, so the encoded values must come out in the exact `$N`
-   * order they appear in the SQL. Mixing baked (Left) and typed (Right) parts and emitting bakeds-first
-   * would mis-align with the `$N` slots when typed parts appear inside / between bakeds (e.g. WHERE
-   * before ORDER BY where ORDER BY has a Param.bind-bearing CASE WHEN).
-   *
-   * Solution: a custom encoder that walks the parts list at execute time. Each `Left(af)` contributes
-   * its baked `af.argument` through `af.encoder`; each `Right(f)` contributes the user's `Args` (projected
-   * via [[Where.Concat2]]) through `f.encoder`. SQL render order ↔ encode order, regardless of mix.
-   */
-  private[dsl] def assemble[A1, A2, R](
-    bodyParts: List[BodyPart],
-    ctes:      List[CteRelation[?, ?, ?, ?]],
-    codec:     Codec[R]
-  )(using c2: Where.Concat2[A1, A2]): QueryTemplate[Where.Concat[A1, A2], R] = {
-    // Explicitly thread c2 and a hand-built rightVoid for c123 down to assemble3 — at abstract A1/A2
-    // (which is what assemble's body sees), Scala's implicit search picks `default` over the passed-in
-    // c2, which then crashes at runtime trying to cast Void to a Tuple2. Passing both evidences
-    // explicitly via `using c2, c123` bypasses the search and uses what we know is correct.
-    val c123: Where.Concat2[Where.Concat[A1, A2], Void] = new Where.Concat2[Where.Concat[A1, A2], Void] {
-      def project(c: Where.Concat[Where.Concat[A1, A2], Void]): (Where.Concat[A1, A2], Void) =
-        (c.asInstanceOf[Where.Concat[A1, A2]], Void)
-    }
-    assemble3[A1, A2, Void, R](bodyParts, ctes, codec)(using c2, c123)
-      .asInstanceOf[QueryTemplate[Where.Concat[A1, A2], R]]
-  }
-
-  /**
-   * Three-slot assemble. Render-order dispatch: each `Right(f)` part is at a *positional* slot in the
-   * order it appears among Right parts — the i-th Right slot maps to the i-th of `(A1, A2, A3)`. Void-
-   * encoder Right slots still occupy a position (and contribute no encoded value) so the position
-   * mapping stays stable when, e.g., UPDATE SET is value-baked but WHERE / RETURNING carry typed Args.
-   *
-   * Used by SELECT (proj/where/having) and mutation+RETURNING (UPDATE: SET + WHERE + RETURNING). For
-   * one- or two-slot cases pass `Void` for the unused trailing positions and emit fewer Right slots —
-   * the walker's slot index matches the user's `(A1, A2, A3)` mapping by virtue of the call site
-   * emitting Right slots in `(A1, A2, A3)` order.
-   */
-  private[dsl] def assemble3[A1, A2, A3, R](
-    bodyParts: List[BodyPart],
-    ctes:      List[CteRelation[?, ?, ?, ?]],
-    codec:     Codec[R]
-  )(using
-    c12:  Where.Concat2[A1, A2],
-    c123: Where.Concat2[Where.Concat[A1, A2], A3]
-  ): QueryTemplate[Where.Concat[Where.Concat[A1, A2], A3], R] = {
-    val ctePreambleParts: List[BodyPart] = renderWithPreambleParts(ctes)
-
-    // Materialise the parts list with CTE preamble prepended.
-    val allParts: List[BodyPart] = ctePreambleParts ++ bodyParts
-
-    // Concatenate SQL parts in render order.
-    val sqlParts: List[Either[String, cats.data.State[Int, String]]] =
-      allParts.flatMap {
-        case Left(af) => af.fragment.parts
-        case Right(f) => f.parts
-      }
-
-    type Out = Where.Concat[Where.Concat[A1, A2], A3]
-    val finalEnc: Encoder[Out] = new Encoder[Out] {
-      override val types: List[skunk.data.Type] =
-        allParts.flatMap {
-          case Left(af) => af.fragment.encoder.types
-          case Right(f) => f.encoder.types
-        }
-      override val sql: cats.data.State[Int, String] =
-        cats.data.State { (n0: Int) =>
-          allParts.foldLeft((n0, "")) { case ((n, acc), part) =>
-            val (n1, s) = part match {
-              case Left(af) => af.fragment.encoder.sql.run(n).value
-              case Right(f) => f.encoder.sql.run(n).value
-            }
-            (n1, acc + s)
-          }
-        }
-
-      override def encode(args: Out): List[Option[skunk.data.Encoded]] = {
-        // Project the user's Args into (A1, A2, A3) once via the supplied [[Where.Concat2]] evidences.
-        // The walker dispatches each Right slot to a1/a2/a3 by its **positional index** among Right
-        // slots — ALWAYS incremented, even for Void-encoder Right slots — so the index stays stable
-        // when intermediate slots are baked-Void (e.g. UPDATE SET=value-baked + WHERE Param +
-        // RETURNING Param: SET is a Right at idx 0 with Void encoder, WHERE at idx 1, RETURNING at
-        // idx 2; positions correctly map to A1=Void / A2=WArgs / A3=RetArgs).
-        val (a12, a3v) = c123.project(args)
-        val (a1v, a2v) = c12.project(a12.asInstanceOf[Where.Concat[A1, A2]])
-
-        var typedIdx = 0
-        allParts.flatMap {
-          case Left(af) =>
-            af.fragment.encoder.asInstanceOf[Encoder[Any]].encode(af.argument)
-          case Right(f) =>
-            val enc = f.encoder.asInstanceOf[Encoder[Any]]
-            val v = typedIdx match {
-              case 0 => a1v
-              case 1 => a2v
-              case _ => a3v
-            }
-            typedIdx += 1
-            if (enc eq Void.codec) Nil
-            else enc.encode(v)
-        }
-      }
-    }
-
-    val frag: Fragment[Out] = Fragment(sqlParts, finalEnc, Origin.unknown)
-    QueryTemplate.mk[Out, R](frag, codec)
-  }
-
-  /**
-   * Six-slot assemble — adds one more typed position after A5 (ORDER BY). Used by
-   * `ProjectedSelect.compile` for the full SELECT-clause threading: `[DArgs, ProjArgs, WArgs,
-   * GArgs, HArgs, OArgs]`.
-   */
-  private[dsl] def assemble6[A1, A2, A3, A4, A5, A6, R](
-    bodyParts: List[BodyPart],
-    ctes:      List[CteRelation[?, ?, ?, ?]],
-    codec:     Codec[R]
-  )(using
-    c12:     Where.Concat2[A1, A2],
-    c123:    Where.Concat2[Where.Concat[A1, A2], A3],
-    c1234:   Where.Concat2[Where.Concat[Where.Concat[A1, A2], A3], A4],
-    c12345:  Where.Concat2[Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4], A5],
-    c123456: Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4], A5], A6]
-  ): QueryTemplate[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4], A5], A6], R] = {
-    val ctePreambleParts: List[BodyPart] = renderWithPreambleParts(ctes)
-    val allParts: List[BodyPart] = ctePreambleParts ++ bodyParts
-
-    val sqlParts: List[Either[String, cats.data.State[Int, String]]] =
-      allParts.flatMap {
-        case Left(af) => af.fragment.parts
-        case Right(f) => f.parts
-      }
-
-    type Out = Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4], A5], A6]
-    val finalEnc: Encoder[Out] = new Encoder[Out] {
-      override val types: List[skunk.data.Type] =
-        allParts.flatMap {
-          case Left(af) => af.fragment.encoder.types
-          case Right(f) => f.encoder.types
-        }
-      override val sql: cats.data.State[Int, String] =
-        cats.data.State { (n0: Int) =>
-          allParts.foldLeft((n0, "")) { case ((n, acc), part) =>
-            val (n1, s) = part match {
-              case Left(af) => af.fragment.encoder.sql.run(n).value
-              case Right(f) => f.encoder.sql.run(n).value
-            }
-            (n1, acc + s)
-          }
-        }
-
-      override def encode(args: Out): List[Option[skunk.data.Encoded]] = {
-        val (a12345, a6v) = c123456.project(args)
-        val (a1234, a5v)  = c12345.project(a12345.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4], A5]])
-        val (a123, a4v)   = c1234.project(a1234.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4]])
-        val (a12, a3v)    = c123.project(a123.asInstanceOf[Where.Concat[Where.Concat[A1, A2], A3]])
-        val (a1v, a2v)    = c12.project(a12.asInstanceOf[Where.Concat[A1, A2]])
-
-        var typedIdx = 0
-        allParts.flatMap {
-          case Left(af) =>
-            af.fragment.encoder.asInstanceOf[Encoder[Any]].encode(af.argument)
-          case Right(f) =>
-            val enc = f.encoder.asInstanceOf[Encoder[Any]]
-            val v = typedIdx match {
-              case 0 => a1v
-              case 1 => a2v
-              case 2 => a3v
-              case 3 => a4v
-              case 4 => a5v
-              case _ => a6v
-            }
-            typedIdx += 1
-            if (enc eq Void.codec) Nil
-            else enc.encode(v)
-        }
-      }
-    }
-
-    val frag: Fragment[Out] = Fragment(sqlParts, finalEnc, Origin.unknown)
-    QueryTemplate.mk[Out, R](frag, codec)
-  }
-
-  /**
-   * Five-slot assemble — adds one more typed position before A1. Used by `ProjectedSelect.compile`
-   * once DISTINCT ON threads typed `DArgs` ahead of the projection (slots `[DArgs, ProjArgs, WArgs,
-   * GArgs, HArgs]`).
-   */
-  private[dsl] def assemble5[A1, A2, A3, A4, A5, R](
-    bodyParts: List[BodyPart],
-    ctes:      List[CteRelation[?, ?, ?, ?]],
-    codec:     Codec[R]
-  )(using
-    c12:    Where.Concat2[A1, A2],
-    c123:   Where.Concat2[Where.Concat[A1, A2], A3],
-    c1234:  Where.Concat2[Where.Concat[Where.Concat[A1, A2], A3], A4],
-    c12345: Where.Concat2[Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4], A5]
-  ): QueryTemplate[Where.Concat[Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4], A5], R] = {
-    val ctePreambleParts: List[BodyPart] = renderWithPreambleParts(ctes)
-    val allParts: List[BodyPart] = ctePreambleParts ++ bodyParts
-
-    val sqlParts: List[Either[String, cats.data.State[Int, String]]] =
-      allParts.flatMap {
-        case Left(af) => af.fragment.parts
-        case Right(f) => f.parts
-      }
-
-    type Out = Where.Concat[Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4], A5]
-    val finalEnc: Encoder[Out] = new Encoder[Out] {
-      override val types: List[skunk.data.Type] =
-        allParts.flatMap {
-          case Left(af) => af.fragment.encoder.types
-          case Right(f) => f.encoder.types
-        }
-      override val sql: cats.data.State[Int, String] =
-        cats.data.State { (n0: Int) =>
-          allParts.foldLeft((n0, "")) { case ((n, acc), part) =>
-            val (n1, s) = part match {
-              case Left(af) => af.fragment.encoder.sql.run(n).value
-              case Right(f) => f.encoder.sql.run(n).value
-            }
-            (n1, acc + s)
-          }
-        }
-
-      override def encode(args: Out): List[Option[skunk.data.Encoded]] = {
-        val (a1234, a5v) = c12345.project(args)
-        val (a123, a4v)  = c1234.project(a1234.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4]])
-        val (a12, a3v)   = c123.project(a123.asInstanceOf[Where.Concat[Where.Concat[A1, A2], A3]])
-        val (a1v, a2v)   = c12.project(a12.asInstanceOf[Where.Concat[A1, A2]])
-
-        var typedIdx = 0
-        allParts.flatMap {
-          case Left(af) =>
-            af.fragment.encoder.asInstanceOf[Encoder[Any]].encode(af.argument)
-          case Right(f) =>
-            val enc = f.encoder.asInstanceOf[Encoder[Any]]
-            val v = typedIdx match {
-              case 0 => a1v
-              case 1 => a2v
-              case 2 => a3v
-              case 3 => a4v
-              case _ => a5v
-            }
-            typedIdx += 1
-            if (enc eq Void.codec) Nil
-            else enc.encode(v)
-        }
-      }
-    }
-
-    val frag: Fragment[Out] = Fragment(sqlParts, finalEnc, Origin.unknown)
-    QueryTemplate.mk[Out, R](frag, codec)
-  }
-
-  /**
-   * Four-slot assemble — same pattern as [[assemble3]] but with one more typed position. Used by
-   * `ProjectedSelect.compile` once GROUP BY threads typed `GArgs` between WHERE and HAVING (slots
-   * `[ProjArgs, WArgs, GArgs, HArgs]`). The walker dispatches Right slots positionally to
-   * `(a1, a2, a3, a4)`.
-   */
-  private[dsl] def assemble4[A1, A2, A3, A4, R](
-    bodyParts: List[BodyPart],
-    ctes:      List[CteRelation[?, ?, ?, ?]],
-    codec:     Codec[R]
-  )(using
-    c12:   Where.Concat2[A1, A2],
-    c123:  Where.Concat2[Where.Concat[A1, A2], A3],
-    c1234: Where.Concat2[Where.Concat[Where.Concat[A1, A2], A3], A4]
-  ): QueryTemplate[Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4], R] = {
-    val ctePreambleParts: List[BodyPart] = renderWithPreambleParts(ctes)
-    val allParts: List[BodyPart] = ctePreambleParts ++ bodyParts
-
-    val sqlParts: List[Either[String, cats.data.State[Int, String]]] =
-      allParts.flatMap {
-        case Left(af) => af.fragment.parts
-        case Right(f) => f.parts
-      }
-
-    type Out = Where.Concat[Where.Concat[Where.Concat[A1, A2], A3], A4]
-    val finalEnc: Encoder[Out] = new Encoder[Out] {
-      override val types: List[skunk.data.Type] =
-        allParts.flatMap {
-          case Left(af) => af.fragment.encoder.types
-          case Right(f) => f.encoder.types
-        }
-      override val sql: cats.data.State[Int, String] =
-        cats.data.State { (n0: Int) =>
-          allParts.foldLeft((n0, "")) { case ((n, acc), part) =>
-            val (n1, s) = part match {
-              case Left(af) => af.fragment.encoder.sql.run(n).value
-              case Right(f) => f.encoder.sql.run(n).value
-            }
-            (n1, acc + s)
-          }
-        }
-
-      override def encode(args: Out): List[Option[skunk.data.Encoded]] = {
-        val (a123, a4v) = c1234.project(args)
-        val (a12, a3v)  = c123.project(a123.asInstanceOf[Where.Concat[Where.Concat[A1, A2], A3]])
-        val (a1v, a2v)  = c12.project(a12.asInstanceOf[Where.Concat[A1, A2]])
-
-        var typedIdx = 0
-        allParts.flatMap {
-          case Left(af) =>
-            af.fragment.encoder.asInstanceOf[Encoder[Any]].encode(af.argument)
-          case Right(f) =>
-            val enc = f.encoder.asInstanceOf[Encoder[Any]]
-            val v = typedIdx match {
-              case 0 => a1v
-              case 1 => a2v
-              case 2 => a3v
-              case _ => a4v
-            }
-            typedIdx += 1
-            if (enc eq Void.codec) Nil
-            else enc.encode(v)
-        }
-      }
-    }
-
-    val frag: Fragment[Out] = Fragment(sqlParts, finalEnc, Origin.unknown)
-    QueryTemplate.mk[Out, R](frag, codec)
   }
 
 }
@@ -1133,18 +796,14 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
 
   private def view: SelectView[Ss] = buildSelectView[Ss](sources)
 
-  def where[A](f: SelectView[Ss] => Where[A])(using
-    c2: Where.Concat2[WArgs, A]
-  ): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, Where.Concat[WArgs, A], HArgs, Row] = {
+  inline def where[A](f: SelectView[Ss] => Where[A]): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, Where.Concat[WArgs, A], HArgs, Row] = {
     val pred     = f(view)
-    val combined = SelectBuilder.andInto[WArgs, A](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], pred)
+    val combined = SelectBuilder.andInto[WArgs, A](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], pred, c => Where.projectConcat[WArgs, A](c))
     cp[Where.Concat[WArgs, A], HArgs](whereOpt = Some(combined))
   }
 
-  def whereRaw(af: AppliedFragment)(using
-    c2: Where.Concat2[WArgs, Void]
-  ): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, ?, HArgs, Row] = {
-    val combined = SelectBuilder.andRawInto[WArgs](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], af)
+  inline def whereRaw(af: AppliedFragment): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, ?, HArgs, Row] = {
+    val combined = SelectBuilder.andRawInto[WArgs](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], af, c => Where.projectConcat[WArgs, Void](c))
     cp[Any, HArgs](whereOpt = Some(combined))
   }
 
@@ -1157,7 +816,7 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
   transparent inline def orderBy[O](inline f: SelectView[Ss] => O)
     : ProjectedSelect[Ss, Proj, Groups, DistinctOn, Tuple.Concat[Orders, NormProj[O]], WArgs, HArgs, Row] = {
     val v     = view
-    val fresh = f(v) match {
+    val fresh = (f(v): Any) match {
       case ob: OrderBy[?] => List(ob)
       case t: Tuple       => t.toList.asInstanceOf[List[OrderBy[?]]]
     }
@@ -1180,7 +839,7 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
   transparent inline def groupBy[G](inline f: SelectView[Ss] => G)
     : ProjectedSelect[Ss, Proj, Tuple.Concat[Groups, NormProj[G]], DistinctOn, Orders, WArgs, HArgs, Row] = {
     val v     = view
-    val fresh = f(v) match {
+    val fresh = (f(v): Any) match {
       case e: TypedExpr[?, ?] => List(e)
       case t: Tuple           => t.toList.asInstanceOf[List[TypedExpr[?, ?]]]
     }
@@ -1200,18 +859,14 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
     )
   }
 
-  def having[H](f: SelectView[Ss] => Where[H])(using
-    c2: Where.Concat2[HArgs, H]
-  ): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, Where.Concat[HArgs, H], Row] = {
+  inline def having[H](f: SelectView[Ss] => Where[H]): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, Where.Concat[HArgs, H], Row] = {
     val pred     = f(view)
-    val combined = SelectBuilder.andInto[HArgs, H](havingOpt.asInstanceOf[Option[Fragment[HArgs]]], pred)
+    val combined = SelectBuilder.andInto[HArgs, H](havingOpt.asInstanceOf[Option[Fragment[HArgs]]], pred, c => Where.projectConcat[HArgs, H](c))
     cp[WArgs, Where.Concat[HArgs, H]](havingOpt = Some(combined))
   }
 
-  def havingRaw(af: AppliedFragment)(using
-    c2: Where.Concat2[HArgs, Void]
-  ): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, ?, Row] = {
-    val combined = SelectBuilder.andRawInto[HArgs](havingOpt.asInstanceOf[Option[Fragment[HArgs]]], af)
+  inline def havingRaw(af: AppliedFragment): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, ?, Row] = {
+    val combined = SelectBuilder.andRawInto[HArgs](havingOpt.asInstanceOf[Option[Fragment[HArgs]]], af, c => Where.projectConcat[HArgs, Void](c))
     cp[WArgs, Any](havingOpt = Some(combined))
   }
 
@@ -1228,7 +883,7 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
   transparent inline def distinctOn[D](inline f: SelectView[Ss] => D)
     : ProjectedSelect[Ss, Proj, Groups, NormProj[D], Orders, WArgs, HArgs, Row] = {
     val v     = view
-    val exprs = f(v) match {
+    val exprs = (f(v): Any) match {
       case e: TypedExpr[?, ?] => List(e)
       case t: Tuple           => t.toList.asInstanceOf[List[TypedExpr[?, ?]]]
     }
@@ -1313,26 +968,18 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
   //   cdpsowg = CDPSOW ⊕ GArgs                                      → CDPSOWG
   //   cdpsowgh = CDPSOWG ⊕ HArgs                                    → CDPSOWGH
   //   cdpsowgho = CDPSOWGH ⊕ OArgs                                  → outer Args
-  def compile[SArgs, OnA, CArgs, DArgs, ProjArgs, GArgs, OArgs](using
-    ev:        GroupCoverage[Proj, Groups],
-    sbOf:      SourceBodyArgsOf.Aux[Ss, SArgs],
-    bff:       SourceBodyArgsProj[Ss],
-    onSum:     SourceOnArgsOf.Aux[Ss, OnA],
-    onProj:    SourceOnArgsProj[Ss],
-    cteSum:    CteArgsOf.Aux[Ss, CArgs],
-    cteProj:   CteArgsProj[Ss],
-    d:         ProjArgsOf.Aux[DistinctOn, DArgs],
-    pa:        ProjArgsOf.Aux[Proj, ProjArgs],
-    g:         ProjArgsOf.Aux[Groups, GArgs],
-    o:         ProjArgsOf.Aux[Orders, OArgs],
-    cd:        Where.Concat2[CArgs, DArgs],
-    cdp:       Where.Concat2[Where.Concat[CArgs, DArgs], ProjArgs],
-    cdps:      Where.Concat2[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs],
-    cdpso:     Where.Concat2[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA],
-    cdpsow:    Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs],
-    cdpsowg:   Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs], GArgs],
-    cdpsowgh:  Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs], GArgs], HArgs],
-    cdpsowgho: Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs], GArgs], HArgs], OArgs]
+  inline def compile[SArgs, OnA, CArgs, DArgs, ProjArgs, GArgs, OArgs](using
+    ev:      GroupCoverage[Proj, Groups],
+    sbOf:    SourceBodyArgsOf.Aux[Ss, SArgs],
+    bff:     SourceBodyArgsProj[Ss],
+    onSum:   SourceOnArgsOf.Aux[Ss, OnA],
+    onProj:  SourceOnArgsProj[Ss],
+    cteSum:  CteArgsOf.Aux[Ss, CArgs],
+    cteProj: CteArgsProj[Ss],
+    d:       ProjArgsOf.Aux[DistinctOn, DArgs],
+    pa:      ProjArgsOf.Aux[Proj, ProjArgs],
+    g:       ProjArgsOf.Aux[Groups, GArgs],
+    o:       ProjArgsOf.Aux[Orders, OArgs]
   ): QueryTemplate[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs], GArgs], HArgs], OArgs], Row] = {
     val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
     val ctes    = collectCtesInOrder(entries)
@@ -1348,14 +995,14 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
     type Out = Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs], GArgs], HArgs], OArgs]
     val srcSlotCount = sourceSlotCount(entries)
     val slotValues: Out => IArray[Any] = args => {
-      val (cdpsowghAcc, oArgs) = cdpsowgho.project(args)
-      val (cdpsowgAcc, hArgs)  = cdpsowgh.project(cdpsowghAcc.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs], GArgs], HArgs]])
-      val (cdpsowAcc, gArgs)   = cdpsowg.project(cdpsowgAcc.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs], GArgs]])
-      val (cdpsoAcc, wArgs)    = cdpsow.project(cdpsowAcc.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs]])
-      val (cdpsAcc, onArgs)    = cdpso.project(cdpsoAcc.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA]])
-      val (cdpAcc, sArgs)      = cdps.project(cdpsAcc.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs]])
-      val (cdAcc, pArgs)       = cdp.project(cdpAcc.asInstanceOf[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs]])
-      val (cArgs, dArgs)       = cd.project(cdAcc.asInstanceOf[Where.Concat[CArgs, DArgs]])
+      val (cdpsowghAcc, oArgs) = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs], GArgs], HArgs], OArgs](args)
+      val (cdpsowgAcc, hArgs)  = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs], GArgs], HArgs](cdpsowghAcc)
+      val (cdpsowAcc, gArgs)   = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs], GArgs](cdpsowgAcc)
+      val (cdpsoAcc, wArgs)    = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs](cdpsowAcc)
+      val (cdpsAcc, onArgs)    = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA](cdpsoAcc)
+      val (cdpAcc, sArgs)      = Where.projectConcat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs](cdpsAcc)
+      val (cdAcc, pArgs)       = Where.projectConcat[Where.Concat[CArgs, DArgs], ProjArgs](cdpAcc)
+      val (cArgs, dArgs)       = Where.projectConcat[CArgs, DArgs](cdAcc)
       val baseSlots = buildSlotIArray(dArgs, pArgs, sArgs, onArgs, srcSlotCount, bff, onProj, wArgs, gArgs, hArgs, oArgs)
       buildCteAndSlotIArrayWithEntries(entries, cteProj, cArgs, ctes, baseSlots)
     }
@@ -1376,23 +1023,16 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
   // Concat-chain evidences. Each name spells the accumulator at that step (left-fold over the slot order):
   // DArgs ⊕ ProjArgs ⊕ SArgs ⊕ OnA ⊕ WArgs ⊕ GArgs ⊕ HArgs ⊕ OArgs. (No CArgs here — `compileBodyFragment`
   // captures the body alone; CTE refs in this body bind at the OUTER query's WITH preamble.)
-  private[dsl] def compileBodyFragment[SA, OnA, DA2, PA, GA, OA2](using
-    ev:       GroupCoverage[Proj, Groups],
-    sbOf:     SourceBodyArgsOf.Aux[Ss, SA],
-    bff:      SourceBodyArgsProj[Ss],
-    onSum:    SourceOnArgsOf.Aux[Ss, OnA],
-    onProj:   SourceOnArgsProj[Ss],
-    d:        ProjArgsOf.Aux[DistinctOn, DA2],
-    pa:       ProjArgsOf.Aux[Proj, PA],
-    g:        ProjArgsOf.Aux[Groups, GA],
-    o:        ProjArgsOf.Aux[Orders, OA2],
-    dp:       Where.Concat2[DA2, PA],
-    dps:      Where.Concat2[Where.Concat[DA2, PA], SA],
-    dpso:     Where.Concat2[Where.Concat[Where.Concat[DA2, PA], SA], OnA],
-    dpsow:    Where.Concat2[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs],
-    dpsowg:   Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA],
-    dpsowgh:  Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA], HArgs],
-    dpsowgho: Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA], HArgs], OA2]
+  private[dsl] inline def compileBodyFragment[SA, OnA, DA2, PA, GA, OA2](using
+    ev:      GroupCoverage[Proj, Groups],
+    sbOf:    SourceBodyArgsOf.Aux[Ss, SA],
+    bff:     SourceBodyArgsProj[Ss],
+    onSum:   SourceOnArgsOf.Aux[Ss, OnA],
+    onProj:  SourceOnArgsProj[Ss],
+    d:       ProjArgsOf.Aux[DistinctOn, DA2],
+    pa:      ProjArgsOf.Aux[Proj, PA],
+    g:       ProjArgsOf.Aux[Groups, GA],
+    o:       ProjArgsOf.Aux[Orders, OA2]
   ): Fragment[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA], HArgs], OA2]] = {
     val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
     val rawDistProjector:  Any => List[Any] = d.project.asInstanceOf[Any => List[Any]]
@@ -1407,13 +1047,13 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
     type Out = Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA], HArgs], OA2]
     val srcSlotCount = sourceSlotCount(entries)
     val slotValues: Out => IArray[Any] = args => {
-      val (dpsowghAcc, oArgs) = dpsowgho.project(args)
-      val (dpsowgAcc, hArgs)  = dpsowgh.project(dpsowghAcc.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA], HArgs]])
-      val (dpsowAcc, gArgs)   = dpsowg.project(dpsowgAcc.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA]])
-      val (dpsoAcc, wArgs)    = dpsow.project(dpsowAcc.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs]])
-      val (dpsAcc, onArgs)    = dpso.project(dpsoAcc.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA]])
-      val (dpAcc, sArgs)      = dps.project(dpsAcc.asInstanceOf[Where.Concat[Where.Concat[DA2, PA], SA]])
-      val (dArgs, pArgs)      = dp.project(dpAcc.asInstanceOf[Where.Concat[DA2, PA]])
+      val (dpsowghAcc, oArgs) = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA], HArgs], OA2](args)
+      val (dpsowgAcc, hArgs)  = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA], HArgs](dpsowghAcc)
+      val (dpsowAcc, gArgs)   = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA](dpsowgAcc)
+      val (dpsoAcc, wArgs)    = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs](dpsowAcc)
+      val (dpsAcc, onArgs)    = Where.projectConcat[Where.Concat[Where.Concat[DA2, PA], SA], OnA](dpsoAcc)
+      val (dpAcc, sArgs)      = Where.projectConcat[Where.Concat[DA2, PA], SA](dpsAcc)
+      val (dArgs, pArgs)      = Where.projectConcat[DA2, PA](dpAcc)
       buildSlotIArray(dArgs, pArgs, sArgs, onArgs, srcSlotCount, bff, onProj, wArgs, gArgs, hArgs, oArgs)
     }
     SelectBuilder.assembleN[Out, Row](
@@ -1444,11 +1084,11 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
     distinctOnOpt match {
       case Some(exprs) =>
         val combinedDist = TypedExpr.combineList[Any](exprs.map(_.fragment), ", ", distProjector)
-        buf += Left(RawConstants.SELECT_DISTINCT_ON)
+        buf += SelectBuilder.bake(RawConstants.SELECT_DISTINCT_ON)
         buf += Right(combinedDist)
-        buf += Left(RawConstants.CLOSE_PAREN_SPACE)
+        buf += SelectBuilder.bake(RawConstants.CLOSE_PAREN_SPACE)
       case None =>
-        buf += Left(if (distinct) RawConstants.SELECT_DISTINCT else RawConstants.SELECT)
+        buf += SelectBuilder.bake(if (distinct) RawConstants.SELECT_DISTINCT else RawConstants.SELECT)
         buf += Right(SelectBuilder.emptyVoidSlot)
     }
     buf += Right(combinedProj) // slot 1 = PROJ
@@ -1459,11 +1099,11 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
     // IArray that `assembleN` consumes.
     if (entries.nonEmpty && entries.head.relation.hasFromClause) {
       val head = entries.head
-      buf += Left(RawConstants.FROM)
+      buf += SelectBuilder.bake(RawConstants.FROM)
       aliasedFromEntryParts(head).foreach(buf += _)
       buf += Right(SelectBuilder.emptyVoidSlot) // head has no ON
       entries.tail.foreach { s =>
-        buf += Left(if (s.isLateral) s.kind.lateralKeywordAf else s.kind.keywordAf)
+        buf += SelectBuilder.bake(if (s.isLateral) s.kind.lateralKeywordAf else s.kind.keywordAf)
         aliasedFromEntryParts(s).foreach(buf += _)
         s.onPredOpt match {
           case Some(p) =>
@@ -1479,7 +1119,7 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
     // slot 3 = WHERE
     whereOpt match {
       case Some(f) =>
-        buf += Left(RawConstants.WHERE)
+        buf += SelectBuilder.bake(RawConstants.WHERE)
         buf += Right(f)
       case None =>
         buf += Right(SelectBuilder.emptyVoidSlot)
@@ -1487,7 +1127,7 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
     // slot 4 = GROUP BY
     if (groupBys.nonEmpty) {
       val combinedGrp = TypedExpr.combineList[Any](groupBys.map(_.fragment), ", ", groupProjector)
-      buf += Left(RawConstants.GROUP_BY)
+      buf += SelectBuilder.bake(RawConstants.GROUP_BY)
       buf += Right(combinedGrp)
     } else {
       buf += Right(SelectBuilder.emptyVoidSlot)
@@ -1495,7 +1135,7 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
     // slot 5 = HAVING
     havingOpt match {
       case Some(f) =>
-        buf += Left(RawConstants.HAVING)
+        buf += SelectBuilder.bake(RawConstants.HAVING)
         buf += Right(f)
       case None =>
         buf += Right(SelectBuilder.emptyVoidSlot)
@@ -1503,14 +1143,14 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
     // slot 6 = ORDER BY
     if (orderBys.nonEmpty) {
       val combinedOrd = TypedExpr.combineList[Any](orderBys.map(_.fragment), ", ", orderProjector)
-      buf += Left(RawConstants.ORDER_BY)
+      buf += SelectBuilder.bake(RawConstants.ORDER_BY)
       buf += Right(combinedOrd)
     } else {
       buf += Right(SelectBuilder.emptyVoidSlot)
     }
-    limitOpt.foreach(n => buf += Left(RawConstants.limitAf(n)))
-    offsetOpt.foreach(n => buf += Left(RawConstants.offsetAf(n)))
-    lockingOpt.foreach(l => buf += Left(TypedExpr.raw(" " + l.sql)))
+    limitOpt.foreach(n => buf += SelectBuilder.bake(RawConstants.limitAf(n)))
+    offsetOpt.foreach(n => buf += SelectBuilder.bake(RawConstants.offsetAf(n)))
+    lockingOpt.foreach(l => buf += SelectBuilder.bake(TypedExpr.raw(" " + l.sql)))
     buf.toList
   }
 

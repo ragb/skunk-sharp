@@ -27,7 +27,7 @@ private enum FrameMode(val keyword: String):
  * combined `Concat[PA, OA]` slot. Param-bearing items (`Param[Int].asc`, `partitionBy(Param[String])`) surface
  * as typed `Args` on the outer query. Frame bounds are static integer constants — Args-neutral.
  */
-final class WindowSpec[PA, OA] private[sharp] (
+final class WindowSpec[PA, OA] @scala.annotation.publicInBinary private[sharp] (
   // Comma-joined PARTITION BY items (without the leading `PARTITION BY ` keyword), or None when empty.
   private[dsl] val pbItems: Option[Fragment[PA]],
   // Comma-joined ORDER BY items (without the leading `ORDER BY ` keyword), or None when empty.
@@ -35,22 +35,18 @@ final class WindowSpec[PA, OA] private[sharp] (
   private[dsl] val frameOpt: Option[(FrameMode, FrameBound, FrameBound)]
 ) {
 
-  def partitionBy[B](e: TypedExpr[?, B])(using
-    c2: Where.Concat2[PA, B]
-  ): WindowSpec[Where.Concat[PA, B], OA] = {
+  inline def partitionBy[B](e: TypedExpr[?, B]): WindowSpec[Where.Concat[PA, B], OA] = {
     val combined: Fragment[Where.Concat[PA, B]] = pbItems match {
       case None       => e.fragment.asInstanceOf[Fragment[Where.Concat[PA, B]]]
-      case Some(prev) => TypedExpr.combineSep[PA, B](prev, ", ", e.fragment)
+      case Some(prev) => TypedExpr.combineSepInl[PA, B](prev, ", ", e.fragment)
     }
     new WindowSpec(Some(combined), obItems, frameOpt)
   }
 
-  def orderBy[B](o: OrderBy[B])(using
-    c2: Where.Concat2[OA, B]
-  ): WindowSpec[PA, Where.Concat[OA, B]] = {
+  inline def orderBy[B](o: OrderBy[B]): WindowSpec[PA, Where.Concat[OA, B]] = {
     val combined: Fragment[Where.Concat[OA, B]] = obItems match {
       case None       => o.fragment.asInstanceOf[Fragment[Where.Concat[OA, B]]]
-      case Some(prev) => TypedExpr.combineSep[OA, B](prev, ", ", o.fragment)
+      case Some(prev) => TypedExpr.combineSepInl[OA, B](prev, ", ", o.fragment)
     }
     new WindowSpec(pbItems, Some(combined), frameOpt)
   }
@@ -69,9 +65,7 @@ final class WindowSpec[PA, OA] private[sharp] (
    * (typed via `PA`), then ORDER-BY items (typed via `OA`), then the frame clause (Args-neutral). Param-bearing
    * items have their typed Args threaded into the outer query's `Args` via `Concat`.
    */
-  private[sharp] def renderTyped(using
-    c2: Where.Concat2[PA, OA]
-  ): Fragment[Where.Concat[PA, OA]] = {
+  private[sharp] inline def renderTyped: Fragment[Where.Concat[PA, OA]] = {
     val frameSql: String = frameOpt.fold("") { case (mode, start, end) =>
       s" ${mode.keyword} BETWEEN ${WindowSpec.renderBound(start)} AND ${WindowSpec.renderBound(end)}"
     }
@@ -79,14 +73,12 @@ final class WindowSpec[PA, OA] private[sharp] (
       case (None, None) =>
         TypedExpr.voidFragment(frameSql).asInstanceOf[Fragment[Where.Concat[PA, OA]]]
       case (Some(pb), None) =>
-        // OA = Void here, so Concat[PA, Void] = PA — cast safe.
         TypedExpr.wrap("PARTITION BY ", pb, frameSql).asInstanceOf[Fragment[Where.Concat[PA, OA]]]
       case (None, Some(ob)) =>
-        // PA = Void here, so Concat[Void, OA] = OA — cast safe.
         TypedExpr.wrap("ORDER BY ", ob, frameSql).asInstanceOf[Fragment[Where.Concat[PA, OA]]]
       case (Some(pb), Some(ob)) =>
         val pbPrefixed = TypedExpr.wrap("PARTITION BY ", pb, "")
-        val combined   = TypedExpr.combineSep[PA, OA](pbPrefixed, " ORDER BY ", ob)
+        val combined   = TypedExpr.combineSepInl[PA, OA](pbPrefixed, " ORDER BY ", ob)
         if (frameSql.isEmpty) combined else TypedExpr.wrap("", combined, frameSql)
     }
   }
@@ -97,13 +89,9 @@ object WindowSpec {
 
   val empty: WindowSpec[Void, Void] = new WindowSpec(None, None, None)
 
-  def partitionBy[B](e: TypedExpr[?, B])(using
-    c2: Where.Concat2[Void, B]
-  ): WindowSpec[Where.Concat[Void, B], Void] = empty.partitionBy(e)
+  inline def partitionBy[B](e: TypedExpr[?, B]): WindowSpec[Where.Concat[Void, B], Void] = empty.partitionBy(e)
 
-  def orderBy[B](o: OrderBy[B])(using
-    c2: Where.Concat2[Void, B]
-  ): WindowSpec[Void, Where.Concat[Void, B]] = empty.orderBy(o)
+  inline def orderBy[B](o: OrderBy[B]): WindowSpec[Void, Where.Concat[Void, B]] = empty.orderBy(o)
 
   private[dsl] def renderBound(b: FrameBound): String = b match {
     case FrameBound.UnboundedPreceding => "UNBOUNDED PRECEDING"
@@ -118,13 +106,10 @@ object WindowSpec {
 /** Append `OVER (spec)` to any expression. */
 extension [T, A](expr: TypedExpr[T, A]) {
 
-  def over[PA, OA](spec: WindowSpec[PA, OA])(using
-    paOa: Where.Concat2[PA, OA],
-    full: Where.Concat2[A, Where.Concat[PA, OA]]
-  ): TypedExpr[T, Where.Concat[A, Where.Concat[PA, OA]]] = {
-    val inner   = spec.renderTyped
-    val wrapped = TypedExpr.wrap(" OVER (", inner, ")")
-    val combined = TypedExpr.combine[A, Where.Concat[PA, OA]](expr.fragment, wrapped)
+  transparent inline def over[PA, OA](spec: WindowSpec[PA, OA]): TypedExpr[T, Where.Concat[A, Where.Concat[PA, OA]]] = {
+    val inner    = spec.renderTyped
+    val wrapped  = TypedExpr.wrap(" OVER (", inner, ")")
+    val combined = TypedExpr.combineInl[A, Where.Concat[PA, OA]](expr.fragment, wrapped)
     TypedExpr(combined, expr.codec)
   }
 

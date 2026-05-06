@@ -2,9 +2,8 @@ package skunk.sharp.dsl
 
 import skunk.{AppliedFragment, Codec, Fragment, Void}
 import skunk.sharp.*
-import skunk.sharp.internal.{tupleCodec, RawConstants}
+import skunk.sharp.internal.{RawConstants, RowCodecs}, RowCodecs.tupleCodec
 import skunk.sharp.where.Where
-import skunk.sharp.where.Where.{FoldConcat, FoldConcatN}
 
 /**
  * DELETE builder — compile-time staged so you can't accidentally run a `DELETE FROM …` with no WHERE.
@@ -21,17 +20,17 @@ final class DeleteBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
   private[sharp] val table: Table[Cols, Name]
 ) {
 
-  def where[A](f: ColumnsView[Cols] => Where[A]): DeleteReady[Cols, Name, A] = {
+  inline def where[A](f: ColumnsView[Cols] => Where[A]): DeleteReady[Cols, Name, A] = {
     val pred = f(table.columnsView)
     new DeleteReady[Cols, Name, A](table, Some(pred.fragment))
   }
 
-  def whereRaw(af: AppliedFragment): DeleteReady[Cols, Name, ?] = {
-    val combined = SelectBuilder.andRawInto[Void](None, af)
+  inline def whereRaw(af: AppliedFragment): DeleteReady[Cols, Name, ?] = {
+    val combined = SelectBuilder.andRawInto[Void](None, af, c => Where.projectConcat[Void, Void](c))
     new DeleteReady[Cols, Name, Any](table, Some(combined))
   }
 
-  def deleteAll: DeleteReady[Cols, Name, Void] =
+  inline def deleteAll: DeleteReady[Cols, Name, Void] =
     new DeleteReady[Cols, Name, Void](table, None)
 
   def using[R, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](other: R)(using
@@ -64,64 +63,51 @@ final class DeleteBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
 
 }
 
-final class DeleteReady[Cols <: Tuple, Name <: String & Singleton, Args] private[sharp] (
+final class DeleteReady[Cols <: Tuple, Name <: String & Singleton, Args] @scala.annotation.publicInBinary private[sharp] (
   private[sharp] val table: Table[Cols, Name],
   private[sharp] val whereOpt: Option[Fragment[?]]
 ) {
 
-  def where[A](f: ColumnsView[Cols] => Where[A])(using
-    c2: Where.Concat2[Args, A]
-  ): DeleteReady[Cols, Name, Where.Concat[Args, A]] = {
+  inline def where[A](f: ColumnsView[Cols] => Where[A]): DeleteReady[Cols, Name, Where.Concat[Args, A]] = {
     val pred     = f(table.columnsView)
-    val combined = SelectBuilder.andInto[Args, A](whereOpt.asInstanceOf[Option[Fragment[Args]]], pred)
+    val combined = SelectBuilder.andInto[Args, A](whereOpt.asInstanceOf[Option[Fragment[Args]]], pred, c => Where.projectConcat[Args, A](c))
     new DeleteReady[Cols, Name, Where.Concat[Args, A]](table, Some(combined))
   }
 
-  def whereRaw(af: AppliedFragment)(using c2: Where.Concat2[Args, Void]): DeleteReady[Cols, Name, ?] = {
-    val combined = SelectBuilder.andRawInto[Args](whereOpt.asInstanceOf[Option[Fragment[Args]]], af)
+  inline def whereRaw(af: AppliedFragment): DeleteReady[Cols, Name, ?] = {
+    val combined = SelectBuilder.andRawInto[Args](whereOpt.asInstanceOf[Option[Fragment[Args]]], af, c => Where.projectConcat[Args, Void](c))
     new DeleteReady[Cols, Name, Any](table, Some(combined))
   }
 
   private def deleteParts: List[BodyPart] = {
-    val buf = scala.collection.mutable.ListBuffer[BodyPart](Left(table.deleteFromHeader))
+    val buf = scala.collection.mutable.ListBuffer[BodyPart](SelectBuilder.bake(table.deleteFromHeader))
     whereOpt.foreach { f =>
-      buf += Left(RawConstants.WHERE)
+      buf += SelectBuilder.bake(RawConstants.WHERE)
       buf += Right(f)
     }
     buf.toList
   }
 
-  def compile: CommandTemplate[Args] = MutationAssembly.command[Args, Void](deleteParts).asInstanceOf[CommandTemplate[Args]]
+  inline def compile: CommandTemplate[Args] = MutationAssembly.command[Args, Void](deleteParts).asInstanceOf[CommandTemplate[Args]]
 
-  def returning[T, A](f: ColumnsView[Cols] => TypedExpr[T, A])(using
-    c2: Where.Concat2[Args, A]
-  ): QueryTemplate[Where.Concat[Args, A], T] = {
+  inline def returning[T, A](f: ColumnsView[Cols] => TypedExpr[T, A]): QueryTemplate[Where.Concat[Args, A], T] = {
     val expr = f(table.columnsView)
     MutationAssembly.withReturningTyped2[Args, A, T](deleteParts, expr.fragment, expr.codec)
   }
 
-  def returningTuple[T <: NonEmptyTuple](f: ColumnsView[Cols] => T)(using
-    fc: FoldConcatN[CollectArgs[T]],
-    c2: Where.Concat2[Args, FoldConcat[CollectArgs[T]]]
-  ): QueryTemplate[Where.Concat[Args, FoldConcat[CollectArgs[T]]], ExprOutputs[T]] = {
+  inline def returningTuple[T <: NonEmptyTuple, TOut](f: ColumnsView[Cols] => T)(using
+    pa: ProjArgsOf.Aux[T, TOut]
+  ): QueryTemplate[Where.Concat[Args, TOut], ExprOutputs[T]] = {
     val exprs    = f(table.columnsView).toList.asInstanceOf[List[TypedExpr[?, ?]]]
     val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
-    val combined = TypedExpr.combineList[FoldConcat[CollectArgs[T]]](exprs.map(_.fragment), ", ", fc.project)
-    MutationAssembly.withReturningTyped2[Args, FoldConcat[CollectArgs[T]], ExprOutputs[T]](
-      deleteParts, combined, codec
-    )
+    val combined = TypedExpr.combineList[TOut](exprs.map(_.fragment), ", ", (a: TOut) => pa.project(a))
+    MutationAssembly.withReturningTyped2[Args, TOut, ExprOutputs[T]](deleteParts, combined, codec)
   }
 
-  /**
-   * `RETURNING <named tuple of TypedExprs>` — projects multiple columns into a labelled tuple
-   * (`(id = u.id, email = u.email)`). Args of each item thread into the outer query via
-   * [[Where.FoldConcatN]] (drops `Void` slots so plain column refs collapse out).
-   */
-  def returningNamed[NT <: scala.NamedTuple.AnyNamedTuple](f: ColumnsView[Cols] => NT)(using
-    fc: FoldConcatN[CollectArgs[scala.NamedTuple.DropNames[NT]]],
-    c2: Where.Concat2[Args, FoldConcat[CollectArgs[scala.NamedTuple.DropNames[NT]]]]
+  inline def returningNamed[NT <: scala.NamedTuple.AnyNamedTuple, TOut](f: ColumnsView[Cols] => NT)(using
+    pa: ProjArgsOf.Aux[scala.NamedTuple.DropNames[NT], TOut]
   ): QueryTemplate[
-    Where.Concat[Args, FoldConcat[CollectArgs[scala.NamedTuple.DropNames[NT]]]],
+    Where.Concat[Args, TOut],
     scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]]
   ] = {
     type Vs = scala.NamedTuple.DropNames[NT]
@@ -130,20 +116,16 @@ final class DeleteReady[Cols <: Tuple, Name <: String & Singleton, Args] private
     val tup      = f(table.columnsView).asInstanceOf[Product]
     val exprs    = tup.productIterator.toList.asInstanceOf[List[TypedExpr[?, ?]]]
     val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[R]]
-    val combined = TypedExpr.combineList[FoldConcat[CollectArgs[Vs]]](exprs.map(_.fragment), ", ", fc.project)
-    MutationAssembly.withReturningTyped2[Args, FoldConcat[CollectArgs[Vs]], R](
-      deleteParts, combined, codec
-    )
+    val combined = TypedExpr.combineList[TOut](exprs.map(_.fragment), ", ", (a: TOut) => pa.project(a))
+    MutationAssembly.withReturningTyped2[Args, TOut, R](deleteParts, combined, codec)
   }
 
-  def returningAll(using
-    c2: Where.Concat2[Args, Void]
-  ): QueryTemplate[Args, NamedRowOf[Cols]] = {
+  inline def returningAll: QueryTemplate[Args, NamedRowOf[Cols]] = {
     val exprs =
       table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
         TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
       )
-    val codec    = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
+    val codec    = skunk.sharp.internal.RowCodecs.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
     val combined = TypedExpr.combineList[Void](exprs.map(_.fragment), ", ", _ => List.fill(exprs.size)(Void))
     MutationAssembly.withReturningTyped2[Args, Void, NamedRowOf[Cols]](deleteParts, combined, codec)
       .asInstanceOf[QueryTemplate[Args, NamedRowOf[Cols]]]
@@ -153,50 +135,54 @@ final class DeleteReady[Cols <: Tuple, Name <: String & Singleton, Args] private
 
 /**
  * Shared command/RETURNING assembly for mutation builders (DELETE / UPDATE / INSERT). Routes through
- * [[SelectBuilder.assemble]] for the typed Fragment[Args] composition, then wraps as either a
+ * [[SelectBuilder.assembleN]] for the typed Fragment[Args] composition, then wraps as either a
  * [[CommandTemplate]] or [[QueryTemplate]].
  */
 private[dsl] object MutationAssembly {
 
-  /**
-   * Mutation builders carry at most two typed slots in render order — for UPDATE that's `SET` then `WHERE`;
-   * INSERT and DELETE collapse to one (or zero). Callers pass the two slot args as `[A1, A2]` and
-   * `command` returns a `CommandTemplate[Concat[A1, A2]]`. When a slot is unused, pass `Void` for it; the
-   * `Concat2` priority chain keeps the typeclass resolvable.
-   */
-  def command[A1, A2](parts: List[BodyPart])(using c2: Where.Concat2[A1, A2]): CommandTemplate[Where.Concat[A1, A2]] = {
-    val tpl = SelectBuilder.assemble[A1, A2, Void](parts, Nil, Void.codec)(using c2)
-    CommandTemplate.mk[Where.Concat[A1, A2]](tpl.fragment.asInstanceOf[Fragment[Where.Concat[A1, A2]]])
+  inline def command[A1, A2](parts: List[BodyPart]): CommandTemplate[Where.Concat[A1, A2]] = {
+    type Out = Where.Concat[A1, A2]
+    val slotValues: Out => IArray[Any] = args => {
+      val (a1, a2) = Where.projectConcat[A1, A2](args)
+      IArray[Any](a1, a2)
+    }
+    val tpl = SelectBuilder.assembleN[Out, Void](parts, Nil, Void.codec, slotValues)
+    CommandTemplate.mk[Out](tpl.fragment)
   }
 
   /**
-   * Three-slot RETURNING that threads typed Args — used by UPDATE (SET + WHERE + RETURNING). The single
-   * Fragment's `RetArgs` becomes the third typed slot at execute time, after SET/WHERE. Multi-item
-   * callers combine their items via [[TypedExpr.combineList]] before calling.
+   * Three-slot RETURNING that threads typed Args — used by UPDATE (SET + WHERE + RETURNING).
    */
-  def withReturningTyped[A1, A2, RetArgs, R](
+  inline def withReturningTyped[A1, A2, RetArgs, R](
     base: List[BodyPart],
-    returning: Fragment[RetArgs],
+    ret: Fragment[RetArgs],
     codec: Codec[R]
-  )(using
-    c12:  Where.Concat2[A1, A2],
-    c123: Where.Concat2[Where.Concat[A1, A2], RetArgs]
   ): QueryTemplate[Where.Concat[Where.Concat[A1, A2], RetArgs], R] = {
-    val parts: List[BodyPart] = base ++ List[BodyPart](Left(RawConstants.RETURNING), Right(returning))
-    SelectBuilder.assemble3[A1, A2, RetArgs, R](parts, Nil, codec)(using c12, c123)
+    type Out = Where.Concat[Where.Concat[A1, A2], RetArgs]
+    val parts: List[BodyPart] = base ++ List[BodyPart](SelectBuilder.bake(RawConstants.RETURNING), Right(ret))
+    val slotValues: Out => IArray[Any] = args => {
+      val (a12, retArgs) = Where.projectConcat[Where.Concat[A1, A2], RetArgs](args)
+      val (a1, a2)       = Where.projectConcat[A1, A2](a12)
+      IArray[Any](a1, a2, retArgs)
+    }
+    SelectBuilder.assembleN[Out, R](parts, Nil, codec, slotValues)
   }
 
   /**
-   * Two-slot RETURNING — used by DELETE (WHERE + RETURNING) and INSERT (VALUES + RETURNING). The
-   * walker maps Right slot 0 → A1 and Right slot 1 → A2 in render order.
+   * Two-slot RETURNING — used by DELETE (WHERE + RETURNING) and INSERT (VALUES + RETURNING).
    */
-  def withReturningTyped2[A1, RetArgs, R](
+  inline def withReturningTyped2[A1, RetArgs, R](
     base: List[BodyPart],
-    returning: Fragment[RetArgs],
+    ret: Fragment[RetArgs],
     codec: Codec[R]
-  )(using c2: Where.Concat2[A1, RetArgs]): QueryTemplate[Where.Concat[A1, RetArgs], R] = {
-    val parts: List[BodyPart] = base ++ List[BodyPart](Left(RawConstants.RETURNING), Right(returning))
-    SelectBuilder.assemble[A1, RetArgs, R](parts, Nil, codec)(using c2)
+  ): QueryTemplate[Where.Concat[A1, RetArgs], R] = {
+    type Out = Where.Concat[A1, RetArgs]
+    val parts: List[BodyPart] = base ++ List[BodyPart](SelectBuilder.bake(RawConstants.RETURNING), Right(ret))
+    val slotValues: Out => IArray[Any] = args => {
+      val (a1, retArgs) = Where.projectConcat[A1, RetArgs](args)
+      IArray[Any](a1, retArgs)
+    }
+    SelectBuilder.assembleN[Out, R](parts, Nil, codec, slotValues)
   }
 
 }
@@ -221,39 +207,37 @@ final class DeleteUsingBuilder[Cols <: Tuple, Name <: String & Singleton, Ss <: 
     )
   }
 
-  def where[A](f: JoinedView[Ss] => Where[A]): DeleteUsingReady[Cols, Name, Ss, A] = {
+  inline def where[A](f: JoinedView[Ss] => Where[A]): DeleteUsingReady[Cols, Name, Ss, A] = {
     val view = buildJoinedView(sources)
     val pred = f(view)
     new DeleteUsingReady[Cols, Name, Ss, A](table, sources, Some(pred.fragment))
   }
 
-  def whereRaw(af: AppliedFragment): DeleteUsingReady[Cols, Name, Ss, ?] = {
-    val combined = SelectBuilder.andRawInto[Void](None, af)
+  inline def whereRaw(af: AppliedFragment): DeleteUsingReady[Cols, Name, Ss, ?] = {
+    val combined = SelectBuilder.andRawInto[Void](None, af, c => Where.projectConcat[Void, Void](c))
     new DeleteUsingReady[Cols, Name, Ss, Any](table, sources, Some(combined))
   }
 
-  def deleteAll: DeleteUsingReady[Cols, Name, Ss, Void] =
+  inline def deleteAll: DeleteUsingReady[Cols, Name, Ss, Void] =
     new DeleteUsingReady[Cols, Name, Ss, Void](table, sources, None)
 
 }
 
-final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tuple, Args] private[sharp] (
+final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tuple, Args] @scala.annotation.publicInBinary private[sharp] (
   private[sharp] val table: Table[Cols, Name],
   private[sharp] val sources: Ss,
   private[sharp] val whereOpt: Option[Fragment[?]]
 ) {
 
-  def where[A](f: JoinedView[Ss] => Where[A])(using
-    c2: Where.Concat2[Args, A]
-  ): DeleteUsingReady[Cols, Name, Ss, Where.Concat[Args, A]] = {
+  inline def where[A](f: JoinedView[Ss] => Where[A]): DeleteUsingReady[Cols, Name, Ss, Where.Concat[Args, A]] = {
     val view     = buildJoinedView(sources)
     val pred     = f(view)
-    val combined = SelectBuilder.andInto[Args, A](whereOpt.asInstanceOf[Option[Fragment[Args]]], pred)
+    val combined = SelectBuilder.andInto[Args, A](whereOpt.asInstanceOf[Option[Fragment[Args]]], pred, c => Where.projectConcat[Args, A](c))
     new DeleteUsingReady[Cols, Name, Ss, Where.Concat[Args, A]](table, sources, Some(combined))
   }
 
-  def whereRaw(af: AppliedFragment)(using c2: Where.Concat2[Args, Void]): DeleteUsingReady[Cols, Name, Ss, ?] = {
-    val combined = SelectBuilder.andRawInto[Args](whereOpt.asInstanceOf[Option[Fragment[Args]]], af)
+  inline def whereRaw(af: AppliedFragment): DeleteUsingReady[Cols, Name, Ss, ?] = {
+    val combined = SelectBuilder.andRawInto[Args](whereOpt.asInstanceOf[Option[Fragment[Args]]], af, c => Where.projectConcat[Args, Void](c))
     new DeleteUsingReady[Cols, Name, Ss, Any](table, sources, Some(combined))
   }
 
@@ -262,18 +246,18 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
    * thread their inner Args into the outer command's args.
    */
   private def bodyParts: List[BodyPart] = {
-    val buf = scala.collection.mutable.ListBuffer[BodyPart](Left(table.deleteFromHeader))
+    val buf = scala.collection.mutable.ListBuffer[BodyPart](SelectBuilder.bake(table.deleteFromHeader))
     val usingEntries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]].tail
     if (usingEntries.nonEmpty) {
-      buf += Left(RawConstants.USING)
+      buf += SelectBuilder.bake(RawConstants.USING)
       var first = true
       usingEntries.foreach { s =>
-        if (first) first = false else buf += Left(TypedExpr.raw(", "))
+        if (first) first = false else buf += SelectBuilder.bake(TypedExpr.raw(", "))
         aliasedFromEntryParts(s).foreach(buf += _)
       }
     }
     whereOpt.foreach { f =>
-      buf += Left(RawConstants.WHERE)
+      buf += SelectBuilder.bake(RawConstants.WHERE)
       buf += Right(f)
     }
     buf.toList
@@ -286,14 +270,13 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
     }
 
   // Concat-chain: SArgs ⊕ Args (WHERE).
-  def compile[SArgs](using
+  inline def compile[SArgs](using
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
-    bff:  SourceBodyArgsProj[Ss],
-    sw:   Where.Concat2[SArgs, Args]
+    bff:  SourceBodyArgsProj[Ss]
   ): CommandTemplate[Where.Concat[SArgs, Args]] = {
     type Out = Where.Concat[SArgs, Args]
     val slotValues: Out => IArray[Any] = args => {
-      val (sArgs, wArgs) = sw.project(args)
+      val (sArgs, wArgs) = Where.projectConcat[SArgs, Args](args)
       val perTailBody    = usingTailBodyArgs(bff, sArgs)
       val out = scala.collection.mutable.ArrayBuffer.empty[Any]
       perTailBody.foreach(out += _)
@@ -305,18 +288,16 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
   }
 
   // Concat-chain: SArgs ⊕ Args (WHERE) ⊕ A (RETURNING).
-  def returning[T, A, SArgs](f: JoinedView[Ss] => TypedExpr[T, A])(using
-    sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
-    bff:  SourceBodyArgsProj[Ss],
-    sw:   Where.Concat2[SArgs, Args],
-    swR:  Where.Concat2[Where.Concat[SArgs, Args], A]
+  inline def returning[T, A, SArgs](f: JoinedView[Ss] => TypedExpr[T, A])(using
+    sbOf:  SourceBodyArgsOf.Aux[Ss, SArgs],
+    bff:   SourceBodyArgsProj[Ss]
   ): QueryTemplate[Where.Concat[Where.Concat[SArgs, Args], A], T] = {
     val expr = f(buildJoinedView(sources))
-    val parts: List[BodyPart] = bodyParts ++ List[BodyPart](Left(RawConstants.RETURNING), Right(expr.fragment))
+    val parts: List[BodyPart] = bodyParts ++ List[BodyPart](SelectBuilder.bake(RawConstants.RETURNING), Right(expr.fragment))
     type Out = Where.Concat[Where.Concat[SArgs, Args], A]
     val slotValues: Out => IArray[Any] = args => {
-      val (swAcc, retArgs) = swR.project(args)
-      val (sArgs, wArgs)   = sw.project(swAcc.asInstanceOf[Where.Concat[SArgs, Args]])
+      val (swAcc, retArgs) = Where.projectConcat[Where.Concat[SArgs, Args], A](args)
+      val (sArgs, wArgs)   = Where.projectConcat[SArgs, Args](swAcc)
       val perTailBody      = usingTailBodyArgs(bff, sArgs)
       val out = scala.collection.mutable.ArrayBuffer.empty[Any]
       perTailBody.foreach(out += _)
@@ -327,29 +308,25 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
     SelectBuilder.assembleN[Out, T](parts, Nil, expr.codec, slotValues)
   }
 
-  def returningTuple[T <: NonEmptyTuple, SArgs](f: JoinedView[Ss] => T)(using
-    fc:   FoldConcatN[CollectArgs[T]],
+  inline def returningTuple[T <: NonEmptyTuple, SArgs, TOut](f: JoinedView[Ss] => T)(using
+    pa:   ProjArgsOf.Aux[T, TOut],
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
-    bff:  SourceBodyArgsProj[Ss],
-    sw:   Where.Concat2[SArgs, Args],
-    swR:  Where.Concat2[Where.Concat[SArgs, Args], FoldConcat[CollectArgs[T]]]
-  ): QueryTemplate[Where.Concat[Where.Concat[SArgs, Args], FoldConcat[CollectArgs[T]]], ExprOutputs[T]] = {
+    bff:  SourceBodyArgsProj[Ss]
+  ): QueryTemplate[Where.Concat[Where.Concat[SArgs, Args], TOut], ExprOutputs[T]] = {
     val exprs    = f(buildJoinedView(sources)).toList.asInstanceOf[List[TypedExpr[?, ?]]]
     val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
-    val combined = TypedExpr.combineList[FoldConcat[CollectArgs[T]]](exprs.map(_.fragment), ", ", fc.project)
-    returning[ExprOutputs[T], FoldConcat[CollectArgs[T]], SArgs](_ =>
-      TypedExpr[ExprOutputs[T], FoldConcat[CollectArgs[T]]](combined, codec)
-    )(using sbOf, bff, sw, swR)
+    val combined = TypedExpr.combineList[TOut](exprs.map(_.fragment), ", ", (a: TOut) => pa.project(a))
+    returning[ExprOutputs[T], TOut, SArgs](_ =>
+      TypedExpr[ExprOutputs[T], TOut](combined, codec)
+    )
   }
 
-  def returningNamed[NT <: scala.NamedTuple.AnyNamedTuple, SArgs](f: JoinedView[Ss] => NT)(using
-    fc:   FoldConcatN[CollectArgs[scala.NamedTuple.DropNames[NT]]],
+  inline def returningNamed[NT <: scala.NamedTuple.AnyNamedTuple, SArgs, TOut](f: JoinedView[Ss] => NT)(using
+    pa:   ProjArgsOf.Aux[scala.NamedTuple.DropNames[NT], TOut],
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
-    bff:  SourceBodyArgsProj[Ss],
-    sw:   Where.Concat2[SArgs, Args],
-    swR:  Where.Concat2[Where.Concat[SArgs, Args], FoldConcat[CollectArgs[scala.NamedTuple.DropNames[NT]]]]
+    bff:  SourceBodyArgsProj[Ss]
   ): QueryTemplate[
-    Where.Concat[Where.Concat[SArgs, Args], FoldConcat[CollectArgs[scala.NamedTuple.DropNames[NT]]]],
+    Where.Concat[Where.Concat[SArgs, Args], TOut],
     scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]]
   ] = {
     type Vs = scala.NamedTuple.DropNames[NT]
@@ -358,28 +335,25 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
     val tup      = f(buildJoinedView(sources)).asInstanceOf[Product]
     val exprs    = tup.productIterator.toList.asInstanceOf[List[TypedExpr[?, ?]]]
     val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[R]]
-    val combined = TypedExpr.combineList[FoldConcat[CollectArgs[Vs]]](exprs.map(_.fragment), ", ", fc.project)
-    returning[R, FoldConcat[CollectArgs[Vs]], SArgs](_ =>
-      TypedExpr[R, FoldConcat[CollectArgs[Vs]]](combined, codec)
-    )(using sbOf, bff, sw, swR)
+    val combined = TypedExpr.combineList[TOut](exprs.map(_.fragment), ", ", (a: TOut) => pa.project(a))
+    returning[R, TOut, SArgs](_ =>
+      TypedExpr[R, TOut](combined, codec)
+    )
   }
 
-  def returningAll[SArgs](using
+  inline def returningAll[SArgs](using
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
-    bff:  SourceBodyArgsProj[Ss],
-    sw:   Where.Concat2[SArgs, Args],
-    swR:  Where.Concat2[Where.Concat[SArgs, Args], Void]
+    bff:  SourceBodyArgsProj[Ss]
   ): QueryTemplate[Where.Concat[SArgs, Args], NamedRowOf[Cols]] = {
     val exprs =
       table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
         TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
       )
-    val codec    = skunk.sharp.internal.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
+    val codec    = skunk.sharp.internal.RowCodecs.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
     val combined = TypedExpr.combineList[Void](exprs.map(_.fragment), ", ", _ => List.fill(exprs.size)(Void))
     returning[NamedRowOf[Cols], Void, SArgs](_ =>
       TypedExpr[NamedRowOf[Cols], Void](combined, codec)
-    )(using sbOf, bff, sw, swR)
-      .asInstanceOf[QueryTemplate[Where.Concat[SArgs, Args], NamedRowOf[Cols]]]
+    ).asInstanceOf[QueryTemplate[Where.Concat[SArgs, Args], NamedRowOf[Cols]]]
   }
 
 }

@@ -30,7 +30,7 @@ trait PgArray {
   def arrayAppend[A, E, X, Y](a: TypedExpr[A, X], elem: TypedExpr[E, Y])(using
     @annotation.unused ev: IsArray.Aux[A, E]
   ): TypedExpr[A, Where.Concat[X, Y]] = {
-    val inner = TypedExpr.combineSep(a.fragment, ", ", elem.fragment)
+    val inner = TypedExpr.combineSep(a.fragment, ", ", elem.fragment, _.asInstanceOf[(X, Y)])
     val frag  = TypedExpr.wrap("array_append(", inner, ")")
     TypedExpr[A, Where.Concat[X, Y]](frag, a.codec)
   }
@@ -38,7 +38,7 @@ trait PgArray {
   def arrayPrepend[A, E, X, Y](elem: TypedExpr[E, X], a: TypedExpr[A, Y])(using
     @annotation.unused ev: IsArray.Aux[A, E]
   ): TypedExpr[A, Where.Concat[X, Y]] = {
-    val inner = TypedExpr.combineSep(elem.fragment, ", ", a.fragment)
+    val inner = TypedExpr.combineSep(elem.fragment, ", ", a.fragment, _.asInstanceOf[(X, Y)])
     val frag  = TypedExpr.wrap("array_prepend(", inner, ")")
     TypedExpr[A, Where.Concat[X, Y]](frag, a.codec)
   }
@@ -46,7 +46,7 @@ trait PgArray {
   def arrayCat[A, X, Y](a: TypedExpr[A, X], b: TypedExpr[A, Y])(using
     @annotation.unused ev: IsArray[A]
   ): TypedExpr[A, Where.Concat[X, Y]] = {
-    val inner = TypedExpr.combineSep(a.fragment, ", ", b.fragment)
+    val inner = TypedExpr.combineSep(a.fragment, ", ", b.fragment, _.asInstanceOf[(X, Y)])
     val frag  = TypedExpr.wrap("array_cat(", inner, ")")
     TypedExpr[A, Where.Concat[X, Y]](frag, a.codec)
   }
@@ -54,7 +54,7 @@ trait PgArray {
   def arrayPosition[A, E, X, Y](a: TypedExpr[A, X], elem: TypedExpr[E, Y])(using
     @annotation.unused ev: IsArray.Aux[A, E]
   ): TypedExpr[Option[Int], Where.Concat[X, Y]] = {
-    val inner = TypedExpr.combineSep(a.fragment, ", ", elem.fragment)
+    val inner = TypedExpr.combineSep(a.fragment, ", ", elem.fragment, _.asInstanceOf[(X, Y)])
     val frag  = TypedExpr.wrap("array_position(", inner, ")")
     TypedExpr[Option[Int], Where.Concat[X, Y]](frag, pg.int4.opt)
   }
@@ -62,7 +62,7 @@ trait PgArray {
   def arrayPositions[A, E, X, Y](a: TypedExpr[A, X], elem: TypedExpr[E, Y])(using
     @annotation.unused ev: IsArray.Aux[A, E]
   ): TypedExpr[Arr[Int], Where.Concat[X, Y]] = {
-    val inner = TypedExpr.combineSep(a.fragment, ", ", elem.fragment)
+    val inner = TypedExpr.combineSep(a.fragment, ", ", elem.fragment, _.asInstanceOf[(X, Y)])
     val frag  = TypedExpr.wrap("array_positions(", inner, ")")
     TypedExpr[Arr[Int], Where.Concat[X, Y]](frag, pg._int4)
   }
@@ -70,7 +70,7 @@ trait PgArray {
   def arrayRemove[A, E, X, Y](a: TypedExpr[A, X], elem: TypedExpr[E, Y])(using
     @annotation.unused ev: IsArray.Aux[A, E]
   ): TypedExpr[A, Where.Concat[X, Y]] = {
-    val inner = TypedExpr.combineSep(a.fragment, ", ", elem.fragment)
+    val inner = TypedExpr.combineSep(a.fragment, ", ", elem.fragment, _.asInstanceOf[(X, Y)])
     val frag  = TypedExpr.wrap("array_remove(", inner, ")")
     TypedExpr[A, Where.Concat[X, Y]](frag, a.codec)
   }
@@ -87,7 +87,7 @@ trait PgArray {
     @annotation.unused ev: IsArray[A], pfs: PgTypeFor[String]
   ): TypedExpr[String, X] = {
     val sepFrag = Param.bind[String](sep).fragment
-    val s1      = TypedExpr.combineSep(a.fragment, ", ", sepFrag).asInstanceOf[Fragment[X]]
+    val s1      = TypedExpr.combineSep(a.fragment, ", ", sepFrag, _.asInstanceOf[(X, skunk.Void)]).asInstanceOf[Fragment[X]]
     val frag    = TypedExpr.wrap("array_to_string(", s1, ")")
     TypedExpr[String, X](frag, pg.text)
   }
@@ -97,15 +97,15 @@ trait PgArray {
   ): TypedExpr[String, X] = {
     val sepFrag  = Param.bind[String](sep).fragment
     val nullFrag = Param.bind[String](nullStr).fragment
-    val s1       = TypedExpr.combineSep(a.fragment, ", ", sepFrag).asInstanceOf[Fragment[X]]
-    val s2       = TypedExpr.combineSep(s1, ", ", nullFrag).asInstanceOf[Fragment[X]]
+    val s1       = TypedExpr.combineSep(a.fragment, ", ", sepFrag, _.asInstanceOf[(X, skunk.Void)]).asInstanceOf[Fragment[X]]
+    val s2       = TypedExpr.combineSep(s1, ", ", nullFrag, _.asInstanceOf[(X, skunk.Void)]).asInstanceOf[Fragment[X]]
     val frag     = TypedExpr.wrap("array_to_string(", s2, ")")
     TypedExpr[String, X](frag, pg.text)
   }
 
   def stringToArray[X](s: TypedExpr[String, X], sep: String)(using pfs: PgTypeFor[String]): TypedExpr[Arr[String], X] = {
     val sepFrag = Param.bind[String](sep).fragment
-    val s1      = TypedExpr.combineSep(s.fragment, ", ", sepFrag).asInstanceOf[Fragment[X]]
+    val s1      = TypedExpr.combineSep(s.fragment, ", ", sepFrag, _.asInstanceOf[(X, skunk.Void)]).asInstanceOf[Fragment[X]]
     val frag    = TypedExpr.wrap("string_to_array(", s1, ")")
     TypedExpr[Arr[String], X](frag, pg._text)
   }

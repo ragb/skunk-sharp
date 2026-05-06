@@ -34,7 +34,7 @@ private[dsl] trait IsCte {
  * not appear as deps — they must be referenced directly in the outer query's FROM (enforced at [[cte]] time via
  * [[CteDepsAllVoid]]).
  */
-final class CteRelation[Cols <: Tuple, Name <: String & Singleton, Alias_ <: String & Singleton, BodyArgsT] private[sharp] (
+final class CteRelation[Cols <: Tuple, Name <: String & Singleton, Alias_ <: String & Singleton, BodyArgsT] @scala.annotation.publicInBinary private[sharp] (
   val cteName: Name,
   val aliasName: Alias_,
   private[sharp] val body: () => Fragment[BodyArgsT],
@@ -73,16 +73,13 @@ final class CteRelation[Cols <: Tuple, Name <: String & Singleton, Alias_ <: Str
  * in the same query are collected and deduplicated at compile time — each `WITH` entry appears only once, in dependency
  * order.
  */
-def cte[Ss <: Tuple, GroupsT <: Tuple, WA, HA, N <: String & Singleton, SArgs, GArgs](
+inline def cte[Ss <: Tuple, GroupsT <: Tuple, WA, HA, N <: String & Singleton, SArgs, GArgs](
   name: N,
   query: SelectBuilder[Ss, GroupsT, WA, HA]
 )(using
   ev:    IsSingleSource[Ss],
   sbOf:  SourceBodyArgsOf.Aux[Ss, SArgs],
   g:     ProjArgsOf.Aux[GroupsT, GArgs],
-  cs:    Where.Concat2[SArgs, WA],
-  csg:   Where.Concat2[Where.Concat[SArgs, WA], GArgs],
-  csgh:  Where.Concat2[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA],
   noTypedDeps: CteDepsAllVoid[Ss]
 ): CteRelation[ev.Cols, N, N, Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA]] = {
   type Combined = Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA]
@@ -91,7 +88,7 @@ def cte[Ss <: Tuple, GroupsT <: Tuple, WA, HA, N <: String & Singleton, SArgs, G
   val cols    = entries.head.effectiveCols.asInstanceOf[ev.Cols]
   // Captures Ss-evidences in the closure so the body re-renders if `body()` is called more than once.
   val bodyThunk: () => Fragment[Combined] = () =>
-    query.compileBodyFragment[SArgs, GArgs](using ev, sbOf, g, cs, csg, csgh)
+    query.compileBodyFragment[SArgs, GArgs](using ev, sbOf, g)
   new CteRelation[ev.Cols, N, N, Combined](name, name, bodyThunk, deps, cols)
 }
 
@@ -108,28 +105,21 @@ def cte[Ss <: Tuple, GroupsT <: Tuple, WA, HA, N <: String & Singleton, SArgs, G
  *   totals.innerJoin(users).on(r => r.totals.user_id ==== r.users.id).select(r => (r.users.email, r.totals.total)).compile
  * }}}
  */
-def cte[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DA <: Tuple, OA <: Tuple, WA, HA, Row, N <: String & Singleton,
+inline def cte[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DA <: Tuple, OA <: Tuple, WA, HA, Row, N <: String & Singleton,
         SA, OnA, DA2, PA, GA, OA2](
   name: N,
   query: ProjectedSelect[Ss, Proj, Groups, DA, OA, WA, HA, Row]
 )(using
-  gc:       GroupCoverage[Proj, Groups],
+  gc:     GroupCoverage[Proj, Groups],
   @scala.annotation.unused np: AllNamedProj[Proj],
-  sbOf:     SourceBodyArgsOf.Aux[Ss, SA],
-  bff:      SourceBodyArgsProj[Ss],
-  onSum:    SourceOnArgsOf.Aux[Ss, OnA],
-  onProj:   SourceOnArgsProj[Ss],
-  d:        ProjArgsOf.Aux[DA, DA2],
-  pa:       ProjArgsOf.Aux[Proj, PA],
-  gp:       ProjArgsOf.Aux[Groups, GA],
-  o:        ProjArgsOf.Aux[OA, OA2],
-  dp:       Where.Concat2[DA2, PA],
-  dps:      Where.Concat2[Where.Concat[DA2, PA], SA],
-  dpso:     Where.Concat2[Where.Concat[Where.Concat[DA2, PA], SA], OnA],
-  dpsow:    Where.Concat2[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA],
-  dpsowg:   Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA],
-  dpsowgh:  Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA],
-  dpsowgho: Where.Concat2[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA], OA2],
+  sbOf:   SourceBodyArgsOf.Aux[Ss, SA],
+  bff:    SourceBodyArgsProj[Ss],
+  onSum:  SourceOnArgsOf.Aux[Ss, OnA],
+  onProj: SourceOnArgsProj[Ss],
+  d:      ProjArgsOf.Aux[DA, DA2],
+  pa:     ProjArgsOf.Aux[Proj, PA],
+  gp:     ProjArgsOf.Aux[Groups, GA],
+  o:      ProjArgsOf.Aux[OA, OA2],
   noTypedDeps: CteDepsAllVoid[Ss]
 ): CteRelation[ProjCols[Proj], N, N, Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA], OA2]] = {
   type Combined = Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA], OA2]
@@ -137,9 +127,7 @@ def cte[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DA <: Tuple, OA <: Tuple, W
   val deps    = directCtes(entries)
   val cols    = buildProjectedCols(query.projections).asInstanceOf[ProjCols[Proj]]
   val bodyThunk: () => Fragment[Combined] = () =>
-    query.compileBodyFragment[SA, OnA, DA2, PA, GA, OA2](
-      using gc, sbOf, bff, onSum, onProj, d, pa, gp, o, dp, dps, dpso, dpsow, dpsowg, dpsowgh, dpsowgho
-    )
+    query.compileBodyFragment[SA, OnA, DA2, PA, GA, OA2](using gc, sbOf, bff, onSum, onProj, d, pa, gp, o)
   new CteRelation[ProjCols[Proj], N, N, Combined](name, name, bodyThunk, deps, cols)
 }
 
@@ -181,15 +169,15 @@ private[dsl] def renderWithPreambleParts(ctes: List[CteRelation[?, ?, ?, ?]]): L
   if (ctes.isEmpty) Nil
   else {
     val buf = scala.collection.mutable.ListBuffer.empty[SelectBuilder.BodyPart]
-    buf += Left(TypedExpr.raw("WITH "))
+    buf += SelectBuilder.bake(TypedExpr.raw("WITH "))
     var first = true
     ctes.foreach { c =>
-      if (first) first = false else buf += Left(TypedExpr.raw(", "))
-      buf += Left(TypedExpr.raw(s""""${c.cteName}" AS ("""))
+      if (first) first = false else buf += SelectBuilder.bake(TypedExpr.raw(", "))
+      buf += SelectBuilder.bake(TypedExpr.raw(s""""${c.cteName}" AS ("""))
       buf += Right(c.body().asInstanceOf[Fragment[Any]])
-      buf += Left(TypedExpr.raw(")"))
+      buf += SelectBuilder.bake(TypedExpr.raw(")"))
     }
-    buf += Left(TypedExpr.raw(" "))
+    buf += SelectBuilder.bake(TypedExpr.raw(" "))
     buf.toList
   }
 }
@@ -245,16 +233,24 @@ object CteArgsProj {
     def project(combined: Any): List[Any] = Nil
   }
 
-  given cons[R <: Relation[C0], C0 <: Tuple, C <: Tuple, A <: String & Singleton, OA, T <: Tuple](using
-    c2:   Where.Concat2[GetCteBody[R], CteArgs[T]],
+  inline given cons[R <: Relation[C0], C0 <: Tuple, C <: Tuple, A <: String & Singleton, OA, T <: Tuple](using
     rest: CteArgsProj[T]
-  ): CteArgsProj[SourceEntry[R, C0, C, A, OA] *: T] = new CteArgsProj[SourceEntry[R, C0, C, A, OA] *: T] {
-    def project(combined: Any): List[Any] = {
-      val (h, t) = c2.project(combined.asInstanceOf[Where.Concat[GetCteBody[R], CteArgs[T]]])
-      h :: rest.project(t)
-    }
+  ): CteArgsProj[SourceEntry[R, C0, C, A, OA] *: T] = {
+    val proj: Where.Concat[GetCteBody[R], CteArgs[T]] => (GetCteBody[R], CteArgs[T]) =
+      c => Where.projectConcat[GetCteBody[R], CteArgs[T]](c)
+    new CteArgsConsProj[R, C0, C, A, OA, T](rest, proj)
   }
 
+}
+
+private[dsl] final class CteArgsConsProj[R <: Relation[C0], C0 <: Tuple, C <: Tuple, A <: String & Singleton, OA, T <: Tuple](
+  rest: CteArgsProj[T],
+  proj: Where.Concat[GetCteBody[R], CteArgs[T]] => (GetCteBody[R], CteArgs[T])
+) extends CteArgsProj[SourceEntry[R, C0, C, A, OA] *: T] {
+  def project(combined: Any): List[Any] = {
+    val (h, t) = proj(combined.asInstanceOf[Where.Concat[GetCteBody[R], CteArgs[T]]])
+    h :: rest.project(t)
+  }
 }
 
 /**

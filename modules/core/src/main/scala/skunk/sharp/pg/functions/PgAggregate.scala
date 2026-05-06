@@ -42,7 +42,7 @@ trait PgAggregate {
   /** `string_agg(expr, sep)` — sep is a runtime value baked via Param.bind. */
   def stringAgg[T, A](expr: TypedExpr[T, A], sep: String)(using ev: StrLike[T], pfs: PgTypeFor[String]): TypedExpr[String, A] = {
     val sepFrag = Param.bind[String](sep).fragment
-    val inner   = TypedExpr.combineSep(expr.fragment, ", ", sepFrag)
+    val inner   = TypedExpr.combineSep(expr.fragment, ", ", sepFrag, _.asInstanceOf[(A, Void)])
     val frag    = TypedExpr.wrap("string_agg(", inner.asInstanceOf[Fragment[A]], ")")
     TypedExpr[String, A](frag, skunk.codec.all.text)
   }
@@ -51,7 +51,7 @@ trait PgAggregate {
   def stringAgg[T, A, B](expr: TypedExpr[T, A], sep: TypedExpr[String, B])(using
     StrLike[T]
   ): TypedExpr[String, Where.Concat[A, B]] = {
-    val inner = TypedExpr.combineSep(expr.fragment, ", ", sep.fragment)
+    val inner = TypedExpr.combineSep(expr.fragment, ", ", sep.fragment, _.asInstanceOf[(A, B)])
     val frag  = TypedExpr.wrap("string_agg(", inner, ")")
     TypedExpr[String, Where.Concat[A, B]](frag, skunk.codec.all.text)
   }
@@ -111,7 +111,7 @@ trait PgAggregate {
     twoArgDoubleFn("regr_intercept", y, x)
 
   def regrCount[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Long, Where.Concat[AY, AX]] = {
-    val inner = TypedExpr.combineSep(y.fragment, ", ", x.fragment)
+    val inner = TypedExpr.combineSep(y.fragment, ", ", x.fragment, _.asInstanceOf[(AY, AX)])
     val frag  = TypedExpr.wrap("regr_count(", inner, ")")
     TypedExpr[Long, Where.Concat[AY, AX]](frag, skunk.codec.all.int8)
   }

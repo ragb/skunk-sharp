@@ -71,19 +71,28 @@ trait ProjArgsOfMedPrio extends ProjArgsOfLowPrio {
   /**
    * Multi-item tuple cons: right-fold via [[Where.Concat]] (drops Void slots). `inline given` so the
    * `Where.projectConcat` dispatch reduces with concrete `HOut` / `TOut` at the summon site.
+   * Uses [[ConsTupleProj]] (named class) to avoid "anonymous class duplicated at each inline site".
    */
   inline given consTuple[H, T <: NonEmptyTuple, HOut, TOut](using
     h:  ProjArgsOf[H] { type Out = HOut },
     t:  ProjArgsOf[T] { type Out = TOut }
-  ): (ProjArgsOf[H *: T] { type Out = Where.Concat[HOut, TOut] }) =
-    new ProjArgsOf[H *: T] {
-      type Out = Where.Concat[HOut, TOut]
-      def project(c: Out): List[Any] = {
-        val (a, b) = Where.projectConcat[HOut, TOut](c)
-        h.project(a) ++ t.project(b)
-      }
-    }
+  ): (ProjArgsOf[H *: T] { type Out = Where.Concat[HOut, TOut] }) = {
+    val proj: Where.Concat[HOut, TOut] => (HOut, TOut) = c => Where.projectConcat[HOut, TOut](c)
+    new ConsTupleProj[H, T, Where.Concat[HOut, TOut], HOut, TOut](h, t, proj)
+  }
 
+}
+
+private[dsl] final class ConsTupleProj[H, T <: NonEmptyTuple, CombOut, HOut, TOut](
+  h:    ProjArgsOf[H] { type Out = HOut },
+  t:    ProjArgsOf[T] { type Out = TOut },
+  proj: CombOut => (HOut, TOut)
+) extends ProjArgsOf[H *: T] {
+  type Out = CombOut
+  def project(c: Out): List[Any] = {
+    val (a, b) = proj(c)
+    h.project(a) ++ t.project(b)
+  }
 }
 
 trait ProjArgsOfLowPrio {

@@ -4,8 +4,8 @@ import scala.annotation.targetName
 import cats.Reducible
 import skunk.{AppliedFragment, Codec, Encoder, Fragment, Void}
 import skunk.sharp.*
-import skunk.sharp.internal.{rowCodec, tupleCodec, CompileChecks, RawConstants}
-import skunk.sharp.where.Where.{FoldConcat, FoldConcatN}
+import skunk.sharp.internal.{CompileChecks, RawConstants, RowCodecs}, RowCodecs.{rowCodec, tupleCodec}
+import skunk.sharp.where.Where
 import skunk.util.Origin
 
 import scala.NamedTuple
@@ -142,7 +142,7 @@ final class InsertCommand[Cols <: Tuple, Args, CA] private[sharp] (
   private[sharp] val conflictSets: Fragment[CA]
 ) {
 
-  def compile(using c2: Where.Concat2[Args, CA]): CommandTemplate[Where.Concat[Args, CA]] =
+  inline def compile: CommandTemplate[Where.Concat[Args, CA]] =
     MutationAssembly.command[Args, CA](insertParts)
 
   // ---- Body parts ---------------------------------------------------------------
@@ -159,75 +159,58 @@ final class InsertCommand[Cols <: Tuple, Args, CA] private[sharp] (
    * `assemble[Args, CA, Void]` dispatches A1→source and CA→conflictSets correctly regardless of baking.
    */
   private[dsl] def insertParts: List[BodyPart] = {
-    val buf = scala.collection.mutable.ListBuffer[BodyPart](Left(headerAf))
+    val buf = scala.collection.mutable.ListBuffer[BodyPart](SelectBuilder.bake(headerAf))
     source match {
       case InsertSource.TypedRow(f) =>
-        buf += Left(RawConstants.VALUES)
-        buf += Left(f.asInstanceOf[Fragment[Void]].apply(Void))
+        buf += SelectBuilder.bake(RawConstants.VALUES)
+        buf += SelectBuilder.bake(f.asInstanceOf[Fragment[Void]].apply(Void))
         buf += Right(SelectBuilder.emptyVoidSlot)  // A1 = Void placeholder (row already in Left)
       case InsertSource.TypedRowParams(f) =>
-        buf += Left(RawConstants.VALUES)
+        buf += SelectBuilder.bake(RawConstants.VALUES)
         buf += Right(f)                            // A1 = Args
       case InsertSource.ManyRows(rows) =>
-        buf += Left(TypedExpr.raw("VALUES "))
-        buf += Left(TypedExpr.joined(rows, ", "))
+        buf += SelectBuilder.bake(TypedExpr.raw("VALUES "))
+        buf += SelectBuilder.bake(TypedExpr.joined(rows, ", "))
         buf += Right(SelectBuilder.emptyVoidSlot)  // A1 = Void placeholder
       case InsertSource.FromQuery(frag) =>
         buf += Right(frag)                         // A1 = Args
     }
-    if (conflictHeaderAf ne AppliedFragment.empty) buf += Left(conflictHeaderAf)
+    if (conflictHeaderAf ne AppliedFragment.empty) buf += SelectBuilder.bake(conflictHeaderAf)
     buf += Right(conflictSets)                     // A2 = CA (or emptyVoid when no typed conflict)
     buf.toList
   }
 
-  def returning[T, A](f: ColumnsView[Cols] => TypedExpr[T, A])(using
-    c12:  Where.Concat2[Args, CA],
-    c123: Where.Concat2[Where.Concat[Args, CA], A]
-  ): QueryTemplate[Where.Concat[Where.Concat[Args, CA], A], T] = {
-    val view = table.columnsView
-    val expr = f(view)
+  inline def returning[T, A](f: ColumnsView[Cols] => TypedExpr[T, A]): QueryTemplate[Where.Concat[Where.Concat[Args, CA], A], T] = {
+    val expr = f(table.columnsView)
     MutationAssembly.withReturningTyped[Args, CA, A, T](insertParts, expr.fragment, expr.codec)
   }
 
-  def returningTuple[T <: NonEmptyTuple](f: ColumnsView[Cols] => T)(using
-    fc:   FoldConcatN[CollectArgs[T]],
-    c12:  Where.Concat2[Args, CA],
-    c123: Where.Concat2[Where.Concat[Args, CA], FoldConcat[CollectArgs[T]]]
-  ): QueryTemplate[Where.Concat[Where.Concat[Args, CA], FoldConcat[CollectArgs[T]]], ExprOutputs[T]] = {
-    val view     = table.columnsView
-    val exprs    = f(view).toList.asInstanceOf[List[TypedExpr[?, ?]]]
+  inline def returningTuple[T <: NonEmptyTuple, TOut](f: ColumnsView[Cols] => T)(using
+    pa: ProjArgsOf.Aux[T, TOut]
+  ): QueryTemplate[Where.Concat[Where.Concat[Args, CA], TOut], ExprOutputs[T]] = {
+    val exprs    = f(table.columnsView).toList.asInstanceOf[List[TypedExpr[?, ?]]]
     val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
-    val combined = TypedExpr.combineList[FoldConcat[CollectArgs[T]]](exprs.map(_.fragment), ", ", fc.project)
-    MutationAssembly.withReturningTyped[Args, CA, FoldConcat[CollectArgs[T]], ExprOutputs[T]](
-      insertParts, combined, codec
-    )
+    val combined = TypedExpr.combineList[TOut](exprs.map(_.fragment), ", ", (a: TOut) => pa.project(a))
+    MutationAssembly.withReturningTyped[Args, CA, TOut, ExprOutputs[T]](insertParts, combined, codec)
   }
 
-  def returningNamed[NT <: scala.NamedTuple.AnyNamedTuple](f: ColumnsView[Cols] => NT)(using
-    fc:   FoldConcatN[CollectArgs[scala.NamedTuple.DropNames[NT]]],
-    c12:  Where.Concat2[Args, CA],
-    c123: Where.Concat2[Where.Concat[Args, CA], FoldConcat[CollectArgs[scala.NamedTuple.DropNames[NT]]]]
+  inline def returningNamed[NT <: scala.NamedTuple.AnyNamedTuple, TOut](f: ColumnsView[Cols] => NT)(using
+    pa: ProjArgsOf.Aux[scala.NamedTuple.DropNames[NT], TOut]
   ): QueryTemplate[
-    Where.Concat[Where.Concat[Args, CA], FoldConcat[CollectArgs[scala.NamedTuple.DropNames[NT]]]],
+    Where.Concat[Where.Concat[Args, CA], TOut],
     scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]]
   ] = {
     type Vs = scala.NamedTuple.DropNames[NT]
     type Ns = scala.NamedTuple.Names[NT]
     type R  = scala.NamedTuple.NamedTuple[Ns, ExprOutputs[Vs]]
-    val view     = table.columnsView
-    val tup      = f(view).asInstanceOf[Product]
+    val tup      = f(table.columnsView).asInstanceOf[Product]
     val exprs    = tup.productIterator.toList.asInstanceOf[List[TypedExpr[?, ?]]]
     val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[R]]
-    val combined = TypedExpr.combineList[FoldConcat[CollectArgs[Vs]]](exprs.map(_.fragment), ", ", fc.project)
-    MutationAssembly.withReturningTyped[Args, CA, FoldConcat[CollectArgs[Vs]], R](
-      insertParts, combined, codec
-    )
+    val combined = TypedExpr.combineList[TOut](exprs.map(_.fragment), ", ", (a: TOut) => pa.project(a))
+    MutationAssembly.withReturningTyped[Args, CA, TOut, R](insertParts, combined, codec)
   }
 
-  def returningAll(using
-    c12:  Where.Concat2[Args, CA],
-    c123: Where.Concat2[Where.Concat[Args, CA], Void]
-  ): QueryTemplate[Where.Concat[Args, CA], NamedRowOf[Cols]] = {
+  inline def returningAll: QueryTemplate[Where.Concat[Args, CA], NamedRowOf[Cols]] = {
     val exprs =
       table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
         TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])

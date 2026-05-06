@@ -284,12 +284,12 @@ class ParamSuite extends munit.FunSuite {
     val _: QueryTemplate[UUID, String] = q
   }
 
-  test("UPDATE SET Param + WHERE Param + RETURNING Param: Args = ((SetT, WhereT), RetT)") {
+  test("UPDATE SET Param + WHERE Param + RETURNING Param: Args flattens to (SetT, WhereT, RetT)") {
     val q = users.update
       .set(u => u.email := Param[String])
       .where(u => u.id === Param[UUID])
       .returning(u => Pg.power(u.age, Param[Double]))
-    val _: QueryTemplate[((String, UUID), Double), Double] = q
+    val _: QueryTemplate[(String, UUID, Double), Double] = q
   }
 
   test("DELETE … RETURNING Param-bearing expr threads RetArgs after WArgs") {
@@ -303,7 +303,7 @@ class ParamSuite extends munit.FunSuite {
     val q = users.insert
       .withParams((id = Param[UUID], email = Param[String], age = Param[Int]))
       .returning(u => Pg.power(u.age, Param[Double]))
-    val _: QueryTemplate[((UUID, String, Int), Double), Double] = q
+    val _: QueryTemplate[(UUID, String, Int, Double), Double] = q
   }
 
   test("Encoder for UPDATE Param + WHERE Param + RETURNING Param binds in render order") {
@@ -312,7 +312,7 @@ class ParamSuite extends munit.FunSuite {
       .where(u => u.id === Param[UUID])
       .returning(u => Pg.power(u.age, Param[Double]))
     val uid     = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
-    val af      = q.bind((("set@x", uid), 2.0))
+    val af      = q.bind(("set@x", uid, 2.0))
     val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
     assertEquals(encoded, List("set@x", uid.toString, "2.0"))
   }
@@ -337,24 +337,24 @@ class ParamSuite extends munit.FunSuite {
     val q = users.delete
       .where(u => u.id === Param[UUID])
       .returningTuple(u => (Pg.power(u.age, Param[Double]), Pg.mod(u.age, Param[Int])))
-    // RETURNING items combine right-fold via Concat so RetArgs = (Double, Int);
-    // outer Concat with WArgs gives (UUID, (Double, Int)).
-    val _: QueryTemplate[(UUID, (Double, Int)), (Double, Int)] = q
+    // RETURNING items combine via Concat — flat-tuple Concat collapses everything into a single
+    // user-facing tuple: (UUID from WHERE, Double + Int from RETURNING) = (UUID, Double, Int).
+    val _: QueryTemplate[(UUID, Double, Int), (Double, Int)] = q
   }
 
-  test("UPDATE … RETURNING tuple with Params: ((SetT, WhereT), RetArgs) shape") {
+  test("UPDATE … RETURNING tuple with Params: flat (SetT, WhereT, RetArgs…) shape") {
     val q = users.update
       .set(u => u.email := Param[String])
       .where(u => u.id === Param[UUID])
       .returningTuple(u => (u.id, Pg.power(u.age, Param[Double])))
-    val _: QueryTemplate[((String, UUID), Double), (UUID, Double)] = q
+    val _: QueryTemplate[(String, UUID, Double), (UUID, Double)] = q
   }
 
-  test("INSERT.withParams + returningTuple with Param: row Args + ret Args compose") {
+  test("INSERT.withParams + returningTuple with Param: row Args + ret Args compose flat") {
     val q = users.insert
       .withParams((id = Param[UUID], email = Param[String], age = Param[Int]))
       .returningTuple(u => (u.id, Pg.power(u.age, Param[Double])))
-    val _: QueryTemplate[((UUID, String, Int), Double), (UUID, Double)] = q
+    val _: QueryTemplate[(UUID, String, Int, Double), (UUID, Double)] = q
   }
 
   test("returningAll still produces QueryTemplate[WArgs, NamedRow]") {
@@ -378,7 +378,7 @@ class ParamSuite extends munit.FunSuite {
       .where(u => u.id === Param[UUID])
       .returningTuple(u => (Pg.power(u.age, Param[Double]), Pg.mod(u.age, Param[Int])))
     val uid     = UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc")
-    val af      = q.bind((uid, (2.0, 7)))
+    val af      = q.bind((uid, 2.0, 7))
     val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
     assertEquals(encoded, List(uid.toString, "2.0", "7"))
   }
@@ -466,7 +466,7 @@ class ParamSuite extends munit.FunSuite {
       .where(u => u.id === Param[UUID])
       .groupBy(u => Pg.mod(u.age, Param[Int]))
       .compile
-    val _: QueryTemplate[((Double, UUID), Int), Double] = q
+    val _: QueryTemplate[(Double, UUID, Int), Double] = q
   }
 
   test("Encoder for proj-Param + WHERE-Param + GROUP-Param binds in render order") {
@@ -476,7 +476,7 @@ class ParamSuite extends munit.FunSuite {
       .groupBy(u => Pg.mod(u.age, Param[Int]))
       .compile
     val uid     = UUID.fromString("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
-    val af      = q.bind(((1.5, uid), 7))
+    val af      = q.bind((1.5, uid, 7))
     val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
     assertEquals(encoded, List("1.5", uid.toString, "7"))
   }
@@ -524,8 +524,8 @@ class ParamSuite extends munit.FunSuite {
       .groupBy(u => Pg.mod(u.age, Param[Int]))
       .compile
     // Args = Concat[Concat[Concat[Concat[DArgs=Int, ProjArgs=Double], WArgs=UUID], GArgs=Int], HArgs=Void]
-    //      = (((Int, Double), UUID), Int)
-    val _: QueryTemplate[(((Int, Double), UUID), Int), Double] = q
+    // collapses to flat (Int, Double, UUID, Int) at the user-facing site.
+    val _: QueryTemplate[(Int, Double, UUID, Int), Double] = q
   }
 
   test("Encoder for full 5-slot composition binds in render order (DIST → PROJ → WHERE → GROUP)") {
@@ -536,7 +536,7 @@ class ParamSuite extends munit.FunSuite {
       .groupBy(u => Pg.mod(u.age, Param[Int]))
       .compile
     val uid     = UUID.fromString("ffffffff-ffff-ffff-ffff-ffffffffffff")
-    val af      = q.bind(((((11, 2.0), uid), 7)))
+    val af      = q.bind((11, 2.0, uid, 7))
     val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
     assertEquals(encoded, List("11", "2.0", uid.toString, "7"))
   }
@@ -564,9 +564,8 @@ class ParamSuite extends munit.FunSuite {
       .groupBy(u => Pg.mod(u.age, Param[Int]))
       .orderBy(u => Pg.mod(u.age, Param[Int]).asc)
       .compile
-    // Args = (((((Int, Double), UUID), Int), Void), Int)
-    //         DARGS, PA       , WA  , GA , HA  , OA
-    val _: QueryTemplate[((((Int, Double), UUID), Int), Int), Double] = q
+    // Args (DArgs, ProjArgs, WArgs, GArgs, HArgs=Void, OArgs) collapses to flat user-facing tuple.
+    val _: QueryTemplate[(Int, Double, UUID, Int, Int), Double] = q
   }
 
   test("Encoder for full 6-slot composition binds in render order (DIST→PROJ→WHERE→GROUP→ORDER)") {
@@ -578,7 +577,7 @@ class ParamSuite extends munit.FunSuite {
       .orderBy(u => Pg.mod(u.age, Param[Int]).asc)
       .compile
     val uid     = UUID.fromString("aaaaaaaa-1111-2222-3333-444444444444")
-    val af      = q.bind((((((11, 2.0), uid), 7), 13)))
+    val af      = q.bind((11, 2.0, uid, 7, 13))
     val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
     assertEquals(encoded, List("11", "2.0", uid.toString, "7", "13"))
   }
@@ -606,26 +605,25 @@ class ParamSuite extends munit.FunSuite {
     val _: QueryTemplate[Void, String] = q
   }
 
-  test("Pg.coalesce at arity 5 threads typed Args via FoldConcat") {
+  test("Pg.coalesce at arity 5 threads typed Args flat") {
     val q = users.select(u => Pg.coalesce(Param[String], u.email, Param[String], u.email, Param[String])).compile
-    // FoldConcat over (String, Void, String, Void, String) = (String, (String, String))
-    val _: QueryTemplate[(String, (String, String)), String] = q
+    // FoldConcat over (String, Void, String, Void, String) flattens to (String, String, String).
+    val _: QueryTemplate[(String, String, String), String] = q
   }
 
-  test("Pg.greatest at arity 6 threads typed Args via FoldConcat") {
+  test("Pg.greatest at arity 6 threads typed Args flat") {
     val q = users.select(u =>
       Pg.greatest(Param[Int], u.age, Param[Int], u.age, Param[Int], u.age)
     ).compile
-    val _: QueryTemplate[(Int, (Int, Int)), Int] = q
+    val _: QueryTemplate[(Int, Int, Int), Int] = q
   }
 
-  test("Pg.least at arity 9 threads typed Args via FoldConcat") {
+  test("Pg.least at arity 9 threads typed Args flat") {
     val q = users.select(u =>
       Pg.least(Param[Int], u.age, Param[Int], u.age, Param[Int], u.age, Param[Int], u.age, Param[Int])
     ).compile
-    // FoldConcat over (Int, Void, Int, Void, Int, Void, Int, Void, Int)
-    //   right-fold drops Void slots → (Int, (Int, (Int, (Int, Int))))
-    val _: QueryTemplate[(Int, (Int, (Int, (Int, Int)))), Int] = q
+    // FoldConcat over (Int, Void, Int, Void, Int, Void, Int, Void, Int) flattens to (Int*5).
+    val _: QueryTemplate[(Int, Int, Int, Int, Int), Int] = q
   }
 
   test("Pg.concat(col, Param) threads typed Args") {
@@ -639,7 +637,7 @@ class ParamSuite extends munit.FunSuite {
       .where(u => u.id === Param[UUID])
       .compile
     val uid     = UUID.fromString("11111111-1111-1111-1111-111111111111")
-    val af      = q.bind((("first", "third"), uid))
+    val af      = q.bind(("first", "third", uid))
     val encoded = af.fragment.encoder.encode(af.argument).flatten.map(_.value)
     assertEquals(encoded, List("first", "third", uid.toString))
   }
@@ -671,7 +669,7 @@ class ParamSuite extends munit.FunSuite {
         )
       )
       .compile
-    val _: QueryTemplate[(((java.time.LocalDate, java.time.LocalDate), java.time.LocalDate), java.time.LocalDate), ?] = q
+    val _: QueryTemplate[(java.time.LocalDate, java.time.LocalDate, java.time.LocalDate, java.time.LocalDate), ?] = q
   }
 
   test("Pg.lpad(col, 4, fill) propagates Args from the typed expr only") {
@@ -726,9 +724,9 @@ class ParamSuite extends munit.FunSuite {
           .otherwise(Param[String])
       )
       .compile
-    // ProjArgsOf folds right-to-left over Items + ELSE; Void slots collapse:
-    //   (Int, Void, Int, String, String) → Concat-fold: (Int, (Int, (String, String)))
-    val _: QueryTemplate[(Int, (Int, (String, String))), String] = q
+    // ProjArgsOf folds right-to-left over Items + ELSE; Void slots collapse and the flat-tuple Concat
+    // produces (Int, Int, String, String) at the user-facing site.
+    val _: QueryTemplate[(Int, Int, String, String), String] = q
   }
 
   test("CASE WHEN .end produces Option[T] with typed Args") {
@@ -1074,7 +1072,7 @@ class ParamSuite extends munit.FunSuite {
       .where(u => u.id === Param[UUID])
       .returningNamed(u => (powered = Pg.power(u.age, Param[Double]), modded = Pg.mod(u.age, Param[Int])))
     type Row = (powered: Double, modded: Int)
-    val _: QueryTemplate[((String, UUID), (Double, Int)), Row] = q
+    val _: QueryTemplate[(String, UUID, Double, Int), Row] = q
   }
 
   // -------- IN / ANY / ALL subquery typed Args ---------------------------------------------------
