@@ -27,7 +27,7 @@ val q1 = users.select.compile
 
 // With WHERE
 val q2 = users.select
-  .where(u => u.age >= 18 && u.email.like("%@example.com"))
+  .where(u => u.age >= lit(18) && u.email.like(lit("%@example.com")))
   .compile
 
 // ORDER BY, LIMIT, OFFSET
@@ -111,7 +111,7 @@ val perAuthor = posts
 val popular = posts
   .select(p => (p.author_id, Pg.sum(p.views).as("total_views")))
   .groupBy(p => p.author_id)
-  .having(p => Pg.sum(p.views) > 1000)
+  .having(p => Pg.sum(p.views) > lit(1000L))
   .compile
 ```
 
@@ -178,7 +178,7 @@ val active = users.alias("u").select
 
 ```scala mdoc:silent
 val locked = users.select
-  .where(u => u.id === UUID.randomUUID())
+  .where(u => u.id === Param.bind(UUID.randomUUID()))
   .forUpdate
   .skipLocked
   .compile

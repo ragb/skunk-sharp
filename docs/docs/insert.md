@@ -116,6 +116,6 @@ val upsert = users.insert(row)
 // Update with a literal value
 val upsert2 = users.insert(row)
   .onConflict(u => u.email)
-  .doUpdate(u => u.age := 99)
+  .doUpdate(u => u.age := lit(99))
   .compile
 ```
