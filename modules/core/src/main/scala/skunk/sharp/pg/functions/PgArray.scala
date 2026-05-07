@@ -13,7 +13,7 @@ import skunk.sharp.where.Where
 trait PgArray {
 
   inline def arrayLength[A, X, Y](
-    a:   TypedExpr[A, X],
+    a: TypedExpr[A, X],
     dim: TypedExpr[Int, Y]
   )(using @annotation.unused ev: IsArray[A]): TypedExpr[Option[Int], Where.Concat[X, Y]] = {
     val inner = TypedExpr.combineSepInl[X, Y](a.fragment, ", ", dim.fragment)
@@ -83,7 +83,7 @@ trait PgArray {
   }
 
   inline def arrayToString[A, X, Y](
-    a:   TypedExpr[A, X],
+    a: TypedExpr[A, X],
     sep: TypedExpr[String, Y]
   )(using @annotation.unused ev: IsArray[A]): TypedExpr[String, Where.Concat[X, Y]] = {
     val inner = TypedExpr.combineSepInl[X, Y](a.fragment, ", ", sep.fragment)
@@ -94,16 +94,18 @@ trait PgArray {
   import skunk.sharp.PgFunction
 
   inline def arrayToString[A, X, Y, Z](
-    a:       TypedExpr[A, X],
-    sep:     TypedExpr[String, Y],
+    a: TypedExpr[A, X],
+    sep: TypedExpr[String, Y],
     nullStr: TypedExpr[String, Z]
   )(using @annotation.unused ev: IsArray[A]): TypedExpr[String, Where.FoldConcat[X *: Y *: Z *: EmptyTuple]] =
     PgFunction.naryTypedFold[String, X *: Y *: Z *: EmptyTuple](
-      "array_to_string", List(a.fragment, sep.fragment, nullStr.fragment), pg.text
+      "array_to_string",
+      List(a.fragment, sep.fragment, nullStr.fragment),
+      pg.text
     )
 
   inline def stringToArray[X, Y](
-    s:   TypedExpr[String, X],
+    s: TypedExpr[String, X],
     sep: TypedExpr[String, Y]
   ): TypedExpr[Arr[String], Where.Concat[X, Y]] = {
     val inner = TypedExpr.combineSepInl[X, Y](s.fragment, ", ", sep.fragment)
@@ -117,7 +119,8 @@ trait PgArray {
   }
 
   def unnest[A, E, X](a: TypedExpr[A, X])(using
-    @annotation.unused ev: IsArray.Aux[A, E], pf: PgTypeFor[E]
+    @annotation.unused ev: IsArray.Aux[A, E],
+    pf: PgTypeFor[E]
   ): TypedExpr[E, X] = {
     val frag = TypedExpr.wrap("unnest(", a.fragment, ")")
     TypedExpr[E, X](frag, pf.codec)

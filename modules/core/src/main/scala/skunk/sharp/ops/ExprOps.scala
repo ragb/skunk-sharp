@@ -8,31 +8,30 @@ import skunk.util.Origin
 import scala.annotation.unused
 
 /**
- * The expression-level operator set: `=, <>, <, <=, >, >=, BETWEEN, IN, LIKE, IS NULL`. Each operator produces
- * a `Where[A]` (= `TypedExpr[Boolean, A]`) — a typed predicate carrying its parameter tuple as a visible Args
- * type. Operators slot wherever a boolean expression is valid in Postgres: WHERE, HAVING, SELECT projections,
- * ORDER BY, function arguments, CASE WHEN predicates.
+ * The expression-level operator set: `=, <>, <, <=, >, >=, BETWEEN, IN, LIKE, IS NULL`. Each operator produces a
+ * `Where[A]` (= `TypedExpr[Boolean, A]`) — a typed predicate carrying its parameter tuple as a visible Args type.
+ * Operators slot wherever a boolean expression is valid in Postgres: WHERE, HAVING, SELECT projections, ORDER BY,
+ * function arguments, CASE WHEN predicates.
  *
- * Operators are *extension methods* on `TypedExpr[T, A]` so third-party modules add new ones without touching
- * core.
+ * Operators are *extension methods* on `TypedExpr[T, A]` so third-party modules add new ones without touching core.
  *
  * **RHS forms** for binary operators — RHS is always a `TypedExpr`. To compare against a value pick one of:
  *
- *   - `lhs === Param[T]` — deferred parameter, supplied at execute time. Args contributes `T`. The static-SQL
- *     path: one `Fragment[T]` is built and reused across every argument value.
+ *   - `lhs === Param[T]` — deferred parameter, supplied at execute time. Args contributes `T`. The static-SQL path: one
+ *     `Fragment[T]` is built and reused across every argument value.
  *   - `lhs === lit(v)` — compile-time literal (primitives only). Inline SQL, Args contributes `Void`.
  *   - `lhs === otherExpr` — column-vs-expression / function-call result. Args from `otherExpr`.
- *   - `lhs === Param.bind(v)` — bake a runtime value into a `Void`-args fragment now. Rebuilds an encoder
- *     closure per `.compile`; pick this when the value really can't be deferred.
+ *   - `lhs === Param.bind(v)` — bake a runtime value into a `Void`-args fragment now. Rebuilds an encoder closure per
+ *     `.compile`; pick this when the value really can't be deferred.
  *
- * **Nullable columns.** If a column is declared nullable, comparisons like `col === Param[T]` take the
- * underlying value type, not `Option[value]`. Trying to compare against `None` is a compile error — use
- * `.isNull` / `.isNotNull` instead. See [[Stripped]].
+ * **Nullable columns.** If a column is declared nullable, comparisons like `col === Param[T]` take the underlying value
+ * type, not `Option[value]`. Trying to compare against `None` is a compile error — use `.isNull` / `.isNotNull`
+ * instead. See [[Stripped]].
  */
 
 /**
- * Type-level alias: strip outermost `Option[_]` if there is one, otherwise unchanged. Used as an evidence
- * bound in `like` / `ilike` / `similarTo` / `notSimilarTo` so a nullable-string column (`TypedColumn[Option[String], true, _]`)
+ * Type-level alias: strip outermost `Option[_]` if there is one, otherwise unchanged. Used as an evidence bound in
+ * `like` / `ilike` / `similarTo` / `notSimilarTo` so a nullable-string column (`TypedColumn[Option[String], true, _]`)
  * accepts those operators — `Stripped[Option[String]] <:< String` resolves cleanly. Also used by
  * [[skunk.sharp.pg.functions.Shared.StrLike]] and [[skunk.sharp.pg.functions.PgSrf]]'s `nullif`.
  */
@@ -56,6 +55,7 @@ private inline def opCombine[T, U, A, B](
 // `T` appears in a parameter position — overload search fails before the `using` is summoned.
 
 extension [T, A](lhs: TypedExpr[T, A]) {
+
   /** `lhs = rhs` — RHS is any TypedExpr. Use `Param[T]`, `lit(v)`, or `Param.bind(v)` for value RHS. */
   inline def ===[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] = opCombine(lhs, " = ", rhs)
 
@@ -72,6 +72,7 @@ extension [T, A](lhs: TypedExpr[T, A]) {
 
   inline def >=[B](rhs: TypedExpr[T, B])(using @unused ord: cats.Order[T]): Where[Where.Concat[A, B]] =
     opCombine(lhs, " >= ", rhs)
+
 }
 
 /** Column-to-expression equality alias for source compat. Equivalent to `===` with TypedExpr RHS. */
@@ -126,19 +127,30 @@ extension [T, A](lhs: TypedExpr[T, A]) {
 
 }
 
-/** `lhs LIKE pattern` / `ILIKE` / `SIMILAR TO`. Pattern must be a `TypedExpr[String, _]` — use `lit("…%")` or `Param[String]`. */
+/**
+ * `lhs LIKE pattern` / `ILIKE` / `SIMILAR TO`. Pattern must be a `TypedExpr[String, _]` — use `lit("…%")` or
+ * `Param[String]`.
+ */
 extension [T, A](lhs: TypedExpr[T, A]) {
 
-  inline def like[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
+  inline def like[B](pattern: TypedExpr[String, B])(using
+    @unused ev: Stripped[T] <:< String
+  ): Where[Where.Concat[A, B]] =
     opCombine(lhs, " LIKE ", pattern)
 
-  inline def ilike[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
+  inline def ilike[B](pattern: TypedExpr[String, B])(using
+    @unused ev: Stripped[T] <:< String
+  ): Where[Where.Concat[A, B]] =
     opCombine(lhs, " ILIKE ", pattern)
 
-  inline def similarTo[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
+  inline def similarTo[B](pattern: TypedExpr[String, B])(using
+    @unused ev: Stripped[T] <:< String
+  ): Where[Where.Concat[A, B]] =
     opCombine(lhs, " SIMILAR TO ", pattern)
 
-  inline def notSimilarTo[B](pattern: TypedExpr[String, B])(using @unused ev: Stripped[T] <:< String): Where[Where.Concat[A, B]] =
+  inline def notSimilarTo[B](pattern: TypedExpr[String, B])(using
+    @unused ev: Stripped[T] <:< String
+  ): Where[Where.Concat[A, B]] =
     opCombine(lhs, " NOT SIMILAR TO ", pattern)
 
 }
@@ -178,17 +190,16 @@ object InRhs {
   type Aux[T, Rhs, A0] = InRhs[T, Rhs] { type RA = A0 }
 
   /**
-   * `lhs IN (e1, e2, …)` over a non-empty `Reducible` of typed expressions. Each item must be a
-   * `TypedExpr[T, Void]` — pass `lit(v)` (compile-time literal), `Param.bind(v)` (bake runtime value), or any
-   * other Void-args expression. For execute-time-deferred lists, prefer `lhs === ANY(Param[Arr[T]])` (see
-   * [[skunk.sharp.pg.ArrayOps.elemOf]]) — `IN` with multiple `Param[T]` would require N execute-time slots
-   * which the API doesn't model.
+   * `lhs IN (e1, e2, …)` over a non-empty `Reducible` of typed expressions. Each item must be a `TypedExpr[T, Void]` —
+   * pass `lit(v)` (compile-time literal), `Param.bind(v)` (bake runtime value), or any other Void-args expression. For
+   * execute-time-deferred lists, prefer `lhs === ANY(Param[Arr[T]])` (see [[skunk.sharp.pg.ArrayOps.elemOf]]) — `IN`
+   * with multiple `Param[T]` would require N execute-time slots which the API doesn't model.
    */
   given reducibleIn[T, F[_]](using R: cats.Reducible[F]): InRhs.Aux[T, F[TypedExpr[T, Void]], Void] =
     new InRhs[T, F[TypedExpr[T, Void]]] {
       type RA = Void
       def renderParens(values: F[TypedExpr[T, Void]]): Fragment[Void] = {
-        val frags = R.toNonEmptyList(values).toList.map(_.fragment)
+        val frags  = R.toNonEmptyList(values).toList.map(_.fragment)
         val joined = frags.reduceLeft((a, b) =>
           TypedExpr.combineSepInl[Void, Void](a, ", ", b).asInstanceOf[Fragment[Void]]
         )
@@ -206,9 +217,9 @@ object InRhs {
     }
 
   /**
-   * `lhs IN (listExpr)` where `listExpr` is a `Param[List[T]]` (built via [[skunk.sharp.Param.list]]) —
-   * expands to N comma-separated `$N` placeholders and binds a single `List[T]` at execute time. Single
-   * prepared statement per size; sidesteps the `Param.bind`-per-element pattern.
+   * `lhs IN (listExpr)` where `listExpr` is a `Param[List[T]]` (built via [[skunk.sharp.Param.list]]) — expands to N
+   * comma-separated `$N` placeholders and binds a single `List[T]` at execute time. Single prepared statement per size;
+   * sidesteps the `Param.bind`-per-element pattern.
    */
   given paramListIn[T]: InRhs.Aux[T, skunk.sharp.Param[List[T]], List[T]] =
     new InRhs[T, skunk.sharp.Param[List[T]]] {
@@ -233,8 +244,8 @@ extension [T, A](lhs: TypedExpr[T, A]) {
 }
 
 /**
- * ANY / ALL quantifier over a subquery RHS. Renders as `<lhs> <op> ANY (<subquery>)` / `<lhs> <op> ALL
- * (<subquery>)`. Param-bearing inner subqueries thread their `QA` slot into the result via `Concat[A, QA]`.
+ * ANY / ALL quantifier over a subquery RHS. Renders as `<lhs> <op> ANY (<subquery>)` / `<lhs> <op> ALL (<subquery>)`.
+ * Param-bearing inner subqueries thread their `QA` slot into the result via `Concat[A, QA]`.
  */
 private inline def quantifiedRender[T, A, Q, ET, QA](
   lhs: TypedExpr[T, A],

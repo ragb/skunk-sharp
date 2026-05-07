@@ -17,7 +17,7 @@ class ExprInterpolatorSuite extends munit.FunSuite {
   // -------- No-arg form ------------------------------------------------------------------------
 
   test("expr with no interpolations renders the literal SQL and Args = Void") {
-    val e = expr"now()".as[java.time.OffsetDateTime]
+    val e                                            = expr"now()".as[java.time.OffsetDateTime]
     val _: TypedExpr[java.time.OffsetDateTime, Void] = e
     assertEquals(e.fragment.sql, "now()")
   }
@@ -25,13 +25,13 @@ class ExprInterpolatorSuite extends munit.FunSuite {
   // -------- TypedExpr (column) interpolation ---------------------------------------------------
 
   test("expr splicing a single column ref preserves Args = Void") {
-    val q                              = users.select(u => expr"lower(${u.email})".asCodec(skunk.codec.all.text)).compile
+    val q = users.select(u => expr"lower(${u.email})".asCodec(skunk.codec.all.text)).compile
     val _: QueryTemplate[Void, String] = q
     assert(q.fragment.sql.contains("""lower("email")"""), q.fragment.sql)
   }
 
   test("expr splicing two column refs renders with literal separator + Args = Void") {
-    val q                              = users.select(u => expr"${u.email} || ${u.email}".asCodec(skunk.codec.all.text)).compile
+    val q = users.select(u => expr"${u.email} || ${u.email}".asCodec(skunk.codec.all.text)).compile
     val _: QueryTemplate[Void, String] = q
     assert(q.fragment.sql.contains(""""email" || "email""""), q.fragment.sql)
   }
@@ -39,35 +39,35 @@ class ExprInterpolatorSuite extends munit.FunSuite {
   // -------- Param interpolation (TypedExpr branch) ---------------------------------------------
 
   test("expr splicing a Param[T] threads Args = T") {
-    val q                                  = users.select(u => expr"lower(${u.email}) = lower(${Param[String]})".as[Boolean]).compile
+    val q = users.select(u => expr"lower(${u.email}) = lower(${Param[String]})".as[Boolean]).compile
     val _: QueryTemplate[String, Boolean] = q
     assert(q.fragment.sql.contains("$1"), q.fragment.sql)
   }
 
   test("expr splicing two Params via FoldConcat collapses to flat tuple Args") {
-    val q                                       = users.select(_ => expr"${Param[Int]} + ${Param[Int]}".as[Int]).compile
-    val _: QueryTemplate[(Int, Int), Int]       = q
+    val q                                 = users.select(_ => expr"${Param[Int]} + ${Param[Int]}".as[Int]).compile
+    val _: QueryTemplate[(Int, Int), Int] = q
     assert(q.fragment.sql.contains("$1 + $2"), q.fragment.sql)
   }
 
   test("expr splicing column + Param threads Args = the Param's type") {
-    val q                              = users.select(u => expr"${u.age} + ${Param[Int]}".as[Int]).compile
-    val _: QueryTemplate[Int, Int]     = q
+    val q                          = users.select(u => expr"${u.age} + ${Param[Int]}".as[Int]).compile
+    val _: QueryTemplate[Int, Int] = q
     assert(q.fragment.sql.contains(""""age" + $1"""), q.fragment.sql)
   }
 
   // -------- Value interpolation requires explicit wrapping ------------------------------------
 
   test("expr with lit(v) for a compile-time literal — Args = Void") {
-    val q                                = users.select(u => expr"${u.email} = ${lit("@example.com")}".as[Boolean]).compile
-    val _: QueryTemplate[Void, Boolean]  = q
+    val q = users.select(u => expr"${u.email} = ${lit("@example.com")}".as[Boolean]).compile
+    val _: QueryTemplate[Void, Boolean] = q
     assert(q.fragment.sql.contains("@example.com"), q.fragment.sql)
   }
 
   test("expr with Param.bind(v) for a runtime value — Args = Void") {
-    val n                                = 18
-    val q                                = users.select(u => expr"${u.age} >= ${Param.bind(n)}".as[Boolean]).compile
-    val _: QueryTemplate[Void, Boolean]  = q
+    val n                               = 18
+    val q                               = users.select(u => expr"${u.age} >= ${Param.bind(n)}".as[Boolean]).compile
+    val _: QueryTemplate[Void, Boolean] = q
     assert(q.fragment.sql.contains("$1"), q.fragment.sql)
   }
 
@@ -123,7 +123,7 @@ class ExprInterpolatorSuite extends munit.FunSuite {
   private val u_emailCodec: skunk.Codec[String] = skunk.codec.all.text
 
   test("expr.asCodec(e) reuses the spliced expression's codec without naming the codec") {
-    val q = users.select(u => expr"upper(${u.email})".asCodec(u.email)).compile
+    val q                              = users.select(u => expr"upper(${u.email})".asCodec(u.email)).compile
     val _: QueryTemplate[Void, String] = q
     assertEquals(q.fragment.sql.trim, """SELECT upper("email") FROM "users"""")
   }

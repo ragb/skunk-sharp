@@ -69,9 +69,9 @@ object BookingRepository {
       t.delete.where(b => b.id === Param[UUID]).compile
 
     /**
-     * Translate one filter case to a `Where[Void]`. The half-bounded ranges for "starts on or after" / "ends
-     * on or before" use `<@` (containedBy) against an open-ended probe range — that lets Postgres use the
-     * GiST index on `period` if one exists.
+     * Translate one filter case to a `Where[Void]`. The half-bounded ranges for "starts on or after" / "ends on or
+     * before" use `<@` (containedBy) against an open-ended probe range — that lets Postgres use the GiST index on
+     * `period` if one exists.
      */
     private def toWhere(f: BookingFilter): Where[skunk.Void] = f match {
       case BookingFilter.RoomsIn(ids) =>

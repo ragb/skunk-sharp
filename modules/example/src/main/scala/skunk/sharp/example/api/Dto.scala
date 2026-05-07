@@ -32,20 +32,21 @@ case class CreateBookingRequest(
 case class ApiError(message: String) derives Codec.AsObject, Schema
 
 /**
- * Query-parameter bundle for `GET /api/v1/rooms`. Each `@query`-annotated field maps to one query string key
- * (the field name doubles as the param name); tapir's `EndpointInput.derived` flattens the case class into a
- * single composed `EndpointInput`. Field types drive parsing (`Option[T]` for one-or-zero, `List[T]` for
- * repeated keys like `?names=a&names=b`). Routes translate this DTO to a `List[RoomFilter]` via `.toFilters`.
+ * Query-parameter bundle for `GET /api/v1/rooms`. Each `@query`-annotated field maps to one query string key (the field
+ * name doubles as the param name); tapir's `EndpointInput.derived` flattens the case class into a single composed
+ * `EndpointInput`. Field types drive parsing (`Option[T]` for one-or-zero, `List[T]` for repeated keys like
+ * `?names=a&names=b`). Routes translate this DTO to a `List[RoomFilter]` via `.toFilters`.
  */
 case class RoomFilterQuery(
-  @query minCapacity:  Option[Int],
-  @query maxCapacity:  Option[Int],
+  @query minCapacity: Option[Int],
+  @query maxCapacity: Option[Int],
   @query nameContains: Option[String],
-  @query names:        List[String],
-  @query ids:          List[UUID]
+  @query names: List[String],
+  @query ids: List[UUID]
 )
 
 object RoomFilterQuery {
+
   /** No filters supplied — handy for tests or default routing. */
   val empty: RoomFilterQuery = RoomFilterQuery(None, None, None, Nil, Nil)
 }
@@ -53,17 +54,17 @@ object RoomFilterQuery {
 /**
  * Query-parameter bundle for `GET /api/v1/bookings`. Mirrors [[RoomFilterQuery]] in shape and intent.
  *
- * `overlapsFrom` and `overlapsTo` are paired: only when both are present does the routing layer turn them into
- * a single `OverlapsPeriod` filter. The half-bounded `startsOnOrAfter` / `endsOnOrBefore` are independent.
+ * `overlapsFrom` and `overlapsTo` are paired: only when both are present does the routing layer turn them into a single
+ * `OverlapsPeriod` filter. The half-bounded `startsOnOrAfter` / `endsOnOrBefore` are independent.
  */
 case class BookingFilterQuery(
-  @query roomIds:            List[UUID],
+  @query roomIds: List[UUID],
   @query bookerNameContains: Option[String],
-  @query titleContains:      Option[String],
-  @query overlapsFrom:       Option[LocalDate],
-  @query overlapsTo:         Option[LocalDate],
-  @query startsOnOrAfter:    Option[LocalDate],
-  @query endsOnOrBefore:     Option[LocalDate]
+  @query titleContains: Option[String],
+  @query overlapsFrom: Option[LocalDate],
+  @query overlapsTo: Option[LocalDate],
+  @query startsOnOrAfter: Option[LocalDate],
+  @query endsOnOrBefore: Option[LocalDate]
 )
 
 object BookingFilterQuery {

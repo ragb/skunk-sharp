@@ -6,12 +6,12 @@ import java.time.LocalDate
 import java.util.UUID
 
 /**
- * Domain-level filter ADT for booking listing. Mirrors [[RoomFilter]] — see that file for the rationale on
- * sealed ADTs versus a wide optional-fields payload. The translation to `Where[Void]` lives in
- * [[BookingRepository]] alongside the columns view it needs.
+ * Domain-level filter ADT for booking listing. Mirrors [[RoomFilter]] — see that file for the rationale on sealed ADTs
+ * versus a wide optional-fields payload. The translation to `Where[Void]` lives in [[BookingRepository]] alongside the
+ * columns view it needs.
  *
- * Date filters operate on the `period: PgRange[LocalDate]` column via the range operators (`@>`, `&&`, lower /
- * upper accessors). The repository handles the SQL details; this layer just names the predicate.
+ * Date filters operate on the `period: PgRange[LocalDate]` column via the range operators (`@>`, `&&`, lower / upper
+ * accessors). The repository handles the SQL details; this layer just names the predicate.
  */
 sealed trait BookingFilter
 

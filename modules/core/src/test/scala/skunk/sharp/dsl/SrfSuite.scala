@@ -28,7 +28,7 @@ class SrfSuite extends munit.FunSuite {
   }
 
   test("Pg.generateSeries with Param bounds threads typed Args into outer compile") {
-    val qt = Pg.generateSeries(Param[Int], Param[Int]).select.compile
+    val qt                              = Pg.generateSeries(Param[Int], Param[Int]).select.compile
     val _: QueryTemplate[(Int, Int), ?] = qt
     assert(qt.fragment.sql.contains("""generate_series($1, $2)"""), qt.fragment.sql)
   }

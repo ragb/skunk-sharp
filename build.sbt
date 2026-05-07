@@ -88,21 +88,21 @@ lazy val example = project
   .settings(
     name := "skunk-sharp-example",
     libraryDependencies ++= Seq(
-      "com.softwaremill.sttp.tapir" %% "tapir-http4s-server"     % tapirV,
-      "com.softwaremill.sttp.tapir" %% "tapir-swagger-ui-bundle" % tapirV,
-      "com.softwaremill.sttp.tapir" %% "tapir-json-circe"        % tapirV,
-      "org.http4s"                  %% "http4s-ember-server"     % http4sV,
-      "is.cir"                      %% "ciris"                   % cirisV,
-      "io.github.arainko"           %% "ducktape"                % ducktapeV,
-      "dev.rolang"                  %% "dumbo"                   % dumboV,
-      "org.typelevel"               %% "otel4s-core"             % otel4sV,
-      "org.scalameta"                 %% "munit"                              % munitV           % Test,
-      "org.typelevel"                 %% "munit-cats-effect"                  % munitCatsEffectV % Test,
-      "com.dimafeng"                  %% "testcontainers-scala-munit"         % testcontainersV  % Test,
-      "com.dimafeng"                  %% "testcontainers-scala-postgresql"    % testcontainersV  % Test,
-      "com.softwaremill.sttp.tapir"   %% "tapir-sttp-client"                  % tapirV           % Test,
-      "com.softwaremill.sttp.client3" %% "http4s-backend"                     % "3.9.8"          % Test,
-      "io.circe"                      %% "circe-parser"                       % circeV           % Test
+      "com.softwaremill.sttp.tapir"   %% "tapir-http4s-server"             % tapirV,
+      "com.softwaremill.sttp.tapir"   %% "tapir-swagger-ui-bundle"         % tapirV,
+      "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"                % tapirV,
+      "org.http4s"                    %% "http4s-ember-server"             % http4sV,
+      "is.cir"                        %% "ciris"                           % cirisV,
+      "io.github.arainko"             %% "ducktape"                        % ducktapeV,
+      "dev.rolang"                    %% "dumbo"                           % dumboV,
+      "org.typelevel"                 %% "otel4s-core"                     % otel4sV,
+      "org.scalameta"                 %% "munit"                           % munitV           % Test,
+      "org.typelevel"                 %% "munit-cats-effect"               % munitCatsEffectV % Test,
+      "com.dimafeng"                  %% "testcontainers-scala-munit"      % testcontainersV  % Test,
+      "com.dimafeng"                  %% "testcontainers-scala-postgresql" % testcontainersV  % Test,
+      "com.softwaremill.sttp.tapir"   %% "tapir-sttp-client"               % tapirV           % Test,
+      "com.softwaremill.sttp.client3" %% "http4s-backend"                  % "3.9.8"          % Test,
+      "io.circe"                      %% "circe-parser"                    % circeV           % Test
     )
   )
 

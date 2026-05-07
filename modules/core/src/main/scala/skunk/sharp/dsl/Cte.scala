@@ -34,7 +34,12 @@ private[dsl] trait IsCte {
  * not appear as deps — they must be referenced directly in the outer query's FROM (enforced at [[cte]] time via
  * [[CteDepsAllVoid]]).
  */
-final class CteRelation[Cols <: Tuple, Name <: String & Singleton, Alias_ <: String & Singleton, BodyArgsT] @scala.annotation.publicInBinary private[sharp] (
+final class CteRelation[
+  Cols <: Tuple,
+  Name <: String & Singleton,
+  Alias_ <: String & Singleton,
+  BodyArgsT
+] @scala.annotation.publicInBinary private[sharp] (
   val cteName: Name,
   val aliasName: Alias_,
   private[sharp] val body: () => Fragment[BodyArgsT],
@@ -43,7 +48,7 @@ final class CteRelation[Cols <: Tuple, Name <: String & Singleton, Alias_ <: Str
 ) extends Relation[Cols] with IsCte {
   type Alias    = Alias_
   type Mode     = AliasMode.Explicit
-  type BodyArgs = skunk.Void  // FROM-site contribution; the typed body args bind at the WITH preamble.
+  type BodyArgs = skunk.Void // FROM-site contribution; the typed body args bind at the WITH preamble.
 
   /** Typed inner-body args — surfaced in outer compile via [[CteArgs]] / [[CteArgsProj]]. */
   type CteBody = BodyArgsT
@@ -77,9 +82,9 @@ inline def cte[Ss <: Tuple, GroupsT <: Tuple, WA, HA, N <: String & Singleton, S
   name: N,
   query: SelectBuilder[Ss, GroupsT, WA, HA]
 )(using
-  ev:    IsSingleSource[Ss],
-  sbOf:  SourceBodyArgsOf.Aux[Ss, SArgs],
-  g:     ProjArgsOf.Aux[GroupsT, GArgs],
+  ev: IsSingleSource[Ss],
+  sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
+  g: ProjArgsOf.Aux[GroupsT, GArgs],
   noTypedDeps: CteDepsAllVoid[Ss]
 ): CteRelation[ev.Cols, N, N, Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA]] = {
   type Combined = Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA]
@@ -105,27 +110,48 @@ inline def cte[Ss <: Tuple, GroupsT <: Tuple, WA, HA, N <: String & Singleton, S
  *   totals.innerJoin(users).on(r => r.totals.user_id ==== r.users.id).select(r => (r.users.email, r.totals.total)).compile
  * }}}
  */
-inline def cte[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DA <: Tuple, OA <: Tuple, WA, HA, Row, N <: String & Singleton,
-        SA, OnA, DA2, PA, GA, OA2](
+inline def cte[
+  Ss <: Tuple,
+  Proj <: Tuple,
+  Groups <: Tuple,
+  DA <: Tuple,
+  OA <: Tuple,
+  WA,
+  HA,
+  Row,
+  N <: String & Singleton,
+  SA,
+  OnA,
+  DA2,
+  PA,
+  GA,
+  OA2
+](
   name: N,
   query: ProjectedSelect[Ss, Proj, Groups, DA, OA, WA, HA, Row]
 )(using
-  gc:     GroupCoverage[Proj, Groups],
+  gc: GroupCoverage[Proj, Groups],
   @scala.annotation.unused np: AllNamedProj[Proj],
-  sbOf:   SourceBodyArgsOf.Aux[Ss, SA],
-  bff:    SourceBodyArgsProj[Ss],
-  onSum:  SourceOnArgsOf.Aux[Ss, OnA],
+  sbOf: SourceBodyArgsOf.Aux[Ss, SA],
+  bff: SourceBodyArgsProj[Ss],
+  onSum: SourceOnArgsOf.Aux[Ss, OnA],
   onProj: SourceOnArgsProj[Ss],
-  d:      ProjArgsOf.Aux[DA, DA2],
-  pa:     ProjArgsOf.Aux[Proj, PA],
-  gp:     ProjArgsOf.Aux[Groups, GA],
-  o:      ProjArgsOf.Aux[OA, OA2],
+  d: ProjArgsOf.Aux[DA, DA2],
+  pa: ProjArgsOf.Aux[Proj, PA],
+  gp: ProjArgsOf.Aux[Groups, GA],
+  o: ProjArgsOf.Aux[OA, OA2],
   noTypedDeps: CteDepsAllVoid[Ss]
-): CteRelation[ProjCols[Proj], N, N, Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA], OA2]] = {
-  type Combined = Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA], OA2]
-  val entries = query.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
-  val deps    = directCtes(entries)
-  val cols    = buildProjectedCols(query.projections).asInstanceOf[ProjCols[Proj]]
+): CteRelation[ProjCols[Proj], N, N, Where.Concat[
+  Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA],
+  OA2
+]] = {
+  type Combined = Where.Concat[
+    Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WA], GA], HA],
+    OA2
+  ]
+  val entries                             = query.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
+  val deps                                = directCtes(entries)
+  val cols                                = buildProjectedCols(query.projections).asInstanceOf[ProjCols[Proj]]
   val bodyThunk: () => Fragment[Combined] = () =>
     query.compileBodyFragment[SA, OnA, DA2, PA, GA, OA2](using gc, sbOf, bff, onSum, onProj, d, pa, gp, o)
   new CteRelation[ProjCols[Proj], N, N, Combined](name, name, bodyThunk, deps, cols)
@@ -145,8 +171,8 @@ private[dsl] def directCtes(entries: List[SourceEntry[?, ?, ?, ?, ?]]): List[Cte
  * (earliest dependency first). Duplicate names are visited only once.
  */
 private[dsl] def collectCtesInOrder(entries: List[SourceEntry[?, ?, ?, ?, ?]]): List[CteRelation[?, ?, ?, ?]] = {
-  val result                               = scala.collection.mutable.ListBuffer.empty[CteRelation[?, ?, ?, ?]]
-  val visited                              = scala.collection.mutable.LinkedHashSet.empty[String]
+  val result                                  = scala.collection.mutable.ListBuffer.empty[CteRelation[?, ?, ?, ?]]
+  val visited                                 = scala.collection.mutable.LinkedHashSet.empty[String]
   def visit(c: CteRelation[?, ?, ?, ?]): Unit =
     if (!visited.contains(c.cteName)) {
       visited += c.cteName
@@ -162,8 +188,8 @@ private[dsl] def collectCtesInOrder(entries: List[SourceEntry[?, ?, ?, ?, ?]]): 
  * `Right` slot; structural keywords (`WITH `, `AS (`, `)`, `, `, trailing space) are `Left` AppliedFragments. Returns
  * an empty list when `ctes` is empty so callers can prepend without any `WITH ` chunk.
  *
- * The slot order matches the dep-walk order: dep CTEs before their dependents. The outer compile's `slotValues`
- * IArray must place per-CTE body args in this same order, ahead of all body slots.
+ * The slot order matches the dep-walk order: dep CTEs before their dependents. The outer compile's `slotValues` IArray
+ * must place per-CTE body args in this same order, ahead of all body slots.
  */
 private[dsl] def renderWithPreambleParts(ctes: List[CteRelation[?, ?, ?, ?]]): List[SelectBuilder.BodyPart] = {
   if (ctes.isEmpty) Nil
@@ -191,7 +217,7 @@ private[dsl] def renderWithPreambleParts(ctes: List[CteRelation[?, ?, ?, ?]]): L
  */
 private[dsl] type GetCteBody[R] = R match {
   case CteRelation[_, _, _, ba] => ba
-  case _                     => skunk.Void
+  case _                        => skunk.Void
 }
 
 /**
@@ -200,13 +226,13 @@ private[dsl] type GetCteBody[R] = R match {
  * [[CteDepsAllVoid]] at `cte()` construction), so they don't appear here.
  */
 type CteArgs[Ss <: Tuple] = Ss match {
-  case EmptyTuple                          => skunk.Void
+  case EmptyTuple                         => skunk.Void
   case SourceEntry[r, ?, ?, ?, ?] *: tail => Where.Concat[GetCteBody[r], CteArgs[tail]]
 }
 
 /**
- * Typeclass wrapper around [[CteArgs]] — provides the standard `Aux[Ss, O]` shape so the compile path can summon it
- * as a using parameter and bind the combined `CArgs` type without writing the match type inline.
+ * Typeclass wrapper around [[CteArgs]] — provides the standard `Aux[Ss, O]` shape so the compile path can summon it as
+ * a using parameter and bind the combined `CArgs` type without writing the match type inline.
  */
 trait CteArgsOf[Ss <: Tuple] {
   type Out
@@ -217,6 +243,7 @@ object CteArgsOf {
 
   given compute[Ss <: Tuple]: (CteArgsOf[Ss] { type Out = CteArgs[Ss] }) =
     new CteArgsOf[Ss] { type Out = CteArgs[Ss] }
+
 }
 
 /**
@@ -243,14 +270,23 @@ object CteArgsProj {
 
 }
 
-private[dsl] final class CteArgsConsProj[R <: Relation[C0], C0 <: Tuple, C <: Tuple, A <: String & Singleton, OA, T <: Tuple](
+private[dsl] final class CteArgsConsProj[
+  R <: Relation[C0],
+  C0 <: Tuple,
+  C <: Tuple,
+  A <: String & Singleton,
+  OA,
+  T <: Tuple
+](
   rest: CteArgsProj[T],
   proj: Where.Concat[GetCteBody[R], CteArgs[T]] => (GetCteBody[R], CteArgs[T])
 ) extends CteArgsProj[SourceEntry[R, C0, C, A, OA] *: T] {
+
   def project(combined: Any): List[Any] = {
     val (h, t) = proj(combined.asInstanceOf[Where.Concat[GetCteBody[R], CteArgs[T]]])
     h :: rest.project(t)
   }
+
 }
 
 /**
@@ -273,8 +309,8 @@ object CteDepsAllVoid {
 
 /**
  * Per-CTE body args: maps a list of `CteRelation[?, ?, ?, ?]` (in dep order) to a `List[Any]` of body-args values to
- * inject at the WITH preamble's Right slots. Each entry is the value paired with that CTE's Right-slot Fragment.
- * Plain (Void) bodies pass `Void`; typed bodies pass the captured args from the outer query's combined `CteArgs`.
+ * inject at the WITH preamble's Right slots. Each entry is the value paired with that CTE's Right-slot Fragment. Plain
+ * (Void) bodies pass `Void`; typed bodies pass the captured args from the outer query's combined `CteArgs`.
  *
  * The outer compile builds `cteSlotValues` by walking `collectCtesInOrder(entries)` and matching each CTE against the
  * direct-ref list (whose body args are projected via [[CteArgsProj]]). CTEs appearing only as transitive deps map to

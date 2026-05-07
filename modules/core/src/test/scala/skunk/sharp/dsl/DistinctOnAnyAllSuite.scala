@@ -116,8 +116,8 @@ class DistinctOnAnyAllSuite extends munit.FunSuite {
   }
 
   test("Pg.overlaps with two parameterised time bounds") {
-    val t1 = OffsetDateTime.parse("2020-01-01T00:00:00Z")
-    val t2 = OffsetDateTime.parse("2020-12-31T00:00:00Z")
+    val t1  = OffsetDateTime.parse("2020-01-01T00:00:00Z")
+    val t2  = OffsetDateTime.parse("2020-12-31T00:00:00Z")
     val sql = users.select(u => u.email)
       .where(u => Pg.overlaps(u.created_at, u.created_at, param(t1), param(t2)))
       .compile.fragment.sql

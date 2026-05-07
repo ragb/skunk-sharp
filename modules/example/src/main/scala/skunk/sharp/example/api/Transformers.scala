@@ -46,8 +46,8 @@ object Transformers {
   extension (q: RoomFilterQuery)
 
     /**
-     * Project the query DTO onto the repository's `RoomFilter` ADT — absent fields disappear, present fields
-     * become one filter case each. Multi-value fields turn into IN-style cases via `NonEmptyList`.
+     * Project the query DTO onto the repository's `RoomFilter` ADT — absent fields disappear, present fields become one
+     * filter case each. Multi-value fields turn into IN-style cases via `NonEmptyList`.
      */
     def toFilters: List[RoomFilter] = List(
       q.minCapacity.map(RoomFilter.CapacityAtLeast(_)),
@@ -60,8 +60,8 @@ object Transformers {
   extension (q: BookingFilterQuery)
 
     /**
-     * Project the booking query DTO onto `BookingFilter`. `overlapsFrom`/`overlapsTo` are paired — the
-     * `OverlapsPeriod` filter is only emitted when both bounds are present.
+     * Project the booking query DTO onto `BookingFilter`. `overlapsFrom`/`overlapsTo` are paired — the `OverlapsPeriod`
+     * filter is only emitted when both bounds are present.
      */
     def toFilters: List[BookingFilter] = {
       val overlap = (q.overlapsFrom, q.overlapsTo).tupled.map { case (f, t) =>

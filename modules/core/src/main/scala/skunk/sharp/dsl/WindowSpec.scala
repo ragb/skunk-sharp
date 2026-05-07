@@ -23,9 +23,9 @@ private enum FrameMode(val keyword: String):
 /**
  * Builder for the content of an `OVER (…)` clause.
  *
- * Args of partition-by and order-by items thread into the wrapping `over` extension's result Args via the
- * combined `Concat[PA, OA]` slot. Param-bearing items (`Param[Int].asc`, `partitionBy(Param[String])`) surface
- * as typed `Args` on the outer query. Frame bounds are static integer constants — Args-neutral.
+ * Args of partition-by and order-by items thread into the wrapping `over` extension's result Args via the combined
+ * `Concat[PA, OA]` slot. Param-bearing items (`Param[Int].asc`, `partitionBy(Param[String])`) surface as typed `Args`
+ * on the outer query. Frame bounds are static integer constants — Args-neutral.
  */
 final class WindowSpec[PA, OA] @scala.annotation.publicInBinary private[sharp] (
   // Comma-joined PARTITION BY items (without the leading `PARTITION BY ` keyword), or None when empty.
@@ -61,9 +61,9 @@ final class WindowSpec[PA, OA] @scala.annotation.publicInBinary private[sharp] (
     new WindowSpec(pbItems, obItems, Some((FrameMode.Groups, start, end)))
 
   /**
-   * Render the interior of `OVER (…)` as a typed `Fragment[Concat[PA, OA]]`. PARTITION-BY items appear first
-   * (typed via `PA`), then ORDER-BY items (typed via `OA`), then the frame clause (Args-neutral). Param-bearing
-   * items have their typed Args threaded into the outer query's `Args` via `Concat`.
+   * Render the interior of `OVER (…)` as a typed `Fragment[Concat[PA, OA]]`. PARTITION-BY items appear first (typed via
+   * `PA`), then ORDER-BY items (typed via `OA`), then the frame clause (Args-neutral). Param-bearing items have their
+   * typed Args threaded into the outer query's `Args` via `Concat`.
    */
   private[sharp] inline def renderTyped: Fragment[Where.Concat[PA, OA]] = {
     val frameSql: String = frameOpt.fold("") { case (mode, start, end) =>

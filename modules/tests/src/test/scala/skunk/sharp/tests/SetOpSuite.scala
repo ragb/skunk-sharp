@@ -77,7 +77,9 @@ class SetOpSuite extends PgFixture {
         for {
           _      <- f.insert.run(s)
           result <- users.select(u => u.email).where(u => u.age >= lit(30) && u.email.like(Param.bind(s"%-${f.tag}@x")))
-            .intersect(users.select(u => u.email).where(u => u.age <= lit(50) && u.email.like(Param.bind(s"%-${f.tag}@x"))))
+            .intersect(users.select(u => u.email).where(u =>
+              u.age <= lit(50) && u.email.like(Param.bind(s"%-${f.tag}@x"))
+            ))
             .compile.run(s).map(_.toSet)
           _ = assertEquals(result, Set(s"mid-${f.tag}@x"))
         } yield ()
@@ -92,7 +94,9 @@ class SetOpSuite extends PgFixture {
         for {
           _      <- f.insert.run(s)
           result <- users.select(u => u.email).where(u => u.age >= lit(30) && u.email.like(Param.bind(s"%-${f.tag}@x")))
-            .except(users.select(u => u.email).where(u => u.age >= lit(50) && u.email.like(Param.bind(s"%-${f.tag}@x"))))
+            .except(users.select(u => u.email).where(u =>
+              u.age >= lit(50) && u.email.like(Param.bind(s"%-${f.tag}@x"))
+            ))
             .compile.run(s).map(_.toSet)
           _ = assertEquals(result, Set(s"mid-${f.tag}@x"))
         } yield ()
@@ -109,7 +113,9 @@ class SetOpSuite extends PgFixture {
           // UNION of (>=30) and (<=50) = all three; EXCEPT (==70) → two rows.
           result <- users.select(u => u.email).where(u => u.age >= lit(30) && u.email.like(Param.bind(s"%-${f.tag}@x")))
             .union(users.select(u => u.email).where(u => u.age <= lit(50) && u.email.like(Param.bind(s"%-${f.tag}@x"))))
-            .except(users.select(u => u.email).where(u => u.age === lit(70) && u.email.like(Param.bind(s"%-${f.tag}@x"))))
+            .except(users.select(u => u.email).where(u =>
+              u.age === lit(70) && u.email.like(Param.bind(s"%-${f.tag}@x"))
+            ))
             .compile.run(s).map(_.toSet)
           _ = assertEquals(result, Set(s"mid-${f.tag}@x", s"young-${f.tag}@x"))
         } yield ()

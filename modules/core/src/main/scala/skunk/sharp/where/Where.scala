@@ -6,8 +6,8 @@ import skunk.util.Origin
 
 /**
  * `Where[A]` is a type alias for `TypedExpr[Boolean, A]` — a boolean-typed expression that contributes `A` to the
- * surrounding builder's WHERE / HAVING / ON args. Kept as a type alias for ergonomic call sites and
- * documentation; it's the same vocabulary as any other typed expression.
+ * surrounding builder's WHERE / HAVING / ON args. Kept as a type alias for ergonomic call sites and documentation; it's
+ * the same vocabulary as any other typed expression.
  */
 type Where[A] = TypedExpr[Boolean, A]
 
@@ -16,8 +16,8 @@ type Where[A] = TypedExpr[Boolean, A]
  */
 object Where {
 
-  private[sharp] val OR_KW:  String = " OR "
-  private[sharp] val AND_KW: String = " AND "
+  private[sharp] val OR_KW: String       = " OR "
+  private[sharp] val AND_KW: String      = " AND "
   private[sharp] val NOT_OPEN_KW: String = "NOT ("
 
   /** Construct directly from a typed Fragment + codec. Codec is fixed to bool. */
@@ -25,13 +25,13 @@ object Where {
     TypedExpr[Boolean, A](fragment, skunk.codec.all.bool)
 
   /**
-   * Normalise an `Args` type into a flat tuple shape: `Void` → `EmptyTuple`, an existing `Tuple` stays as-is,
-   * and any other scalar `X` becomes `X *: EmptyTuple`. The "every Args is a tuple" intermediate form lets
-   * [[Concat]] flatten via `Tuple.Concat` and produces flat user-facing tuples.
+   * Normalise an `Args` type into a flat tuple shape: `Void` → `EmptyTuple`, an existing `Tuple` stays as-is, and any
+   * other scalar `X` becomes `X *: EmptyTuple`. The "every Args is a tuple" intermediate form lets [[Concat]] flatten
+   * via `Tuple.Concat` and produces flat user-facing tuples.
    *
-   * Caveat: a leaf with tuple-typed Args (e.g. a hypothetical `Param[(Int, String)]`) is treated by `AsTuple`
-   * as an already-flattened 2-slot contribution. That matches its encoder's column structure, so it composes
-   * uniformly — but it means the user-facing call shape sees the tuple's elements, not the tuple itself.
+   * Caveat: a leaf with tuple-typed Args (e.g. a hypothetical `Param[(Int, String)]`) is treated by `AsTuple` as an
+   * already-flattened 2-slot contribution. That matches its encoder's column structure, so it composes uniformly — but
+   * it means the user-facing call shape sees the tuple's elements, not the tuple itself.
    */
   type AsTuple[X] <: Tuple = X match {
     case Void  => EmptyTuple
@@ -40,9 +40,9 @@ object Where {
   }
 
   /**
-   * Inverse of [[AsTuple]] for the visible `Args` type: empty tuple → `Void`, single-element tuple → its
-   * element, otherwise the tuple itself. Composed with `AsTuple` and `Tuple.Concat`, this gives the
-   * flat-but-Void-eliding visible shape callers see at `.compile`.
+   * Inverse of [[AsTuple]] for the visible `Args` type: empty tuple → `Void`, single-element tuple → its element,
+   * otherwise the tuple itself. Composed with `AsTuple` and `Tuple.Concat`, this gives the flat-but-Void-eliding
+   * visible shape callers see at `.compile`.
    */
   type FromTuple[T <: Tuple] = T match {
     case EmptyTuple      => Void
@@ -51,8 +51,8 @@ object Where {
   }
 
   /**
-   * Type-level concat with `Void` elision and **flat tuple flattening**. The lhs and rhs are each normalised
-   * to tuple shape via [[AsTuple]], concatenated, and unwrapped via [[FromTuple]]. Examples:
+   * Type-level concat with `Void` elision and **flat tuple flattening**. The lhs and rhs are each normalised to tuple
+   * shape via [[AsTuple]], concatenated, and unwrapped via [[FromTuple]]. Examples:
    *   - `Concat[Void, Void]              = Void`
    *   - `Concat[Void, T]                 = T`
    *   - `Concat[T, Void]                 = T`
@@ -60,20 +60,20 @@ object Where {
    *   - `Concat[(Int, String), Boolean]  = (Int, String, Boolean)` ← flat (was nested before)
    *   - `Concat[Int, (String, Boolean)]  = (Int, String, Boolean)`
    *
-   * Used by builders / operators to thread the combined `Args` parameter; chained `&&`/`combine` always
-   * collapses to a single flat user-facing tuple.
+   * Used by builders / operators to thread the combined `Args` parameter; chained `&&`/`combine` always collapses to a
+   * single flat user-facing tuple.
    */
   type Concat[A, B] = FromTuple[Tuple.Concat[AsTuple[A], AsTuple[B]]]
 
   /**
    * Singleton-Boolean tag indicating whether `T` reduces to `Void`. Used as the scrutinee of
-   * `inline scala.compiletime.constValue[IsVoidTag[T]]` to dispatch on `T`'s reduction — the upper-bound
-   * `<: Boolean` and the [[constValue]] wrapper force the compiler to fully reduce nested match types
-   * (`FoldConcat[(Void, Void)] = Void`, `Concat[Void, Void] = Void`, …) to a singleton `true` or `false`.
+   * `inline scala.compiletime.constValue[IsVoidTag[T]]` to dispatch on `T`'s reduction — the upper-bound `<: Boolean`
+   * and the [[constValue]] wrapper force the compiler to fully reduce nested match types (`FoldConcat[(Void, Void)] =
+   * Void`, `Concat[Void, Void] = Void`, …) to a singleton `true` or `false`.
    *
-   * Plain `inline erasedValue[T] match { case _: Void => … }` does NOT trigger this reduction — it
-   * pattern-matches on the un-reduced match-type form and falls through to the default arm whenever `T`
-   * isn't syntactically `Void`, even when it semantically reduces to `Void`.
+   * Plain `inline erasedValue[T] match { case _: Void => … }` does NOT trigger this reduction — it pattern-matches on
+   * the un-reduced match-type form and falls through to the default arm whenever `T` isn't syntactically `Void`, even
+   * when it semantically reduces to `Void`.
    */
   type IsVoidTag[T] <: Boolean = T match {
     case Void => true
@@ -82,8 +82,8 @@ object Where {
 
   /**
    * Companion to [[IsVoidTag]] for tuple-shape detection. `true` if `T` is a `Tuple` (including `EmptyTuple`,
-   * `Tuple1[_]`, `(A, B)`, …), `false` otherwise. Used by [[projectConcat]] to choose between scalar/tuple
-   * slicing of the flat result.
+   * `Tuple1[_]`, `(A, B)`, …), `false` otherwise. Used by [[projectConcat]] to choose between scalar/tuple slicing of
+   * the flat result.
    */
   type IsTupleTag[T] <: Boolean = T match {
     case Tuple => true
@@ -91,13 +91,12 @@ object Where {
   }
 
   /**
-   * Project a `Concat[A, B]` value (whatever shape it reduced to) back into a `(A, B)` tuple — the input shape
-   * an `Encoder[A].product(Encoder[B])` actually expects at execute time. With the smart-flat `Concat`, the
-   * runtime value is a flat tuple of `Tuple.Size[AsTuple[A]] + Tuple.Size[AsTuple[B]]` elements (or `Void`,
-   * or one of `A` / `B` if the other side is `Void`). Splitting requires knowing `A`'s arity at compile time
-   * — so this is an `inline def`, dispatched on `IsVoidTag[A]` / `IsVoidTag[B]` / `IsTupleTag[A]` /
-   * `IsTupleTag[B]` via `inline constValue`. Caller must be `inline` (or have `A`/`B` concrete) so the
-   * dispatch reduces.
+   * Project a `Concat[A, B]` value (whatever shape it reduced to) back into a `(A, B)` tuple — the input shape an
+   * `Encoder[A].product(Encoder[B])` actually expects at execute time. With the smart-flat `Concat`, the runtime value
+   * is a flat tuple of `Tuple.Size[AsTuple[A]] + Tuple.Size[AsTuple[B]]` elements (or `Void`, or one of `A` / `B` if
+   * the other side is `Void`). Splitting requires knowing `A`'s arity at compile time — so this is an `inline def`,
+   * dispatched on `IsVoidTag[A]` / `IsVoidTag[B]` / `IsTupleTag[A]` / `IsTupleTag[B]` via `inline constValue`. Caller
+   * must be `inline` (or have `A`/`B` concrete) so the dispatch reduces.
    */
   inline def projectConcat[A, B](c: Concat[A, B]): (A, B) =
     inline scala.compiletime.constValue[IsVoidTag[A]] match
@@ -110,10 +109,10 @@ object Where {
           case true  => (c, Void).asInstanceOf[(A, B)]
           case false =>
             // Both A, B non-Void. Concat reduces to a flat Tuple of size sizeA + sizeB (>= 2).
-            val sizeA = scala.compiletime.constValue[Tuple.Size[AsTuple[A]]]
-            val flat  = c.asInstanceOf[Tuple]
+            val sizeA        = scala.compiletime.constValue[Tuple.Size[AsTuple[A]]]
+            val flat         = c.asInstanceOf[Tuple]
             val (aTup, bTup) = flat.splitAt(sizeA)
-            val aOut = inline scala.compiletime.constValue[IsTupleTag[A]] match
+            val aOut         = inline scala.compiletime.constValue[IsTupleTag[A]] match
               case true  => aTup
               case false => aTup.productElement(0)
             val bOut = inline scala.compiletime.constValue[IsTupleTag[B]] match
@@ -123,19 +122,19 @@ object Where {
 
   /**
    * Right-fold of [[Concat]] over a tuple of Args types. Drops `Void` slots cleanly so
-   * `FoldConcat[(Void, Int, Void, String)] = (Int, String)`. Used by variadic builders / projection lists /
-   * RETURNING tuples to combine N typed-Args slots into one.
+   * `FoldConcat[(Void, Int, Void, String)] = (Int, String)`. Used by variadic builders / projection lists / RETURNING
+   * tuples to combine N typed-Args slots into one.
    */
   type FoldConcat[T <: Tuple] = T match {
-    case EmptyTuple        => Void
-    case h *: EmptyTuple   => h
-    case h *: t            => Concat[h, FoldConcat[t]]
+    case EmptyTuple      => Void
+    case h *: EmptyTuple => h
+    case h *: t          => Concat[h, FoldConcat[t]]
   }
 
   /**
-   * Project a `FoldConcat[T]` value back into a heterogeneous list of per-slot values, in tuple order — one
-   * entry per slot of `T`, including `Void` placeholders for slots whose Args is `Void`. Inline-dispatched on
-   * the tuple shape — caller must therefore be `inline` (or have `T` concrete) so the recursion reduces.
+   * Project a `FoldConcat[T]` value back into a heterogeneous list of per-slot values, in tuple order — one entry per
+   * slot of `T`, including `Void` placeholders for slots whose Args is `Void`. Inline-dispatched on the tuple shape —
+   * caller must therefore be `inline` (or have `T` concrete) so the recursion reduces.
    */
   inline def projectFoldConcat[T <: Tuple](c: FoldConcat[T]): List[Any] =
     inline scala.compiletime.erasedValue[T] match
@@ -146,12 +145,14 @@ object Where {
         pair._1 :: projectFoldConcat[t & Tuple](pair._2)
 
   /**
-   * Pair two encoders into one whose input shape matches `Concat[A, B]`. The caller-supplied `proj` re-pairs
-   * the `Concat[A, B]` value back into `(A, B)` — typically `c => projectConcat[A, B](c)` materialised at the
-   * caller's inline expansion site so the dispatch reduces with concrete `A` / `B`.
+   * Pair two encoders into one whose input shape matches `Concat[A, B]`. The caller-supplied `proj` re-pairs the
+   * `Concat[A, B]` value back into `(A, B)` — typically `c => projectConcat[A, B](c)` materialised at the caller's
+   * inline expansion site so the dispatch reduces with concrete `A` / `B`.
    */
   private[sharp] def concatEncoders[A, B](
-    a: Encoder[?], b: Encoder[?], proj: Concat[A, B] => (A, B)
+    a: Encoder[?],
+    b: Encoder[?],
+    proj: Concat[A, B] => (A, B)
   ): Encoder[Concat[A, B]] = {
     val productEnc: Encoder[(Any, Any)] =
       a.asInstanceOf[Encoder[Any]].product(b.asInstanceOf[Encoder[Any]])
@@ -172,8 +173,8 @@ object Where {
         List[Either[String, cats.data.State[Int, String]]](Left(opSql)) ++
         r.fragment.parts ++
         List[Either[String, cats.data.State[Int, String]]](Left(")"))
-    val enc                           = concatEncoders[A, B](l.fragment.encoder, r.fragment.encoder, proj)
-    val frag: Fragment[Concat[A, B]]  = Fragment(parts, enc, Origin.unknown)
+    val enc                          = concatEncoders[A, B](l.fragment.encoder, r.fragment.encoder, proj)
+    val frag: Fragment[Concat[A, B]] = Fragment(parts, enc, Origin.unknown)
     apply[Concat[A, B]](frag)
   }
 
@@ -187,8 +188,8 @@ object Where {
   }
 
   /**
-   * Adopt a `TypedExpr[Boolean, A]` as a `Where[A]` — identity now that Where is a type alias. Kept for source
-   * compat with code that previously called `Where(expr)` to lift a non-Where Boolean expression.
+   * Adopt a `TypedExpr[Boolean, A]` as a `Where[A]` — identity now that Where is a type alias. Kept for source compat
+   * with code that previously called `Where(expr)` to lift a non-Where Boolean expression.
    */
   def fromTypedExpr[A](expr: TypedExpr[Boolean, A]): TypedExpr[Boolean, A] = expr
 
@@ -204,7 +205,7 @@ object Where {
   // arg slots through the AST; collapsing them via Semigroup would defeat the typed-Args design.
 
   /** Identity element for [[allOf]] / `andMonoid` — renders as `TRUE` and is optimised away by Postgres. */
-  lazy val trueExpr: TypedExpr[Boolean, skunk.Void]  = TypedExpr.lit(true)
+  lazy val trueExpr: TypedExpr[Boolean, skunk.Void] = TypedExpr.lit(true)
 
   /** Identity element for [[anyOf]] / `orMonoid` — renders as `FALSE`. */
   lazy val falseExpr: TypedExpr[Boolean, skunk.Void] = TypedExpr.lit(false)
@@ -213,20 +214,26 @@ object Where {
   val andMonoid: cats.Monoid[TypedExpr[Boolean, skunk.Void]] =
     new cats.Monoid[TypedExpr[Boolean, skunk.Void]] {
       def empty: TypedExpr[Boolean, skunk.Void] = trueExpr
-      def combine(x: TypedExpr[Boolean, skunk.Void], y: TypedExpr[Boolean, skunk.Void]): TypedExpr[Boolean, skunk.Void] = x && y
+      def combine(
+        x: TypedExpr[Boolean, skunk.Void],
+        y: TypedExpr[Boolean, skunk.Void]
+      ): TypedExpr[Boolean, skunk.Void] = x && y
     }
 
   /** Monoid combining `Where[Void]`s with `OR`. Empty = `FALSE`. Not a `given` — pick explicitly. */
   val orMonoid: cats.Monoid[TypedExpr[Boolean, skunk.Void]] =
     new cats.Monoid[TypedExpr[Boolean, skunk.Void]] {
       def empty: TypedExpr[Boolean, skunk.Void] = falseExpr
-      def combine(x: TypedExpr[Boolean, skunk.Void], y: TypedExpr[Boolean, skunk.Void]): TypedExpr[Boolean, skunk.Void] = x || y
+      def combine(
+        x: TypedExpr[Boolean, skunk.Void],
+        y: TypedExpr[Boolean, skunk.Void]
+      ): TypedExpr[Boolean, skunk.Void] = x || y
     }
 
   /**
-   * AND-fold a `Foldable` of `Where[Void]`. Empty input collapses to [[trueExpr]] (`WHERE TRUE`), so callers
-   * don't need to special-case the empty list. Non-empty input avoids prepending the identity — the result
-   * for `List(a, b, c)` is `(a AND b) AND c`, not `((TRUE AND a) AND b) AND c`.
+   * AND-fold a `Foldable` of `Where[Void]`. Empty input collapses to [[trueExpr]] (`WHERE TRUE`), so callers don't need
+   * to special-case the empty list. Non-empty input avoids prepending the identity — the result for `List(a, b, c)` is
+   * `(a AND b) AND c`, not `((TRUE AND a) AND b) AND c`.
    */
   def allOf[F[_]: cats.Foldable](xs: F[TypedExpr[Boolean, skunk.Void]]): TypedExpr[Boolean, skunk.Void] =
     cats.Foldable[F].reduceLeftOption(xs)((acc, w) => acc && w).getOrElse(trueExpr)

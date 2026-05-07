@@ -63,19 +63,31 @@ final class DeleteBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
 
 }
 
-final class DeleteReady[Cols <: Tuple, Name <: String & Singleton, Args] @scala.annotation.publicInBinary private[sharp] (
+final class DeleteReady[
+  Cols <: Tuple,
+  Name <: String & Singleton,
+  Args
+] @scala.annotation.publicInBinary private[sharp] (
   private[sharp] val table: Table[Cols, Name],
   private[sharp] val whereOpt: Option[Fragment[?]]
 ) {
 
   inline def where[A](f: ColumnsView[Cols] => Where[A]): DeleteReady[Cols, Name, Where.Concat[Args, A]] = {
     val pred     = f(table.columnsView)
-    val combined = SelectBuilder.andInto[Args, A](whereOpt.asInstanceOf[Option[Fragment[Args]]], pred, c => Where.projectConcat[Args, A](c))
+    val combined = SelectBuilder.andInto[Args, A](
+      whereOpt.asInstanceOf[Option[Fragment[Args]]],
+      pred,
+      c => Where.projectConcat[Args, A](c)
+    )
     new DeleteReady[Cols, Name, Where.Concat[Args, A]](table, Some(combined))
   }
 
   inline def whereRaw(af: AppliedFragment): DeleteReady[Cols, Name, ?] = {
-    val combined = SelectBuilder.andRawInto[Args](whereOpt.asInstanceOf[Option[Fragment[Args]]], af, c => Where.projectConcat[Args, Void](c))
+    val combined = SelectBuilder.andRawInto[Args](
+      whereOpt.asInstanceOf[Option[Fragment[Args]]],
+      af,
+      c => Where.projectConcat[Args, Void](c)
+    )
     new DeleteReady[Cols, Name, Any](table, Some(combined))
   }
 
@@ -88,7 +100,8 @@ final class DeleteReady[Cols <: Tuple, Name <: String & Singleton, Args] @scala.
     buf.toList
   }
 
-  inline def compile: CommandTemplate[Args] = MutationAssembly.command[Args, Void](deleteParts).asInstanceOf[CommandTemplate[Args]]
+  inline def compile: CommandTemplate[Args] =
+    MutationAssembly.command[Args, Void](deleteParts).asInstanceOf[CommandTemplate[Args]]
 
   inline def returning[T, A](f: ColumnsView[Cols] => TypedExpr[T, A]): QueryTemplate[Where.Concat[Args, A], T] = {
     val expr = f(table.columnsView)
@@ -135,8 +148,8 @@ final class DeleteReady[Cols <: Tuple, Name <: String & Singleton, Args] @scala.
 
 /**
  * Shared command/RETURNING assembly for mutation builders (DELETE / UPDATE / INSERT). Routes through
- * [[SelectBuilder.assembleN]] for the typed Fragment[Args] composition, then wraps as either a
- * [[CommandTemplate]] or [[QueryTemplate]].
+ * [[SelectBuilder.assembleN]] for the typed Fragment[Args] composition, then wraps as either a [[CommandTemplate]] or
+ * [[QueryTemplate]].
  */
 private[dsl] object MutationAssembly {
 
@@ -159,7 +172,7 @@ private[dsl] object MutationAssembly {
     codec: Codec[R]
   ): QueryTemplate[Where.Concat[Where.Concat[A1, A2], RetArgs], R] = {
     type Out = Where.Concat[Where.Concat[A1, A2], RetArgs]
-    val parts: List[BodyPart] = base ++ List[BodyPart](SelectBuilder.bake(RawConstants.RETURNING), Right(ret))
+    val parts: List[BodyPart]          = base ++ List[BodyPart](SelectBuilder.bake(RawConstants.RETURNING), Right(ret))
     val slotValues: Out => IArray[Any] = args => {
       val (a12, retArgs) = Where.projectConcat[Where.Concat[A1, A2], RetArgs](args)
       val (a1, a2)       = Where.projectConcat[A1, A2](a12)
@@ -177,7 +190,7 @@ private[dsl] object MutationAssembly {
     codec: Codec[R]
   ): QueryTemplate[Where.Concat[A1, RetArgs], R] = {
     type Out = Where.Concat[A1, RetArgs]
-    val parts: List[BodyPart] = base ++ List[BodyPart](SelectBuilder.bake(RawConstants.RETURNING), Right(ret))
+    val parts: List[BodyPart]          = base ++ List[BodyPart](SelectBuilder.bake(RawConstants.RETURNING), Right(ret))
     val slotValues: Out => IArray[Any] = args => {
       val (a1, retArgs) = Where.projectConcat[A1, RetArgs](args)
       IArray[Any](a1, retArgs)
@@ -223,7 +236,12 @@ final class DeleteUsingBuilder[Cols <: Tuple, Name <: String & Singleton, Ss <: 
 
 }
 
-final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tuple, Args] @scala.annotation.publicInBinary private[sharp] (
+final class DeleteUsingReady[
+  Cols <: Tuple,
+  Name <: String & Singleton,
+  Ss <: Tuple,
+  Args
+] @scala.annotation.publicInBinary private[sharp] (
   private[sharp] val table: Table[Cols, Name],
   private[sharp] val sources: Ss,
   private[sharp] val whereOpt: Option[Fragment[?]]
@@ -232,21 +250,29 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
   inline def where[A](f: JoinedView[Ss] => Where[A]): DeleteUsingReady[Cols, Name, Ss, Where.Concat[Args, A]] = {
     val view     = buildJoinedView(sources)
     val pred     = f(view)
-    val combined = SelectBuilder.andInto[Args, A](whereOpt.asInstanceOf[Option[Fragment[Args]]], pred, c => Where.projectConcat[Args, A](c))
+    val combined = SelectBuilder.andInto[Args, A](
+      whereOpt.asInstanceOf[Option[Fragment[Args]]],
+      pred,
+      c => Where.projectConcat[Args, A](c)
+    )
     new DeleteUsingReady[Cols, Name, Ss, Where.Concat[Args, A]](table, sources, Some(combined))
   }
 
   inline def whereRaw(af: AppliedFragment): DeleteUsingReady[Cols, Name, Ss, ?] = {
-    val combined = SelectBuilder.andRawInto[Args](whereOpt.asInstanceOf[Option[Fragment[Args]]], af, c => Where.projectConcat[Args, Void](c))
+    val combined = SelectBuilder.andRawInto[Args](
+      whereOpt.asInstanceOf[Option[Fragment[Args]]],
+      af,
+      c => Where.projectConcat[Args, Void](c)
+    )
     new DeleteUsingReady[Cols, Name, Ss, Any](table, sources, Some(combined))
   }
 
   /**
-   * DELETE … USING <tail sources> WHERE — emits per-source body Right slots so typed-subquery USING sources
-   * thread their inner Args into the outer command's args.
+   * DELETE … USING <tail sources> WHERE — emits per-source body Right slots so typed-subquery USING sources thread
+   * their inner Args into the outer command's args.
    */
   private def bodyParts: List[BodyPart] = {
-    val buf = scala.collection.mutable.ListBuffer[BodyPart](SelectBuilder.bake(table.deleteFromHeader))
+    val buf          = scala.collection.mutable.ListBuffer[BodyPart](SelectBuilder.bake(table.deleteFromHeader))
     val usingEntries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]].tail
     if (usingEntries.nonEmpty) {
       buf += SelectBuilder.bake(RawConstants.USING)
@@ -272,13 +298,13 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
   // Concat-chain: SArgs ⊕ Args (WHERE).
   inline def compile[SArgs](using
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
-    bff:  SourceBodyArgsProj[Ss]
+    bff: SourceBodyArgsProj[Ss]
   ): CommandTemplate[Where.Concat[SArgs, Args]] = {
     type Out = Where.Concat[SArgs, Args]
     val slotValues: Out => IArray[Any] = args => {
       val (sArgs, wArgs) = Where.projectConcat[SArgs, Args](args)
       val perTailBody    = usingTailBodyArgs(bff, sArgs)
-      val out = scala.collection.mutable.ArrayBuffer.empty[Any]
+      val out            = scala.collection.mutable.ArrayBuffer.empty[Any]
       perTailBody.foreach(out += _)
       out += wArgs
       IArray.from(out)
@@ -289,17 +315,18 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
 
   // Concat-chain: SArgs ⊕ Args (WHERE) ⊕ A (RETURNING).
   inline def returning[T, A, SArgs](f: JoinedView[Ss] => TypedExpr[T, A])(using
-    sbOf:  SourceBodyArgsOf.Aux[Ss, SArgs],
-    bff:   SourceBodyArgsProj[Ss]
+    sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
+    bff: SourceBodyArgsProj[Ss]
   ): QueryTemplate[Where.Concat[Where.Concat[SArgs, Args], A], T] = {
-    val expr = f(buildJoinedView(sources))
-    val parts: List[BodyPart] = bodyParts ++ List[BodyPart](SelectBuilder.bake(RawConstants.RETURNING), Right(expr.fragment))
+    val expr                  = f(buildJoinedView(sources))
+    val parts: List[BodyPart] = bodyParts ++
+      List[BodyPart](SelectBuilder.bake(RawConstants.RETURNING), Right(expr.fragment))
     type Out = Where.Concat[Where.Concat[SArgs, Args], A]
     val slotValues: Out => IArray[Any] = args => {
       val (swAcc, retArgs) = Where.projectConcat[Where.Concat[SArgs, Args], A](args)
       val (sArgs, wArgs)   = Where.projectConcat[SArgs, Args](swAcc)
       val perTailBody      = usingTailBodyArgs(bff, sArgs)
-      val out = scala.collection.mutable.ArrayBuffer.empty[Any]
+      val out              = scala.collection.mutable.ArrayBuffer.empty[Any]
       perTailBody.foreach(out += _)
       out += wArgs
       out += retArgs
@@ -309,9 +336,9 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
   }
 
   inline def returningTuple[T <: NonEmptyTuple, SArgs, TOut](f: JoinedView[Ss] => T)(using
-    pa:   ProjArgsOf.Aux[T, TOut],
+    pa: ProjArgsOf.Aux[T, TOut],
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
-    bff:  SourceBodyArgsProj[Ss]
+    bff: SourceBodyArgsProj[Ss]
   ): QueryTemplate[Where.Concat[Where.Concat[SArgs, Args], TOut], ExprOutputs[T]] = {
     val exprs    = f(buildJoinedView(sources)).toList.asInstanceOf[List[TypedExpr[?, ?]]]
     val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
@@ -322,9 +349,9 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
   }
 
   inline def returningNamed[NT <: scala.NamedTuple.AnyNamedTuple, SArgs, TOut](f: JoinedView[Ss] => NT)(using
-    pa:   ProjArgsOf.Aux[scala.NamedTuple.DropNames[NT], TOut],
+    pa: ProjArgsOf.Aux[scala.NamedTuple.DropNames[NT], TOut],
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
-    bff:  SourceBodyArgsProj[Ss]
+    bff: SourceBodyArgsProj[Ss]
   ): QueryTemplate[
     Where.Concat[Where.Concat[SArgs, Args], TOut],
     scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]]
@@ -343,7 +370,7 @@ final class DeleteUsingReady[Cols <: Tuple, Name <: String & Singleton, Ss <: Tu
 
   inline def returningAll[SArgs](using
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
-    bff:  SourceBodyArgsProj[Ss]
+    bff: SourceBodyArgsProj[Ss]
   ): QueryTemplate[Where.Concat[SArgs, Args], NamedRowOf[Cols]] = {
     val exprs =
       table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>

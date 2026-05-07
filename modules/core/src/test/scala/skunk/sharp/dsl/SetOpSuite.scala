@@ -111,17 +111,19 @@ class SetOpSuite extends munit.FunSuite {
     import skunk.sharp.{Param, *}
     val activeUsers = users.select.where(u => u.email === Param[String])
     val q           = activeUsers.union(admins.select).compile
-    val _: QueryTemplate[String, NamedRowOf[(Column[UUID, "id", false, EmptyTuple],
-                                              Column[String, "email", false, EmptyTuple],
-                                              Column[Int, "age", false, EmptyTuple])]] = q
+    val _: QueryTemplate[String, NamedRowOf[(
+      Column[UUID, "id", false, EmptyTuple],
+      Column[String, "email", false, EmptyTuple],
+      Column[Int, "age", false, EmptyTuple]
+    )]] = q
     assert(q.fragment.sql.contains("\"email\" = $1"), q.fragment.sql)
   }
 
   test("Both UNION arms carrying Params surface as Concat of both Args") {
     import skunk.sharp.{Param, *}
-    val left  = users.select.where(u => u.email === Param[String])
-    val right = admins.select.where(a => a.age === Param[Int])
-    val q     = left.union(right).compile
+    val left                               = users.select.where(u => u.email === Param[String])
+    val right                              = admins.select.where(a => a.age === Param[Int])
+    val q                                  = left.union(right).compile
     val _: QueryTemplate[(String, Int), ?] = q
     assert(q.fragment.sql.contains("\"email\" = $1") && q.fragment.sql.contains("\"age\" = $2"), q.fragment.sql)
   }

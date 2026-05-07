@@ -5,18 +5,15 @@ import skunk.sharp.TypedExpr
 import skunk.sharp.where.Where
 
 /**
- * Typeclass that computes the runtime `Out` type for a projection-shaped value `T` and provides a
- * runtime projector that turns an `Out` value into a list of per-item values (one per inner
- * `TypedExpr` slot in render order).
+ * Typeclass that computes the runtime `Out` type for a projection-shaped value `T` and provides a runtime projector
+ * that turns an `Out` value into a list of per-item values (one per inner `TypedExpr` slot in render order).
  *
- * Lets us compute the typed `Args` for SELECT projections, GROUP BY / ORDER BY / DISTINCT ON, and
- * other multi-item DSL positions WITHOUT relying on match types — given-resolution priority
- * disambiguates `NamedTuple` vs regular `Tuple` vs single `TypedExpr` cases, where match types
- * stumble on Scala 3.8's NamedTuple opaque-type disjointness rules.
+ * Lets us compute the typed `Args` for SELECT projections, GROUP BY / ORDER BY / DISTINCT ON, and other multi-item DSL
+ * positions WITHOUT relying on match types — given-resolution priority disambiguates `NamedTuple` vs regular `Tuple` vs
+ * single `TypedExpr` cases, where match types stumble on Scala 3.8's NamedTuple opaque-type disjointness rules.
  *
- * `T` is contravariant so a `ProjArgsOf[TypedExpr[T, A]]` instance also serves a `TypedColumn[T, N, S]`
- * (which extends `TypedExpr`). Without contravariance, given resolution would need an explicit
- * instance for every `TypedExpr` subtype.
+ * `T` is contravariant so a `ProjArgsOf[TypedExpr[T, A]]` instance also serves a `TypedColumn[T, N, S]` (which extends
+ * `TypedExpr`). Without contravariance, given resolution would need an explicit instance for every `TypedExpr` subtype.
  *
  * Given priority chain:
  *
@@ -24,9 +21,8 @@ import skunk.sharp.where.Where
  *   - Medium: multi-item tuple cons `H *: T` (folds via [[Where.Concat]]).
  *   - Low: any `TypedExpr[T, A]` — leaf case, `Out = A`.
  *
- * `Out` is the right-fold of `Where.Concat` over per-item `Args` — the same shape as
- * [[Where.FoldConcat]] for plain tuples — but computed via given resolution rather than match-type
- * reduction, so named tuples work too.
+ * `Out` is the right-fold of `Where.Concat` over per-item `Args` — the same shape as [[Where.FoldConcat]] for plain
+ * tuples — but computed via given resolution rather than match-type reduction, so named tuples work too.
  */
 trait ProjArgsOf[-T] {
   type Out
@@ -70,12 +66,12 @@ trait ProjArgsOfMedPrio extends ProjArgsOfLowPrio {
 
   /**
    * Multi-item tuple cons: right-fold via [[Where.Concat]] (drops Void slots). `inline given` so the
-   * `Where.projectConcat` dispatch reduces with concrete `HOut` / `TOut` at the summon site.
-   * Uses [[ConsTupleProj]] (named class) to avoid "anonymous class duplicated at each inline site".
+   * `Where.projectConcat` dispatch reduces with concrete `HOut` / `TOut` at the summon site. Uses [[ConsTupleProj]]
+   * (named class) to avoid "anonymous class duplicated at each inline site".
    */
   inline given consTuple[H, T <: NonEmptyTuple, HOut, TOut](using
-    h:  ProjArgsOf[H] { type Out = HOut },
-    t:  ProjArgsOf[T] { type Out = TOut }
+    h: ProjArgsOf[H] { type Out = HOut },
+    t: ProjArgsOf[T] { type Out = TOut }
   ): (ProjArgsOf[H *: T] { type Out = Where.Concat[HOut, TOut] }) = {
     val proj: Where.Concat[HOut, TOut] => (HOut, TOut) = c => Where.projectConcat[HOut, TOut](c)
     new ConsTupleProj[H, T, Where.Concat[HOut, TOut], HOut, TOut](h, t, proj)
@@ -84,22 +80,24 @@ trait ProjArgsOfMedPrio extends ProjArgsOfLowPrio {
 }
 
 private[dsl] final class ConsTupleProj[H, T <: NonEmptyTuple, CombOut, HOut, TOut](
-  h:    ProjArgsOf[H] { type Out = HOut },
-  t:    ProjArgsOf[T] { type Out = TOut },
+  h: ProjArgsOf[H] { type Out = HOut },
+  t: ProjArgsOf[T] { type Out = TOut },
   proj: CombOut => (HOut, TOut)
 ) extends ProjArgsOf[H *: T] {
   type Out = CombOut
+
   def project(c: Out): List[Any] = {
     val (a, b) = proj(c)
     h.project(a) ++ t.project(b)
   }
+
 }
 
 trait ProjArgsOfLowPrio {
 
   /**
-   * Leaf case: `TypedExpr[T, A]` (covers `TypedColumn` via contravariance). `Out = A` — the inner
-   * Args slot. The runtime projector emits `List(c)` — a single value to feed the underlying encoder.
+   * Leaf case: `TypedExpr[T, A]` (covers `TypedColumn` via contravariance). `Out = A` — the inner Args slot. The
+   * runtime projector emits `List(c)` — a single value to feed the underlying encoder.
    */
   given typedExpr[T, A]: (ProjArgsOf[TypedExpr[T, A]] { type Out = A }) =
     new ProjArgsOf[TypedExpr[T, A]] {
@@ -108,8 +106,8 @@ trait ProjArgsOfLowPrio {
     }
 
   /**
-   * Leaf case for `OrderBy[A]` (`expr.asc` / `.desc` / `.nullsFirst` / `.nullsLast` wrappers). Same
-   * shape as the [[typedExpr]] leaf: `Out = A`.
+   * Leaf case for `OrderBy[A]` (`expr.asc` / `.desc` / `.nullsFirst` / `.nullsLast` wrappers). Same shape as the
+   * [[typedExpr]] leaf: `Out = A`.
    */
   given orderByLeaf[A]: (ProjArgsOf[skunk.sharp.dsl.OrderBy[A]] { type Out = A }) =
     new ProjArgsOf[skunk.sharp.dsl.OrderBy[A]] {

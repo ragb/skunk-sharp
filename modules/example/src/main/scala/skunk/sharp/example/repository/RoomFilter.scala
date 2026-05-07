@@ -6,17 +6,17 @@ import java.util.UUID
 
 /**
  * Domain-level filter ADT for room listing. Each case captures one runtime predicate the API can ask for; the
- * repository materialises a `List[RoomFilter]` into a single `WHERE` clause by translating each case to a
- * `Where[Void]` (values baked via `Param.bind`) and AND-folding the result. The translation lives in
- * [[RoomRepository]] alongside the columns view it needs.
+ * repository materialises a `List[RoomFilter]` into a single `WHERE` clause by translating each case to a `Where[Void]`
+ * (values baked via `Param.bind`) and AND-folding the result. The translation lives in [[RoomRepository]] alongside the
+ * columns view it needs.
  *
  * Why a sealed ADT and not just `case class RoomQuery(minCapacity: Option[Int], …)`:
  *
  *   - Each case stays self-contained — adding a new filter is one new `case class` and one extra arm in the
  *     repository's `toWhere` matcher, no fiddling with optional fields scattered across layers.
  *   - The exhaustiveness check on the `match` keeps the repository honest when the ADT grows.
- *   - Multi-value cases (`NamesIn`, `IdsIn`) are first-class — they translate to `IN (…)` (OR semantics) inside
- *     a single AND-combined clause, which is closer to the intent than parallel optional fields would be.
+ *   - Multi-value cases (`NamesIn`, `IdsIn`) are first-class — they translate to `IN (…)` (OR semantics) inside a
+ *     single AND-combined clause, which is closer to the intent than parallel optional fields would be.
  */
 sealed trait RoomFilter
 

@@ -4,19 +4,19 @@ import skunk.{Codec, Encoder, Fragment, Void}
 import skunk.sharp.TypedExpr
 
 /**
- * `CASE WHEN … THEN … [ELSE …] END` — the universal conditional primitive. Usable in SELECT projections,
- * WHERE, ORDER BY, UPDATE SET right-hand sides, GROUP BY — anywhere a [[TypedExpr]] is accepted.
+ * `CASE WHEN … THEN … [ELSE …] END` — the universal conditional primitive. Usable in SELECT projections, WHERE, ORDER
+ * BY, UPDATE SET right-hand sides, GROUP BY — anywhere a [[TypedExpr]] is accepted.
  *
- * Branch predicates and bodies may carry their own `Args` (e.g. `Param[T]`). `CaseWhen` carries `Items <:
- * Tuple` accumulating each `(cond, branch)` pair as `TypedExpr[Boolean, A1] *: TypedExpr[T, A2] *: …`;
- * `.otherwise` / `.end` summon [[ProjArgsOf]] over the full item list (with ELSE appended for `.otherwise`)
- * to derive the result's typed `Args`. Branches with all `Args = Void` collapse cleanly to `Void`.
+ * Branch predicates and bodies may carry their own `Args` (e.g. `Param[T]`). `CaseWhen` carries `Items <: Tuple`
+ * accumulating each `(cond, branch)` pair as `TypedExpr[Boolean, A1] *: TypedExpr[T, A2] *: …`; `.otherwise` / `.end`
+ * summon [[ProjArgsOf]] over the full item list (with ELSE appended for `.otherwise`) to derive the result's typed
+ * `Args`. Branches with all `Args = Void` collapse cleanly to `Void`.
  *
  * Terminate with `.otherwise(elseBranch)` (returns `TypedExpr[T, OutA]`) or `.end` (returns
  * `TypedExpr[Option[T], OutA]`).
  */
 final class CaseWhen[T, Items <: Tuple] private[sharp] (
-  private[sharp] val branches:    List[(TypedExpr[Boolean, ?], TypedExpr[T, ?])],
+  private[sharp] val branches: List[(TypedExpr[Boolean, ?], TypedExpr[T, ?])],
   private[sharp] val branchCodec: Codec[T]
 ) {
 
@@ -35,21 +35,24 @@ final class CaseWhen[T, Items <: Tuple] private[sharp] (
   def end[OutA](using pa: ProjArgsOf.Aux[Items, OutA]): TypedExpr[Option[T], OutA] = {
     val coercedBranches = branches.map { case (c, b) => (c, b.asInstanceOf[TypedExpr[Option[T], ?]]) }
     renderCaseWhen[Option[T], OutA](
-      coercedBranches, None, branchCodec.opt, pa.project.asInstanceOf[Any => List[Any]]
+      coercedBranches,
+      None,
+      branchCodec.opt,
+      pa.project.asInstanceOf[Any => List[Any]]
     )
   }
 
 }
 
 /**
- * Build the CASE expression's parts list and a custom encoder that walks the typed slots in render
- * order — `[cond1, branch1, cond2, branch2, ..., (elseBranch?)]` — dispatching the user-supplied `OutA`
- * value through the [[ProjArgsOf]]-derived projector.
+ * Build the CASE expression's parts list and a custom encoder that walks the typed slots in render order —
+ * `[cond1, branch1, cond2, branch2, ..., (elseBranch?)]` — dispatching the user-supplied `OutA` value through the
+ * [[ProjArgsOf]]-derived projector.
  */
 private def renderCaseWhen[R, OutA](
-  branches:  List[(TypedExpr[Boolean, ?], TypedExpr[R, ?])],
-  elseOpt:   Option[TypedExpr[R, ?]],
-  codec0:    Codec[R],
+  branches: List[(TypedExpr[Boolean, ?], TypedExpr[R, ?])],
+  elseOpt: Option[TypedExpr[R, ?]],
+  codec0: Codec[R],
   projector: Any => List[Any]
 ): TypedExpr[R, OutA] = {
   val typedItems: List[Fragment[?]] =

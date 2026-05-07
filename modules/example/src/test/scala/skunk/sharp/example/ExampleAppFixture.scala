@@ -21,14 +21,14 @@ import sttp.model.Uri as SttpUri
 import sttp.tapir.client.sttp.SttpClientInterpreter
 
 /**
- * Integration-test fixture for the example app: spins up Postgres in a container, runs the example's own
- * dumbo migrations, builds the live `Routes`, and exposes an in-process **sttp `SttpBackend[IO, …]`** wired
- * to the route handler via `Http4sBackend.usingClient(Client.fromHttpApp(routes.orNotFound))`.
+ * Integration-test fixture for the example app: spins up Postgres in a container, runs the example's own dumbo
+ * migrations, builds the live `Routes`, and exposes an in-process **sttp `SttpBackend[IO, …]`** wired to the route
+ * handler via `Http4sBackend.usingClient(Client.fromHttpApp(routes.orNotFound))`.
  *
- * Tests use [[SttpClientInterpreter]] to derive typed sttp requests directly from the same
- * `Endpoints.rooms.list` / `Endpoints.bookings.list` / etc. values the server publishes — the input DTOs
- * (`RoomFilterQuery`, `BookingFilterQuery`, `CreateRoomRequest`, …) flow through unchanged on both sides.
- * No port is bound; everything runs in-process for speed and determinism.
+ * Tests use [[SttpClientInterpreter]] to derive typed sttp requests directly from the same `Endpoints.rooms.list` /
+ * `Endpoints.bookings.list` / etc. values the server publishes — the input DTOs (`RoomFilterQuery`,
+ * `BookingFilterQuery`, `CreateRoomRequest`, …) flow through unchanged on both sides. No port is bound; everything runs
+ * in-process for speed and determinism.
  */
 trait ExampleAppFixture extends CatsEffectSuite with TestContainerForAll {
 
@@ -65,12 +65,12 @@ trait ExampleAppFixture extends CatsEffectSuite with TestContainerForAll {
       .pooled(8)
 
   /**
-   * Truncate the example's tables (`bookings`, `rooms`) before each test. `TestContainerForAll` reuses one
-   * container across the suite to keep CI fast — but that means rows from one test leak into the next, so
-   * tests that assert "all rooms" or expect a specific count must run against an empty database.
+   * Truncate the example's tables (`bookings`, `rooms`) before each test. `TestContainerForAll` reuses one container
+   * across the suite to keep CI fast — but that means rows from one test leak into the next, so tests that assert "all
+   * rooms" or expect a specific count must run against an empty database.
    *
-   * Uses raw `skunk.command` because the truncate has no DSL representation in this codebase yet (no
-   * `Table#truncate` extension); it's a one-shot DDL-ish maintenance op.
+   * Uses raw `skunk.command` because the truncate has no DSL representation in this codebase yet (no `Table#truncate`
+   * extension); it's a one-shot DDL-ish maintenance op.
    */
   protected def truncateAll(c: containerDef.Container): IO[Unit] = {
     import skunk.implicits.*
@@ -84,8 +84,8 @@ trait ExampleAppFixture extends CatsEffectSuite with TestContainerForAll {
   protected val interpreter: SttpClientInterpreter = SttpClientInterpreter()
 
   /**
-   * Build an sttp backend wired in-process to the live app's routes. Tests should use this with
-   * [[interpreter]] to derive typed requests from the published [[skunk.sharp.example.api.Endpoints]] values.
+   * Build an sttp backend wired in-process to the live app's routes. Tests should use this with [[interpreter]] to
+   * derive typed requests from the published [[skunk.sharp.example.api.Endpoints]] values.
    */
   protected def appBackend(c: containerDef.Container): Resource[IO, SttpBackend[IO, Fs2Streams[IO]]] =
     sessionPool(c).map { pool =>
@@ -101,11 +101,12 @@ trait ExampleAppFixture extends CatsEffectSuite with TestContainerForAll {
   // threading the backend through every call.
 
   /**
-   * Send a request whose body is a tapir-derived `Either[E, O]` and unwrap the right side, raising on the
-   * left. Use for the happy-path assertions where a non-2xx is a test failure. Tapir-derived requests have
-   * capability `Any`; the backend's `Fs2Streams[IO] & Effect[IO]` trivially conforms.
+   * Send a request whose body is a tapir-derived `Either[E, O]` and unwrap the right side, raising on the left. Use for
+   * the happy-path assertions where a non-2xx is a test failure. Tapir-derived requests have capability `Any`; the
+   * backend's `Fs2Streams[IO] & Effect[IO]` trivially conforms.
    */
   extension [E, O](req: Request[Either[E, O], Any])
+
     protected def sendOk(using backend: SttpBackend[IO, Fs2Streams[IO]]): IO[O] =
       req.send(backend).flatMap(_.body match {
         case Right(o) => IO.pure(o)
@@ -114,6 +115,7 @@ trait ExampleAppFixture extends CatsEffectSuite with TestContainerForAll {
 
   /** Send and return the full response — for status-code assertions and error-envelope inspection. */
   extension [T](req: Request[T, Any])
+
     protected def sendResp(using backend: SttpBackend[IO, Fs2Streams[IO]]): IO[Response[T]] =
       req.send(backend)
 
