@@ -23,9 +23,9 @@ trait RoomRepository {
  * Static-template repository — every query that has a fixed shape is compiled exactly once at object construction.
  * Calls bind parameters and run; nothing is re-built per request.
  *
- * Two methods earn an exception: `.patch` (variable SET list per call) and `.findFiltered` (variable WHERE shape
- * driven by a runtime `List[RoomFilter]`). Both compile a fresh query per call and bake values via `Param.bind`,
- * so the user-facing `Args` collapses to `Void` and there's nothing to thread at execute time.
+ * Two methods earn an exception: `.patch` (variable SET list per call) and `.findFiltered` (variable WHERE shape driven
+ * by a runtime `List[RoomFilter]`). Both compile a fresh query per call and bake values via `Param.bind`, so the
+ * user-facing `Args` collapses to `Void` and there's nothing to thread at execute time.
  */
 object RoomRepository {
 
@@ -34,8 +34,8 @@ object RoomRepository {
 
     /**
      * Captured columns view, statically typed as `ColumnsView[<RoomRow.table.Cols>]` — `cv.id` / `cv.name` /
-     * `cv.capacity` resolve via the named-tuple selector. Kept on the impl so [[toWhere]] is a normal method
-     * (not nested inside a `where(c => …)` lambda). Safe for the unaliased single-source case used here.
+     * `cv.capacity` resolve via the named-tuple selector. Kept on the impl so [[toWhere]] is a normal method (not
+     * nested inside a `where(c => …)` lambda). Safe for the unaliased single-source case used here.
      */
     private val cv = t.columnsView
 
@@ -61,8 +61,8 @@ object RoomRepository {
       t.delete.where(r => r.id === Param[UUID]).compile
 
     /**
-     * Translate one filter case to a `Where[Void]`. Every arm bakes its runtime value via `Param.bind`, so the
-     * result has `Args = Void` and can be AND-folded with `dsl.allOf`.
+     * Translate one filter case to a `Where[Void]`. Every arm bakes its runtime value via `Param.bind`, so the result
+     * has `Args = Void` and can be AND-folded with `dsl.allOf`.
      */
     private def toWhere(f: RoomFilter): Where[skunk.Void] = f match {
       case RoomFilter.CapacityAtLeast(n) => cv.capacity >= Param.bind(n)
@@ -73,7 +73,7 @@ object RoomRepository {
     }
 
     def findFiltered(filters: List[RoomFilter]): Kleisli[Stream[IO, *], Session[IO], RoomRow] =
-      if filters.isEmpty then findAllQ.streamKF[IO]()  // hit the static-cache fast path
+      if filters.isEmpty then findAllQ.streamKF[IO]() // hit the static-cache fast path
       else
         // `allOf` AND-folds the per-filter Wheres; empty would have rendered `WHERE TRUE` but we
         // short-circuit above to keep the static cache.

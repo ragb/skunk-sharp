@@ -108,15 +108,15 @@ package object dsl {
   // Boolean combinators (`&&`, `||`, `!`, `and`, `or`, `not`) — top-level extension on
   // `TypedExpr[Boolean, A]` defined in `skunk.sharp.where`. Re-exported here so a single
   // `import skunk.sharp.dsl.*` brings them into scope.
-  export skunk.sharp.where.{&&, ||, and, or, not, unary_!}
+  export skunk.sharp.where.{&&, ||, and, not, or, unary_!}
 
   /**
-   * Variadic AND-fold over `Where[Void]`. Composes naturally — nest `anyOf` inside `allOf` (or vice versa) to
-   * spell out arbitrary boolean trees: `where(_ => allOf(w1, anyOf(w2, w3), w4))`. Empty argument list folds
-   * to `WHERE TRUE` (the AND identity, optimised away by Postgres).
+   * Variadic AND-fold over `Where[Void]`. Composes naturally — nest `anyOf` inside `allOf` (or vice versa) to spell out
+   * arbitrary boolean trees: `where(_ => allOf(w1, anyOf(w2, w3), w4))`. Empty argument list folds to `WHERE TRUE` (the
+   * AND identity, optimised away by Postgres).
    *
-   * For a runtime collection of predicates, splat into the varargs (`allOf(list*)`) — there's no separate
-   * `Foldable` overload to keep the call surface narrow.
+   * For a runtime collection of predicates, splat into the varargs (`allOf(list*)`) — there's no separate `Foldable`
+   * overload to keep the call surface narrow.
    */
   def allOf(ws: skunk.sharp.where.Where[skunk.Void]*): skunk.sharp.where.Where[skunk.Void] =
     skunk.sharp.where.Where.allOf(ws)
@@ -192,10 +192,10 @@ package object dsl {
   // `CASE WHEN target = v THEN …` and adds no expressiveness.
 
   /**
-   * Start a `CASE`. Each branch has its own boolean predicate. The first branch's `branch:
-   * TypedExpr[T]` pins the output type; later `.when`s must agree. Captured `Items` accumulate the
-   * sequence of `(cond, branch)` typed expressions so `.otherwise` / `.end` can fold their `Args`
-   * into the final QueryTemplate Args slot via [[ProjArgsOf]].
+   * Start a `CASE`. Each branch has its own boolean predicate. The first branch's `branch: TypedExpr[T]` pins the
+   * output type; later `.when`s must agree. Captured `Items` accumulate the sequence of `(cond, branch)` typed
+   * expressions so `.otherwise` / `.end` can fold their `Args` into the final QueryTemplate Args slot via
+   * [[ProjArgsOf]].
    */
   def caseWhen[T, A1, A2](
     cond: skunk.sharp.TypedExpr[Boolean, A1],

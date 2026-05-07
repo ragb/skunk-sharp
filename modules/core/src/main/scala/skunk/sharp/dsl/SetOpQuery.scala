@@ -7,9 +7,9 @@ import skunk.sharp.where.Where
 /**
  * Row-compatible combination of two or more queries via `UNION` / `INTERSECT` / `EXCEPT` (and their `ALL` variants).
  *
- * Each combinator step concatenates a typed `Fragment[A]` for the right arm via `combineSep`, so any `Param` in
- * either arm threads through to the outer query's `Args` via `Concat`. Held **lazily**: each chained step appends
- * to a render thunk that is only invoked at the single terminal `.compile` call.
+ * Each combinator step concatenates a typed `Fragment[A]` for the right arm via `combineSep`, so any `Param` in either
+ * arm threads through to the outer query's `Args` via `Concat`. Held **lazily**: each chained step appends to a render
+ * thunk that is only invoked at the single terminal `.compile` call.
  *
  * Constructed through the [[union]] / [[intersect]] / [[except]] extensions on a [[SelectBuilder]],
  * [[ProjectedSelect]], [[CompiledQuery]], or another [[SetOpQuery]]. All sides flow through [[AsSubquery]], so users
@@ -33,25 +33,33 @@ final class SetOpQuery[A, R] @scala.annotation.publicInBinary private[sharp] (
   def compile: QueryTemplate[A, R] = QueryTemplate.mk[A, R](renderFn(), codec)
 
   /** `(<this>) UNION (<right>)` — deduplicated union. */
-  inline def union[Q, B](right: Q)(using ev: AsSubquery[Q, R, B]): SetOpQuery[Where.Concat[A, B], R] = append("UNION", right)
+  inline def union[Q, B](right: Q)(using ev: AsSubquery[Q, R, B]): SetOpQuery[Where.Concat[A, B], R] =
+    append("UNION", right)
 
   /** `(<this>) UNION ALL (<right>)` — keeps duplicates. */
-  inline def unionAll[Q, B](right: Q)(using ev: AsSubquery[Q, R, B]): SetOpQuery[Where.Concat[A, B], R] = append("UNION ALL", right)
+  inline def unionAll[Q, B](right: Q)(using ev: AsSubquery[Q, R, B]): SetOpQuery[Where.Concat[A, B], R] =
+    append("UNION ALL", right)
 
   /** `(<this>) INTERSECT (<right>)` — deduplicated intersection. */
-  inline def intersect[Q, B](right: Q)(using ev: AsSubquery[Q, R, B]): SetOpQuery[Where.Concat[A, B], R] = append("INTERSECT", right)
+  inline def intersect[Q, B](right: Q)(using ev: AsSubquery[Q, R, B]): SetOpQuery[Where.Concat[A, B], R] =
+    append("INTERSECT", right)
 
   /** `(<this>) INTERSECT ALL (<right>)` — multiset intersection. */
-  inline def intersectAll[Q, B](right: Q)(using ev: AsSubquery[Q, R, B]): SetOpQuery[Where.Concat[A, B], R] = append("INTERSECT ALL", right)
+  inline def intersectAll[Q, B](right: Q)(using ev: AsSubquery[Q, R, B]): SetOpQuery[Where.Concat[A, B], R] =
+    append("INTERSECT ALL", right)
 
   /** `(<this>) EXCEPT (<right>)` — deduplicated difference. */
-  inline def except[Q, B](right: Q)(using ev: AsSubquery[Q, R, B]): SetOpQuery[Where.Concat[A, B], R] = append("EXCEPT", right)
+  inline def except[Q, B](right: Q)(using ev: AsSubquery[Q, R, B]): SetOpQuery[Where.Concat[A, B], R] =
+    append("EXCEPT", right)
 
   /** `(<this>) EXCEPT ALL (<right>)` — multiset difference. */
-  inline def exceptAll[Q, B](right: Q)(using ev: AsSubquery[Q, R, B]): SetOpQuery[Where.Concat[A, B], R] = append("EXCEPT ALL", right)
+  inline def exceptAll[Q, B](right: Q)(using ev: AsSubquery[Q, R, B]): SetOpQuery[Where.Concat[A, B], R] =
+    append("EXCEPT ALL", right)
 
-  private inline def append[Q, B](op: String, right: Q)(using ev: AsSubquery[Q, R, B]): SetOpQuery[Where.Concat[A, B], R] = {
-    val leftFn     = renderFn
+  private inline def append[Q, B](op: String, right: Q)(using
+    ev: AsSubquery[Q, R, B]
+  ): SetOpQuery[Where.Concat[A, B], R] = {
+    val leftFn                 = renderFn
     val rightFrag: Fragment[B] = ev.fragment(right)
     new SetOpQuery[Where.Concat[A, B], R](
       codec,
@@ -68,8 +76,8 @@ object SetOpQuery {
 
   /**
    * Seed a chain: `(<arm>)`. Only called by the start-of-chain extensions on [[SelectBuilder]], [[ProjectedSelect]],
-   * and [[QueryTemplate]]. The left thunk is wrapped in parens up front so later appends can just glue
-   * ` OP (<right>)` on the tail.
+   * and [[QueryTemplate]]. The left thunk is wrapped in parens up front so later appends can just glue ` OP (<right>)`
+   * on the tail.
    */
   private[sharp] def start[T, Q, A](q: Q)(using ev: AsSubquery[Q, T, A]): SetOpQuery[A, T] = {
     val innerFrag: Fragment[A] = ev.fragment(q)
@@ -93,27 +101,45 @@ object SetOpQuery {
 extension [Q](left: Q) {
 
   /** `(<left>) UNION (<right>)` — deduplicated. */
-  inline def union[T, Q2, A1, A2](right: Q2)(using evL: AsSubquery[Q, T, A1], evR: AsSubquery[Q2, T, A2]): SetOpQuery[Where.Concat[A1, A2], T] =
+  inline def union[T, Q2, A1, A2](right: Q2)(using
+    evL: AsSubquery[Q, T, A1],
+    evR: AsSubquery[Q2, T, A2]
+  ): SetOpQuery[Where.Concat[A1, A2], T] =
     SetOpQuery.start[T, Q, A1](left).union(right)
 
   /** `(<left>) UNION ALL (<right>)` — keeps duplicates. */
-  inline def unionAll[T, Q2, A1, A2](right: Q2)(using evL: AsSubquery[Q, T, A1], evR: AsSubquery[Q2, T, A2]): SetOpQuery[Where.Concat[A1, A2], T] =
+  inline def unionAll[T, Q2, A1, A2](right: Q2)(using
+    evL: AsSubquery[Q, T, A1],
+    evR: AsSubquery[Q2, T, A2]
+  ): SetOpQuery[Where.Concat[A1, A2], T] =
     SetOpQuery.start[T, Q, A1](left).unionAll(right)
 
   /** `(<left>) INTERSECT (<right>)` — deduplicated intersection. */
-  inline def intersect[T, Q2, A1, A2](right: Q2)(using evL: AsSubquery[Q, T, A1], evR: AsSubquery[Q2, T, A2]): SetOpQuery[Where.Concat[A1, A2], T] =
+  inline def intersect[T, Q2, A1, A2](right: Q2)(using
+    evL: AsSubquery[Q, T, A1],
+    evR: AsSubquery[Q2, T, A2]
+  ): SetOpQuery[Where.Concat[A1, A2], T] =
     SetOpQuery.start[T, Q, A1](left).intersect(right)
 
   /** `(<left>) INTERSECT ALL (<right>)` — multiset intersection. */
-  inline def intersectAll[T, Q2, A1, A2](right: Q2)(using evL: AsSubquery[Q, T, A1], evR: AsSubquery[Q2, T, A2]): SetOpQuery[Where.Concat[A1, A2], T] =
+  inline def intersectAll[T, Q2, A1, A2](right: Q2)(using
+    evL: AsSubquery[Q, T, A1],
+    evR: AsSubquery[Q2, T, A2]
+  ): SetOpQuery[Where.Concat[A1, A2], T] =
     SetOpQuery.start[T, Q, A1](left).intersectAll(right)
 
   /** `(<left>) EXCEPT (<right>)` — deduplicated difference. */
-  inline def except[T, Q2, A1, A2](right: Q2)(using evL: AsSubquery[Q, T, A1], evR: AsSubquery[Q2, T, A2]): SetOpQuery[Where.Concat[A1, A2], T] =
+  inline def except[T, Q2, A1, A2](right: Q2)(using
+    evL: AsSubquery[Q, T, A1],
+    evR: AsSubquery[Q2, T, A2]
+  ): SetOpQuery[Where.Concat[A1, A2], T] =
     SetOpQuery.start[T, Q, A1](left).except(right)
 
   /** `(<left>) EXCEPT ALL (<right>)` — multiset difference. */
-  inline def exceptAll[T, Q2, A1, A2](right: Q2)(using evL: AsSubquery[Q, T, A1], evR: AsSubquery[Q2, T, A2]): SetOpQuery[Where.Concat[A1, A2], T] =
+  inline def exceptAll[T, Q2, A1, A2](right: Q2)(using
+    evL: AsSubquery[Q, T, A1],
+    evR: AsSubquery[Q2, T, A2]
+  ): SetOpQuery[Where.Concat[A1, A2], T] =
     SetOpQuery.start[T, Q, A1](left).exceptAll(right)
 
 }

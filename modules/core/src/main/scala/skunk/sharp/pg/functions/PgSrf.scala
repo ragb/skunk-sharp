@@ -29,7 +29,9 @@ private[sharp] def srfRelation1[T, N <: String & Singleton, BA](
   argsFrag: Fragment[BA],
   colName: N,
   codec0: Codec[T]
-): TypedBodyRelation[Column[T, N, false, EmptyTuple] *: EmptyTuple, BA] { type Alias = N; type Mode = AliasMode.Explicit } = {
+): TypedBodyRelation[Column[T, N, false, EmptyTuple] *: EmptyTuple, BA] {
+  type Alias = N; type Mode = AliasMode.Explicit
+} = {
   val col: Column[T, N, false, EmptyTuple] =
     Column[T, N, false, EmptyTuple](
       name = colName,
@@ -53,10 +55,10 @@ private[sharp] def srfRelation1[T, N <: String & Singleton, BA](
     val srfColumnName: String                                  = colName
 
     /**
-     * Render the SRF as a single AppliedFragment for fallback paths (cache-warming, alias-wrapping). When the
-     * args fragment has no typed parameters (`encoder.types.isEmpty`), bind args at Void inline. Typed-args
-     * SRFs (encoder has types) can only be rendered via [[skunk.sharp.dsl.aliasedFromEntryParts]] in a
-     * SELECT/JOIN source position — calling `fromFragmentWith` on them throws.
+     * Render the SRF as a single AppliedFragment for fallback paths (cache-warming, alias-wrapping). When the args
+     * fragment has no typed parameters (`encoder.types.isEmpty`), bind args at Void inline. Typed-args SRFs (encoder
+     * has types) can only be rendered via [[skunk.sharp.dsl.aliasedFromEntryParts]] in a SELECT/JOIN source position —
+     * calling `fromFragmentWith` on them throws.
      */
     override def fromFragmentWith(x: String): AppliedFragment =
       if (argsFrag.encoder.types.isEmpty) {
@@ -65,12 +67,14 @@ private[sharp] def srfRelation1[T, N <: String & Singleton, BA](
       } else
         throw new UnsupportedOperationException(
           s"skunk-sharp: SRF '$funcName' has typed args (Param[T] or other typed expressions) and can only be " +
-          s"rendered via a SELECT/JOIN source position (aliasedFromEntryParts). The fallback rendering path " +
-          s"(`fromFragmentWith` / `starProjFromAfOpt`) does not support typed args."
+            s"rendered via a SELECT/JOIN source position (aliasedFromEntryParts). The fallback rendering path " +
+            s"(`fromFragmentWith` / `starProjFromAfOpt`) does not support typed args."
         )
 
-    /** Disable the cached `starProj FROM` AppliedFragment — SRFs always carry args; the body rendering is handled
-      * by `aliasedFromEntryParts` which threads typed args through Right slots. */
+    /**
+     * Disable the cached `starProj FROM` AppliedFragment — SRFs always carry args; the body rendering is handled by
+     * `aliasedFromEntryParts` which threads typed args through Right slots.
+     */
     override lazy val starProjFromAfOpt: Option[AppliedFragment] = None
   }
 }
@@ -99,7 +103,8 @@ trait PgSrf {
 
   /** `generate_series(start, stop)` — inclusive integer range, one column `n INT` per row. */
   inline def generateSeries[A, B](
-    start: TypedExpr[Int, A], stop: TypedExpr[Int, B]
+    start: TypedExpr[Int, A],
+    stop: TypedExpr[Int, B]
   ): TypedBodyRelation[Column[Int, "n", false, EmptyTuple] *: EmptyTuple, Where.Concat[A, B]] {
     type Alias = "n"
     type Mode  = AliasMode.Explicit
@@ -110,7 +115,9 @@ trait PgSrf {
 
   /** `generate_series(start, stop, step)` — with an explicit step (positive or negative). */
   inline def generateSeries[A, B, C](
-    start: TypedExpr[Int, A], stop: TypedExpr[Int, B], step: TypedExpr[Int, C]
+    start: TypedExpr[Int, A],
+    stop: TypedExpr[Int, B],
+    step: TypedExpr[Int, C]
   ): TypedBodyRelation[Column[Int, "n", false, EmptyTuple] *: EmptyTuple, Where.Concat[Where.Concat[A, B], C]] {
     type Alias = "n"
     type Mode  = AliasMode.Explicit
@@ -123,8 +130,7 @@ trait PgSrf {
 
   /**
    * `unnest(array)` as a [[Relation]]. The array expression's typed Args thread into the outer query: pass
-   * `Param[Arr[E]]` for a deferred array, `lit(arr)` for a compile-time literal, or any other
-   * `TypedExpr[Arr[E], A]`.
+   * `Param[Arr[E]]` for a deferred array, `lit(arr)` for a compile-time literal, or any other `TypedExpr[Arr[E], A]`.
    */
   def unnestAsRelation[A, E, BA](a: TypedExpr[A, BA])(using
     @scala.annotation.unused ev: IsArray.Aux[A, E],

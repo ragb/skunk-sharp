@@ -130,7 +130,8 @@ class PgFunctionSuite extends PgFixture {
         for {
           _ <- assertIO(empty.select(_ => Pg.replace(param("a-b-c"), lit("-"), lit("/"))).compile.unique(s), "a/b/c")
           _ <- assertIO(empty.select(_ => Pg.substring(param("hello world"), lit(7))).compile.unique(s), "world")
-          _ <- assertIO(empty.select(_ => Pg.substring(param("hello world"), lit(1), lit(5))).compile.unique(s), "hello")
+          _ <-
+            assertIO(empty.select(_ => Pg.substring(param("hello world"), lit(1), lit(5))).compile.unique(s), "hello")
           _ <- assertIO(empty.select(_ => Pg.left(param("hello"), lit(3))).compile.unique(s), "hel")
           _ <- assertIO(empty.select(_ => Pg.right(param("hello"), lit(3))).compile.unique(s), "llo")
           _ <- assertIO(empty.select(_ => Pg.repeat(param("ab"), lit(3))).compile.unique(s), "ababab")

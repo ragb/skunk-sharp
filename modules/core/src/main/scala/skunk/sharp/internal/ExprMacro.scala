@@ -11,10 +11,10 @@ import scala.quoted.*
  * Macro behind the `expr"..."` interpolator (see [[skunk.sharp.expr]]).
  *
  * The job is exactly: concatenate the literal SQL pieces from the `StringContext` with each interpolated
- * [[TypedExpr]]'s `fragment.parts`, threading their `Args` slots through `Where.FoldConcat`. No value-baking,
- * no parameter wrapping — every interpolation must already be a `TypedExpr` (column ref, `Param[T]`,
- * `lit(v)`, …). Literal SQL pieces show up as `Left(s)` entries in the assembled `Fragment.parts`; arg
- * fragments contribute their own parts (which may carry `Right(state)` placeholders for `Param[T]`).
+ * [[TypedExpr]]'s `fragment.parts`, threading their `Args` slots through `Where.FoldConcat`. No value-baking, no
+ * parameter wrapping — every interpolation must already be a `TypedExpr` (column ref, `Param[T]`, `lit(v)`, …). Literal
+ * SQL pieces show up as `Left(s)` entries in the assembled `Fragment.parts`; arg fragments contribute their own parts
+ * (which may carry `Right(state)` placeholders for `Param[T]`).
  */
 private[sharp] object ExprMacro {
 
@@ -47,7 +47,7 @@ private[sharp] object ExprMacro {
     // class hierarchy via `baseClasses`. We also `simplified` the term type to reduce match-type aliases
     // (e.g. `NamedTuple.Elem[…, 1]` for a column field access on a `ColumnsView` lambda parameter), then
     // coerce via a `Typed` wrapper so the splice's `.fragment` projection sees the concrete `TypedExpr` type.
-    val typedExprSym = TypeRepr.of[TypedExpr[Any, Any]].typeSymbol
+    val typedExprSym                                  = TypeRepr.of[TypedExpr[Any, Any]].typeSymbol
     val argSlots: List[(TypeRepr, Expr[Fragment[?]])] = argExprs.map { argExpr =>
       val widened = argExpr.asTerm.tpe.widen.dealias.simplified
 
@@ -125,23 +125,23 @@ private[sharp] object ExprMacro {
 }
 
 /**
- * Runtime helpers used by `expr"..."`-emitted code. Lives in a regular object so the assembly + encoder
- * construction don't get duplicated at every inline call site.
+ * Runtime helpers used by `expr"..."`-emitted code. Lives in a regular object so the assembly + encoder construction
+ * don't get duplicated at every inline call site.
  */
 object ExprMacroRuntime {
 
   /**
-   * Direct concatenation: `literals(0)`, then for each `i`, `argFrags(i).parts ++ literals(i+1)`. The
-   * resulting `Fragment.parts` is exactly the user's SQL with each interpolated `TypedExpr`'s parts spliced
-   * in — including any `$N` placeholders the args carry. The encoder folds the args' encoders into one
-   * that consumes a `Where.FoldConcat[Tup]` value and emits each arg's encoded bytes in render order.
+   * Direct concatenation: `literals(0)`, then for each `i`, `argFrags(i).parts ++ literals(i+1)`. The resulting
+   * `Fragment.parts` is exactly the user's SQL with each interpolated `TypedExpr`'s parts spliced in — including any
+   * `$N` placeholders the args carry. The encoder folds the args' encoders into one that consumes a
+   * `Where.FoldConcat[Tup]` value and emits each arg's encoded bytes in render order.
    */
   inline def assemble[Tup <: Tuple, Args](
     literals: List[String],
     argFrags: List[Fragment[?]]
   ): Fragment[Args] = {
     val parts: List[Either[String, cats.data.State[Int, String]]] = {
-      val buf = scala.collection.mutable.ListBuffer.empty[Either[String, cats.data.State[Int, String]]]
+      val buf  = scala.collection.mutable.ListBuffer.empty[Either[String, cats.data.State[Int, String]]]
       val head = literals.head
       if (head.nonEmpty) buf += Left(head)
       argFrags.zip(literals.tail).foreach { case (f, lit) =>
@@ -157,11 +157,10 @@ object ExprMacroRuntime {
   }
 
   /**
-   * Build an encoder that consumes the user-facing `Args` value (a flat tuple, scalar, or `Void`), walks
-   * `argFrags` in render order, and for each non-`Void` slot delegates to its arg's encoder. The projector
-   * is materialised at the inline call site so `Where.projectFoldConcat[Tup]` reduces with the concrete
-   * tuple shape; this method itself is a non-inline def so the anonymous `Encoder` class isn't duplicated
-   * at every interpolation site.
+   * Build an encoder that consumes the user-facing `Args` value (a flat tuple, scalar, or `Void`), walks `argFrags` in
+   * render order, and for each non-`Void` slot delegates to its arg's encoder. The projector is materialised at the
+   * inline call site so `Where.projectFoldConcat[Tup]` reduces with the concrete tuple shape; this method itself is a
+   * non-inline def so the anonymous `Encoder` class isn't duplicated at every interpolation site.
    */
   private[sharp] def buildEncoder[Args](
     argFrags: List[Fragment[?]],

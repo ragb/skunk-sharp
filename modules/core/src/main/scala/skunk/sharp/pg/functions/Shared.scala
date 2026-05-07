@@ -53,8 +53,8 @@ private[functions] def stringToIntFn[T, A](name: String, e: TypedExpr[T, A])(usi
 
 private[functions] def twoArgDoubleFn[Y, X, AY, AX](
   name: String,
-  y:    TypedExpr[Y, AY],
-  x:    TypedExpr[X, AX]
+  y: TypedExpr[Y, AY],
+  x: TypedExpr[X, AX]
 ): TypedExpr[Double, Where.Concat[AY, AX]] = {
   // proj is only invoked when neither encoder is Void (runtime check in combineEnc), so the cast is safe.
   val inner = TypedExpr.combineSep(y.fragment, ", ", x.fragment, _.asInstanceOf[(AY, AX)])

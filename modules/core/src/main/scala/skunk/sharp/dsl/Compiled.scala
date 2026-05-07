@@ -8,23 +8,23 @@ import skunk.data.Completion
 import skunk.sharp.where.Where
 
 /**
- * The compiled form of a query builder — a typed `Fragment[Args]` plus a row codec, with no values bound. Every
- * DSL verb (`select`, `insert`, `update`, `delete`, plus their `RETURNING` variants) reduces to one of these
- * two types at `.compile` time. All session-facing operations (`run`, `unique`, `option`, `stream`, `cursor`,
- * `prepared`) live as extensions on these types — defined once, available everywhere, mirroring
- * [[skunk.Session]]'s own row-fetching surface.
+ * The compiled form of a query builder — a typed `Fragment[Args]` plus a row codec, with no values bound. Every DSL
+ * verb (`select`, `insert`, `update`, `delete`, plus their `RETURNING` variants) reduces to one of these two types at
+ * `.compile` time. All session-facing operations (`run`, `unique`, `option`, `stream`, `cursor`, `prepared`) live as
+ * extensions on these types — defined once, available everywhere, mirroring [[skunk.Session]]'s own row-fetching
+ * surface.
  *
  * Internal representation is a typed `skunk.Fragment[Args]`. Argument values are supplied at execute time —
  * `q.run(session)(args)` for non-`Void` `Args`, plain `q.run(session)` for `Args = skunk.Void`. The same
- * `QueryTemplate` value can be reused with many different argument tuples; that's the whole point of building
- * the SQL once and re-binding values.
+ * `QueryTemplate` value can be reused with many different argument tuples; that's the whole point of building the SQL
+ * once and re-binding values.
  *
- * For subquery composition (embedding into an outer query) use `AsSubquery` — it sees the typed inner
- * `Fragment[Args]` and threads it into the outer's args slot.
+ * For subquery composition (embedding into an outer query) use `AsSubquery` — it sees the typed inner `Fragment[Args]`
+ * and threads it into the outer's args slot.
  */
 final class QueryTemplate[Args, R] private (
   val fragment: Fragment[Args],
-  val codec:    Codec[R]
+  val codec: Codec[R]
 ) {
 
   /** Typed skunk `Query[Args, R]` — suitable for `session.prepare(q.typedQuery)` to reuse with arg values. */
@@ -34,8 +34,8 @@ final class QueryTemplate[Args, R] private (
   def compile: QueryTemplate[Args, R] = this
 
   /**
-   * Map the row shape into a case class `T` whose `MirroredElemTypes` align with `R`. Works for plain-tuple
-   * projections (e.g. from `.returningTuple`) and named-tuple projections (e.g. from `.returningAll`) — the
+   * Map the row shape into a case class `T` whose `MirroredElemTypes` align with `R`. Works for plain-tuple projections
+   * (e.g. from `.returningTuple`) and named-tuple projections (e.g. from `.returningAll`) — the
    * [[QueryTemplateMapping.Unwrap]] match type strips named-tuple labels before the comparison.
    */
   def to[T <: Product](using
@@ -48,6 +48,7 @@ final class QueryTemplate[Args, R] private (
     )
     QueryTemplate.mk[Args, T](fragment, mapped)
   }
+
 }
 
 object QueryTemplate {
@@ -58,11 +59,12 @@ object QueryTemplate {
 
   /**
    * Bridge for call sites that have an `AppliedFragment` (its args are already baked) and need to surface as a
-   * `QueryTemplate[Void, R]`. Used by the few remaining AF-based code paths (e.g. `SetOpQuery.compile`); typed
-   * builders should call [[mk]] directly with their `Fragment[Args]`.
+   * `QueryTemplate[Void, R]`. Used by the few remaining AF-based code paths (e.g. `SetOpQuery.compile`); typed builders
+   * should call [[mk]] directly with their `Fragment[Args]`.
    */
   def fromApplied[R](af: AppliedFragment, codec: Codec[R]): QueryTemplate[Void, R] =
     new QueryTemplate[Void, R](skunk.sharp.TypedExpr.liftAfToVoid(af), codec)
+
 }
 
 /** The compiled form of a statement that does not return rows (INSERT/UPDATE/DELETE without RETURNING). */
@@ -84,6 +86,7 @@ object CommandTemplate {
 
   def fromApplied(af: AppliedFragment): CommandTemplate[Void] =
     new CommandTemplate[Void](skunk.sharp.TypedExpr.liftAfToVoid(af))
+
 }
 
 /** Strip named-tuple labels for the `to[T]` match-type unification on [[QueryTemplate]]. */
@@ -92,12 +95,13 @@ object QueryTemplateMapping {
   type Unwrap[R] = R match
     case scala.NamedTuple.NamedTuple[?, v] => v
     case _                                 => R
+
 }
 
 /**
  * Session-facing operations for queries. Mirror [[skunk.Session]]'s own row-fetching API. `args` is the typed
- * captured-parameter tuple — supplied at execute time, not at builder-build time. For `Args = Void`-shaped
- * templates see the extension block below for argless overloads.
+ * captured-parameter tuple — supplied at execute time, not at builder-build time. For `Args = Void`-shaped templates
+ * see the extension block below for argless overloads.
  */
 extension [Args, R](q: QueryTemplate[Args, R]) {
 
@@ -147,11 +151,11 @@ extension [Args, R](q: QueryTemplate[Args, R]) {
 }
 
 /**
- * Argless overloads for `Args = Void`-shaped templates — no `args` parameter at execute time. Routes through
- * Skunk's extended-protocol execute (`session.execute(q)(Void)`) **not** the simple-protocol `execute(q)` —
- * Void here means "encoder takes Void at execute" which may still emit baked values via `contramap` (e.g.
- * INSERT with values baked via `Param.bind`). The simple protocol can't bind any params; the extended one
- * does. The few truly-no-params cases pay one extra round trip but are still correct.
+ * Argless overloads for `Args = Void`-shaped templates — no `args` parameter at execute time. Routes through Skunk's
+ * extended-protocol execute (`session.execute(q)(Void)`) **not** the simple-protocol `execute(q)` — Void here means
+ * "encoder takes Void at execute" which may still emit baked values via `contramap` (e.g. INSERT with values baked via
+ * `Param.bind`). The simple protocol can't bind any params; the extended one does. The few truly-no-params cases pay
+ * one extra round trip but are still correct.
  */
 extension [R](q: QueryTemplate[Void, R]) {
 
@@ -223,11 +227,11 @@ extension (c: CommandTemplate[Void]) {
  *   - a [[SetOpQuery]] built from chained `UNION` / `INTERSECT` / `EXCEPT`,
  *   - a literal [[Values]] table.
  *
- * `Args` exposes the inner subquery's typed parameters so they thread into the outer composition wherever the
- * subquery is embedded — in `Pg.exists(inner)`, `col.in(inner)`, scalar `.asExpr`, set-op operands, etc.
+ * `Args` exposes the inner subquery's typed parameters so they thread into the outer composition wherever the subquery
+ * is embedded — in `Pg.exists(inner)`, `col.in(inner)`, scalar `.asExpr`, set-op operands, etc.
  *
- * Codec extraction (`codec`) is expected to be cheap — no SQL rendered. `fragment` is allowed to compile the
- * inner query (cheap for builders, no extra cost over `.compile`).
+ * Codec extraction (`codec`) is expected to be cheap — no SQL rendered. `fragment` is allowed to compile the inner
+ * query (cheap for builders, no extra cost over `.compile`).
  */
 sealed trait AsSubquery[Q, T, Args] {
   def codec(q: Q): Codec[T]
@@ -238,33 +242,65 @@ object AsSubquery {
 
   given identity[Args, T]: AsSubquery[QueryTemplate[Args, T], T, Args] =
     new AsSubquery[QueryTemplate[Args, T], T, Args] {
-      def codec(q: QueryTemplate[Args, T]): Codec[T]       = q.codec
+      def codec(q: QueryTemplate[Args, T]): Codec[T]          = q.codec
       def fragment(q: QueryTemplate[Args, T]): Fragment[Args] = q.fragment
     }
 
   inline given fromProjected[
-    Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DistinctOn <: Tuple, Orders <: Tuple,
-    SA, OnA, CArgs, DA, PA, GA, OA, WA, HA, T
+    Ss <: Tuple,
+    Proj <: Tuple,
+    Groups <: Tuple,
+    DistinctOn <: Tuple,
+    Orders <: Tuple,
+    SA,
+    OnA,
+    CArgs,
+    DA,
+    PA,
+    GA,
+    OA,
+    WA,
+    HA,
+    T
   ](using
-    ev:      skunk.sharp.GroupCoverage[Proj, Groups],
-    sbOf:    skunk.sharp.dsl.SourceBodyArgsOf.Aux[Ss, SA],
-    bff:     skunk.sharp.dsl.SourceBodyArgsProj[Ss],
-    onSum:   skunk.sharp.dsl.SourceOnArgsOf.Aux[Ss, OnA],
-    onProj:  skunk.sharp.dsl.SourceOnArgsProj[Ss],
-    cteSum:  skunk.sharp.dsl.CteArgsOf.Aux[Ss, CArgs],
+    ev: skunk.sharp.GroupCoverage[Proj, Groups],
+    sbOf: skunk.sharp.dsl.SourceBodyArgsOf.Aux[Ss, SA],
+    bff: skunk.sharp.dsl.SourceBodyArgsProj[Ss],
+    onSum: skunk.sharp.dsl.SourceOnArgsOf.Aux[Ss, OnA],
+    onProj: skunk.sharp.dsl.SourceOnArgsProj[Ss],
+    cteSum: skunk.sharp.dsl.CteArgsOf.Aux[Ss, CArgs],
     cteProj: skunk.sharp.dsl.CteArgsProj[Ss],
-    d:       skunk.sharp.dsl.ProjArgsOf.Aux[DistinctOn, DA],
-    pa:      skunk.sharp.dsl.ProjArgsOf.Aux[Proj, PA],
-    g:       skunk.sharp.dsl.ProjArgsOf.Aux[Groups, GA],
-    o:       skunk.sharp.dsl.ProjArgsOf.Aux[Orders, OA]
+    d: skunk.sharp.dsl.ProjArgsOf.Aux[DistinctOn, DA],
+    pa: skunk.sharp.dsl.ProjArgsOf.Aux[Proj, PA],
+    g: skunk.sharp.dsl.ProjArgsOf.Aux[Groups, GA],
+    o: skunk.sharp.dsl.ProjArgsOf.Aux[Orders, OA]
   ): AsSubquery[
     ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T],
     T,
-    Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DA], PA], SA], OnA], WA], GA], HA], OA]
+    Where.Concat[Where.Concat[Where.Concat[
+      Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DA], PA], SA], OnA], WA],
+      GA
+    ], HA], OA]
   ] = {
-    type Out = Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DA], PA], SA], OnA], WA], GA], HA], OA]
+    type Out = Where.Concat[Where.Concat[Where.Concat[
+      Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DA], PA], SA], OnA], WA],
+      GA
+    ], HA], OA]
     val frag: ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T] => Fragment[Out] =
-      q => q.compile[SA, OnA, CArgs, DA, PA, GA, OA](using ev, sbOf, bff, onSum, onProj, cteSum, cteProj, d, pa, g, o).fragment
+      q =>
+        q.compile[SA, OnA, CArgs, DA, PA, GA, OA](using
+          ev,
+          sbOf,
+          bff,
+          onSum,
+          onProj,
+          cteSum,
+          cteProj,
+          d,
+          pa,
+          g,
+          o
+        ).fragment
     new ProjectedAsSubquery[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T, Out](frag)
   }
 
@@ -272,13 +308,17 @@ object AsSubquery {
    * Whole-row SelectBuilder → subquery of NamedRow. Relies on the same `IsSingleSource` evidence `.compile` uses.
    */
   inline given fromSelectBuilder[Ss <: Tuple, GroupsT <: Tuple, SA, GA, CArgs, WA, HA, C <: Tuple, R](using
-    ev:      IsSingleSource.Aux[Ss, C],
-    sbOf:    skunk.sharp.dsl.SourceBodyArgsOf.Aux[Ss, SA],
-    cteSum:  skunk.sharp.dsl.CteArgsOf.Aux[Ss, CArgs],
+    ev: IsSingleSource.Aux[Ss, C],
+    sbOf: skunk.sharp.dsl.SourceBodyArgsOf.Aux[Ss, SA],
+    cteSum: skunk.sharp.dsl.CteArgsOf.Aux[Ss, CArgs],
     cteProj: skunk.sharp.dsl.CteArgsProj[Ss],
-    g:       skunk.sharp.dsl.ProjArgsOf.Aux[GroupsT, GA],
-    eq:      R =:= skunk.sharp.NamedRowOf[C]
-  ): AsSubquery[SelectBuilder[Ss, GroupsT, WA, HA], R, Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SA], WA], GA], HA]] = {
+    g: skunk.sharp.dsl.ProjArgsOf.Aux[GroupsT, GA],
+    eq: R =:= skunk.sharp.NamedRowOf[C]
+  ): AsSubquery[
+    SelectBuilder[Ss, GroupsT, WA, HA],
+    R,
+    Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SA], WA], GA], HA]
+  ] = {
     type Out = Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SA], WA], GA], HA]
     val frag: SelectBuilder[Ss, GroupsT, WA, HA] => Fragment[Out] =
       b => b.compile[SA, GA, CArgs](using ev, sbOf, cteSum, cteProj, g).fragment
@@ -286,32 +326,42 @@ object AsSubquery {
   }
 
   /**
-   * Named-class instances for the inline `fromProjected` / `fromSelectBuilder` givens. Avoids E197
-   * (anonymous class duplicated at each inline summon site) — the class definition is shared, only
-   * the captured `frag` lambda differs per summon.
+   * Named-class instances for the inline `fromProjected` / `fromSelectBuilder` givens. Avoids E197 (anonymous class
+   * duplicated at each inline summon site) — the class definition is shared, only the captured `frag` lambda differs
+   * per summon.
    */
   private[dsl] final class ProjectedAsSubquery[
-    Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DistinctOn <: Tuple, Orders <: Tuple, WA, HA, T, Out
+    Ss <: Tuple,
+    Proj <: Tuple,
+    Groups <: Tuple,
+    DistinctOn <: Tuple,
+    Orders <: Tuple,
+    WA,
+    HA,
+    T,
+    Out
   ](frag: ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T] => Fragment[Out])
-    extends AsSubquery[ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T], T, Out] {
-    def codec(q:    ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T]): Codec[T]    = q.codec
+      extends AsSubquery[ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T], T, Out] {
+    def codec(q: ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T]): Codec[T]         = q.codec
     def fragment(q: ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T]): Fragment[Out] = frag(q)
   }
 
   private[dsl] final class SelectBuilderAsSubquery[Ss <: Tuple, GroupsT <: Tuple, WA, HA, R, Out](
     frag: SelectBuilder[Ss, GroupsT, WA, HA] => Fragment[Out]
   ) extends AsSubquery[SelectBuilder[Ss, GroupsT, WA, HA], R, Out] {
+
     def codec(b: SelectBuilder[Ss, GroupsT, WA, HA]): Codec[R] = {
       val entries = b.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
       skunk.sharp.internal.RowCodecs.rowCodec(entries.head.effectiveCols).asInstanceOf[Codec[R]]
     }
+
     def fragment(b: SelectBuilder[Ss, GroupsT, WA, HA]): Fragment[Out] = frag(b)
   }
 
   given fromSetOp[A, T]: AsSubquery[SetOpQuery[A, T], T, A] =
     new AsSubquery[SetOpQuery[A, T], T, A] {
-      def codec(q: SetOpQuery[A, T]): Codec[T]            = q.codec
-      def fragment(q: SetOpQuery[A, T]): Fragment[A]      = q.renderFn()
+      def codec(q: SetOpQuery[A, T]): Codec[T]       = q.codec
+      def fragment(q: SetOpQuery[A, T]): Fragment[A] = q.renderFn()
     }
 
   /**
@@ -320,7 +370,7 @@ object AsSubquery {
    */
   given fromValues[Cols <: Tuple, Row <: scala.NamedTuple.AnyNamedTuple]: AsSubquery[Values[Cols, Row], Row, Void] =
     new AsSubquery[Values[Cols, Row], Row, Void] {
-      def codec(v: Values[Cols, Row]): Codec[Row] = v.codec
+      def codec(v: Values[Cols, Row]): Codec[Row]        = v.codec
       def fragment(v: Values[Cols, Row]): Fragment[Void] =
         skunk.sharp.TypedExpr.liftAfToVoid(v.render)
     }

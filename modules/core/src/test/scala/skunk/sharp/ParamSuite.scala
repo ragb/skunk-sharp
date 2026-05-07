@@ -1108,8 +1108,8 @@ class ParamSuite extends munit.FunSuite {
 
   test("col.in(lits) preserves Args = Void") {
     case class User(id: UUID, email: String, age: Int)
-    val users                     = Table.of[User]("users")
-    val q                         = users.select.where(u => u.age.in(cats.data.NonEmptyList.of(lit(20), lit(21), lit(22)))).compile
+    val users = Table.of[User]("users")
+    val q     = users.select.where(u => u.age.in(cats.data.NonEmptyList.of(lit(20), lit(21), lit(22)))).compile
     val _: QueryTemplate[Void, ?] = q
   }
 

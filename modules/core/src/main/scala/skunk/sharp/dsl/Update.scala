@@ -17,7 +17,7 @@ import scala.compiletime.constValueTuple
  * Threads two captured-args type parameters end-to-end:
  *
  *   - `SetArgs` — args from the SET RHS expressions.
- *   - `WArgs`   — args from the WHERE clause.
+ *   - `WArgs` — args from the WHERE clause.
  *
  * `.compile` produces `CommandTemplate[Where.Concat[SetArgs, WArgs]]`.
  */
@@ -26,9 +26,9 @@ final class UpdateBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
 ) {
 
   /**
-   * `SET <col := value>` — single-assignment form. `SetArgs` propagates from the assignment's `Args`,
-   * so `c.email := Param[String]` produces `UpdateWithSet[..., String]` and the value is supplied at
-   * execute time. `c.email := "literal"` produces `UpdateWithSet[..., Void]` (value-baked).
+   * `SET <col := value>` — single-assignment form. `SetArgs` propagates from the assignment's `Args`, so
+   * `c.email := Param[String]` produces `UpdateWithSet[..., String]` and the value is supplied at execute time.
+   * `c.email := "literal"` produces `UpdateWithSet[..., Void]` (value-baked).
    */
   def set[A](f: ColumnsView[Cols] => SetAssignment[?, A]): UpdateWithSet[Cols, Name, A] = {
     val sa = f(table.columnsView)
@@ -36,10 +36,10 @@ final class UpdateBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
   }
 
   /**
-   * `SET (<col := v>, ...)` — tuple form for multiple assignments. `SetArgs` is fixed to `Void`: the
-   * underlying typed Fragment encoder still composes whatever args the assignments contribute, but the
-   * static `SetArgs` slot stays `Void`. For typed-Args across multiple SET items, use the `&` infix
-   * combinator (`c.email := Param[String] & c.age := Param[Int]`) which threads `Concat[A1, A2]`.
+   * `SET (<col := v>, ...)` — tuple form for multiple assignments. `SetArgs` is fixed to `Void`: the underlying typed
+   * Fragment encoder still composes whatever args the assignments contribute, but the static `SetArgs` slot stays
+   * `Void`. For typed-Args across multiple SET items, use the `&` infix combinator (`c.email := Param[String] & c.age
+   * := Param[Int]`) which threads `Concat[A1, A2]`.
    */
   @scala.annotation.targetName("setTuple")
   def set(f: ColumnsView[Cols] => Tuple): UpdateWithSet[Cols, Name, Void] = {
@@ -99,8 +99,8 @@ private[sharp] def buildPatch[Cols <: Tuple, Name <: String & Singleton](
   names: List[String],
   values: List[Any]
 ): UpdateWithSet[Cols, Name, Void] = {
-  val allCols = table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
-  val byName  = allCols.iterator.map(c => c.name.toString -> c).toMap
+  val allCols                                = table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
+  val byName                                 = allCols.iterator.map(c => c.name.toString -> c).toMap
   val assignments: List[SetAssignment[?, ?]] =
     names.zip(values).collect { case (n, Some(v)) =>
       val col = byName(n)
@@ -137,7 +137,12 @@ final class UpdateWithSet[Cols <: Tuple, Name <: String & Singleton, SetArgs] pr
 
 }
 
-final class UpdateReady[Cols <: Tuple, Name <: String & Singleton, SetArgs, WArgs] @scala.annotation.publicInBinary private[sharp] (
+final class UpdateReady[
+  Cols <: Tuple,
+  Name <: String & Singleton,
+  SetArgs,
+  WArgs
+] @scala.annotation.publicInBinary private[sharp] (
   private[sharp] val table: Table[Cols, Name],
   private[sharp] val setFragment: Fragment[?],
   private[sharp] val whereOpt: Option[Fragment[?]]
@@ -145,12 +150,20 @@ final class UpdateReady[Cols <: Tuple, Name <: String & Singleton, SetArgs, WArg
 
   inline def where[A](f: ColumnsView[Cols] => Where[A]): UpdateReady[Cols, Name, SetArgs, Where.Concat[WArgs, A]] = {
     val pred     = f(table.columnsView)
-    val combined = SelectBuilder.andInto[WArgs, A](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], pred, c => Where.projectConcat[WArgs, A](c))
+    val combined = SelectBuilder.andInto[WArgs, A](
+      whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
+      pred,
+      c => Where.projectConcat[WArgs, A](c)
+    )
     new UpdateReady[Cols, Name, SetArgs, Where.Concat[WArgs, A]](table, setFragment, Some(combined))
   }
 
   inline def whereRaw(af: AppliedFragment): UpdateReady[Cols, Name, SetArgs, ?] = {
-    val combined = SelectBuilder.andRawInto[WArgs](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], af, c => Where.projectConcat[WArgs, Void](c))
+    val combined = SelectBuilder.andRawInto[WArgs](
+      whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
+      af,
+      c => Where.projectConcat[WArgs, Void](c)
+    )
     new UpdateReady[Cols, Name, SetArgs, Any](table, setFragment, Some(combined))
   }
 
@@ -172,7 +185,8 @@ final class UpdateReady[Cols <: Tuple, Name <: String & Singleton, SetArgs, WArg
   inline def compile: CommandTemplate[Where.Concat[SetArgs, WArgs]] =
     MutationAssembly.command[SetArgs, WArgs](updateParts)
 
-  inline def returning[T, A](f: ColumnsView[Cols] => TypedExpr[T, A]): QueryTemplate[Where.Concat[Where.Concat[SetArgs, WArgs], A], T] = {
+  inline def returning[T, A](f: ColumnsView[Cols] => TypedExpr[T, A])
+    : QueryTemplate[Where.Concat[Where.Concat[SetArgs, WArgs], A], T] = {
     val expr = f(table.columnsView)
     MutationAssembly.withReturningTyped[SetArgs, WArgs, A, T](updateParts, expr.fragment, expr.codec)
   }
@@ -274,7 +288,11 @@ final class UpdateFromWithSet[Cols <: Tuple, Name <: String & Singleton, Ss <: T
 }
 
 final class UpdateFromReady[
-  Cols <: Tuple, Name <: String & Singleton, Ss <: Tuple, SetArgs, WArgs
+  Cols <: Tuple,
+  Name <: String & Singleton,
+  Ss <: Tuple,
+  SetArgs,
+  WArgs
 ] @scala.annotation.publicInBinary private[sharp] (
   private[sharp] val table: Table[Cols, Name],
   private[sharp] val sources: Ss,
@@ -282,22 +300,30 @@ final class UpdateFromReady[
   private[sharp] val whereOpt: Option[Fragment[?]]
 ) {
 
-  inline def where[A](f: JoinedView[Ss] => Where[A]): UpdateFromReady[Cols, Name, Ss, SetArgs, Where.Concat[WArgs, A]] = {
+  inline def where[A](f: JoinedView[Ss] => Where[A])
+    : UpdateFromReady[Cols, Name, Ss, SetArgs, Where.Concat[WArgs, A]] = {
     val view     = buildJoinedView(sources)
     val pred     = f(view)
-    val combined = SelectBuilder.andInto[WArgs, A](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], pred, c => Where.projectConcat[WArgs, A](c))
+    val combined = SelectBuilder.andInto[WArgs, A](
+      whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
+      pred,
+      c => Where.projectConcat[WArgs, A](c)
+    )
     new UpdateFromReady[Cols, Name, Ss, SetArgs, Where.Concat[WArgs, A]](table, sources, setFragment, Some(combined))
   }
 
   inline def whereRaw(af: AppliedFragment): UpdateFromReady[Cols, Name, Ss, SetArgs, ?] = {
-    val combined = SelectBuilder.andRawInto[WArgs](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], af, c => Where.projectConcat[WArgs, Void](c))
+    val combined = SelectBuilder.andRawInto[WArgs](
+      whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
+      af,
+      c => Where.projectConcat[WArgs, Void](c)
+    )
     new UpdateFromReady[Cols, Name, Ss, SetArgs, Any](table, sources, setFragment, Some(combined))
   }
 
   /**
-   * UPDATE … SET … FROM <tail sources> WHERE — emits per-source body Right slots so typed-subquery FROM
-   * sources thread their inner Args into the outer command's args. Plain tables contribute `emptyVoidSlot`
-   * for their body slot.
+   * UPDATE … SET … FROM <tail sources> WHERE — emits per-source body Right slots so typed-subquery FROM sources thread
+   * their inner Args into the outer command's args. Plain tables contribute `emptyVoidSlot` for their body slot.
    */
   private def updateFromParts: List[BodyPart] = {
     val buf = scala.collection.mutable.ListBuffer[BodyPart](
@@ -321,8 +347,8 @@ final class UpdateFromReady[
   }
 
   /**
-   * Number of FROM-tail body Right slots emitted by [[updateFromParts]] — one per tail source. Matches the
-   * count of values produced by `bff.project(sArgs).tail` (skipping the target table at index 0).
+   * Number of FROM-tail body Right slots emitted by [[updateFromParts]] — one per tail source. Matches the count of
+   * values produced by `bff.project(sArgs).tail` (skipping the target table at index 0).
    */
   private def fromTailBodyArgs(bff: SourceBodyArgsProj[? <: Tuple], sArgs: Any): List[Any] =
     bff.project(sArgs) match {
@@ -333,14 +359,14 @@ final class UpdateFromReady[
   // Concat-chain: SetArgs ⊕ SArgs ⊕ WArgs.
   inline def compile[SArgs](using
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
-    bff:  SourceBodyArgsProj[Ss]
+    bff: SourceBodyArgsProj[Ss]
   ): CommandTemplate[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs]] = {
     type Out = Where.Concat[Where.Concat[SetArgs, SArgs], WArgs]
     val slotValues: Out => IArray[Any] = args => {
       val (setSAcc, wArgs) = Where.projectConcat[Where.Concat[SetArgs, SArgs], WArgs](args)
       val (setArgs, sArgs) = Where.projectConcat[SetArgs, SArgs](setSAcc)
       val perTailBody      = fromTailBodyArgs(bff, sArgs)
-      val out = scala.collection.mutable.ArrayBuffer.empty[Any]
+      val out              = scala.collection.mutable.ArrayBuffer.empty[Any]
       out += setArgs
       perTailBody.foreach(out += _)
       out += wArgs
@@ -353,17 +379,18 @@ final class UpdateFromReady[
   // Concat-chain: SetArgs ⊕ SArgs ⊕ WArgs ⊕ A (RETURNING).
   inline def returning[T, A, SArgs](f: JoinedView[Ss] => TypedExpr[T, A])(using
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
-    bff:  SourceBodyArgsProj[Ss]
+    bff: SourceBodyArgsProj[Ss]
   ): QueryTemplate[Where.Concat[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs], A], T] = {
-    val expr  = f(buildJoinedView(sources))
-    val parts: List[BodyPart] = updateFromParts ++ List[BodyPart](SelectBuilder.bake(RawConstants.RETURNING), Right(expr.fragment))
+    val expr                  = f(buildJoinedView(sources))
+    val parts: List[BodyPart] = updateFromParts ++
+      List[BodyPart](SelectBuilder.bake(RawConstants.RETURNING), Right(expr.fragment))
     type Out = Where.Concat[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs], A]
     val slotValues: Out => IArray[Any] = args => {
       val (setSwAcc, retArgs) = Where.projectConcat[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs], A](args)
       val (setSAcc, wArgs)    = Where.projectConcat[Where.Concat[SetArgs, SArgs], WArgs](setSwAcc)
       val (setArgs, sArgs)    = Where.projectConcat[SetArgs, SArgs](setSAcc)
       val perTailBody         = fromTailBodyArgs(bff, sArgs)
-      val out = scala.collection.mutable.ArrayBuffer.empty[Any]
+      val out                 = scala.collection.mutable.ArrayBuffer.empty[Any]
       out += setArgs
       perTailBody.foreach(out += _)
       out += wArgs
@@ -374,9 +401,9 @@ final class UpdateFromReady[
   }
 
   inline def returningTuple[T <: NonEmptyTuple, SArgs, TOut](f: JoinedView[Ss] => T)(using
-    pa:   ProjArgsOf.Aux[T, TOut],
+    pa: ProjArgsOf.Aux[T, TOut],
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
-    bff:  SourceBodyArgsProj[Ss]
+    bff: SourceBodyArgsProj[Ss]
   ): QueryTemplate[Where.Concat[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs], TOut], ExprOutputs[T]] = {
     val exprs    = f(buildJoinedView(sources)).toList.asInstanceOf[List[TypedExpr[?, ?]]]
     val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
@@ -387,9 +414,9 @@ final class UpdateFromReady[
   }
 
   inline def returningNamed[NT <: scala.NamedTuple.AnyNamedTuple, SArgs, TOut](f: JoinedView[Ss] => NT)(using
-    pa:   ProjArgsOf.Aux[scala.NamedTuple.DropNames[NT], TOut],
+    pa: ProjArgsOf.Aux[scala.NamedTuple.DropNames[NT], TOut],
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
-    bff:  SourceBodyArgsProj[Ss]
+    bff: SourceBodyArgsProj[Ss]
   ): QueryTemplate[
     Where.Concat[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs], TOut],
     scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]]
@@ -408,7 +435,7 @@ final class UpdateFromReady[
 
   inline def returningAll[SArgs](using
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
-    bff:  SourceBodyArgsProj[Ss]
+    bff: SourceBodyArgsProj[Ss]
   ): QueryTemplate[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs], NamedRowOf[Cols]] = {
     val exprs =
       table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
@@ -426,9 +453,9 @@ final class UpdateFromReady[
 // ---- SetAssignment ---------------------------------------------------------------------------------
 
 /**
- * One typed `column = expression` assignment in an UPDATE SET list. `Args` is the captured-args type from the
- * RHS expression — `Void` when the RHS is a runtime value (baked via [[Param.bind]]), `T` when the RHS is a
- * deferred [[Param]], or whatever the wider expression's Args is.
+ * One typed `column = expression` assignment in an UPDATE SET list. `Args` is the captured-args type from the RHS
+ * expression — `Void` when the RHS is a runtime value (baked via [[Param.bind]]), `T` when the RHS is a deferred
+ * [[Param]], or whatever the wider expression's Args is.
  */
 final class SetAssignment[T, Args] @scala.annotation.publicInBinary private[sharp] (
   private[sharp] val col: TypedColumn[T, ?, ?],
@@ -441,7 +468,9 @@ object SetAssignment {
    * Internal-only: bake a runtime value into a Void-args assignment. Used by `.patch(...)` where the runtime
    * named-tuple of `Option[T]`s genuinely cannot be expressed as a typed expression at the call site.
    */
-  private[sharp] def fromValue[T](col: TypedColumn[T, ?, ?], value: T)(using pf: PgTypeFor[T]): SetAssignment[T, Void] = {
+  private[sharp] def fromValue[T](col: TypedColumn[T, ?, ?], value: T)(using
+    pf: PgTypeFor[T]
+  ): SetAssignment[T, Void] = {
     val rhs = Param.bind(value)(using pf)
     fromExprAux[T, Void](col, rhs.fragment)
   }
@@ -459,10 +488,10 @@ object SetAssignment {
 
   /**
    * Combine a non-empty list of assignments into a single comma-joined `Fragment[?]`. Existential-typed
-   * (`SetAssignment[?, ?]`) — Args is erased here, so we use [[SelectBuilder.combineEncoders]]'s runtime
-   * Void-shortcut without a contramap. Safe for tuple-form `.set` where the OUTER `SetArgs` collapses to
-   * Void; would need a contramap+`projectConcat` if any side carries a non-singleton-Void typed-Args
-   * encoder (e.g. `Param.bind`). Use the `&` combinator instead for typed Args across multiple items.
+   * (`SetAssignment[?, ?]`) — Args is erased here, so we use [[SelectBuilder.combineEncoders]]'s runtime Void-shortcut
+   * without a contramap. Safe for tuple-form `.set` where the OUTER `SetArgs` collapses to Void; would need a
+   * contramap+`projectConcat` if any side carries a non-singleton-Void typed-Args encoder (e.g. `Param.bind`). Use the
+   * `&` combinator instead for typed Args across multiple items.
    */
   private[dsl] def combineAll(items: List[SetAssignment[?, ?]]): Fragment[?] = {
     require(items.nonEmpty, "skunk-sharp: cannot combine empty SET list")
@@ -474,19 +503,23 @@ object SetAssignment {
   }
 
   /**
-   * Infix `&` combinator — comma-style joining for tuple shapes. `proj` re-pairs `Concat[A1, A2]` →
-   * `(A1, A2)` for the combined product encoder's contramap; materialised at the call site as
-   * `c => Where.projectConcat[A1, A2](c)` so the inline dispatch reduces with concrete `A1`/`A2`.
+   * Infix `&` combinator — comma-style joining for tuple shapes. `proj` re-pairs `Concat[A1, A2]` → `(A1, A2)` for the
+   * combined product encoder's contramap; materialised at the call site as `c => Where.projectConcat[A1, A2](c)` so the
+   * inline dispatch reduces with concrete `A1`/`A2`.
    */
   extension [T1, A1](lhs: SetAssignment[T1, A1])
+
     inline def &[T2, A2](rhs: SetAssignment[T2, A2]): SetAssignment[Unit, Where.Concat[A1, A2]] = {
       val parts = lhs.fragment.parts ++ RawConstants.COMMA_SEP.fragment.parts ++ rhs.fragment.parts
       val enc   = TypedExpr.combineEnc[A1, A2](
-        lhs.fragment.encoder, rhs.fragment.encoder, c => Where.projectConcat[A1, A2](c)
+        lhs.fragment.encoder,
+        rhs.fragment.encoder,
+        c => Where.projectConcat[A1, A2](c)
       )
       val frag: Fragment[Where.Concat[A1, A2]] = Fragment(parts, enc, Origin.unknown)
       new SetAssignment[Unit, Where.Concat[A1, A2]](
-        null.asInstanceOf[TypedColumn[Unit, ?, ?]], frag
+        null.asInstanceOf[TypedColumn[Unit, ?, ?]],
+        frag
       )
     }
 
@@ -495,9 +528,9 @@ object SetAssignment {
 extension [T, Null <: Boolean, N <: String & Singleton](col: TypedColumn[T, Null, N]) {
 
   /**
-   * `col = <expression>` — RHS is any TypedExpr; its Args thread into the SetArgs slot. For value RHS pick
-   * `Param[T]` (deferred to execute time, static SQL), `lit(v)` (compile-time literal, primitives only), or
-   * `Param.bind(v)` (bake the runtime value into a Void-args fragment).
+   * `col = <expression>` — RHS is any TypedExpr; its Args thread into the SetArgs slot. For value RHS pick `Param[T]`
+   * (deferred to execute time, static SQL), `lit(v)` (compile-time literal, primitives only), or `Param.bind(v)` (bake
+   * the runtime value into a Void-args fragment).
    */
   def :=[A](expr: TypedExpr[T, A]): SetAssignment[T, A] =
     SetAssignment.fromExpr(col, expr)

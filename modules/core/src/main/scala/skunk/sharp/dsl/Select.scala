@@ -7,16 +7,16 @@ import skunk.sharp.where.Where
 import skunk.util.Origin
 
 /**
- * Unified SELECT builder — one class for single-source, JOINed, or CROSS-joined queries. Threads two
- * captured-args type parameters end-to-end:
+ * Unified SELECT builder — one class for single-source, JOINed, or CROSS-joined queries. Threads two captured-args type
+ * parameters end-to-end:
  *
  *   - `WArgs` is the cumulative WHERE args tuple. Starts at `skunk.Void` (no WHERE captured), grows via
  *     `Where.Concat[WArgs, A]` as each `.where(_ => Where[A])` lambda contributes more bound parameters.
  *   - `HArgs` is the cumulative HAVING args tuple. Same shape, threaded by `.having(...)` calls.
  *
  * `.compile` produces a `QueryTemplate[Where.Concat[WArgs, HArgs], Row]` — the visible `Args` is the full
- * captured-parameter tuple in SQL render order (WHERE args first, HAVING args second), with `Void`
- * placeholders normalised away by the [[Where.Concat]] match type.
+ * captured-parameter tuple in SQL render order (WHERE args first, HAVING args second), with `Void` placeholders
+ * normalised away by the [[Where.Concat]] match type.
  */
 final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.annotation.publicInBinary private[sharp] (
   private[sharp] val sources: Ss,
@@ -60,13 +60,21 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
   /** AND in a typed predicate — `WArgs` extends via `Where.Concat`. */
   inline def where[A](f: SelectView[Ss] => Where[A]): SelectBuilder[Ss, Groups, Where.Concat[WArgs, A], HArgs] = {
     val pred     = f(view)
-    val combined = SelectBuilder.andInto[WArgs, A](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], pred, c => Where.projectConcat[WArgs, A](c))
+    val combined = SelectBuilder.andInto[WArgs, A](
+      whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
+      pred,
+      c => Where.projectConcat[WArgs, A](c)
+    )
     cp[Where.Concat[WArgs, A], HArgs](whereOpt = Some(combined))
   }
 
   /** Escape hatch — widens `WArgs` to `?`. */
   inline def whereRaw(af: AppliedFragment): SelectBuilder[Ss, Groups, ?, HArgs] = {
-    val combined = SelectBuilder.andRawInto[WArgs](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], af, c => Where.projectConcat[WArgs, Void](c))
+    val combined = SelectBuilder.andRawInto[WArgs](
+      whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
+      af,
+      c => Where.projectConcat[WArgs, Void](c)
+    )
     cp[Any, HArgs](whereOpt = Some(combined))
   }
 
@@ -74,15 +82,15 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
   def orderBy(f: SelectView[Ss] => OrderBy[?] | Tuple): SelectBuilder[Ss, Groups, WArgs, HArgs] = {
     val fresh = (f(view): Any) match {
       case ob: OrderBy[?] => List(ob)
-      case t: Tuple    => t.toList.asInstanceOf[List[OrderBy[?]]]
+      case t: Tuple       => t.toList.asInstanceOf[List[OrderBy[?]]]
     }
     cp[WArgs, HArgs](orderBys = orderBys ++ fresh)
   }
 
   /**
    * `GROUP BY …` on a pre-projection builder. `Groups` accumulates the projection shape via
-   * `Tuple.Concat[Groups, NormProj[G]]`, so a downstream `.select` carries the typed `GArgs` through
-   * to `ProjectedSelect.compile`.
+   * `Tuple.Concat[Groups, NormProj[G]]`, so a downstream `.select` carries the typed `GArgs` through to
+   * `ProjectedSelect.compile`.
    */
   transparent inline def groupBy[G](inline f: SelectView[Ss] => G)
     : SelectBuilder[Ss, Tuple.Concat[Groups, NormProj[G]], WArgs, HArgs] = {
@@ -108,13 +116,21 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
   /** `HAVING <typed-predicate>`. */
   inline def having[H](f: SelectView[Ss] => Where[H]): SelectBuilder[Ss, Groups, WArgs, Where.Concat[HArgs, H]] = {
     val pred     = f(view)
-    val combined = SelectBuilder.andInto[HArgs, H](havingOpt.asInstanceOf[Option[Fragment[HArgs]]], pred, c => Where.projectConcat[HArgs, H](c))
+    val combined = SelectBuilder.andInto[HArgs, H](
+      havingOpt.asInstanceOf[Option[Fragment[HArgs]]],
+      pred,
+      c => Where.projectConcat[HArgs, H](c)
+    )
     cp[WArgs, Where.Concat[HArgs, H]](havingOpt = Some(combined))
   }
 
   /** Escape hatch HAVING — widens `HArgs` to `?`. */
   inline def havingRaw(af: AppliedFragment): SelectBuilder[Ss, Groups, WArgs, ?] = {
-    val combined = SelectBuilder.andRawInto[HArgs](havingOpt.asInstanceOf[Option[Fragment[HArgs]]], af, c => Where.projectConcat[HArgs, Void](c))
+    val combined = SelectBuilder.andRawInto[HArgs](
+      havingOpt.asInstanceOf[Option[Fragment[HArgs]]],
+      af,
+      c => Where.projectConcat[HArgs, Void](c)
+    )
     cp[WArgs, Any](havingOpt = Some(combined))
   }
 
@@ -285,20 +301,19 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
   // ---- Projection -------------------------------------------------------------------------------
 
   /**
-   * SELECT projection. Dispatches at compile time on the user's projection shape via
-   * `compiletime.erasedValue`:
+   * SELECT projection. Dispatches at compile time on the user's projection shape via `compiletime.erasedValue`:
    *
    *   - **single `TypedExpr`** (`u => u.email` or `u => Pg.power(u.age, Param[Double])`): `Proj` becomes
    *     `X *: EmptyTuple`, `Row` is the expression's value type.
-   *   - **named tuple** (`u => (email = u.email, age = u.age)`): `Proj` is the underlying value tuple
-   *     (via [[scala.NamedTuple.DropNames]]), `Row` is the named tuple of the projected values.
+   *   - **named tuple** (`u => (email = u.email, age = u.age)`): `Proj` is the underlying value tuple (via
+   *     [[scala.NamedTuple.DropNames]]), `Row` is the named tuple of the projected values.
    *   - **plain tuple** (`u => (u.id, u.email)`): `Proj` is `X & Tuple`, `Row` is `ExprOutputs[X]`.
    *
-   * `erasedValue` lets us discriminate `NamedTuple` vs regular `Tuple` vs single `TypedExpr` cleanly —
-   * the equivalent match-type discriminator hits Scala 3.8's NamedTuple-vs-Tuple disjointness blocker.
+   * `erasedValue` lets us discriminate `NamedTuple` vs regular `Tuple` vs single `TypedExpr` cleanly — the equivalent
+   * match-type discriminator hits Scala 3.8's NamedTuple-vs-Tuple disjointness blocker.
    *
-   * `Proj` becomes a concrete type per branch, so `compile()`'s `ProjArgsOf[Proj]` summon resolves and
-   * Param-bearing projections thread their Args into the QueryTemplate's user-visible `Args`.
+   * `Proj` becomes a concrete type per branch, so `compile()`'s `ProjArgsOf[Proj]` summon resolves and Param-bearing
+   * projections thread their Args into the QueryTemplate's user-visible `Args`.
    */
   transparent inline def select[X](inline f: SelectView[Ss] => X) = {
     val v = view
@@ -380,66 +395,70 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
   ) = select[X](f)
 
   /**
-   * Whole-row `.compile` — only on single-source builders. Threads `CArgs` (CTE preamble), `SArgs` (from any
-   * inner subquery body), `WArgs` (WHERE), `GArgs` (GROUP BY via [[ProjArgsOf]]), and `HArgs` (HAVING) in
-   * render order: `[CArgs, SArgs, WArgs, GArgs, HArgs]`. The combined `Args` collapses Void slots and
-   * flattens via `Where.Concat`, so a query with one Param[T] returns `QueryTemplate[T, Row]`, two Params
-   * `QueryTemplate[(T1, T2), Row]`, and so on at the user site.
+   * Whole-row `.compile` — only on single-source builders. Threads `CArgs` (CTE preamble), `SArgs` (from any inner
+   * subquery body), `WArgs` (WHERE), `GArgs` (GROUP BY via [[ProjArgsOf]]), and `HArgs` (HAVING) in render order:
+   * `[CArgs, SArgs, WArgs, GArgs, HArgs]`. The combined `Args` collapses Void slots and flattens via `Where.Concat`, so
+   * a query with one Param[T] returns `QueryTemplate[T, Row]`, two Params `QueryTemplate[(T1, T2), Row]`, and so on at
+   * the user site.
    */
   // Concat-chain evidences are named after the accumulator they peel from at slot-extraction time. The
   // chain is built left-to-right (CArgs, SArgs, WArgs, GArgs, HArgs); `slotValues` unwraps it
   // outermost-first via repeated `Where.projectConcat`, recovering each slot's value to feed into
   // `IArray[Any]` for `assembleN`.
   inline def compile[SArgs, GArgs, CArgs](using
-    ev:      IsSingleSource[Ss],
-    sbOf:    SourceBodyArgsOf.Aux[Ss, SArgs],
-    cteSum:  CteArgsOf.Aux[Ss, CArgs],
+    ev: IsSingleSource[Ss],
+    sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
+    cteSum: CteArgsOf.Aux[Ss, CArgs],
     cteProj: CteArgsProj[Ss],
-    g:       ProjArgsOf.Aux[Groups, GArgs]
-  ): QueryTemplate[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs], HArgs], NamedRowOf[ev.Cols]] = {
-    val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
-    val head    = entries.head
-    val ctes    = collectCtesInOrder(entries)
-    val rawGroupProjector = g.project.asInstanceOf[Any => List[Any]]
+    g: ProjArgsOf.Aux[Groups, GArgs]
+  ): QueryTemplate[
+    Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs], HArgs],
+    NamedRowOf[ev.Cols]
+  ] = {
+    val entries                          = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
+    val head                             = entries.head
+    val ctes                             = collectCtesInOrder(entries)
+    val rawGroupProjector                = g.project.asInstanceOf[Any => List[Any]]
     val groupProjector: Any => List[Any] = a => {
       val xs = rawGroupProjector(a)
       if (xs.size == groupBys.size) xs else List.fill(groupBys.size)(Void)
     }
     type Out = Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs], HArgs]
     val slotValues: Out => IArray[Any] = args => {
-      val (cswgAcc, hArgs) = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs], HArgs](args)
-      val (cswAcc, gArgs)  = Where.projectConcat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs](cswgAcc)
-      val (csAcc, wArgs)   = Where.projectConcat[Where.Concat[CArgs, SArgs], WArgs](cswAcc)
-      val (cArgs, sArgs)   = Where.projectConcat[CArgs, SArgs](csAcc)
+      val (cswgAcc, hArgs) =
+        Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs], HArgs](args)
+      val (cswAcc, gArgs) = Where.projectConcat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs](cswgAcc)
+      val (csAcc, wArgs)  = Where.projectConcat[Where.Concat[CArgs, SArgs], WArgs](cswAcc)
+      val (cArgs, sArgs)  = Where.projectConcat[CArgs, SArgs](csAcc)
       buildCteAndSlotIArrayWithEntries(entries, cteProj, cArgs, ctes, IArray[Any](sArgs, wArgs, gArgs, hArgs))
     }
     SelectBuilder.assembleN[Out, NamedRowOf[ev.Cols]](
-      bodyParts  = compileBodyParts(head, groupProjector),
-      ctes       = ctes,
-      codec      = rowCodec(head.effectiveCols).asInstanceOf[Codec[NamedRowOf[ev.Cols]]],
+      bodyParts = compileBodyParts(head, groupProjector),
+      ctes = ctes,
+      codec = rowCodec(head.effectiveCols).asInstanceOf[Codec[NamedRowOf[ev.Cols]]],
       slotValues = slotValues
     )
   }
 
   /**
-   * Produces a typed `Fragment[CombinedArgs]` for the SELECT body **without** any CTE preamble.
-   * Used by [[SelectBuilder.alias]] to capture the inner query fragment and surface its `Args` in
-   * the outer `BodyArgs` of the resulting subquery relation.
+   * Produces a typed `Fragment[CombinedArgs]` for the SELECT body **without** any CTE preamble. Used by
+   * [[SelectBuilder.alias]] to capture the inner query fragment and surface its `Args` in the outer `BodyArgs` of the
+   * resulting subquery relation.
    *
    * Slot order: `[SArgs=0, WArgs=1, GArgs=2, HArgs=3]`.
    */
   private[dsl] inline def compileBodyFragment[SArgs, GArgs](using
-    ev:   IsSingleSource[Ss],
+    ev: IsSingleSource[Ss],
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
-    g:    ProjArgsOf.Aux[Groups, GArgs]
+    g: ProjArgsOf.Aux[Groups, GArgs]
   ): Fragment[Where.Concat[Where.Concat[Where.Concat[SArgs, WArgs], GArgs], HArgs]] = {
     // No CTE preamble emitted here — `compileBodyFragment` is used by `.alias` (subquery body) and `cte()`
     // (CTE body) to capture the SELECT body alone. CTEs collected at this nesting level surface in the outer
     // query's preamble. Direct CteRelation refs in this body still bind at FROM-site as Void (their args
     // belong to the outer query's WITH preamble slot, not this body's args).
-    val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
-    val head    = entries.head
-    val rawGroupProjector = g.project.asInstanceOf[Any => List[Any]]
+    val entries                          = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
+    val head                             = entries.head
+    val rawGroupProjector                = g.project.asInstanceOf[Any => List[Any]]
     val groupProjector: Any => List[Any] = a => {
       val xs = rawGroupProjector(a)
       if (xs.size == groupBys.size) xs else List.fill(groupBys.size)(Void)
@@ -452,9 +471,9 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
       IArray[Any](sArgs, wArgs, gArgs, hArgs)
     }
     SelectBuilder.assembleN[Out, NamedRowOf[ev.Cols]](
-      bodyParts  = compileBodyParts(head, groupProjector),
-      ctes       = Nil,
-      codec      = rowCodec(head.effectiveCols).asInstanceOf[Codec[NamedRowOf[ev.Cols]]],
+      bodyParts = compileBodyParts(head, groupProjector),
+      ctes = Nil,
+      codec = rowCodec(head.effectiveCols).asInstanceOf[Codec[NamedRowOf[ev.Cols]]],
       slotValues = slotValues
     ).fragment
   }
@@ -551,13 +570,15 @@ object SelectBuilder {
   // ---- AND-into helpers (typed and raw) --------------------------------------------------------
 
   /**
-   * `proj` re-pairs the `Where.Concat[Slot, A]` runtime value back into `(Slot, A)` for the combined product
-   * encoder's contramap — call site materialises it as `c => Where.projectConcat[Slot, A](c)` where `Slot`/`A`
-   * are concrete (so the inline dispatch reduces). Passing as a parameter keeps `andInto` itself non-inline
-   * — otherwise every chained `.where(...)` would need to be inline too.
+   * `proj` re-pairs the `Where.Concat[Slot, A]` runtime value back into `(Slot, A)` for the combined product encoder's
+   * contramap — call site materialises it as `c => Where.projectConcat[Slot, A](c)` where `Slot`/`A` are concrete (so
+   * the inline dispatch reduces). Passing as a parameter keeps `andInto` itself non-inline — otherwise every chained
+   * `.where(...)` would need to be inline too.
    */
   private[dsl] def andInto[Slot, A](
-    slot: Option[Fragment[Slot]], pred: Where[A], proj: Where.Concat[Slot, A] => (Slot, A)
+    slot: Option[Fragment[Slot]],
+    pred: Where[A],
+    proj: Where.Concat[Slot, A] => (Slot, A)
   ): Fragment[Where.Concat[Slot, A]] =
     slot match {
       case None    => pred.fragment.asInstanceOf[Fragment[Where.Concat[Slot, A]]]
@@ -573,9 +594,9 @@ object SelectBuilder {
     }
 
   /**
-   * Prepend a static SQL prefix to a typed fragment, preserving its `Args` type. Used to attach `" ON "` (or
-   * similar static keywords) to a typed predicate fragment so the combined unit can still be threaded through
-   * `assembleN`'s typed-slot machinery rather than baked at Void.
+   * Prepend a static SQL prefix to a typed fragment, preserving its `Args` type. Used to attach `" ON "` (or similar
+   * static keywords) to a typed predicate fragment so the combined unit can still be threaded through `assembleN`'s
+   * typed-slot machinery rather than baked at Void.
    */
   private[dsl] def prefixedFrag[A](prefix: AppliedFragment, body: Fragment[A]): Fragment[A] = {
     val parts = prefix.fragment.parts ++ body.parts
@@ -584,7 +605,9 @@ object SelectBuilder {
 
   /** AND a pre-applied raw `AppliedFragment` into a slot — bakes its args via contramap (treats raw as Void-args). */
   private[dsl] def andRawInto[Slot](
-    slot: Option[Fragment[Slot]], af: AppliedFragment, proj: Where.Concat[Slot, Void] => (Slot, Void)
+    slot: Option[Fragment[Slot]],
+    af: AppliedFragment,
+    proj: Where.Concat[Slot, Void] => (Slot, Void)
   ): Fragment[Where.Concat[Slot, Void]] = {
     val rawFrag: Fragment[Void] = TypedExpr.liftAfToVoid(af)
     slot match {
@@ -606,39 +629,41 @@ object SelectBuilder {
     val voidLeft  = a eq Void.codec
     val voidRight = b eq Void.codec
     if (voidLeft && voidRight) Void.codec.asInstanceOf[Encoder[Any]]
-    else if (voidLeft)         b.asInstanceOf[Encoder[Any]]
-    else if (voidRight)        a.asInstanceOf[Encoder[Any]]
-    else                       a.asInstanceOf[Encoder[Any]].product(b.asInstanceOf[Encoder[Any]]).asInstanceOf[Encoder[Any]]
+    else if (voidLeft) b.asInstanceOf[Encoder[Any]]
+    else if (voidRight) a.asInstanceOf[Encoder[Any]]
+    else a.asInstanceOf[Encoder[Any]].product(b.asInstanceOf[Encoder[Any]]).asInstanceOf[Encoder[Any]]
   }
 
   /**
-   * Body-part. `Left(f)` is a `Fragment[Void]` whose encoder is already-baked (its argument flows via
-   * contramap, typically a structural piece like " WHERE ", a header, or a row of values applied via
-   * `Param.bind`). `Right(f)` is a typed `Fragment[A]` slot whose encoder takes a typed `A` at execute
-   * time (typically a WHERE/HAVING predicate built from `Param[T]`).
+   * Body-part. `Left(f)` is a `Fragment[Void]` whose encoder is already-baked (its argument flows via contramap,
+   * typically a structural piece like " WHERE ", a header, or a row of values applied via `Param.bind`). `Right(f)` is
+   * a typed `Fragment[A]` slot whose encoder takes a typed `A` at execute time (typically a WHERE/HAVING predicate
+   * built from `Param[T]`).
    *
-   * Splitting baked from typed at this level lets [[assembleN]] produce a final encoder that contramaps
-   * the user-claimed `Args` correctly: the baked side is encoded with `Void` (its values flow via the
-   * fragment's own contramap); the typed side receives the user's `Args` via `slotValues`.
+   * Splitting baked from typed at this level lets [[assembleN]] produce a final encoder that contramaps the
+   * user-claimed `Args` correctly: the baked side is encoded with `Void` (its values flow via the fragment's own
+   * contramap); the typed side receives the user's `Args` via `slotValues`.
    */
   private[dsl] type BodyPart = Either[Fragment[Void], Fragment[?]]
 
-  /** Convert a pre-applied `AppliedFragment` into a `BodyPart` (Left). For static AFs whose encoder is
-   * already `Void.codec`, [[TypedExpr.liftAfToVoid]] returns the underlying `Fragment[Void]` directly
-   * with no allocation; for dynamic AFs it constructs a contramapped `Fragment[Void]` once. */
+  /**
+   * Convert a pre-applied `AppliedFragment` into a `BodyPart` (Left). For static AFs whose encoder is already
+   * `Void.codec`, [[TypedExpr.liftAfToVoid]] returns the underlying `Fragment[Void]` directly with no allocation; for
+   * dynamic AFs it constructs a contramapped `Fragment[Void]` once.
+   */
   private[dsl] inline def bake(af: AppliedFragment): BodyPart =
     Left(TypedExpr.liftAfToVoid(af))
 
   /** Build the body-parts list for a SELECT or projected SELECT in render order. */
   private[dsl] def bodyPartsAround(
     headerParts: List[AppliedFragment],
-    whereOpt:    Option[Fragment[?]],
-    groupBys:    List[TypedExpr[?, ?]],
-    havingOpt:   Option[Fragment[?]],
-    orderBys:    List[OrderBy[?]],
-    limitOpt:    Option[Int],
-    offsetOpt:   Option[Int],
-    lockingOpt:  Option[Locking]
+    whereOpt: Option[Fragment[?]],
+    groupBys: List[TypedExpr[?, ?]],
+    havingOpt: Option[Fragment[?]],
+    orderBys: List[OrderBy[?]],
+    limitOpt: Option[Int],
+    offsetOpt: Option[Int],
+    lockingOpt: Option[Locking]
   ): List[BodyPart] = {
     val buf = scala.collection.mutable.ListBuffer[BodyPart]()
     headerParts.foreach(af => buf += SelectBuilder.bake(af))
@@ -665,33 +690,33 @@ object SelectBuilder {
   }
 
   /**
-   * Bind a `Fragment[?]` at `Void` to obtain an `AppliedFragment`. For groupBys / orderBys / DISTINCT ON
-   * exprs that may carry typed Args (Param-bearing) — currently constrained to Void-args inputs (typed-args
-   * threading through these positions is roadmap).
+   * Bind a `Fragment[?]` at `Void` to obtain an `AppliedFragment`. For groupBys / orderBys / DISTINCT ON exprs that may
+   * carry typed Args (Param-bearing) — currently constrained to Void-args inputs (typed-args threading through these
+   * positions is roadmap).
    */
   private[dsl] def bindVoid(f: Fragment[?]): AppliedFragment =
     f.asInstanceOf[Fragment[Void]].apply(Void)
 
   /**
-   * Empty `Fragment[Void]` placeholder. Used as a Right slot filler when a typed position (WHERE /
-   * GROUP BY / HAVING) is absent — keeps the assemble walker's slot index stable so subsequent
-   * positions land on the correct A_i. Renders no SQL and emits no encoded value.
+   * Empty `Fragment[Void]` placeholder. Used as a Right slot filler when a typed position (WHERE / GROUP BY / HAVING)
+   * is absent — keeps the assemble walker's slot index stable so subsequent positions land on the correct A_i. Renders
+   * no SQL and emits no encoded value.
    */
   private[dsl] val emptyVoidSlot: Fragment[Void] = TypedExpr.voidFragment("")
 
   /**
-   * Generic N-slot assembler. Each `Right(f)` in `bodyParts` is a typed slot; the i-th Right slot
-   * gets its runtime value from `slotValues(args)(i)`. Callers build `slotValues` by unfolding the
-   * nested `Where.Concat` chain via `Where.projectConcat` for their specific slot count.
+   * Generic N-slot assembler. Each `Right(f)` in `bodyParts` is a typed slot; the i-th Right slot gets its runtime
+   * value from `slotValues(args)(i)`. Callers build `slotValues` by unfolding the nested `Where.Concat` chain via
+   * `Where.projectConcat` for their specific slot count.
    */
   private[dsl] def assembleN[Args, R](
-    bodyParts:  List[BodyPart],
-    ctes:       List[CteRelation[?, ?, ?, ?]],
-    codec:      Codec[R],
+    bodyParts: List[BodyPart],
+    ctes: List[CteRelation[?, ?, ?, ?]],
+    codec: Codec[R],
     slotValues: Args => IArray[Any]
   ): QueryTemplate[Args, R] = {
-    val ctePreambleParts: List[BodyPart] = renderWithPreambleParts(ctes)
-    val allParts: List[BodyPart]         = ctePreambleParts ++ bodyParts
+    val ctePreambleParts: List[BodyPart]                             = renderWithPreambleParts(ctes)
+    val allParts: List[BodyPart]                                     = ctePreambleParts ++ bodyParts
     val sqlParts: List[Either[String, cats.data.State[Int, String]]] =
       allParts.flatMap {
         case Left(f)  => f.parts
@@ -728,7 +753,7 @@ object SelectBuilder {
           }
         }
       override def encode(args: Args): List[Option[skunk.data.Encoded]] = {
-        val slots = slotValues(args)
+        val slots    = slotValues(args)
         var typedIdx = 0
         allParts.flatMap {
           case Left(f) =>
@@ -750,7 +775,16 @@ object SelectBuilder {
 /**
  * A SELECT with an explicit projection list — rows have shape `Row` instead of the relation's default named tuple.
  */
-final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, DistinctOn <: Tuple, Orders <: Tuple, WArgs, HArgs, Row](
+final class ProjectedSelect[
+  Ss <: Tuple,
+  Proj <: Tuple,
+  Groups <: Tuple,
+  DistinctOn <: Tuple,
+  Orders <: Tuple,
+  WArgs,
+  HArgs,
+  Row
+](
   private[sharp] val sources: Ss,
   private[sharp] val distinct: Boolean,
   private[sharp] val projections: List[TypedExpr[?, ?]],
@@ -795,22 +829,30 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
 
   private def view: SelectView[Ss] = buildSelectView[Ss](sources)
 
-  inline def where[A](f: SelectView[Ss] => Where[A]): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, Where.Concat[WArgs, A], HArgs, Row] = {
+  inline def where[A](f: SelectView[Ss] => Where[A])
+    : ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, Where.Concat[WArgs, A], HArgs, Row] = {
     val pred     = f(view)
-    val combined = SelectBuilder.andInto[WArgs, A](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], pred, c => Where.projectConcat[WArgs, A](c))
+    val combined = SelectBuilder.andInto[WArgs, A](
+      whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
+      pred,
+      c => Where.projectConcat[WArgs, A](c)
+    )
     cp[Where.Concat[WArgs, A], HArgs](whereOpt = Some(combined))
   }
 
   inline def whereRaw(af: AppliedFragment): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, ?, HArgs, Row] = {
-    val combined = SelectBuilder.andRawInto[WArgs](whereOpt.asInstanceOf[Option[Fragment[WArgs]]], af, c => Where.projectConcat[WArgs, Void](c))
+    val combined = SelectBuilder.andRawInto[WArgs](
+      whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
+      af,
+      c => Where.projectConcat[WArgs, Void](c)
+    )
     cp[Any, HArgs](whereOpt = Some(combined))
   }
 
   /**
-   * `ORDER BY …` — items are typed `OrderBy[A]` wrappers around `expr.asc / .desc / .nullsFirst /
-   * .nullsLast`. `Orders` accumulates the wrapper types via `Tuple.Concat[Orders, NormProj[O]]` so
-   * Param-bearing items thread their `A` into the QueryTemplate Args slot at `.compile` time
-   * (similar to GROUP BY).
+   * `ORDER BY …` — items are typed `OrderBy[A]` wrappers around `expr.asc / .desc / .nullsFirst / .nullsLast`. `Orders`
+   * accumulates the wrapper types via `Tuple.Concat[Orders, NormProj[O]]` so Param-bearing items thread their `A` into
+   * the QueryTemplate Args slot at `.compile` time (similar to GROUP BY).
    */
   transparent inline def orderBy[O](inline f: SelectView[Ss] => O)
     : ProjectedSelect[Ss, Proj, Groups, DistinctOn, Tuple.Concat[Orders, NormProj[O]], WArgs, HArgs, Row] = {
@@ -858,26 +900,38 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
     )
   }
 
-  inline def having[H](f: SelectView[Ss] => Where[H]): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, Where.Concat[HArgs, H], Row] = {
+  inline def having[H](f: SelectView[Ss] => Where[H])
+    : ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, Where.Concat[HArgs, H], Row] = {
     val pred     = f(view)
-    val combined = SelectBuilder.andInto[HArgs, H](havingOpt.asInstanceOf[Option[Fragment[HArgs]]], pred, c => Where.projectConcat[HArgs, H](c))
+    val combined = SelectBuilder.andInto[HArgs, H](
+      havingOpt.asInstanceOf[Option[Fragment[HArgs]]],
+      pred,
+      c => Where.projectConcat[HArgs, H](c)
+    )
     cp[WArgs, Where.Concat[HArgs, H]](havingOpt = Some(combined))
   }
 
   inline def havingRaw(af: AppliedFragment): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, ?, Row] = {
-    val combined = SelectBuilder.andRawInto[HArgs](havingOpt.asInstanceOf[Option[Fragment[HArgs]]], af, c => Where.projectConcat[HArgs, Void](c))
+    val combined = SelectBuilder.andRawInto[HArgs](
+      havingOpt.asInstanceOf[Option[Fragment[HArgs]]],
+      af,
+      c => Where.projectConcat[HArgs, Void](c)
+    )
     cp[WArgs, Any](havingOpt = Some(combined))
   }
 
-  def limit(n: Int): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, HArgs, Row]  = cp[WArgs, HArgs](limitOpt = Some(n))
-  def offset(n: Int): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, HArgs, Row] = cp[WArgs, HArgs](offsetOpt = Some(n))
+  def limit(n: Int): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, HArgs, Row] =
+    cp[WArgs, HArgs](limitOpt = Some(n))
 
-  def distinctRows: ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, HArgs, Row] = cp[WArgs, HArgs](distinct = true)
+  def offset(n: Int): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, HArgs, Row] =
+    cp[WArgs, HArgs](offsetOpt = Some(n))
+
+  def distinctRows: ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, HArgs, Row] =
+    cp[WArgs, HArgs](distinct = true)
 
   /**
-   * `DISTINCT ON (e1, e2, …)` projection. Items can be Param-bearing — at `.compile` time the
-   * static `DistinctOn` type is folded by [[ProjArgsOf]] into a `DArgs` slot threaded ahead of the
-   * projection list in render order.
+   * `DISTINCT ON (e1, e2, …)` projection. Items can be Param-bearing — at `.compile` time the static `DistinctOn` type
+   * is folded by [[ProjArgsOf]] into a `DArgs` slot threaded ahead of the projection list in render order.
    */
   transparent inline def distinctOn[D](inline f: SelectView[Ss] => D)
     : ProjectedSelect[Ss, Proj, Groups, NormProj[D], Orders, WArgs, HArgs, Row] = {
@@ -905,16 +959,22 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
   def forUpdate(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, HArgs, Row] =
     cp[WArgs, HArgs](lockingOpt = Some(Locking(LockMode.ForUpdate)))
 
-  def forNoKeyUpdate(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, HArgs, Row] =
+  def forNoKeyUpdate(using
+    ev: IsSingleTable[Ss]
+  ): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, HArgs, Row] =
     cp[WArgs, HArgs](lockingOpt = Some(Locking(LockMode.ForNoKeyUpdate)))
 
   def forShare(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, HArgs, Row] =
     cp[WArgs, HArgs](lockingOpt = Some(Locking(LockMode.ForShare)))
 
-  def forKeyShare(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, HArgs, Row] =
+  def forKeyShare(using
+    ev: IsSingleTable[Ss]
+  ): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, HArgs, Row] =
     cp[WArgs, HArgs](lockingOpt = Some(Locking(LockMode.ForKeyShare)))
 
-  def skipLocked(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, HArgs, Row] =
+  def skipLocked(using
+    ev: IsSingleTable[Ss]
+  ): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, HArgs, Row] =
     cp[WArgs, HArgs](lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.SkipLocked)))
 
   def noWait(using ev: IsSingleTable[Ss]): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, HArgs, Row] =
@@ -943,20 +1003,20 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
   }
 
   /**
-   * Compile into a [[QueryTemplate]]. Enforces [[GroupCoverage]] and threads typed `Args` from
-   * Param-bearing items in **seven** logical positions in render order:
+   * Compile into a [[QueryTemplate]]. Enforces [[GroupCoverage]] and threads typed `Args` from Param-bearing items in
+   * **seven** logical positions in render order:
    *
-   *   - `DArgs`    — `DISTINCT ON` items (via [[ProjArgsOf]] over `DistinctOn`).
+   *   - `DArgs` — `DISTINCT ON` items (via [[ProjArgsOf]] over `DistinctOn`).
    *   - `ProjArgs` — projection items (via [[ProjArgsOf]] over `Proj`).
-   *   - `SArgs`    — source body args (inner query Args when source is a typed subquery via `.alias`).
-   *   - `WArgs`    — WHERE clause.
-   *   - `GArgs`    — GROUP BY items (via [[ProjArgsOf]] over `Groups`).
-   *   - `HArgs`    — HAVING clause.
-   *   - `OArgs`    — ORDER BY items (via [[ProjArgsOf]] over `Orders`).
+   *   - `SArgs` — source body args (inner query Args when source is a typed subquery via `.alias`).
+   *   - `WArgs` — WHERE clause.
+   *   - `GArgs` — GROUP BY items (via [[ProjArgsOf]] over `Groups`).
+   *   - `HArgs` — HAVING clause.
+   *   - `OArgs` — ORDER BY items (via [[ProjArgsOf]] over `Orders`).
    *
-   * `Where.Concat` is smart-flat, so the user-facing `Args` is the non-Void slots flattened into a single
-   * tuple — e.g. a query carrying only a WHERE Param[UUID] returns `QueryTemplate[UUID, Row]`; one with
-   * Param[Int] in DISTINCT ON and Param[String] in WHERE returns `QueryTemplate[(Int, String), Row]`.
+   * `Where.Concat` is smart-flat, so the user-facing `Args` is the non-Void slots flattened into a single tuple — e.g.
+   * a query carrying only a WHERE Param[UUID] returns `QueryTemplate[UUID, Row]`; one with Param[Int] in DISTINCT ON
+   * and Param[String] in WHERE returns `QueryTemplate[(Int, String), Row]`.
    */
   // Concat-chain evidences. Each name spells the accumulator at that step (left-to-right over the slot order):
   // CArgs ⊕ DArgs ⊕ ProjArgs ⊕ SArgs ⊕ OnA ⊕ WArgs ⊕ GArgs ⊕ HArgs ⊕ OArgs.
@@ -969,54 +1029,90 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
   //   cdpsowgh = CDPSOWG ⊕ HArgs                                    → CDPSOWGH
   //   cdpsowgho = CDPSOWGH ⊕ OArgs                                  → outer Args
   inline def compile[SArgs, OnA, CArgs, DArgs, ProjArgs, GArgs, OArgs](using
-    ev:      GroupCoverage[Proj, Groups],
-    sbOf:    SourceBodyArgsOf.Aux[Ss, SArgs],
-    bff:     SourceBodyArgsProj[Ss],
-    onSum:   SourceOnArgsOf.Aux[Ss, OnA],
-    onProj:  SourceOnArgsProj[Ss],
-    cteSum:  CteArgsOf.Aux[Ss, CArgs],
+    ev: GroupCoverage[Proj, Groups],
+    sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
+    bff: SourceBodyArgsProj[Ss],
+    onSum: SourceOnArgsOf.Aux[Ss, OnA],
+    onProj: SourceOnArgsProj[Ss],
+    cteSum: CteArgsOf.Aux[Ss, CArgs],
     cteProj: CteArgsProj[Ss],
-    d:       ProjArgsOf.Aux[DistinctOn, DArgs],
-    pa:      ProjArgsOf.Aux[Proj, ProjArgs],
-    g:       ProjArgsOf.Aux[Groups, GArgs],
-    o:       ProjArgsOf.Aux[Orders, OArgs]
-  ): QueryTemplate[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs], GArgs], HArgs], OArgs], Row] = {
-    val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
-    val ctes    = collectCtesInOrder(entries)
-    val rawDistProjector  = d.project.asInstanceOf[Any => List[Any]]
-    val rawProjProjector  = pa.project.asInstanceOf[Any => List[Any]]
-    val rawGroupProjector = g.project.asInstanceOf[Any => List[Any]]
-    val rawOrderProjector = o.project.asInstanceOf[Any => List[Any]]
-    val distinctSize      = distinctOnOpt.fold(0)(_.size)
-    val distProjector: Any => List[Any] = a => { val xs = rawDistProjector(a);  if (xs.size == distinctSize)     xs else List.fill(distinctSize)(Void) }
-    val projProjector: Any => List[Any] = a => { val xs = rawProjProjector(a);  if (xs.size == projections.size) xs else List.fill(projections.size)(Void) }
-    val groupProjector: Any => List[Any] = a => { val xs = rawGroupProjector(a); if (xs.size == groupBys.size)    xs else List.fill(groupBys.size)(Void) }
-    val orderProjector: Any => List[Any] = a => { val xs = rawOrderProjector(a); if (xs.size == orderBys.size)    xs else List.fill(orderBys.size)(Void) }
-    type Out = Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs], GArgs], HArgs], OArgs]
-    val srcSlotCount = sourceSlotCount(entries)
+    d: ProjArgsOf.Aux[DistinctOn, DArgs],
+    pa: ProjArgsOf.Aux[Proj, ProjArgs],
+    g: ProjArgsOf.Aux[Groups, GArgs],
+    o: ProjArgsOf.Aux[Orders, OArgs]
+  ): QueryTemplate[
+    Where.Concat[
+      Where.Concat[Where.Concat[
+        Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs],
+        GArgs
+      ], HArgs],
+      OArgs
+    ],
+    Row
+  ] = {
+    val entries                         = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
+    val ctes                            = collectCtesInOrder(entries)
+    val rawDistProjector                = d.project.asInstanceOf[Any => List[Any]]
+    val rawProjProjector                = pa.project.asInstanceOf[Any => List[Any]]
+    val rawGroupProjector               = g.project.asInstanceOf[Any => List[Any]]
+    val rawOrderProjector               = o.project.asInstanceOf[Any => List[Any]]
+    val distinctSize                    = distinctOnOpt.fold(0)(_.size)
+    val distProjector: Any => List[Any] =
+      a => { val xs = rawDistProjector(a); if (xs.size == distinctSize) xs else List.fill(distinctSize)(Void) }
+    val projProjector: Any => List[Any] =
+      a => { val xs = rawProjProjector(a); if (xs.size == projections.size) xs else List.fill(projections.size)(Void) }
+    val groupProjector: Any => List[Any] =
+      a => { val xs = rawGroupProjector(a); if (xs.size == groupBys.size) xs else List.fill(groupBys.size)(Void) }
+    val orderProjector: Any => List[Any] =
+      a => { val xs = rawOrderProjector(a); if (xs.size == orderBys.size) xs else List.fill(orderBys.size)(Void) }
+    type Out = Where.Concat[
+      Where.Concat[Where.Concat[
+        Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs],
+        GArgs
+      ], HArgs],
+      OArgs
+    ]
+    val srcSlotCount                   = sourceSlotCount(entries)
     val slotValues: Out => IArray[Any] = args => {
-      val (cdpsowghAcc, oArgs) = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs], GArgs], HArgs], OArgs](args)
-      val (cdpsowgAcc, hArgs)  = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs], GArgs], HArgs](cdpsowghAcc)
-      val (cdpsowAcc, gArgs)   = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs], GArgs](cdpsowgAcc)
-      val (cdpsoAcc, wArgs)    = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs](cdpsowAcc)
-      val (cdpsAcc, onArgs)    = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA](cdpsoAcc)
-      val (cdpAcc, sArgs)      = Where.projectConcat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs](cdpsAcc)
-      val (cdAcc, pArgs)       = Where.projectConcat[Where.Concat[CArgs, DArgs], ProjArgs](cdpAcc)
-      val (cArgs, dArgs)       = Where.projectConcat[CArgs, DArgs](cdAcc)
-      val baseSlots = buildSlotIArray(dArgs, pArgs, sArgs, onArgs, srcSlotCount, bff, onProj, wArgs, gArgs, hArgs, oArgs)
+      val (cdpsowghAcc, oArgs) = Where.projectConcat[
+        Where.Concat[Where.Concat[Where.Concat[
+          Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA],
+          WArgs
+        ], GArgs], HArgs],
+        OArgs
+      ](args)
+      val (cdpsowgAcc, hArgs) = Where.projectConcat[Where.Concat[
+        Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs],
+        GArgs
+      ], HArgs](cdpsowghAcc)
+      val (cdpsowAcc, gArgs) = Where.projectConcat[Where.Concat[
+        Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA],
+        WArgs
+      ], GArgs](cdpsowgAcc)
+      val (cdpsoAcc, wArgs) = Where.projectConcat[Where.Concat[
+        Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs],
+        OnA
+      ], WArgs](cdpsowAcc)
+      val (cdpsAcc, onArgs) =
+        Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA](cdpsoAcc)
+      val (cdpAcc, sArgs) = Where.projectConcat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs](cdpsAcc)
+      val (cdAcc, pArgs)  = Where.projectConcat[Where.Concat[CArgs, DArgs], ProjArgs](cdpAcc)
+      val (cArgs, dArgs)  = Where.projectConcat[CArgs, DArgs](cdAcc)
+      val baseSlots       =
+        buildSlotIArray(dArgs, pArgs, sArgs, onArgs, srcSlotCount, bff, onProj, wArgs, gArgs, hArgs, oArgs)
       buildCteAndSlotIArrayWithEntries(entries, cteProj, cArgs, ctes, baseSlots)
     }
     SelectBuilder.assembleN[Out, Row](
-      bodyParts  = compileBodyParts(distProjector, projProjector, groupProjector, orderProjector),
-      ctes       = ctes,
-      codec      = codec,
+      bodyParts = compileBodyParts(distProjector, projProjector, groupProjector, orderProjector),
+      ctes = ctes,
+      codec = codec,
       slotValues = slotValues
     )
   }
 
   /**
-   * Produces a typed `Fragment[CombinedArgs]` for the SELECT body **without** any CTE preamble.
-   * Used by [[ProjectedSelect.alias]] to capture the inner query fragment.
+   * Produces a typed `Fragment[CombinedArgs]` for the SELECT body **without** any CTE preamble. Used by
+   * [[ProjectedSelect.alias]] to capture the inner query fragment.
    *
    * Slot order: `[DIST=0, PROJ=1, SRC=2, WHERE=3, GROUP=4, HAVING=5, ORDER=6]`.
    */
@@ -1024,56 +1120,75 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
   // DArgs ⊕ ProjArgs ⊕ SArgs ⊕ OnA ⊕ WArgs ⊕ GArgs ⊕ HArgs ⊕ OArgs. (No CArgs here — `compileBodyFragment`
   // captures the body alone; CTE refs in this body bind at the OUTER query's WITH preamble.)
   private[dsl] inline def compileBodyFragment[SA, OnA, DA2, PA, GA, OA2](using
-    ev:      GroupCoverage[Proj, Groups],
-    sbOf:    SourceBodyArgsOf.Aux[Ss, SA],
-    bff:     SourceBodyArgsProj[Ss],
-    onSum:   SourceOnArgsOf.Aux[Ss, OnA],
-    onProj:  SourceOnArgsProj[Ss],
-    d:       ProjArgsOf.Aux[DistinctOn, DA2],
-    pa:      ProjArgsOf.Aux[Proj, PA],
-    g:       ProjArgsOf.Aux[Groups, GA],
-    o:       ProjArgsOf.Aux[Orders, OA2]
-  ): Fragment[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA], HArgs], OA2]] = {
-    val entries = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
-    val rawDistProjector:  Any => List[Any] = d.project.asInstanceOf[Any => List[Any]]
-    val rawProjProjector:  Any => List[Any] = pa.project.asInstanceOf[Any => List[Any]]
+    ev: GroupCoverage[Proj, Groups],
+    sbOf: SourceBodyArgsOf.Aux[Ss, SA],
+    bff: SourceBodyArgsProj[Ss],
+    onSum: SourceOnArgsOf.Aux[Ss, OnA],
+    onProj: SourceOnArgsProj[Ss],
+    d: ProjArgsOf.Aux[DistinctOn, DA2],
+    pa: ProjArgsOf.Aux[Proj, PA],
+    g: ProjArgsOf.Aux[Groups, GA],
+    o: ProjArgsOf.Aux[Orders, OA2]
+  ): Fragment[Where.Concat[Where.Concat[
+    Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA],
+    HArgs
+  ], OA2]] = {
+    val entries                             = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
+    val rawDistProjector: Any => List[Any]  = d.project.asInstanceOf[Any => List[Any]]
+    val rawProjProjector: Any => List[Any]  = pa.project.asInstanceOf[Any => List[Any]]
     val rawGroupProjector: Any => List[Any] = g.project.asInstanceOf[Any => List[Any]]
     val rawOrderProjector: Any => List[Any] = o.project.asInstanceOf[Any => List[Any]]
-    val distinctSize = distinctOnOpt.fold(0)(_.size)
-    val distProjector:  Any => List[Any] = a => { val xs = rawDistProjector(a);  if (xs.size == distinctSize)     xs else List.fill(distinctSize)(Void) }
-    val projProjector:  Any => List[Any] = a => { val xs = rawProjProjector(a);  if (xs.size == projections.size) xs else List.fill(projections.size)(Void) }
-    val groupProjector: Any => List[Any] = a => { val xs = rawGroupProjector(a); if (xs.size == groupBys.size)    xs else List.fill(groupBys.size)(Void) }
-    val orderProjector: Any => List[Any] = a => { val xs = rawOrderProjector(a); if (xs.size == orderBys.size)    xs else List.fill(orderBys.size)(Void) }
-    type Out = Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA], HArgs], OA2]
-    val srcSlotCount = sourceSlotCount(entries)
+    val distinctSize                        = distinctOnOpt.fold(0)(_.size)
+    val distProjector: Any => List[Any]     =
+      a => { val xs = rawDistProjector(a); if (xs.size == distinctSize) xs else List.fill(distinctSize)(Void) }
+    val projProjector: Any => List[Any] =
+      a => { val xs = rawProjProjector(a); if (xs.size == projections.size) xs else List.fill(projections.size)(Void) }
+    val groupProjector: Any => List[Any] =
+      a => { val xs = rawGroupProjector(a); if (xs.size == groupBys.size) xs else List.fill(groupBys.size)(Void) }
+    val orderProjector: Any => List[Any] =
+      a => { val xs = rawOrderProjector(a); if (xs.size == orderBys.size) xs else List.fill(orderBys.size)(Void) }
+    type Out = Where.Concat[Where.Concat[
+      Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA],
+      HArgs
+    ], OA2]
+    val srcSlotCount                   = sourceSlotCount(entries)
     val slotValues: Out => IArray[Any] = args => {
-      val (dpsowghAcc, oArgs) = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA], HArgs], OA2](args)
-      val (dpsowgAcc, hArgs)  = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA], HArgs](dpsowghAcc)
-      val (dpsowAcc, gArgs)   = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA](dpsowgAcc)
-      val (dpsoAcc, wArgs)    = Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs](dpsowAcc)
-      val (dpsAcc, onArgs)    = Where.projectConcat[Where.Concat[Where.Concat[DA2, PA], SA], OnA](dpsoAcc)
-      val (dpAcc, sArgs)      = Where.projectConcat[Where.Concat[DA2, PA], SA](dpsAcc)
-      val (dArgs, pArgs)      = Where.projectConcat[DA2, PA](dpAcc)
+      val (dpsowghAcc, oArgs) = Where.projectConcat[Where.Concat[
+        Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA],
+        HArgs
+      ], OA2](args)
+      val (dpsowgAcc, hArgs) = Where.projectConcat[Where.Concat[
+        Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs],
+        GA
+      ], HArgs](dpsowghAcc)
+      val (dpsowAcc, gArgs) = Where.projectConcat[Where.Concat[
+        Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA],
+        WArgs
+      ], GA](dpsowgAcc)
+      val (dpsoAcc, wArgs) =
+        Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs](dpsowAcc)
+      val (dpsAcc, onArgs) = Where.projectConcat[Where.Concat[Where.Concat[DA2, PA], SA], OnA](dpsoAcc)
+      val (dpAcc, sArgs)   = Where.projectConcat[Where.Concat[DA2, PA], SA](dpsAcc)
+      val (dArgs, pArgs)   = Where.projectConcat[DA2, PA](dpAcc)
       buildSlotIArray(dArgs, pArgs, sArgs, onArgs, srcSlotCount, bff, onProj, wArgs, gArgs, hArgs, oArgs)
     }
     SelectBuilder.assembleN[Out, Row](
-      bodyParts  = compileBodyParts(distProjector, projProjector, groupProjector, orderProjector),
-      ctes       = Nil,
-      codec      = codec,
+      bodyParts = compileBodyParts(distProjector, projProjector, groupProjector, orderProjector),
+      ctes = Nil,
+      codec = codec,
       slotValues = slotValues
     ).fragment
   }
 
   /**
-   * Build body parts with stable slot indices:
-   * `[DIST=0, PROJ=1, SRC=2, WHERE=3, GROUP=4, HAVING=5, ORDER=6]`.
+   * Build body parts with stable slot indices: `[DIST=0, PROJ=1, SRC=2, WHERE=3, GROUP=4, HAVING=5, ORDER=6]`.
    *
-   * Slot 2 (SRC) is the source-body slot: typed subquery → `Right(innerFrag)`; plain source →
-   * `Right(emptyVoidSlot)`.  All slots are always emitted (absent clauses use `emptyVoidSlot`).
+   * Slot 2 (SRC) is the source-body slot: typed subquery → `Right(innerFrag)`; plain source → `Right(emptyVoidSlot)`.
+   * All slots are always emitted (absent clauses use `emptyVoidSlot`).
    */
   private def compileBodyParts(
-    distProjector:  Any => List[Any],
-    projProjector:  Any => List[Any],
+    distProjector: Any => List[Any],
+    projProjector: Any => List[Any],
     groupProjector: Any => List[Any],
     orderProjector: Any => List[Any]
   ): List[SelectBuilder.BodyPart] = {
@@ -1108,7 +1223,7 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
         s.onPredOpt match {
           case Some(p) =>
             buf += Right(SelectBuilder.prefixedFrag(RawConstants.ON, p.fragment.asInstanceOf[Fragment[Any]]))
-          case None    =>
+          case None =>
             buf += Right(SelectBuilder.emptyVoidSlot)
         }
       }
@@ -1157,25 +1272,25 @@ final class ProjectedSelect[Ss <: Tuple, Proj <: Tuple, Groups <: Tuple, Distinc
 }
 
 /**
- * Number of (body, on) source-slot PAIRS emitted by [[ProjectedSelect.compileBodyParts]] for a given source
- * list. Each source contributes two slots — a body slot and an ON slot. Head and CROSS sources contribute
- * `emptyVoidSlot` for their ON. The FROM-less branch emits one body + one ON placeholder pair regardless.
+ * Number of (body, on) source-slot PAIRS emitted by [[ProjectedSelect.compileBodyParts]] for a given source list. Each
+ * source contributes two slots — a body slot and an ON slot. Head and CROSS sources contribute `emptyVoidSlot` for
+ * their ON. The FROM-less branch emits one body + one ON placeholder pair regardless.
  */
 private[dsl] def sourceSlotCount(entries: List[SourceEntry[?, ?, ?, ?, ?]]): Int =
   if (entries.nonEmpty && entries.head.relation.hasFromClause) entries.size else 1
 
 /**
- * Map of CTE name → body-args value, built from a `CteArgsProj` projection over the source-tuple combined
- * `cArgs` value. Plain (non-CteRelation) source positions yield Void and are filtered out.
+ * Map of CTE name → body-args value, built from a `CteArgsProj` projection over the source-tuple combined `cArgs`
+ * value. Plain (non-CteRelation) source positions yield Void and are filtered out.
  *
- * Walks `entries` in source order to extract CTE names from `IsCte` relations, zipping with the projected
- * per-source args list. The result is consumed by [[buildCtePreambleSlots]] which emits one Void or typed
- * value per collected CTE in dep order.
+ * Walks `entries` in source order to extract CTE names from `IsCte` relations, zipping with the projected per-source
+ * args list. The result is consumed by [[buildCtePreambleSlots]] which emits one Void or typed value per collected CTE
+ * in dep order.
  */
 private[dsl] def cteDirectArgsByName(
-  entries:  List[SourceEntry[?, ?, ?, ?, ?]],
-  cteProj:  CteArgsProj[? <: Tuple],
-  cArgs:    Any
+  entries: List[SourceEntry[?, ?, ?, ?, ?]],
+  cteProj: CteArgsProj[? <: Tuple],
+  cArgs: Any
 ): Map[String, Any] = {
   val perSource = cteProj.project(cArgs)
   if (perSource.isEmpty) Map.empty
@@ -1186,28 +1301,27 @@ private[dsl] def cteDirectArgsByName(
 }
 
 /**
- * Per-CTE body-args slot values in collected (dep) order. CTEs that appear as direct refs in `entries` look
- * up their args in the projected `cArgs`; transitive deps (constrained `Void` by [[CteDepsAllVoid]]) get
- * `Void`.
+ * Per-CTE body-args slot values in collected (dep) order. CTEs that appear as direct refs in `entries` look up their
+ * args in the projected `cArgs`; transitive deps (constrained `Void` by [[CteDepsAllVoid]]) get `Void`.
  */
 private[dsl] def buildCtePreambleSlots(
-  ctes:           List[CteRelation[?, ?, ?, ?]],
+  ctes: List[CteRelation[?, ?, ?, ?]],
   directArgsByName: Map[String, Any]
 ): IArray[Any] =
   IArray.from(ctes.map(c => directArgsByName.getOrElse(c.cteName, Void)))
 
 /**
- * Prepend per-CTE preamble slot values to a base IArray of body slot values. Walks `entries` in source
- * order to map projected `cArgs` values to CTE names, then assembles preamble slot values in dep order
- * (matching `renderWithPreambleParts`'s emission order). Transitive-dep CTEs (constrained Void by
- * [[CteDepsAllVoid]]) get Void slots.
+ * Prepend per-CTE preamble slot values to a base IArray of body slot values. Walks `entries` in source order to map
+ * projected `cArgs` values to CTE names, then assembles preamble slot values in dep order (matching
+ * `renderWithPreambleParts`'s emission order). Transitive-dep CTEs (constrained Void by [[CteDepsAllVoid]]) get Void
+ * slots.
  */
 private[dsl] def buildCteAndSlotIArrayWithEntries(
-  entries:    List[SourceEntry[?, ?, ?, ?, ?]],
-  cteProj:    CteArgsProj[? <: Tuple],
-  cArgs:      Any,
-  collected:  List[CteRelation[?, ?, ?, ?]],
-  baseSlots:  IArray[Any]
+  entries: List[SourceEntry[?, ?, ?, ?, ?]],
+  cteProj: CteArgsProj[? <: Tuple],
+  cArgs: Any,
+  collected: List[CteRelation[?, ?, ?, ?]],
+  baseSlots: IArray[Any]
 ): IArray[Any] =
   if (collected.isEmpty) baseSlots
   else {
@@ -1220,27 +1334,27 @@ private[dsl] def buildCteAndSlotIArrayWithEntries(
   }
 
 /**
- * Assemble the `IArray[Any]` slot values for a [[ProjectedSelect.compile]] / `compileBodyFragment` body.
- * Layout matches the body parts emitted by `compileBodyParts`:
- * `[DIST, PROJ, body_1, on_1, body_2, on_2, …, body_N, on_N, WHERE, GROUP, HAVING, ORDER]` — body and ON
- * slots are interleaved, in source order, two per source.
+ * Assemble the `IArray[Any]` slot values for a [[ProjectedSelect.compile]] / `compileBodyFragment` body. Layout matches
+ * the body parts emitted by `compileBodyParts`:
+ * `[DIST, PROJ, body_1, on_1, body_2, on_2, …, body_N, on_N, WHERE, GROUP, HAVING, ORDER]` — body and ON slots are
+ * interleaved, in source order, two per source.
  *
- * Per-source body args come from `SourceBodyArgsProj`; per-source ON args come from `SourceOnArgsProj`.
- * Both produce N-element lists in source order; we zip them positionally. When the head is FROM-less
- * (single placeholder pair) we replace the projected lists with `Void` placeholders.
+ * Per-source body args come from `SourceBodyArgsProj`; per-source ON args come from `SourceOnArgsProj`. Both produce
+ * N-element lists in source order; we zip them positionally. When the head is FROM-less (single placeholder pair) we
+ * replace the projected lists with `Void` placeholders.
  */
 private[dsl] def buildSlotIArray(
-  dArgs:        Any,
-  pArgs:        Any,
-  sArgs:        Any,
-  onArgs:       Any,
+  dArgs: Any,
+  pArgs: Any,
+  sArgs: Any,
+  onArgs: Any,
   srcSlotCount: Int,
-  bff:          SourceBodyArgsProj[? <: Tuple],
-  onProj:       SourceOnArgsProj[? <: Tuple],
-  wArgs:        Any,
-  gArgs:        Any,
-  hArgs:        Any,
-  oArgs:        Any
+  bff: SourceBodyArgsProj[? <: Tuple],
+  onProj: SourceOnArgsProj[? <: Tuple],
+  wArgs: Any,
+  gArgs: Any,
+  hArgs: Any,
+  oArgs: Any
 ): IArray[Any] = {
   val perBody: List[Any] = {
     val projected = bff.project(sArgs)
@@ -1295,7 +1409,8 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
 /** `empty.select(…)` — FROM-less SELECT. */
 extension (rel: skunk.sharp.empty.type) {
 
-  def select[T, A](e: TypedExpr[T, A]): ProjectedSelect[EmptyTuple, TypedExpr[T, A] *: EmptyTuple, EmptyTuple, EmptyTuple, EmptyTuple, Void, Void, T] =
+  def select[T, A](e: TypedExpr[T, A])
+    : ProjectedSelect[EmptyTuple, TypedExpr[T, A] *: EmptyTuple, EmptyTuple, EmptyTuple, EmptyTuple, Void, Void, T] =
     new ProjectedSelect[EmptyTuple, TypedExpr[T, A] *: EmptyTuple, EmptyTuple, EmptyTuple, EmptyTuple, Void, Void, T](
       EmptyTuple,
       false,
@@ -1310,7 +1425,8 @@ extension (rel: skunk.sharp.empty.type) {
       None
     )
 
-  def select[X <: NonEmptyTuple](t: X): ProjectedSelect[EmptyTuple, X, EmptyTuple, EmptyTuple, EmptyTuple, Void, Void, ExprOutputs[X]] = {
+  def select[X <: NonEmptyTuple](t: X)
+    : ProjectedSelect[EmptyTuple, X, EmptyTuple, EmptyTuple, EmptyTuple, Void, Void, ExprOutputs[X]] = {
     val exprs = t.toList.asInstanceOf[List[TypedExpr[?, ?]]]
     val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[X]]]
     new ProjectedSelect[EmptyTuple, X, EmptyTuple, EmptyTuple, EmptyTuple, Void, Void, ExprOutputs[X]](
@@ -1384,7 +1500,8 @@ extension (rel: skunk.sharp.empty.type) {
         val tup   = f(v).asInstanceOf[NonEmptyTuple]
         val exprs = tup.toList.asInstanceOf[List[TypedExpr[?, ?]]]
         val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[X & Tuple]]]
-        new ProjectedSelect[EmptyTuple, X & Tuple, EmptyTuple, EmptyTuple, EmptyTuple, Void, Void, ExprOutputs[X & Tuple]](
+        new ProjectedSelect[EmptyTuple, X & Tuple, EmptyTuple, EmptyTuple, EmptyTuple, Void, Void, ExprOutputs[X &
+          Tuple]](
           EmptyTuple,
           false,
           exprs,
@@ -1406,7 +1523,7 @@ extension (rel: skunk.sharp.empty.type) {
 
 type SelectView[Ss <: Tuple] = Ss match {
   case SourceEntry[?, ?, c, ?, ?] *: EmptyTuple => ColumnsView[c]
-  case _                                     => JoinedView[Ss]
+  case _                                        => JoinedView[Ss]
 }
 
 private[sharp] def buildSelectView[Ss <: Tuple](sources: Ss): SelectView[Ss] =
@@ -1472,9 +1589,9 @@ type ExprOutputs[T <: Tuple] <: Tuple = T match {
 }
 
 /**
- * Dual of [[ExprOutputs]] — extracts the per-item `Args` slot from a tuple of `TypedExpr`s. A column
- * reference contributes `Void`; a `Param[T]` contributes `T`. Combined with [[Where.FoldConcat]] this
- * gives the result Args for variadic / multi-item DSL positions.
+ * Dual of [[ExprOutputs]] — extracts the per-item `Args` slot from a tuple of `TypedExpr`s. A column reference
+ * contributes `Void`; a `Param[T]` contributes `T`. Combined with [[Where.FoldConcat]] this gives the result Args for
+ * variadic / multi-item DSL positions.
  */
 type CollectArgs[T <: Tuple] <: Tuple = T match {
   case EmptyTuple              => EmptyTuple
@@ -1497,23 +1614,27 @@ type LookupTypes[Cols <: Tuple, Names <: Tuple] <: Tuple = Names match {
 }
 
 /**
- * ORDER BY entry — typed `Fragment[A]` parametrised over the underlying TypedExpr's `Args` so
- * Param-bearing exprs (`Param[Int].desc`) thread `A` into the assembled query.
+ * ORDER BY entry — typed `Fragment[A]` parametrised over the underlying TypedExpr's `Args` so Param-bearing exprs
+ * (`Param[Int].desc`) thread `A` into the assembled query.
  */
 final case class OrderBy[A](fragment: Fragment[A]) {
   def nullsFirst: OrderBy[A] = OrderBy(appendKw(fragment, " NULLS FIRST"))
   def nullsLast: OrderBy[A]  = OrderBy(appendKw(fragment, " NULLS LAST"))
+
   private def appendKw(f: Fragment[A], s: String): Fragment[A] = {
     val parts = f.parts ++ List[Either[String, cats.data.State[Int, String]]](Left(s))
     Fragment(parts, f.encoder, Origin.unknown)
   }
+
 }
 
 extension [T, A](expr: TypedExpr[T, A]) {
   def asc: OrderBy[A]  = OrderBy(appendKw(expr.fragment, " ASC"))
   def desc: OrderBy[A] = OrderBy(appendKw(expr.fragment, " DESC"))
+
   private def appendKw(f: Fragment[A], s: String): Fragment[A] = {
     val parts = f.parts ++ List[Either[String, cats.data.State[Int, String]]](Left(s))
     Fragment(parts, f.encoder, Origin.unknown)
   }
+
 }
