@@ -92,5 +92,8 @@ object Endpoints {
     val all = List(list, getById, byRoom, create, delete)
   }
 
-  val all = rooms.all ++ bookings.all
+  // `lazy` to avoid an init-cycle when a caller (e.g. a test) accesses `Endpoints.rooms.X` first: that
+  // forces `rooms.<clinit>`, which references `Endpoints.base`, which triggers `Endpoints.<clinit>`. If
+  // `all` were eager, it would dereference `rooms.all` while `rooms.<clinit>` is mid-init → NPE.
+  lazy val all: List[sttp.tapir.AnyEndpoint] = rooms.all ++ bookings.all
 }

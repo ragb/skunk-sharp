@@ -95,7 +95,14 @@ lazy val example = project
       "is.cir"                      %% "ciris"                   % cirisV,
       "io.github.arainko"           %% "ducktape"                % ducktapeV,
       "dev.rolang"                  %% "dumbo"                   % dumboV,
-      "org.typelevel"               %% "otel4s-core"             % otel4sV
+      "org.typelevel"               %% "otel4s-core"             % otel4sV,
+      "org.scalameta"                 %% "munit"                              % munitV           % Test,
+      "org.typelevel"                 %% "munit-cats-effect"                  % munitCatsEffectV % Test,
+      "com.dimafeng"                  %% "testcontainers-scala-munit"         % testcontainersV  % Test,
+      "com.dimafeng"                  %% "testcontainers-scala-postgresql"    % testcontainersV  % Test,
+      "com.softwaremill.sttp.tapir"   %% "tapir-sttp-client"                  % tapirV           % Test,
+      "com.softwaremill.sttp.client3" %% "http4s-backend"                     % "3.9.8"          % Test,
+      "io.circe"                      %% "circe-parser"                       % circeV           % Test
     )
   )
 

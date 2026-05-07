@@ -28,7 +28,7 @@ object BookingRepository {
   val live: BookingRepository = new BookingRepository {
     private val t = BookingRow.table
 
-    /** Captured columns view — see RoomRepository's `cv` for the rationale. */
+    /** Captured columns view of the bookings table — see RoomRepository's `cv` for the rationale. */
     private val cv = t.columnsView
 
     private val selectRow =
@@ -69,9 +69,9 @@ object BookingRepository {
       t.delete.where(b => b.id === Param[UUID]).compile
 
     /**
-     * Per-filter to-Where translation. The half-bounded ranges for "starts on or after" / "ends on or before"
-     * use `<@` (containedBy) against an open-ended probe range — that lets Postgres use the GiST index on
-     * `period` if one exists.
+     * Translate one filter case to a `Where[Void]`. The half-bounded ranges for "starts on or after" / "ends
+     * on or before" use `<@` (containedBy) against an open-ended probe range — that lets Postgres use the
+     * GiST index on `period` if one exists.
      */
     private def toWhere(f: BookingFilter): Where[skunk.Void] = f match {
       case BookingFilter.RoomsIn(ids) =>
@@ -87,11 +87,9 @@ object BookingRepository {
         cv.period.overlaps(Param.bind(PgRange[LocalDate](lower = Some(from), upper = Some(to))))
 
       case BookingFilter.StartsOnOrAfter(date) =>
-        // booking period sits within `[date, +∞)` — i.e. the booking starts on/after `date`.
         cv.period.containedBy(Param.bind(PgRange[LocalDate](lower = Some(date))))
 
       case BookingFilter.EndsOnOrBefore(date) =>
-        // booking period sits within `(−∞, date]` — i.e. the booking ends on/before `date`.
         cv.period.containedBy(Param.bind(PgRange[LocalDate](upper = Some(date), upperInclusive = true)))
     }
 
