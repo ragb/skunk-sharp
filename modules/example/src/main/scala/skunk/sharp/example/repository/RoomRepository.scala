@@ -33,13 +33,9 @@ object RoomRepository {
     private val t = RoomRow.table
 
     /**
-     * The unaliased columns-view of the table, captured once. Its static type is `ColumnsView[<RoomRow.Cols>]`,
-     * so the named-tuple selectors `cv.id` / `cv.name` / `cv.capacity` resolve outside any builder lambda —
-     * which lets [[toWhere]] live as a normal method instead of being inlined inside `selectRow.where(c => …)`.
-     *
-     * Safe for the single-source unaliased shape we use here. If the relation were aliased (e.g.
-     * `t.alias("r")`), the lambda's `c` would be qualified-prefix-rendered and we'd want to use *that* view
-     * instead of this one.
+     * Captured columns view, statically typed as `ColumnsView[<RoomRow.table.Cols>]` — `cv.id` / `cv.name` /
+     * `cv.capacity` resolve via the named-tuple selector. Kept on the impl so [[toWhere]] is a normal method
+     * (not nested inside a `where(c => …)` lambda). Safe for the unaliased single-source case used here.
      */
     private val cv = t.columnsView
 
@@ -65,9 +61,8 @@ object RoomRepository {
       t.delete.where(r => r.id === Param[UUID]).compile
 
     /**
-     * Translate one filter case to a `Where[Void]` against the captured columns view. Every arm bakes its
-     * runtime value via `Param.bind`, so the result's `Args` is `Void` — that's what makes `Where.allOf` /
-     * `Where.anyOf` (Monoid-shaped) applicable downstream.
+     * Translate one filter case to a `Where[Void]`. Every arm bakes its runtime value via `Param.bind`, so the
+     * result has `Args = Void` and can be AND-folded with `dsl.allOf`.
      */
     private def toWhere(f: RoomFilter): Where[skunk.Void] = f match {
       case RoomFilter.CapacityAtLeast(n) => cv.capacity >= Param.bind(n)
