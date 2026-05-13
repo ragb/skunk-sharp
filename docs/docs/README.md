@@ -31,6 +31,7 @@ skunk-sharp does **not** replace SQL. The DSL mirrors the SQL you would otherwis
 | `skunk-sharp-iron` | Optional [Iron](https://iltotore.github.io/iron/) refinement support |
 | `skunk-sharp-refined` | Optional [Refined](https://github.com/fthomas/refined) refinement support |
 | `skunk-sharp-circe` | Postgres `json`/`jsonb` via [skunk-circe](https://typelevel.org/skunk) |
+| `skunk-sharp-postgis` | [PostGIS](postgis.md) spatial types and `ST_*` operators on top of [skunk-postgis](https://github.com/typelevel/skunk/tree/main/modules/postgis) |
 
 ## Status
 

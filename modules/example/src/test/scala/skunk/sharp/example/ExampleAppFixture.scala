@@ -13,7 +13,7 @@ import org.typelevel.otel4s.metrics.Meter.Implicits.given
 import org.typelevel.otel4s.trace.Tracer.Implicits.given
 import skunk.{Session, TypingStrategy}
 import skunk.sharp.example.api.Routes
-import skunk.sharp.example.repository.{BookingRepository, RoomRepository}
+import skunk.sharp.example.repository.{BookingRepository, BuildingRepository, RoomRepository}
 import sttp.capabilities.fs2.Fs2Streams
 import sttp.client3.{Request, Response, SttpBackend}
 import sttp.client3.http4s.Http4sBackend
@@ -32,9 +32,13 @@ import sttp.tapir.client.sttp.SttpClientInterpreter
  */
 trait ExampleAppFixture extends CatsEffectSuite with TestContainerForAll {
 
+  // PostGIS image so V3 migration can `CREATE EXTENSION postgis;`. Otherwise a superset of postgres:18 — all the
+  // other contrib extensions (citext, ltree, hstore, pg_trgm) are bundled in this image too.
+  // `asCompatibleSubstituteFor("postgres")` tells testcontainers-postgresql to accept this non-`postgres` repo name.
   override val containerDef: PostgreSQLContainer.Def =
     PostgreSQLContainer.Def(
-      dockerImageName = DockerImageName.parse("postgres:18-alpine"),
+      dockerImageName = DockerImageName.parse("postgis/postgis:18-3.6-alpine")
+        .asCompatibleSubstituteFor("postgres"),
       databaseName = "skunk_sharp_example",
       username = "skunk_sharp",
       password = "skunk_sharp"
@@ -78,7 +82,9 @@ trait ExampleAppFixture extends CatsEffectSuite with TestContainerForAll {
    */
   protected def truncateAll(c: containerDef.Container): IO[Unit] = {
     import skunk.implicits.*
-    sessionPool(c).use(_.use(_.execute(sql"TRUNCATE TABLE bookings, rooms RESTART IDENTITY CASCADE".command).void))
+    sessionPool(c).use(
+      _.use(_.execute(sql"TRUNCATE TABLE bookings, rooms, buildings RESTART IDENTITY CASCADE".command).void)
+    )
   }
 
   /** Base URI used to build sttp requests — all paths are absolute against this. */
@@ -93,7 +99,8 @@ trait ExampleAppFixture extends CatsEffectSuite with TestContainerForAll {
    */
   protected def appBackend(c: containerDef.Container): Resource[IO, SttpBackend[IO, Fs2Streams[IO]]] =
     sessionPool(c).map { pool =>
-      val routes: HttpRoutes[IO] = Routes(pool, RoomRepository.live, BookingRepository.live)
+      val routes: HttpRoutes[IO] =
+        Routes(pool, BuildingRepository.live, RoomRepository.live, BookingRepository.live)
       val client: Client[IO]     = Client.fromHttpApp(routes.orNotFound)
       Http4sBackend.usingClient(client)
     }

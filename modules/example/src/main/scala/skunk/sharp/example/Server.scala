@@ -7,7 +7,7 @@ import org.http4s.server.middleware.{Logger => HttpLogger}
 import org.typelevel.otel4s.metrics.Meter.Implicits.given
 import org.typelevel.otel4s.trace.Tracer.Implicits.given
 import skunk.sharp.example.api.Routes
-import skunk.sharp.example.repository.{BookingRepository, RoomRepository}
+import skunk.sharp.example.repository.{BookingRepository, BuildingRepository, RoomRepository}
 import skunk.{Session, TypingStrategy}
 
 object Server {
@@ -24,7 +24,7 @@ object Server {
       .pooled(cfg.db.maxSessions)
 
     pool.use { sessionPool =>
-      val routes = Routes(sessionPool, RoomRepository.live, BookingRepository.live)
+      val routes = Routes(sessionPool, BuildingRepository.live, RoomRepository.live, BookingRepository.live)
       val logged = HttpLogger.httpRoutes[IO](logHeaders = false, logBody = false)(routes)
 
       val host = Host.fromString(cfg.server.host).getOrElse(host"0.0.0.0")

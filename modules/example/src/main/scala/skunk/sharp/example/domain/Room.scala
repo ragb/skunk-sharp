@@ -12,7 +12,14 @@ import java.util.UUID
  * free-form key/value metadata (projector resolution, A/V kit, …) — denser than jsonb for flat key/value lookups and
  * filterable with `?` (hasKey) / `@>` (contains).
  */
-case class RoomRow(id: UUID, name: String, capacity: Int, location: LTree, amenities: Hstore)
+case class RoomRow(
+  id: UUID,
+  building_id: UUID,
+  name: String,
+  capacity: Int,
+  location: LTree,
+  amenities: Hstore
+)
 
 object RoomRow {
 
@@ -24,6 +31,6 @@ object RoomRow {
     .withDefault("location")
     .withDefault("amenities")
 
-  case class Create(name: String, capacity: Int, location: LTree, amenities: Hstore)
+  case class Create(building_id: UUID, name: String, capacity: Int, location: LTree, amenities: Hstore)
   case class Patch(name: Option[String], capacity: Option[Int])
 }

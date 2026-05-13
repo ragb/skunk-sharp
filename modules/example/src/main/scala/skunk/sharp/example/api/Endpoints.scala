@@ -9,59 +9,93 @@ import java.util.UUID
 object Endpoints {
 
   // Error type is (StatusCode, ApiError) for all endpoints.
-  // Server logic returns Left((StatusCode.NotFound, ApiError("..."))) for 404 etc.
   private val base = endpoint.errorOut(statusCode and jsonBody[ApiError])
 
-  // Filter query bundles: each `@query`-annotated field becomes one query string key. Tapir derives a single
-  // composed `EndpointInput[FilterQuery]` so endpoints receive one typed value rather than a 5- or 7-tuple.
-  private val roomFilterInput: EndpointInput[RoomFilterQuery]       = EndpointInput.derived[RoomFilterQuery]
-  private val bookingFilterInput: EndpointInput[BookingFilterQuery] = EndpointInput.derived[BookingFilterQuery]
+  private val buildingFilterInput: EndpointInput[BuildingFilterQuery] = EndpointInput.derived[BuildingFilterQuery]
+  private val roomFilterInput: EndpointInput[RoomFilterQuery]         = EndpointInput.derived[RoomFilterQuery]
+  private val bookingFilterInput: EndpointInput[BookingFilterQuery]   = EndpointInput.derived[BookingFilterQuery]
 
-  object rooms {
+  // ---- Buildings ---------------------------------------------------------------------------
+
+  object buildings {
 
     /**
-     * GET /api/v1/rooms — list with optional filters bundled in [[RoomFilterQuery]]. Absent fields drop out of the
-     * WHERE; present fields AND-combine. Repeated keys (`?names=a&names=b`) produce a non-empty list which the routing
-     * layer turns into an `IN (…)` clause.
+     * GET /api/v1/buildings — list with optional filters. The trio `nearLat` / `nearLon` / `radiusMeters` activates a
+     * `ST_DWithin`-backed proximity filter when all three are present.
      */
     val list =
       base.get
-        .in("api" / "v1" / "rooms")
-        .in(roomFilterInput)
-        .out(jsonBody[List[RoomResponse]])
+        .in("api" / "v1" / "buildings")
+        .in(buildingFilterInput)
+        .out(jsonBody[List[BuildingResponse]])
 
     val getById =
       base.get
-        .in("api" / "v1" / "rooms" / path[UUID]("id"))
-        .out(jsonBody[RoomResponse])
+        .in("api" / "v1" / "buildings" / path[UUID]("id"))
+        .out(jsonBody[BuildingResponse])
 
     val create =
       base.post
-        .in("api" / "v1" / "rooms")
-        .in(jsonBody[CreateRoomRequest])
-        .out(statusCode(StatusCode.Created) and jsonBody[RoomResponse])
+        .in("api" / "v1" / "buildings")
+        .in(jsonBody[CreateBuildingRequest])
+        .out(statusCode(StatusCode.Created) and jsonBody[BuildingResponse])
 
     val patch =
       base.patch
-        .in("api" / "v1" / "rooms" / path[UUID]("id"))
-        .in(jsonBody[PatchRoomRequest])
-        .out(jsonBody[RoomResponse])
+        .in("api" / "v1" / "buildings" / path[UUID]("id"))
+        .in(jsonBody[PatchBuildingRequest])
+        .out(jsonBody[BuildingResponse])
 
     val delete =
       base.delete
-        .in("api" / "v1" / "rooms" / path[UUID]("id"))
+        .in("api" / "v1" / "buildings" / path[UUID]("id"))
         .out(statusCode(StatusCode.NoContent))
 
     val all = List(list, getById, create, patch, delete)
   }
 
+  // ---- Rooms (nested under a building) ------------------------------------------------------
+
+  object rooms {
+
+    private val basePath = "api" / "v1" / "buildings" / path[UUID]("buildingId") / "rooms"
+
+    /** GET /api/v1/buildings/{buildingId}/rooms — within-building filters from [[RoomFilterQuery]]. */
+    val list =
+      base.get
+        .in(basePath)
+        .in(roomFilterInput)
+        .out(jsonBody[List[RoomResponse]])
+
+    val getById =
+      base.get
+        .in(basePath / path[UUID]("id"))
+        .out(jsonBody[RoomResponse])
+
+    val create =
+      base.post
+        .in(basePath)
+        .in(jsonBody[CreateRoomRequest])
+        .out(statusCode(StatusCode.Created) and jsonBody[RoomResponse])
+
+    val patch =
+      base.patch
+        .in(basePath / path[UUID]("id"))
+        .in(jsonBody[PatchRoomRequest])
+        .out(jsonBody[RoomResponse])
+
+    val delete =
+      base.delete
+        .in(basePath / path[UUID]("id"))
+        .out(statusCode(StatusCode.NoContent))
+
+    val all = List(list, getById, create, patch, delete)
+  }
+
+  // ---- Bookings (cross-building; flat) ------------------------------------------------------
+
   object bookings {
 
-    /**
-     * GET /api/v1/bookings — list with optional filters bundled in [[BookingFilterQuery]]. `overlapsFrom` and
-     * `overlapsTo` together form an `OverlapsPeriod` filter (only applied when both are present); the one-sided
-     * `startsOnOrAfter` / `endsOnOrBefore` are independent.
-     */
     val list =
       base.get
         .in("api" / "v1" / "bookings")
@@ -72,11 +106,6 @@ object Endpoints {
       base.get
         .in("api" / "v1" / "bookings" / path[UUID]("id"))
         .out(jsonBody[BookingResponse])
-
-    val byRoom =
-      base.get
-        .in("api" / "v1" / "rooms" / path[UUID]("roomId") / "bookings")
-        .out(jsonBody[List[BookingResponse]])
 
     val create =
       base.post
@@ -89,11 +118,8 @@ object Endpoints {
         .in("api" / "v1" / "bookings" / path[UUID]("id"))
         .out(statusCode(StatusCode.NoContent))
 
-    val all = List(list, getById, byRoom, create, delete)
+    val all = List(list, getById, create, delete)
   }
 
-  // `lazy` to avoid an init-cycle when a caller (e.g. a test) accesses `Endpoints.rooms.X` first: that
-  // forces `rooms.<clinit>`, which references `Endpoints.base`, which triggers `Endpoints.<clinit>`. If
-  // `all` were eager, it would dereference `rooms.all` while `rooms.<clinit>` is mid-init → NPE.
-  lazy val all: List[sttp.tapir.AnyEndpoint] = rooms.all ++ bookings.all
+  lazy val all: List[sttp.tapir.AnyEndpoint] = buildings.all ++ rooms.all ++ bookings.all
 }
