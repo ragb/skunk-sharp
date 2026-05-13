@@ -74,6 +74,7 @@
     <li class="level1 nav-leaf"><a href="update.html">UPDATE</a></li>
     <li class="level1 nav-leaf"><a href="delete.html">DELETE</a></li>
     <li class="level1 active nav-leaf"><a href="#">Schema Validation</a></li>
+    <li class="level1 nav-leaf"><a href="contrib.html">Contrib modules</a></li>
     <li class="level1 nav-leaf"><a href="extensibility.html">Extensibility</a></li>
   </ul>
 
@@ -89,6 +90,7 @@
     <li class="level1 nav-leaf"><a href="#usage">Usage</a></li>
     <li class="level1 nav-leaf"><a href="#mismatch-cases">Mismatch cases</a></li>
     <li class="level1 nav-leaf"><a href="#what-it-checks">What it checks</a></li>
+    <li class="level1 nav-leaf"><a href="#extensions-and-contrib-tags">Extensions and contrib tags</a></li>
     <li class="level1 nav-leaf"><a href="#example-catching-drift-at-boot">Example: catching drift at boot</a></li>
   </ul>
 
@@ -162,6 +164,18 @@
               <td><code>NullabilityMismatch</code></td>
               <td>Declared <code>NOT NULL</code> but DB column is nullable (or vice versa)</td>
             </tr>
+            <tr>
+              <td><code>PrimaryKeyMissing</code> / <code>PrimaryKeyColumnsDiffer</code> / <code>ExtraPrimaryKey</code></td>
+              <td>Declared PK set differs from <code>information_schema.table_constraints</code></td>
+            </tr>
+            <tr>
+              <td><code>UniqueConstraintMissing</code> / <code>ExtraUniqueConstraint</code></td>
+              <td>Declared UNIQUE constraint not present in the DB (or vice versa)</td>
+            </tr>
+            <tr>
+              <td><code>ExtensionMissing</code></td>
+              <td>A Postgres extension required by a column tag (or supplied via <code>extraExtensions</code>) is not in <code>pg_extension</code></td>
+            </tr>
           </tbody>
         </table>
         
@@ -175,8 +189,40 @@
           <code>numeric_precision</code>, <code>numeric_scale</code>)</li>
           <li>Nullability</li>
         </ul>
-        <p>It does <strong>not</strong> check indexes, constraints, or default expressions — those are owned by
-        migrations, not by the DSL.</p>
+        <p>It also checks:</p>
+        <ul>
+          <li><strong>Primary key columns</strong> declared via <code>.withPrimary(&quot;col&quot;)</code> — matched as a set against
+          <code>information_schema.table_constraints</code>.</li>
+          <li><strong>Unique constraints</strong> declared via <code>.withUnique(&quot;col&quot;)</code> (and <code>.withUniqueIndex(...)</code>),
+          matched by column set so Postgres&#39;s auto-generated names don&#39;t trip the diff.</li>
+          <li><strong>Postgres extensions</strong> required by declared column tags (citext, ltree, hstore, …) or
+          supplied explicitly via <code>extraExtensions</code> — looked up in <code>pg_extension</code>.</li>
+        </ul>
+        <p>It does <strong>not</strong> check non-unique indexes, foreign keys, check constraints, or default
+        expressions — those are owned by migrations, not by the DSL.</p>
+        
+        <h2 id="extensions-and-contrib-tags" class="section"><a class="anchor-link left" href="#extensions-and-contrib-tags"><i class="icofont-laika link">&#xef71;</i></a>Extensions and contrib tags</h2>
+        <p>Tag types in the contrib modules (<code>Citext</code>, <code>LTree</code>, <code>Hstore</code>, …) wire their required
+        Postgres extension into their <code>PgTypeFor</code> instance. The validator collects every column&#39;s
+        required extension (both via <code>PgTypeFor.requiredExtension</code> and via the column&#39;s
+        <code>skunk.data.Type</code> looked up in <code>PgTypes.extensionByType</code>) and unions in any <code>extraExtensions</code>
+        passed by the caller. Missing extensions surface as <code>Mismatch.ExtensionMissing(name)</code>.</p>
+        <pre><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">validation</span><span>.*
+</span><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">contrib</span><span>.</span><span class="identifier">pgtrgm</span><span>.</span><span class="type-name">PgTrgm</span><span>
+</span><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">contrib</span><span>.</span><span class="identifier">pgcrypto</span><span>.</span><span class="type-name">PgCrypto</span><span>
+</span><span class="keyword">import</span><span> </span><span class="identifier">cats</span><span>.</span><span class="identifier">effect</span><span>.</span><span class="type-name">IO</span><span>
+
+</span><span class="keyword">val</span><span> </span><span class="identifier">session</span><span>: </span><span class="identifier">skunk</span><span>.</span><span class="type-name">Session</span><span>[</span><span class="type-name">IO</span><span>] = </span><span class="literal-value">null</span><span>
+
+</span><span class="comment">// Function-only contribs (no tag column) need an explicit opt-in
+</span><span class="type-name">SchemaValidator</span><span>.</span><span class="identifier">validateOrRaise</span><span>[</span><span class="type-name">IO</span><span>](
+  </span><span class="identifier">session</span><span>,
+  </span><span class="type-name">Seq</span><span>(</span><span class="identifier">users</span><span>, </span><span class="identifier">posts</span><span>),
+  </span><span class="identifier">extraExtensions</span><span> = </span><span class="type-name">Set</span><span>(</span><span class="type-name">PgTrgm</span><span>.</span><span class="type-name">RequiredExtension</span><span>, </span><span class="type-name">PgCrypto</span><span>.</span><span class="type-name">RequiredExtension</span><span>)
+)</span></code></pre>
+        <p>Function-only modules (pgcrypto, fuzzystrmatch, pg_trgm operators on bare <code>String</code>) don&#39;t
+        appear in any column&#39;s metadata, so the validator can&#39;t auto-discover them — pass their
+        <code>RequiredExtension</code> constants via <code>extraExtensions</code> explicitly.</p>
         
         <h2 id="example-catching-drift-at-boot" class="section"><a class="anchor-link left" href="#example-catching-drift-at-boot"><i class="icofont-laika link">&#xef71;</i></a>Example: catching drift at boot</h2>
         <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">cats</span><span>.</span><span class="identifier">effect</span><span>.{</span><span class="type-name">IO</span><span>, </span><span class="type-name">Resource</span><span>}

@@ -74,6 +74,7 @@
     <li class="level1 nav-leaf"><a href="update.html">UPDATE</a></li>
     <li class="level1 nav-leaf"><a href="delete.html">DELETE</a></li>
     <li class="level1 nav-leaf"><a href="schema-validation.html">Schema Validation</a></li>
+    <li class="level1 nav-leaf"><a href="contrib.html">Contrib modules</a></li>
     <li class="level1 nav-leaf"><a href="extensibility.html">Extensibility</a></li>
   </ul>
 
@@ -95,6 +96,8 @@
     <li class="level1 nav-leaf"><a href="#subqueries">Subqueries</a></li>
     <li class="level1 nav-leaf"><a href="#row-locking-tables-only">Row locking (tables only)</a></li>
     <li class="level1 nav-leaf"><a href="#from-less-queries">FROM-less queries</a></li>
+    <li class="level1 nav-leaf"><a href="#in-list-parameters-with-param-list-t-n">IN-list parameters with <code>Param.list[T](n)</code></a></li>
+    <li class="level1 nav-leaf"><a href="#dynamic-predicates-with-allof-anyof">Dynamic predicates with <code>allOf</code> / <code>anyOf</code></a></li>
   </ul>
 
   <p class="footer"></p>
@@ -249,6 +252,35 @@
         <p>Use the built-in <code>empty</code> relation for queries with no FROM clause:</p>
         <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// SELECT now()
 </span><span class="keyword">val</span><span> </span><span class="identifier">now</span><span> = </span><span class="identifier">empty</span><span>.</span><span class="identifier">select</span><span>(</span><span class="identifier">_</span><span> =&gt; </span><span class="type-name">Pg</span><span>.</span><span class="identifier">now</span><span>).</span><span class="identifier">compile</span></code></pre>
+        
+        <h2 id="in-list-parameters-with-param-list-t-n" class="section"><a class="anchor-link left" href="#in-list-parameters-with-param-list-t-n"><i class="icofont-laika link">&#xef71;</i></a>IN-list parameters with <code>Param.list[T](n)</code></h2>
+        <p>For an <code>IN</code> list of a known size, <code>Param.list[T](n)</code> produces a single <code>Param[List[T]]</code>
+        that expands to <code>n</code> placeholders — one prepared statement per size, one <code>List[T]</code> bind at
+        execute time. Use when the size is known at build time (caller decides; mismatch raises
+        at bind):</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">val</span><span> </span><span class="identifier">byIds</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">id</span><span>.</span><span class="identifier">in</span><span>(</span><span class="type-name">Param</span><span>.</span><span class="identifier">list</span><span>[</span><span class="type-name">UUID</span><span>](</span><span class="number-literal">3</span><span>)))
+  .</span><span class="identifier">compile</span><span>
+</span><span class="comment">// byIds: CompiledQuery[List[UUID], …]</span></code></pre>
+        <p>For sizes that vary per call, rebuild the query per size, or use array equality
+        (<code>col === ANY(Param[Arr[T]])</code>) instead.</p>
+        
+        <h2 id="dynamic-predicates-with-allof-anyof" class="section"><a class="anchor-link left" href="#dynamic-predicates-with-allof-anyof"><i class="icofont-laika link">&#xef71;</i></a>Dynamic predicates with <code>allOf</code> / <code>anyOf</code></h2>
+        <p>For predicates assembled from a runtime list (filter ADT, optional query parameters),
+        use <code>allOf</code> / <code>anyOf</code>. They fold a varargs of <code>Where[Void]</code> with AND / OR; empty input
+        collapses to <code>TRUE</code> / <code>FALSE</code> respectively.</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">def</span><span> </span><span class="declaration-name">filters</span><span>(</span><span class="identifier">minAge</span><span>: </span><span class="type-name">Option</span><span>[</span><span class="type-name">Int</span><span>], </span><span class="identifier">emailLike</span><span>: </span><span class="type-name">Option</span><span>[</span><span class="type-name">String</span><span>]) = {
+  </span><span class="keyword">val</span><span> </span><span class="identifier">cv</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">columnsView</span><span>
+  </span><span class="keyword">val</span><span> </span><span class="identifier">ws</span><span> = </span><span class="type-name">List</span><span>(
+    </span><span class="identifier">minAge</span><span>.</span><span class="identifier">map</span><span>(</span><span class="identifier">a</span><span>    =&gt; </span><span class="identifier">cv</span><span>.</span><span class="identifier">age</span><span> &gt;= </span><span class="type-name">Param</span><span>.</span><span class="identifier">bind</span><span>(</span><span class="identifier">a</span><span>)),
+    </span><span class="identifier">emailLike</span><span>.</span><span class="identifier">map</span><span>(</span><span class="identifier">e</span><span> =&gt; </span><span class="identifier">cv</span><span>.</span><span class="identifier">email</span><span>.</span><span class="identifier">like</span><span>(</span><span class="type-name">Param</span><span>.</span><span class="identifier">bind</span><span>(</span><span class="identifier">e</span><span>)))
+  ).</span><span class="identifier">flatten</span><span>
+
+  </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>.</span><span class="identifier">where</span><span>(</span><span class="identifier">_</span><span> =&gt; </span><span class="identifier">allOf</span><span>(</span><span class="identifier">ws</span><span>*)).</span><span class="identifier">compile</span><span>
+}</span></code></pre>
+        <p>Limited to <code>Where[Void]</code> — the AND identity (<code>Concat[Void, Void] = Void</code>) is what makes
+        the fold lawful. Operator args slots are typed; for <code>&amp;&amp;</code> / <code>||</code> over parameterised
+        <code>Where[A]</code>, just chain directly.</p>
 
         
 <hr class="footer-rule"/>

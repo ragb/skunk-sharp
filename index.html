@@ -75,6 +75,7 @@
     <li class="level1 nav-leaf"><a href="update.html">UPDATE</a></li>
     <li class="level1 nav-leaf"><a href="delete.html">DELETE</a></li>
     <li class="level1 nav-leaf"><a href="schema-validation.html">Schema Validation</a></li>
+    <li class="level1 nav-leaf"><a href="contrib.html">Contrib modules</a></li>
     <li class="level1 nav-leaf"><a href="extensibility.html">Extensibility</a></li>
   </ul>
 
@@ -130,11 +131,15 @@
           <tbody>
             <tr>
               <td><code>skunk-sharp-core</code></td>
-              <td>The DSL — tables, views, SELECT/INSERT/UPDATE/DELETE, schema validation</td>
+              <td>The DSL — tables, views, SELECT/INSERT/UPDATE/DELETE, schema validation, in-core Postgres-extension <a href="contrib.html">contribs</a> (citext, ltree, hstore, pg_trgm, pgcrypto, fuzzystrmatch)</td>
             </tr>
             <tr>
               <td><code>skunk-sharp-iron</code></td>
               <td>Optional <a href="https://iltotore.github.io/iron/">Iron</a> refinement support</td>
+            </tr>
+            <tr>
+              <td><code>skunk-sharp-refined</code></td>
+              <td>Optional <a href="https://github.com/fthomas/refined">Refined</a> refinement support</td>
             </tr>
             <tr>
               <td><code>skunk-sharp-circe</code></td>
@@ -169,6 +174,8 @@
           <li class="level3 nav-leaf"><a href="select.html#subqueries">Subqueries</a></li>
           <li class="level3 nav-leaf"><a href="select.html#row-locking-tables-only">Row locking (tables only)</a></li>
           <li class="level3 nav-leaf"><a href="select.html#from-less-queries">FROM-less queries</a></li>
+          <li class="level3 nav-leaf"><a href="select.html#in-list-parameters-with-param-list-t-n">IN-list parameters with <code>Param.list[T](n)</code></a></li>
+          <li class="level3 nav-leaf"><a href="select.html#dynamic-predicates-with-allof-anyof">Dynamic predicates with <code>allOf</code> / <code>anyOf</code></a></li>
           <li class="level2 nav-node"><a href="insert.html">INSERT</a></li>
           <li class="level3 nav-leaf"><a href="insert.html#single-row">Single row</a></li>
           <li class="level3 nav-leaf"><a href="insert.html#batch-insert">Batch INSERT</a></li>
@@ -187,13 +194,22 @@
           <li class="level3 nav-leaf"><a href="schema-validation.html#usage">Usage</a></li>
           <li class="level3 nav-leaf"><a href="schema-validation.html#mismatch-cases">Mismatch cases</a></li>
           <li class="level3 nav-leaf"><a href="schema-validation.html#what-it-checks">What it checks</a></li>
+          <li class="level3 nav-leaf"><a href="schema-validation.html#extensions-and-contrib-tags">Extensions and contrib tags</a></li>
           <li class="level3 nav-leaf"><a href="schema-validation.html#example-catching-drift-at-boot">Example: catching drift at boot</a></li>
+          <li class="level2 nav-node"><a href="contrib.html">Contrib modules</a></li>
+          <li class="level3 nav-leaf"><a href="contrib.html#citext">citext</a></li>
+          <li class="level3 nav-leaf"><a href="contrib.html#ltree">ltree</a></li>
+          <li class="level3 nav-leaf"><a href="contrib.html#hstore">hstore</a></li>
+          <li class="level3 nav-leaf"><a href="contrib.html#pg_trgm">pg_trgm</a></li>
+          <li class="level3 nav-leaf"><a href="contrib.html#pgcrypto">pgcrypto</a></li>
+          <li class="level3 nav-leaf"><a href="contrib.html#fuzzystrmatch">fuzzystrmatch</a></li>
           <li class="level2 nav-node"><a href="extensibility.html">Extensibility</a></li>
           <li class="level3 nav-leaf"><a href="extensibility.html#typedexpr-contract"><code>TypedExpr</code> contract</a></li>
           <li class="level3 nav-leaf"><a href="extensibility.html#pgfunction-and-pgoperator"><code>PgFunction</code> and <code>PgOperator</code></a></li>
+          <li class="level3 nav-leaf"><a href="extensibility.html#the-expr-interpolator">The <code>expr&quot;...&quot;</code> interpolator</a></li>
           <li class="level3 nav-leaf"><a href="extensibility.html#adding-a-user-defined-function">Adding a user-defined function</a></li>
           <li class="level3 nav-leaf"><a href="extensibility.html#writing-a-companion-module">Writing a companion module</a></li>
-          <li class="level3 nav-leaf"><a href="extensibility.html#planned-companion-modules">Planned companion modules</a></li>
+          <li class="level3 nav-leaf"><a href="extensibility.html#built-in-extension-modules">Built-in extension modules</a></li>
         </ul>
 
         

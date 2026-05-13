@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+  
+  <head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="generator" content="Typelevel Laika + Helium Theme" />
+  <title>Contrib modules</title>
+  
+  <meta name="author" content="Rui Batista"/>
+  
+  
+  <meta name="description" content="skunk-sharp-docs"/>
+  
+  
+  
+  
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato:400,700">
+  
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Fira+Mono:500">
+  
+  <link rel="stylesheet" type="text/css" href="helium/site/icofont.min.css" />
+    <link rel="stylesheet" type="text/css" href="helium/site/laika-helium.css" />
+  <script src="helium/site/laika-helium.js"></script>
+  
+  
+  <script> /* for avoiding page load transitions */ </script>
+</head>
+
+  <body>
+
+    <header id="top-bar" class="light-default dark-default">
+
+  <div class="row">
+    <a id="nav-icon">
+      <i class="icofont-laika navigationMenu" title="Navigation">&#xefa2;</i>
+    </a>
+    
+    
+  </div>
+
+  <a class="icon-link glyph-link" href="index.html"><i class="icofont-laika home" title="Home">&#xef47;</i></a>
+
+  <div class="row links">
+    
+    <a class="icon-link svg-link" href="https://github.com/ragb/skunk-sharp"><span class="github" title="Source Code"><svg class="svg-icon" width="100%" height="100%" viewBox="0 0 100 100" version="1.1" xmlns="http://www.w3.org/2000/svg" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+  <g class="svg-shape">
+    <path d="M49.995,1c-27.609,-0 -49.995,22.386 -49.995,50.002c-0,22.09 14.325,40.83 34.194,47.444c2.501,0.458 3.413,-1.086 3.413,-2.412c0,-1.185 -0.043,-4.331 -0.067,-8.503c-13.908,3.021 -16.843,-6.704 -16.843,-6.704c-2.274,-5.773 -5.552,-7.311 -5.552,-7.311c-4.54,-3.103 0.344,-3.042 0.344,-3.042c5.018,0.356 7.658,5.154 7.658,5.154c4.46,7.64 11.704,5.433 14.552,4.156c0.454,-3.232 1.744,-5.436 3.174,-6.685c-11.102,-1.262 -22.775,-5.553 -22.775,-24.713c-0,-5.457 1.949,-9.92 5.147,-13.416c-0.516,-1.265 -2.231,-6.348 0.488,-13.233c0,0 4.199,-1.344 13.751,5.126c3.988,-1.108 8.266,-1.663 12.518,-1.682c4.245,0.019 8.523,0.574 12.517,1.682c9.546,-6.47 13.736,-5.126 13.736,-5.126c2.728,6.885 1.013,11.968 0.497,13.233c3.204,3.496 5.141,7.959 5.141,13.416c0,19.209 -11.691,23.436 -22.83,24.673c1.795,1.544 3.394,4.595 3.394,9.26c0,6.682 -0.061,12.076 -0.061,13.715c0,1.338 0.899,2.894 3.438,2.406c19.853,-6.627 34.166,-25.354 34.166,-47.438c-0,-27.616 -22.389,-50.002 -50.005,-50.002"/>
+  </g>
+</svg></span></a>
+    
+  </div>  
+
+</header>
+    
+    <nav id="sidebar">
+
+  <div class="row">
+    
+    <a class="icon-link svg-link" href="https://github.com/ragb/skunk-sharp"><span class="github" title="Source Code"><svg class="svg-icon" width="100%" height="100%" viewBox="0 0 100 100" version="1.1" xmlns="http://www.w3.org/2000/svg" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+  <g class="svg-shape">
+    <path d="M49.995,1c-27.609,-0 -49.995,22.386 -49.995,50.002c-0,22.09 14.325,40.83 34.194,47.444c2.501,0.458 3.413,-1.086 3.413,-2.412c0,-1.185 -0.043,-4.331 -0.067,-8.503c-13.908,3.021 -16.843,-6.704 -16.843,-6.704c-2.274,-5.773 -5.552,-7.311 -5.552,-7.311c-4.54,-3.103 0.344,-3.042 0.344,-3.042c5.018,0.356 7.658,5.154 7.658,5.154c4.46,7.64 11.704,5.433 14.552,4.156c0.454,-3.232 1.744,-5.436 3.174,-6.685c-11.102,-1.262 -22.775,-5.553 -22.775,-24.713c-0,-5.457 1.949,-9.92 5.147,-13.416c-0.516,-1.265 -2.231,-6.348 0.488,-13.233c0,0 4.199,-1.344 13.751,5.126c3.988,-1.108 8.266,-1.663 12.518,-1.682c4.245,0.019 8.523,0.574 12.517,1.682c9.546,-6.47 13.736,-5.126 13.736,-5.126c2.728,6.885 1.013,11.968 0.497,13.233c3.204,3.496 5.141,7.959 5.141,13.416c0,19.209 -11.691,23.436 -22.83,24.673c1.795,1.544 3.394,4.595 3.394,9.26c0,6.682 -0.061,12.076 -0.061,13.715c0,1.338 0.899,2.894 3.438,2.406c19.853,-6.627 34.166,-25.354 34.166,-47.438c-0,-27.616 -22.389,-50.002 -50.005,-50.002"/>
+  </g>
+</svg></span></a>
+    
+  </div>
+
+  <ul class="nav-list">
+    <li class="level1 nav-leaf"><a href="getting-started.html">Getting Started</a></li>
+    <li class="level1 nav-leaf"><a href="tables.html">Tables and Views</a></li>
+    <li class="level1 nav-leaf"><a href="select.html">SELECT</a></li>
+    <li class="level1 nav-leaf"><a href="insert.html">INSERT</a></li>
+    <li class="level1 nav-leaf"><a href="update.html">UPDATE</a></li>
+    <li class="level1 nav-leaf"><a href="delete.html">DELETE</a></li>
+    <li class="level1 nav-leaf"><a href="schema-validation.html">Schema Validation</a></li>
+    <li class="level1 active nav-leaf"><a href="#">Contrib modules</a></li>
+    <li class="level1 nav-leaf"><a href="extensibility.html">Extensibility</a></li>
+  </ul>
+
+</nav>
+
+    <div id="container">
+
+      
+<nav id="page-nav">
+  <p class="header"><a href="#">Contrib modules</a></p>
+
+  <ul class="nav-list">
+    <li class="level1 nav-leaf"><a href="#citext">citext</a></li>
+    <li class="level1 nav-leaf"><a href="#ltree">ltree</a></li>
+    <li class="level1 nav-leaf"><a href="#hstore">hstore</a></li>
+    <li class="level1 nav-leaf"><a href="#pg_trgm">pg_trgm</a></li>
+    <li class="level1 nav-leaf"><a href="#pgcrypto">pgcrypto</a></li>
+    <li class="level1 nav-leaf"><a href="#fuzzystrmatch">fuzzystrmatch</a></li>
+  </ul>
+
+  <p class="footer"></p>
+</nav>
+
+
+      <main class="content">
+
+        <h1 id="contrib-modules" class="title">Contrib modules</h1>
+        <p>Postgres extensions packaged in-core under <code>skunk.sharp.contrib.*</code>. No extra Scala
+        dependencies — every module ships an opaque tag (where applicable), a skunk codec, a
+        <code>PgTypeFor</code> instance, and operator / function extensions.</p>
+        <p>Each module that defines a tag uses <code>PgTypeFor.instanceWithExtension(codec, &quot;&lt;ext&gt;&quot;)</code>,
+        so the <a href="schema-validation.html">schema validator</a> auto-discovers the dependency from any
+        column declared with that tag. Function-only modules (pgcrypto, fuzzystrmatch) expose
+        <code>&lt;Module&gt;.RequiredExtension</code>; pass it via <code>extraExtensions = Set(...)</code> when calling
+        <code>SchemaValidator.validate</code>.</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Module</th>
+              <th>Extension</th>
+              <th>Tag types</th>
+              <th>Operators / functions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>citext</code></td>
+              <td><code>citext</code></td>
+              <td><code>Citext</code></td>
+              <td><code>PgCitext.toCitext</code></td>
+            </tr>
+            <tr>
+              <td><code>ltree</code></td>
+              <td><code>ltree</code></td>
+              <td><code>LTree</code>, <code>LQuery</code>, <code>LTxtQuery</code></td>
+              <td><code>matches</code>, <code>matchesTxt</code>, <code>isAncestorOf</code>, <code>isDescendantOf</code>, <code>concat</code>; <code>PgLtree.lca / nlevel / subltree / subpath / index / text2ltree / ltree2text</code></td>
+            </tr>
+            <tr>
+              <td><code>hstore</code></td>
+              <td><code>hstore</code></td>
+              <td><code>Hstore</code></td>
+              <td><code>get</code>, <code>hasKey</code>, <code>contains</code>, <code>containedBy</code>, <code>deleteKey</code>; <code>PgHstore.hstoreToJson / defined</code></td>
+            </tr>
+            <tr>
+              <td><code>pg_trgm</code></td>
+              <td><code>pg_trgm</code></td>
+              <td>—</td>
+              <td><code>similarTrgm</code>, <code>trgmDistance</code>, <code>wordSimilar</code>, <code>wordTrgmDistance</code>, <code>strictWordSimilar</code>, <code>strictWordTrgmDistance</code>; <code>PgTrgm.similarity / wordSimilarity / strictWordSimilarity / showLimit</code></td>
+            </tr>
+            <tr>
+              <td><code>pgcrypto</code></td>
+              <td><code>pgcrypto</code></td>
+              <td>—</td>
+              <td><code>PgCrypto.crypt / genSalt / digest / hmac</code></td>
+            </tr>
+            <tr>
+              <td><code>fuzzystrmatch</code></td>
+              <td><code>fuzzystrmatch</code></td>
+              <td>—</td>
+              <td><code>PgFuzzy.levenshtein / soundex / metaphone / dmetaphone / dmetaphoneAlt</code></td>
+            </tr>
+          </tbody>
+        </table>
+        <p>All examples below assume:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">dsl</span><span>.*
+</span><span class="keyword">import</span><span> </span><span class="identifier">java</span><span>.</span><span class="identifier">util</span><span>.</span><span class="type-name">UUID</span></code></pre>
+        
+        <h2 id="citext" class="section"><a class="anchor-link left" href="#citext"><i class="icofont-laika link">&#xef71;</i></a>citext</h2>
+        <p>Case-insensitive text. <code>Citext &lt;: String</code>, so all string operators work; declaring a
+        column as <code>Citext</code> (instead of bare <code>String</code>) makes <code>Table.of[T]</code> pick the <code>citext</code>
+        codec and signals the validator to require <code>CREATE EXTENSION citext</code>.</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">contrib</span><span>.</span><span class="identifier">citext</span><span>.*
+</span><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">contrib</span><span>.</span><span class="identifier">citext</span><span>.</span><span class="type-name">Citext</span><span>.</span><span class="keyword">given</span><span>
+
+</span><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">Account</span><span>(</span><span class="identifier">id</span><span>: </span><span class="type-name">UUID</span><span>, </span><span class="identifier">email</span><span>: </span><span class="type-name">Citext</span><span>)
+</span><span class="keyword">val</span><span> </span><span class="identifier">accounts</span><span> = </span><span class="type-name">Table</span><span>.</span><span class="identifier">of</span><span>[</span><span class="type-name">Account</span><span>](</span><span class="string-literal">&quot;accounts&quot;</span><span>).</span><span class="identifier">withPrimary</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>)
+
+</span><span class="comment">// Existing String operators apply directly — Citext flows as String.
+</span><span class="keyword">val</span><span> </span><span class="identifier">q</span><span> = </span><span class="identifier">accounts</span><span>.</span><span class="identifier">select</span><span>
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">a</span><span> =&gt; </span><span class="identifier">a</span><span>.</span><span class="identifier">email</span><span> === </span><span class="type-name">Param</span><span>.</span><span class="identifier">bind</span><span>(</span><span class="type-name">Citext</span><span>(</span><span class="string-literal">&quot;Alice@Example.COM&quot;</span><span>)))
+  .</span><span class="identifier">compile</span></code></pre>
+        <p>Cast a regular <code>String</code> expression to <code>citext</code> with <code>PgCitext.toCitext</code> for an inline
+        case-insensitive comparison without changing the column type.</p>
+        
+        <h2 id="ltree" class="section"><a class="anchor-link left" href="#ltree"><i class="icofont-laika link">&#xef71;</i></a>ltree</h2>
+        <p>Hierarchical label-tree (<code>top.science.astronomy</code>). Three opaque tags: <code>LTree</code>, <code>LQuery</code>
+        (pattern matcher), <code>LTxtQuery</code> (boolean text query). All <code>&lt;: String</code>.</p>
+        <pre><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">contrib</span><span>.</span><span class="identifier">ltree</span><span>.*
+</span><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">contrib</span><span>.</span><span class="identifier">ltree</span><span>.</span><span class="type-name">LTree</span><span>.</span><span class="keyword">given</span><span>
+</span><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">contrib</span><span>.</span><span class="identifier">ltree</span><span>.</span><span class="type-name">LQuery</span><span>.</span><span class="keyword">given</span><span>
+
+</span><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">Category</span><span>(</span><span class="identifier">id</span><span>: </span><span class="type-name">UUID</span><span>, </span><span class="identifier">path</span><span>: </span><span class="type-name">LTree</span><span>)
+</span><span class="keyword">val</span><span> </span><span class="identifier">categories</span><span> = </span><span class="type-name">Table</span><span>.</span><span class="identifier">of</span><span>[</span><span class="type-name">Category</span><span>](</span><span class="string-literal">&quot;categories&quot;</span><span>).</span><span class="identifier">withPrimary</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>)
+
+</span><span class="comment">// path ~ &#39;top.*.astronomy{1,2}&#39;
+</span><span class="keyword">val</span><span> </span><span class="identifier">pattern</span><span> = </span><span class="identifier">categories</span><span>.</span><span class="identifier">select</span><span>
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">c</span><span> =&gt; </span><span class="identifier">c</span><span>.</span><span class="identifier">path</span><span>.</span><span class="identifier">matches</span><span>(</span><span class="type-name">Param</span><span>.</span><span class="identifier">bind</span><span>(</span><span class="type-name">LQuery</span><span>(</span><span class="string-literal">&quot;top.*.astronomy{1,2}&quot;</span><span>))))
+  .</span><span class="identifier">compile</span><span>
+
+</span><span class="comment">// Ancestor / descendant
+</span><span class="keyword">val</span><span> </span><span class="identifier">under</span><span> = </span><span class="identifier">categories</span><span>.</span><span class="identifier">select</span><span>
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">c</span><span> =&gt; </span><span class="identifier">c</span><span>.</span><span class="identifier">path</span><span>.</span><span class="identifier">isDescendantOf</span><span>(</span><span class="type-name">Param</span><span>.</span><span class="identifier">bind</span><span>(</span><span class="type-name">LTree</span><span>(</span><span class="string-literal">&quot;top.science&quot;</span><span>))))
+  .</span><span class="identifier">compile</span><span>
+
+</span><span class="comment">// Functions: number of labels per path
+</span><span class="keyword">val</span><span> </span><span class="identifier">depths</span><span> = </span><span class="identifier">categories</span><span>.</span><span class="identifier">select</span><span>(</span><span class="identifier">c</span><span> =&gt; </span><span class="type-name">PgLtree</span><span>.</span><span class="identifier">nlevel</span><span>(</span><span class="identifier">c</span><span>.</span><span class="identifier">path</span><span>)).</span><span class="identifier">compile</span></code></pre>
+        
+        <h2 id="hstore" class="section"><a class="anchor-link left" href="#hstore"><i class="icofont-laika link">&#xef71;</i></a>hstore</h2>
+        <p>Flat key/value store with nullable text values. <code>Hstore &lt;: Map[String, Option[String]]</code>.</p>
+        <pre><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">contrib</span><span>.</span><span class="identifier">hstore</span><span>.*
+</span><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">contrib</span><span>.</span><span class="identifier">hstore</span><span>.</span><span class="type-name">Hstore</span><span>.</span><span class="keyword">given</span><span>
+
+</span><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">Item</span><span>(</span><span class="identifier">id</span><span>: </span><span class="type-name">UUID</span><span>, </span><span class="identifier">attrs</span><span>: </span><span class="type-name">Hstore</span><span>)
+</span><span class="keyword">val</span><span> </span><span class="identifier">items</span><span> = </span><span class="type-name">Table</span><span>.</span><span class="identifier">of</span><span>[</span><span class="type-name">Item</span><span>](</span><span class="string-literal">&quot;items&quot;</span><span>).</span><span class="identifier">withPrimary</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>)
+
+</span><span class="comment">// attrs ? &#39;color&#39; — does the key exist?
+</span><span class="keyword">val</span><span> </span><span class="identifier">withColor</span><span> = </span><span class="identifier">items</span><span>.</span><span class="identifier">select</span><span>
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">i</span><span> =&gt; </span><span class="identifier">i</span><span>.</span><span class="identifier">attrs</span><span>.</span><span class="identifier">hasKey</span><span>(</span><span class="identifier">lit</span><span>(</span><span class="string-literal">&quot;color&quot;</span><span>)))
+  .</span><span class="identifier">compile</span><span>
+
+</span><span class="comment">// attrs @&gt; &#39;&quot;size&quot;=&gt;&quot;M&quot;&#39;::hstore — contains a given pair
+</span><span class="keyword">val</span><span> </span><span class="identifier">mediums</span><span> = </span><span class="identifier">items</span><span>.</span><span class="identifier">select</span><span>
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">i</span><span> =&gt; </span><span class="identifier">i</span><span>.</span><span class="identifier">attrs</span><span>.</span><span class="identifier">contains</span><span>(</span><span class="type-name">Param</span><span>.</span><span class="identifier">bind</span><span>(</span><span class="type-name">Hstore</span><span>(</span><span class="string-literal">&quot;size&quot;</span><span> -&gt; </span><span class="type-name">Some</span><span>(</span><span class="string-literal">&quot;M&quot;</span><span>)))))
+  .</span><span class="identifier">compile</span><span>
+
+</span><span class="comment">// attrs -&gt; &#39;color&#39; — value (nullable)
+</span><span class="keyword">val</span><span> </span><span class="identifier">colors</span><span> = </span><span class="identifier">items</span><span>.</span><span class="identifier">select</span><span>(</span><span class="identifier">i</span><span> =&gt; </span><span class="identifier">i</span><span>.</span><span class="identifier">attrs</span><span>.</span><span class="identifier">get</span><span>(</span><span class="identifier">lit</span><span>(</span><span class="string-literal">&quot;color&quot;</span><span>))).</span><span class="identifier">compile</span></code></pre>
+        
+        <h2 id="pg_trgm" class="section"><a class="anchor-link left" href="#pg_trgm"><i class="icofont-laika link">&#xef71;</i></a>pg_trgm</h2>
+        <p>Trigram similarity. Operators apply to any <code>String</code>-tagged expression (so <code>Citext</code>,
+        <code>Varchar[N]</code>, <code>LTree</code>, … all work via <code>Stripped[T] &lt;:&lt; String</code> evidence):</p>
+        <pre><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">contrib</span><span>.</span><span class="identifier">pgtrgm</span><span>.*
+
+</span><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">Doc</span><span>(</span><span class="identifier">id</span><span>: </span><span class="type-name">UUID</span><span>, </span><span class="identifier">title</span><span>: </span><span class="type-name">String</span><span>)
+</span><span class="keyword">val</span><span> </span><span class="identifier">docs</span><span> = </span><span class="type-name">Table</span><span>.</span><span class="identifier">of</span><span>[</span><span class="type-name">Doc</span><span>](</span><span class="string-literal">&quot;docs&quot;</span><span>).</span><span class="identifier">withPrimary</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>)
+
+</span><span class="comment">// title % &#39;searchterm&#39; — above the current similarity threshold
+</span><span class="keyword">val</span><span> </span><span class="identifier">fuzzy</span><span> = </span><span class="identifier">docs</span><span>.</span><span class="identifier">select</span><span>
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">d</span><span> =&gt; </span><span class="identifier">d</span><span>.</span><span class="identifier">title</span><span>.</span><span class="identifier">similarTrgm</span><span>(</span><span class="identifier">lit</span><span>(</span><span class="string-literal">&quot;seerchterm&quot;</span><span>)))
+  .</span><span class="identifier">compile</span><span>
+
+</span><span class="comment">// ORDER BY title &lt;-&gt; &#39;searchterm&#39; — closest match first
+</span><span class="keyword">val</span><span> </span><span class="identifier">byClosest</span><span> = </span><span class="identifier">docs</span><span>.</span><span class="identifier">select</span><span>
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">d</span><span> =&gt; </span><span class="identifier">d</span><span>.</span><span class="identifier">title</span><span>.</span><span class="identifier">similarTrgm</span><span>(</span><span class="identifier">lit</span><span>(</span><span class="string-literal">&quot;seerch&quot;</span><span>)))
+  .</span><span class="identifier">orderBy</span><span>(</span><span class="identifier">d</span><span> =&gt; </span><span class="identifier">d</span><span>.</span><span class="identifier">title</span><span>.</span><span class="identifier">trgmDistance</span><span>(</span><span class="identifier">lit</span><span>(</span><span class="string-literal">&quot;seerch&quot;</span><span>)).</span><span class="identifier">asc</span><span>)
+  .</span><span class="identifier">compile</span><span>
+
+</span><span class="comment">// Functions return Float in [0, 1]
+</span><span class="keyword">val</span><span> </span><span class="identifier">scored</span><span> = </span><span class="identifier">docs</span><span>
+  .</span><span class="identifier">select</span><span>(</span><span class="identifier">d</span><span> =&gt; (</span><span class="identifier">d</span><span>.</span><span class="identifier">title</span><span>, </span><span class="type-name">PgTrgm</span><span>.</span><span class="identifier">similarity</span><span>(</span><span class="identifier">d</span><span>.</span><span class="identifier">title</span><span>, </span><span class="identifier">lit</span><span>(</span><span class="string-literal">&quot;seerch&quot;</span><span>))))
+  .</span><span class="identifier">compile</span></code></pre>
+        <p>Function-only contribs don&#39;t appear in column types, so the validator can&#39;t auto-detect
+        them. Opt in explicitly:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">validation</span><span>.*
+</span><span class="keyword">import</span><span> </span><span class="identifier">cats</span><span>.</span><span class="identifier">effect</span><span>.</span><span class="type-name">IO</span><span>
+
+</span><span class="keyword">val</span><span> </span><span class="identifier">session</span><span>: </span><span class="identifier">skunk</span><span>.</span><span class="type-name">Session</span><span>[</span><span class="type-name">IO</span><span>] = </span><span class="literal-value">null</span><span>
+</span><span class="type-name">SchemaValidator</span><span>.</span><span class="identifier">validateOrRaise</span><span>[</span><span class="type-name">IO</span><span>](
+  </span><span class="identifier">session</span><span>,
+  </span><span class="type-name">Seq</span><span>(</span><span class="identifier">docs</span><span>),
+  </span><span class="identifier">extraExtensions</span><span> = </span><span class="type-name">Set</span><span>(</span><span class="type-name">PgTrgm</span><span>.</span><span class="type-name">RequiredExtension</span><span>)
+)</span></code></pre>
+        
+        <h2 id="pgcrypto" class="section"><a class="anchor-link left" href="#pgcrypto"><i class="icofont-laika link">&#xef71;</i></a>pgcrypto</h2>
+        <p>Server-side crypto: password hashing (<code>crypt</code> + <code>gen_salt</code>), <code>digest</code>, <code>hmac</code>.
+        Function-only; pass <code>extraExtensions = Set(PgCrypto.RequiredExtension)</code> for validation.</p>
+        <pre><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">contrib</span><span>.</span><span class="identifier">pgcrypto</span><span>.*
+
+</span><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">Login</span><span>(</span><span class="identifier">id</span><span>: </span><span class="type-name">UUID</span><span>, </span><span class="identifier">email</span><span>: </span><span class="type-name">String</span><span>, </span><span class="identifier">password_hash</span><span>: </span><span class="type-name">String</span><span>)
+</span><span class="keyword">val</span><span> </span><span class="identifier">logins</span><span> = </span><span class="type-name">Table</span><span>.</span><span class="identifier">of</span><span>[</span><span class="type-name">Login</span><span>](</span><span class="string-literal">&quot;logins&quot;</span><span>).</span><span class="identifier">withPrimary</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>)
+
+</span><span class="comment">// SELECT 1 ... WHERE password_hash = crypt(&#39;plain&#39;, password_hash)
+</span><span class="keyword">val</span><span> </span><span class="identifier">authenticate</span><span> = </span><span class="identifier">logins</span><span>.</span><span class="identifier">select</span><span>(</span><span class="identifier">_</span><span> =&gt; </span><span class="identifier">lit</span><span>(</span><span class="number-literal">1</span><span>))
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">l</span><span> =&gt; </span><span class="identifier">l</span><span>.</span><span class="identifier">password_hash</span><span> === </span><span class="type-name">PgCrypto</span><span>.</span><span class="identifier">crypt</span><span>(</span><span class="type-name">Param</span><span>[</span><span class="type-name">String</span><span>], </span><span class="identifier">l</span><span>.</span><span class="identifier">password_hash</span><span>))
+  .</span><span class="identifier">compile</span><span>
+
+</span><span class="comment">// Hash a new password on INSERT (use as RHS of a SET clause / VALUES projection)
+</span><span class="keyword">val</span><span> </span><span class="identifier">saltExpr</span><span> = </span><span class="type-name">PgCrypto</span><span>.</span><span class="identifier">genSalt</span><span>(</span><span class="identifier">lit</span><span>(</span><span class="string-literal">&quot;bf&quot;</span><span>), </span><span class="identifier">lit</span><span>(</span><span class="number-literal">12</span><span>))
+</span><span class="keyword">val</span><span> </span><span class="identifier">hashed</span><span>   = </span><span class="type-name">PgCrypto</span><span>.</span><span class="identifier">crypt</span><span>(</span><span class="type-name">Param</span><span>[</span><span class="type-name">String</span><span>], </span><span class="identifier">saltExpr</span><span>)</span></code></pre>
+        
+        <h2 id="fuzzystrmatch" class="section"><a class="anchor-link left" href="#fuzzystrmatch"><i class="icofont-laika link">&#xef71;</i></a>fuzzystrmatch</h2>
+        <p>Edit-distance and phonetic functions. Same validation opt-in pattern as pgcrypto /
+        pg_trgm.</p>
+        <pre><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">contrib</span><span>.</span><span class="identifier">fuzzystrmatch</span><span>.*
+
+</span><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">Person</span><span>(</span><span class="identifier">id</span><span>: </span><span class="type-name">UUID</span><span>, </span><span class="identifier">name</span><span>: </span><span class="type-name">String</span><span>)
+</span><span class="keyword">val</span><span> </span><span class="identifier">people</span><span> = </span><span class="type-name">Table</span><span>.</span><span class="identifier">of</span><span>[</span><span class="type-name">Person</span><span>](</span><span class="string-literal">&quot;people&quot;</span><span>).</span><span class="identifier">withPrimary</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>)
+
+</span><span class="comment">// levenshtein(name, &#39;jonathon&#39;) &lt;= 2
+</span><span class="keyword">val</span><span> </span><span class="identifier">close</span><span> = </span><span class="identifier">people</span><span>.</span><span class="identifier">select</span><span>
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">p</span><span> =&gt; </span><span class="type-name">PgFuzzy</span><span>.</span><span class="identifier">levenshtein</span><span>(</span><span class="identifier">p</span><span>.</span><span class="identifier">name</span><span>, </span><span class="identifier">lit</span><span>(</span><span class="string-literal">&quot;jonathon&quot;</span><span>)) &lt;= </span><span class="identifier">lit</span><span>(</span><span class="number-literal">2</span><span>))
+  .</span><span class="identifier">compile</span><span>
+
+</span><span class="comment">// Phonetic match
+</span><span class="keyword">val</span><span> </span><span class="identifier">sounds</span><span> = </span><span class="identifier">people</span><span>.</span><span class="identifier">select</span><span>
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">p</span><span> =&gt; </span><span class="type-name">PgFuzzy</span><span>.</span><span class="identifier">soundex</span><span>(</span><span class="identifier">p</span><span>.</span><span class="identifier">name</span><span>) === </span><span class="type-name">PgFuzzy</span><span>.</span><span class="identifier">soundex</span><span>(</span><span class="identifier">lit</span><span>(</span><span class="string-literal">&quot;Catherine&quot;</span><span>)))
+  .</span><span class="identifier">compile</span></code></pre>
+
+        
+<hr class="footer-rule"/>
+<footer>
+  Site generated by <a href="https://typelevel.org/Laika/">Laika</a> with the Helium theme.
+</footer>
+
+
+      </main>
+
+    </div>
+
+  </body>
+
+</html>
