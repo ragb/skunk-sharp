@@ -97,6 +97,7 @@
     <li class="level1 nav-leaf"><a href="#subqueries">Subqueries</a></li>
     <li class="level1 nav-leaf"><a href="#row-locking-tables-only">Row locking (tables only)</a></li>
     <li class="level1 nav-leaf"><a href="#from-less-queries">FROM-less queries</a></li>
+    <li class="level1 nav-leaf"><a href="#primitive-literals-as-direct-rhs">Primitive literals as direct RHS</a></li>
     <li class="level1 nav-leaf"><a href="#in-list-parameters-with-param-list-t-n">IN-list parameters with <code>Param.list[T](n)</code></a></li>
     <li class="level1 nav-leaf"><a href="#dynamic-predicates-with-allof-anyof">Dynamic predicates with <code>allOf</code> / <code>anyOf</code></a></li>
   </ul>
@@ -253,6 +254,46 @@
         <p>Use the built-in <code>empty</code> relation for queries with no FROM clause:</p>
         <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// SELECT now()
 </span><span class="keyword">val</span><span> </span><span class="identifier">now</span><span> = </span><span class="identifier">empty</span><span>.</span><span class="identifier">select</span><span>(</span><span class="identifier">_</span><span> =&gt; </span><span class="type-name">Pg</span><span>.</span><span class="identifier">now</span><span>).</span><span class="identifier">compile</span></code></pre>
+        
+        <h2 id="primitive-literals-as-direct-rhs" class="section"><a class="anchor-link left" href="#primitive-literals-as-direct-rhs"><i class="icofont-laika link">&#xef71;</i></a>Primitive literals as direct RHS</h2>
+        <p>Every binary operator that expects a <code>TypedExpr</code> accepts a primitive literal directly —
+        no <code>lit(…)</code> wrap needed:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">val</span><span> </span><span class="identifier">q</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>.</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> &gt;= </span><span class="number-literal">18</span><span> &amp;&amp; </span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span> === </span><span class="string-literal">&quot;alice@example.com&quot;</span><span>).</span><span class="identifier">compile</span></code></pre>
+        <p>The SQL is byte-identical to the <code>lit</code>-wrapped form (<code>&quot;age&quot; &gt;= 18</code>, <code>&quot;email&quot; = &#39;alice@example.com&#39;</code>)
+        — the value is inlined into the parts of the rendered Fragment, not bound as a <code>$N</code> parameter.</p>
+        <p>This works for <code>Boolean</code>, <code>Byte</code>, <code>Short</code>, <code>Int</code>, <code>Long</code>, <code>Float</code>, <code>Double</code>, <code>String</code> at
+        <strong>direct <code>TypedExpr</code> slots</strong> — operator RHS, function arguments, JOIN <code>.on</code> predicates,
+        UPDATE <code>SET</code> (via <code>:=</code>), <code>between(lo, hi)</code>, <code>like(&quot;…&quot;)</code>, etc. Mechanism: singleton-typed
+        <code>given Conversion</code>s in <code>TypedExpr</code>&#39;s companion, plus the <code>into trait TypedExpr</code>
+        modifier (SIP-71) so the conversion fires without <code>language.implicitConversions</code> in your
+        scope. Requires Scala 3.8+ with <code>-preview</code> (the project sets it globally; stabilises in
+        3.9).</p>
+        <p><strong>Three limits worth remembering:</strong></p>
+        <ol class="arabic">
+          <li>
+            <p><strong>Only singleton-typed sources.</strong> Literals (<code>42</code>, <code>&quot;alice&quot;</code>, <code>true</code>) and stable <code>val</code>s
+            of primitive type match. Method calls, <code>var</code> references, widened ascriptions
+            (<code>(x: Int)</code>) and anything generic don&#39;t — those need <code>Param[T]</code> or <code>Param.bind(v)</code>,
+            as before.</p>
+          </li>
+          <li>
+            <p><strong>Only at direct <code>TypedExpr</code> slots.</strong> Inside a collection where the element type
+            is inferred as the raw <code>T</code>, the conversion doesn&#39;t fire. The typical case is
+            <code>.in(NonEmptyList.of(…))</code>: each element is just <code>Int</code>, not <code>TypedExpr[Int, _]</code>, so
+            <code>lit</code> is still required there:</p>
+            <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// `.in` over an explicit collection — element type is Int, conversion can&#39;t see the slot:
+</span><span class="keyword">val</span><span> </span><span class="identifier">byAge</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>.</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span>.</span><span class="identifier">in</span><span>(</span><span class="identifier">cats</span><span>.</span><span class="identifier">data</span><span>.</span><span class="type-name">NonEmptyList</span><span>.</span><span class="identifier">of</span><span>(</span><span class="identifier">lit</span><span>(</span><span class="number-literal">18</span><span>), </span><span class="identifier">lit</span><span>(</span><span class="number-literal">21</span><span>)))).</span><span class="identifier">compile</span></code></pre>
+            <p>Workaround: bind via <code>Param.list[Int](n)</code>, or type-annotate the collection
+            <code>NonEmptyList.of[skunk.sharp.TypedExpr[Int, skunk.Void]](18, 21)</code>.</p>
+          </li>
+          <li>
+            <p><strong>Only primitives.</strong> UUIDs, dates, your own tag types (<code>Citext</code>, <code>LTree</code>, …) don&#39;t
+            have singleton subtypes and still need <code>lit(v)</code> or <code>Param.bind(v)</code> — there&#39;s no
+            compile-time-known-value notion for them.</p>
+          </li>
+        </ol>
+        <p>When the conversion can&#39;t fire you get a regular &quot;no implicit conversion&quot; / type-mismatch
+        error pointing at the slot; the fallback (<code>lit</code> / <code>Param</code>) is one wrap away.</p>
         
         <h2 id="in-list-parameters-with-param-list-t-n" class="section"><a class="anchor-link left" href="#in-list-parameters-with-param-list-t-n"><i class="icofont-laika link">&#xef71;</i></a>IN-list parameters with <code>Param.list[T](n)</code></h2>
         <p>For an <code>IN</code> list of a known size, <code>Param.list[T](n)</code> produces a single <code>Param[List[T]]</code>
