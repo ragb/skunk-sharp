@@ -196,6 +196,53 @@ Use the built-in `empty` relation for queries with no FROM clause:
 val now = empty.select(_ => Pg.now).compile
 ```
 
+## Primitive literals as direct RHS
+
+Every binary operator that expects a `TypedExpr` accepts a primitive literal directly —
+no `lit(…)` wrap needed:
+
+```scala mdoc:silent
+val q = users.select.where(u => u.age >= 18 && u.email === "alice@example.com").compile
+```
+
+The SQL is byte-identical to the `lit`-wrapped form (`"age" >= 18`, `"email" = 'alice@example.com'`)
+— the value is inlined into the parts of the rendered Fragment, not bound as a `$N` parameter.
+
+This works for `Boolean`, `Byte`, `Short`, `Int`, `Long`, `Float`, `Double`, `String` at
+**direct `TypedExpr` slots** — operator RHS, function arguments, JOIN `.on` predicates,
+UPDATE `SET` (via `:=`), `between(lo, hi)`, `like("…")`, etc. Mechanism: singleton-typed
+`given Conversion`s in `TypedExpr`'s companion, plus the `into trait TypedExpr`
+modifier (SIP-71) so the conversion fires without `language.implicitConversions` in your
+scope. Requires Scala 3.8+ with `-preview` (the project sets it globally; stabilises in
+3.9).
+
+**Three limits worth remembering:**
+
+1. **Only singleton-typed sources.** Literals (`42`, `"alice"`, `true`) and stable `val`s
+   of primitive type match. Method calls, `var` references, widened ascriptions
+   (`(x: Int)`) and anything generic don't — those need `Param[T]` or `Param.bind(v)`,
+   as before.
+
+2. **Only at direct `TypedExpr` slots.** Inside a collection where the element type
+   is inferred as the raw `T`, the conversion doesn't fire. The typical case is
+   `.in(NonEmptyList.of(…))`: each element is just `Int`, not `TypedExpr[Int, _]`, so
+   `lit` is still required there:
+
+   ```scala mdoc:silent
+   // `.in` over an explicit collection — element type is Int, conversion can't see the slot:
+   val byAge = users.select.where(u => u.age.in(cats.data.NonEmptyList.of(lit(18), lit(21)))).compile
+   ```
+
+   Workaround: bind via `Param.list[Int](n)`, or type-annotate the collection
+   `NonEmptyList.of[skunk.sharp.TypedExpr[Int, skunk.Void]](18, 21)`.
+
+3. **Only primitives.** UUIDs, dates, your own tag types (`Citext`, `LTree`, …) don't
+   have singleton subtypes and still need `lit(v)` or `Param.bind(v)` — there's no
+   compile-time-known-value notion for them.
+
+When the conversion can't fire you get a regular "no implicit conversion" / type-mismatch
+error pointing at the slot; the fallback (`lit` / `Param`) is one wrap away.
+
 ## IN-list parameters with `Param.list[T](n)`
 
 For an `IN` list of a known size, `Param.list[T](n)` produces a single `Param[List[T]]`

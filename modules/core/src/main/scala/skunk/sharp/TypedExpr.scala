@@ -21,7 +21,7 @@ import skunk.util.Origin
  * `TypedExpr[T, T]`). Third-party modules add new operators and functions by returning `TypedExpr[..., A]` whose Args
  * reflect what their inputs contribute.
  */
-trait TypedExpr[T, Args] {
+into trait TypedExpr[T, Args] {
 
   /** Typed Fragment carrying the SQL parts + the encoder that consumes `Args` at execute time. */
   def fragment: Fragment[Args]
@@ -76,6 +76,27 @@ object TypedExpr {
     apply[T, Void](frag, pf.codec)
   }
 
+  /**
+   * Runtime counterpart of the [[lit]] macro — build a `TypedExpr[T, Void]` whose fragment carries `sqlText` inline in
+   * its `parts` (no `$N` placeholders, no encoder side effects). Used by the singleton-typed `given Conversion`s in
+   * [[skunk.sharp.syntax.literal]] so that `col === 42` (and the like) produce the same SQL form as
+   * `col === 42`. Callers are responsible for the SQL spelling: pre-format primitives with [[renderInt]],
+   * [[renderString]], etc.
+   */
+  def litRendered[T](sqlText: String)(using pf: PgTypeFor[T]): TypedExpr[T, Void] =
+    apply[T, Void](voidFragment(sqlText), pf.codec)
+
+  /** SQL rendering for primitive literals — mirrors the cases handled by `litMacro` so the runtime conversions stay
+   *  byte-identical to the macro-produced output. */
+  def renderInt(v: Int): String       = v.toString
+  def renderLong(v: Long): String     = v.toString
+  def renderShort(v: Short): String   = v.toString
+  def renderByte(v: Byte): String     = v.toString
+  def renderBool(v: Boolean): String  = if v then "TRUE" else "FALSE"
+
+  /** SQL-string literal with single quotes, doubling internal single quotes per the Postgres escape rule. */
+  def renderString(v: String): String = s"'${v.replace("'", "''")}'"
+
   /** Render a `Float` literal as its SQL form. Always emits a `::float4` cast. */
   def renderFloat(v: Float): String = v match {
     case x if java.lang.Float.isNaN(x) => "'NaN'::float4"
@@ -91,6 +112,68 @@ object TypedExpr {
     case Double.NegativeInfinity        => "'-Infinity'::float8"
     case x                              => s"${x.toString}::float8"
   }
+
+  // ---- Singleton-typed implicit conversions for primitive literals ------------------------------
+  //
+  // These live in `TypedExpr`'s companion so they're in implicit scope at every site expecting a `TypedExpr` — no
+  // import required. Combined with `into trait TypedExpr` (declared above), they fire without
+  // `language.implicitConversions` in the caller's scope either. `col === 42`, `col.between(1, 10)`,
+  // `col.like("%foo%")`, `col := 18`, `r.users.id ==== r.posts.user_id` — every operator slot that takes a
+  // `TypedExpr` RHS auto-accepts a primitive literal directly.
+  //
+  // Bound: `V <: T & Singleton` restricts to singleton-typed sources. Literal expressions match (`42 : 42`), stable
+  // `val`s also match (their singleton path-dependent type), but widened expressions / method results / `var` refs
+  // don't — those have plain `T` types with no Singleton, and still need `Param[T]` / `Param.bind(v)`.
+  //
+  // SQL spelling mirrors the `lit` macro byte-for-byte via `renderBool` / `renderInt` / `renderString` / etc.
+
+  given convBoolLit[V <: Boolean & Singleton](using
+    v: ValueOf[V],
+    pf: PgTypeFor[Boolean]
+  ): Conversion[V, TypedExpr[Boolean, Void]] =
+    (_: V) => litRendered[Boolean](renderBool(v.value))
+
+  given convIntLit[V <: Int & Singleton](using
+    v: ValueOf[V],
+    pf: PgTypeFor[Int]
+  ): Conversion[V, TypedExpr[Int, Void]] =
+    (_: V) => litRendered[Int](renderInt(v.value))
+
+  given convLongLit[V <: Long & Singleton](using
+    v: ValueOf[V],
+    pf: PgTypeFor[Long]
+  ): Conversion[V, TypedExpr[Long, Void]] =
+    (_: V) => litRendered[Long](renderLong(v.value))
+
+  given convShortLit[V <: Short & Singleton](using
+    v: ValueOf[V],
+    pf: PgTypeFor[Short]
+  ): Conversion[V, TypedExpr[Short, Void]] =
+    (_: V) => litRendered[Short](renderShort(v.value))
+
+  given convByteLit[V <: Byte & Singleton](using
+    v: ValueOf[V],
+    pf: PgTypeFor[Byte]
+  ): Conversion[V, TypedExpr[Byte, Void]] =
+    (_: V) => litRendered[Byte](renderByte(v.value))
+
+  given convFloatLit[V <: Float & Singleton](using
+    v: ValueOf[V],
+    pf: PgTypeFor[Float]
+  ): Conversion[V, TypedExpr[Float, Void]] =
+    (_: V) => litRendered[Float](renderFloat(v.value))
+
+  given convDoubleLit[V <: Double & Singleton](using
+    v: ValueOf[V],
+    pf: PgTypeFor[Double]
+  ): Conversion[V, TypedExpr[Double, Void]] =
+    (_: V) => litRendered[Double](renderDouble(v.value))
+
+  given convStringLit[V <: String & Singleton](using
+    v: ValueOf[V],
+    pf: PgTypeFor[String]
+  ): Conversion[V, TypedExpr[String, Void]] =
+    (_: V) => litRendered[String](renderString(v.value))
 
   /**
    * Build an `AppliedFragment` from a SQL string — the structural-token escape hatch.
