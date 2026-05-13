@@ -42,7 +42,7 @@ object CompileBench {
     users.delete.where(u => u.id === Param.bind(id)).compile.af
 
   def joinSelect(age: Int): skunk.AppliedFragment =
-    users.innerJoin(posts).on(r => r.users.id ==== r.posts.authorId)
+    users.innerJoin(posts).on(r => r.users.id === r.posts.authorId)
       .where(r => r.users.age >= Param.bind(age))
       .select(r => (r.users.email, r.posts.title))
       .compile.af

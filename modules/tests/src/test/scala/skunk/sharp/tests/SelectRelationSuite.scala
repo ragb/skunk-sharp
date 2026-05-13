@@ -68,7 +68,7 @@ class SelectRelationSuite extends PgFixture {
           _ <- assertIO(
             adults
               .innerJoin(posts)
-              .on(r => r.adults.id ==== r.posts.user_id)
+              .on(r => r.adults.id === r.posts.user_id)
               .select(r => r.posts.title)
               .compile.run(s).map(_.toSet),
             Set(s"adult-post-$tag")

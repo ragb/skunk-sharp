@@ -16,8 +16,8 @@ import scala.NamedTuple
  *
  * {{{
  *   users
- *     .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
- *     .leftJoin(tags).on(r => r.posts.id ==== r.tags.post_id)
+ *     .innerJoin(posts).on(r => r.users.id === r.posts.user_id)
+ *     .leftJoin(tags).on(r => r.posts.id === r.tags.post_id)
  *     .select(r => (r.users.email, r.posts.title, r.tags.name))
  *     .where(r => r.users.age >= 18)
  *     .compile
@@ -74,7 +74,7 @@ extension [Cols <: Tuple](r: Relation[Cols]) {
  * {{{
  *   // Static subquery: no Params inside, BodyArgs = Void
  *   val active = users.select.where(u => u.deleted_at.isNull).alias("active")
- *   active.innerJoin(orders).on(r => r.active.id ==== r.orders.user_id).compile
+ *   active.innerJoin(orders).on(r => r.active.id === r.orders.user_id).compile
  *
  *   // Typed subquery: Param inside; BodyArgs = UUID flows into outer Args
  *   val byId = users.select.where(u => u.id === Param[UUID]).alias("u")
@@ -447,7 +447,7 @@ object AsRelation {
  * occurrences of the same singleton reduce to the identity `=:=` and `NotGiven` fails.
  *
  * To self-join legitimately, supply explicit aliases on at least one side:
- * `users.alias("u1").innerJoin(users.alias("u2")).on(r => r.u1.id ==== r.u2.id)`.
+ * `users.alias("u1").innerJoin(users.alias("u2")).on(r => r.u1.id === r.u2.id)`.
  */
 @scala.annotation.implicitNotFound(
   "Relation alias `${A}` is already in use by another source in this query. Use `.alias(\"…\")` to give this source a distinct alias (e.g. for a self-join: `users.alias(\"u1\").innerJoin(users.alias(\"u2\"))`)."
@@ -591,7 +591,7 @@ final class IncompleteJoin[
    *
    * The predicate's typed `Args` (`A`) is captured as the new source's `OnArgs` type member — outer `.compile` picks it
    * up via [[SourceOnArgsProj]] and surfaces it in the outer [[QueryTemplate]]'s `Args` so any [[Param]] in an ON
-   * predicate composes statically with WHERE / GROUP BY / HAVING args. Plain column-to-column comparisons (`r.a.id ====
+   * predicate composes statically with WHERE / GROUP BY / HAVING args. Plain column-to-column comparisons (`r.a.id ===
    * r.b.user_id`) keep `A = Void` and the slot collapses to `Void`.
    */
   def on[A](
@@ -950,7 +950,7 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
   //
   // `LATERAL` unlocks left-to-right correlation in FROM: the subquery on the right of a LATERAL join can reference
   // the outer source's columns. The user's lambda receives the outer's qualified `ColumnsView`, which means
-  // correlated predicates in the inner `.where` — `p.user_id ==== outer.id` — type-check and render as
+  // correlated predicates in the inner `.where` — `p.user_id === outer.id` — type-check and render as
   // alias-qualified SQL that Postgres resolves against the outer FROM-clause entry.
 
   /**

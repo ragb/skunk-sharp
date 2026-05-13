@@ -52,7 +52,7 @@ class CteSuite extends PgFixture {
           ).compile.run(s)
           active = cte("active_users", users.select.where(u => u.deleted_at.isNull))
           rows <- active
-            .innerJoin(posts).on(r => r.active_users.id ==== r.posts.user_id)
+            .innerJoin(posts).on(r => r.active_users.id === r.posts.user_id)
             .select(r => (r.active_users.email, r.posts.title))
             .where(r => r.active_users.email === Param.bind(s"$pfx-join@x"))
             .compile.run(s)

@@ -45,7 +45,7 @@ class UpdateFromDeleteUsingSuite extends PgFixture {
           _ <- users.update
             .from(posts)
             .set(r => r.users.age := lit(99))
-            .where(r => r.users.id ==== r.posts.user_id && r.posts.id === Param.bind(postId))
+            .where(r => r.users.id === r.posts.user_id && r.posts.id === Param.bind(postId))
             .compile.run(s)
           // Verify age changed
           _ <- assertIO(
@@ -77,7 +77,7 @@ class UpdateFromDeleteUsingSuite extends PgFixture {
           _ <- users.update
             .from(posts)
             .set(r => r.users.email := r.posts.title)
-            .where(r => r.users.id ==== r.posts.user_id && r.posts.id === Param.bind(postId))
+            .where(r => r.users.id === r.posts.user_id && r.posts.id === Param.bind(postId))
             .compile.run(s)
           _ <- assertIO(
             users.select(u => u.email).where(u => u.id === Param.bind(userId)).compile.run(s),
@@ -113,7 +113,7 @@ class UpdateFromDeleteUsingSuite extends PgFixture {
             .from(tags)
             .set(r => r.users.email := r.tags.name)
             .where(r =>
-              r.users.id ==== r.posts.user_id && r.posts.id ==== r.tags.post_id && r.tags.id === Param.bind(tagId)
+              r.users.id === r.posts.user_id && r.posts.id === r.tags.post_id && r.tags.id === Param.bind(tagId)
             )
             .compile.run(s)
           _ <- assertIO(
@@ -144,7 +144,7 @@ class UpdateFromDeleteUsingSuite extends PgFixture {
           emails <- users.update
             .from(posts)
             .set(r => r.users.age := lit(42))
-            .where(r => r.users.id ==== r.posts.user_id && r.posts.id === Param.bind(postId))
+            .where(r => r.users.id === r.posts.user_id && r.posts.id === Param.bind(postId))
             .returning(r => r.users.email)
             .compile.run(s)
           _ = assertEquals(emails, List(s"$tag@example.com"))
@@ -173,7 +173,7 @@ class UpdateFromDeleteUsingSuite extends PgFixture {
           // (delete child rows based on parent info — avoids FK violation)
           _ <- posts.delete
             .using(users)
-            .where(r => r.posts.user_id ==== r.users.id && r.users.id === Param.bind(userId))
+            .where(r => r.posts.user_id === r.users.id && r.users.id === Param.bind(userId))
             .compile.run(s)
           _ <- assertIO(
             posts.select(p => p.id).where(p => p.id === Param.bind(postId)).compile.run(s),
@@ -207,7 +207,7 @@ class UpdateFromDeleteUsingSuite extends PgFixture {
             .using(posts)
             .using(users)
             .where(r =>
-              r.tags.post_id ==== r.posts.id && r.posts.user_id ==== r.users.id && r.users.id === Param.bind(userId)
+              r.tags.post_id === r.posts.id && r.posts.user_id === r.users.id && r.users.id === Param.bind(userId)
             )
             .compile.run(s)
           _ <- assertIO(
@@ -238,7 +238,7 @@ class UpdateFromDeleteUsingSuite extends PgFixture {
           // DELETE FROM posts USING users RETURNING posts.title
           titles <- posts.delete
             .using(users)
-            .where(r => r.posts.user_id ==== r.users.id && r.users.id === Param.bind(userId))
+            .where(r => r.posts.user_id === r.users.id && r.users.id === Param.bind(userId))
             .returning(r => r.posts.title)
             .compile.run(s)
           _ = assertEquals(titles, List("ret-title"))

@@ -113,7 +113,7 @@ object SearchRepository {
       // INNER JOIN rooms × buildings on the FK. Spatial filter goes on buildings.geom; the room filters compose
       // unqualified (they reference `roomsCv` directly — works because the rooms view is unaliased in the join).
       val q = rooms.innerJoin(buildings)
-        .on(j => j.rooms.building_id ==== j.buildings.id)
+        .on(j => j.rooms.building_id === j.buildings.id)
         .select { j =>
           (
             j.rooms.id,
@@ -134,7 +134,7 @@ object SearchRepository {
             val period = PgRange[LocalDate](lower = Some(from), upper = Some(to))
             Pg.notExists(
               bookings.select(_ => lit(1)).where(bk =>
-                bk.room_id ==== j.rooms.id && bk.period.overlaps(Param.bind(period))
+                bk.room_id === j.rooms.id && bk.period.overlaps(Param.bind(period))
               )
             )
           }
@@ -161,10 +161,10 @@ object SearchRepository {
 
       buildings.leftJoin(rooms)
         .on { j =>
-          j.rooms.building_id ==== j.buildings.id &&
+          j.rooms.building_id === j.buildings.id &&
             Pg.notExists(
               bookings.select(_ => lit(1)).where(bk =>
-                bk.room_id ==== j.rooms.id && bk.period.overlaps(period)
+                bk.room_id === j.rooms.id && bk.period.overlaps(period)
               )
             )
         }

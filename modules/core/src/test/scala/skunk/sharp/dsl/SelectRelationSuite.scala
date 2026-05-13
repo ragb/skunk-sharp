@@ -29,7 +29,7 @@ class SelectRelationSuite extends munit.FunSuite {
     val active = users.select.where(u => u.age >= lit(18)).alias("active")
     val af     = active
       .innerJoin(posts)
-      .on(r => r.active.id ==== r.posts.user_id)
+      .on(r => r.active.id === r.posts.user_id)
       .select(r => (r.active.email, r.posts.title))
       .compile
       .af

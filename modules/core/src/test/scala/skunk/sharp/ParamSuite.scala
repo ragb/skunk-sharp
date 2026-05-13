@@ -129,7 +129,7 @@ class ParamSuite extends munit.FunSuite {
 
   test("JOIN with Param[T] in WHERE: typed Args threads") {
     val q = users
-      .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
+      .innerJoin(posts).on(r => r.users.id === r.posts.user_id)
       .select(r => (r.users.email, r.posts.title))
       .where(r => r.users.id === Param[UUID])
       .compile
@@ -825,7 +825,7 @@ class ParamSuite extends munit.FunSuite {
     val cmd = users.update
       .from(posts)
       .set(r => r.users.email := Param[String])
-      .where(r => r.users.id ==== r.posts.user_id)
+      .where(r => r.users.id === r.posts.user_id)
       .compile
     val _: CommandTemplate[String] = cmd
     assertEquals(
@@ -928,7 +928,7 @@ class ParamSuite extends munit.FunSuite {
     val posts = Table.of[Post]("posts")
     val qt    = users
       .innerJoin(posts)
-      .on(r => (r.users.id ==== r.posts.user_id) && (r.posts.id === Param[UUID]))
+      .on(r => (r.users.id === r.posts.user_id) && (r.posts.id === Param[UUID]))
       .select(r => (r.users.email, r.posts.title))
       .compile
     val _: QueryTemplate[UUID, (String, String)] = qt
@@ -943,7 +943,7 @@ class ParamSuite extends munit.FunSuite {
     val posts = Table.of[Post]("posts")
     val qt    = users
       .innerJoin(posts)
-      .on(r => (r.users.id ==== r.posts.user_id) && (r.posts.title === Param[String]))
+      .on(r => (r.users.id === r.posts.user_id) && (r.posts.title === Param[String]))
       .select(r => (r.users.email, r.posts.title))
       .where(r => r.users.age >= Param[Int])
       .compile
@@ -958,7 +958,7 @@ class ParamSuite extends munit.FunSuite {
     val users = Table.of[User]("users")
     val posts = Table.of[Post]("posts")
     val qt    = users
-      .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
+      .innerJoin(posts).on(r => r.users.id === r.posts.user_id)
       .select(r => (r.users.email, r.posts.title))
       .where(r => r.users.age >= Param[Int])
       .compile
@@ -975,7 +975,7 @@ class ParamSuite extends munit.FunSuite {
     val byId  = posts.select.where(p => p.id === Param[UUID]).alias("p")
     val qt    = users
       .innerJoin(byId)
-      .on(r => r.users.id ==== r.p.user_id)
+      .on(r => r.users.id === r.p.user_id)
       .select(r => (r.users.email, r.p.title))
       .compile
     val _: QueryTemplate[UUID, (String, String)] = qt
@@ -994,7 +994,7 @@ class ParamSuite extends munit.FunSuite {
     val byId   = posts.select.where(p => p.id === Param[UUID]).alias("p")
     val qt     = byMail
       .innerJoin(byId)
-      .on(r => r.u.id ==== r.p.user_id)
+      .on(r => r.u.id === r.p.user_id)
       .select(r => (r.u.email, r.p.title))
       .compile
     val _: QueryTemplate[(String, UUID), (String, String)] = qt
@@ -1039,7 +1039,7 @@ class ParamSuite extends munit.FunSuite {
     val sub   = posts.select(p => (p.user_id, p.title)).where(p => p.id === Param[UUID]).alias("p")
     val qt    = users
       .innerJoin(sub)
-      .on(r => r.users.id ==== r.p.user_id)
+      .on(r => r.users.id === r.p.user_id)
       .select(r => (r.users.email, r.p.title))
       .compile
     val _: QueryTemplate[UUID, (String, String)] = qt
@@ -1124,7 +1124,7 @@ class ParamSuite extends munit.FunSuite {
     val cmd         = users.update
       .from(activePosts)
       .set(r => r.users.age := lit(0))
-      .where(r => r.users.id ==== r.ap.user_id)
+      .where(r => r.users.id === r.ap.user_id)
       .compile
     val _: CommandTemplate[String] = cmd
     assert(
@@ -1179,7 +1179,7 @@ class ParamSuite extends munit.FunSuite {
     val activePosts = posts.select.where(p => p.status === Param[String]).alias("ap")
     val cmd         = users.delete
       .using(activePosts)
-      .where(r => r.users.id ==== r.ap.user_id)
+      .where(r => r.users.id === r.ap.user_id)
       .compile
     val _: CommandTemplate[String] = cmd
     assert(

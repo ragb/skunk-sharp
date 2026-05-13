@@ -69,7 +69,7 @@ object Values {
    *   users.insert.from(lookup)                      // (rejected: different shapes — illustrative)
    *
    *   // As a joinable relation:
-   *   users.innerJoin(lookup.alias("l")).on(r => r.users.age ==== r.l.id).compile
+   *   users.innerJoin(lookup.alias("l")).on(r => r.users.age === r.l.id).compile
    * }}}
    */
   def of[Row <: NamedTuple.AnyNamedTuple](row: Row, more: Row*)(using

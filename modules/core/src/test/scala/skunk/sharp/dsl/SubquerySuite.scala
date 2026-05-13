@@ -62,7 +62,7 @@ class SubquerySuite extends munit.FunSuite {
       .select(u =>
         (
           u.email,
-          posts.select(_ => Pg.countAll).where(p => p.user_id ==== u.id).asExpr
+          posts.select(_ => Pg.countAll).where(p => p.user_id === u.id).asExpr
         )
       )
       .compile
@@ -78,7 +78,7 @@ class SubquerySuite extends munit.FunSuite {
     val af = users
       .alias("u")
       .select(u => u.email)
-      .where(u => Pg.exists(posts.select(_ => lit(1)).where(p => p.user_id ==== u.id)))
+      .where(u => Pg.exists(posts.select(_ => lit(1)).where(p => p.user_id === u.id)))
       .compile
       .af
 
@@ -92,7 +92,7 @@ class SubquerySuite extends munit.FunSuite {
     val af = users
       .alias("u")
       .select(u => u.email)
-      .where(u => u.age >= lit(18) && Pg.exists(posts.select(_ => lit(1)).where(p => p.user_id ==== u.id)))
+      .where(u => u.age >= lit(18) && Pg.exists(posts.select(_ => lit(1)).where(p => p.user_id === u.id)))
       .compile
       .af
 

@@ -140,14 +140,14 @@ Auto-alias — the alias defaults to the table's name, so `.alias("u")` is optio
 
 ```scala
 users
-  .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
+  .innerJoin(posts).on(r => r.users.id === r.posts.user_id)
   .select(r => (r.users.email, r.posts.title))
   .where(r => r.posts.created_at > cutoff)
   .compile.run(session)
 
 // LEFT JOIN flips right-side nullability at the type level.
 users
-  .leftJoin(posts).on(r => r.users.id ==== r.posts.user_id)
+  .leftJoin(posts).on(r => r.users.id === r.posts.user_id)
   .select(r => (r.users.email, Pg.count(r.posts.id).as("n")))
   .groupBy(r => r.users.email)
   .compile.run(session)
@@ -157,13 +157,13 @@ users.crossJoin(posts).select(r => (r.users.email, r.posts.title)).compile.run(s
 
 // Chained after a single-source WHERE, and 3+ source joins:
 users.select.where(u => u.age >= 18)
-  .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
-  .leftJoin(tags).on(r => r.posts.id ==== r.tags.post_id)
+  .innerJoin(posts).on(r => r.users.id === r.posts.user_id)
+  .leftJoin(tags).on(r => r.posts.id === r.tags.post_id)
   .select(r => (r.users.email, r.posts.title, r.tags.name))
   .compile.run(session)
 
 // Explicit aliases still work when the same table appears twice.
-users.alias("u1").innerJoin(users.alias("u2")).on(r => r.u1.id ==== r.u2.id)
+users.alias("u1").innerJoin(users.alias("u2")).on(r => r.u1.id === r.u2.id)
 ```
 
 ### Subqueries
@@ -173,7 +173,7 @@ users.alias("u1").innerJoin(users.alias("u2")).on(r => r.u1.id ==== r.u2.id)
 ```scala
 // Scalar subquery in projection (correlated — inner WHERE closes over outer `u.id`)
 users.alias("u").select(u =>
-  (u.email, posts.select(_ => Pg.countAll).where(p => p.user_id ==== u.id).asExpr)
+  (u.email, posts.select(_ => Pg.countAll).where(p => p.user_id === u.id).asExpr)
 ).compile.run(session)
 
 // IN subquery
@@ -182,7 +182,7 @@ users.select.where(u => u.id.in(posts.select(p => p.user_id))).compile.run(sessi
 // EXISTS — `Pg.exists` returns a TypedExpr[Boolean] usable directly in WHERE
 users.alias("u")
   .select(u => u.email)
-  .where(u => u.age >= 18 && Pg.exists(posts.select(_ => lit(1)).where(p => p.user_id ==== u.id)))
+  .where(u => u.age >= 18 && Pg.exists(posts.select(_ => lit(1)).where(p => p.user_id === u.id)))
   .compile.run(session)
 ```
 

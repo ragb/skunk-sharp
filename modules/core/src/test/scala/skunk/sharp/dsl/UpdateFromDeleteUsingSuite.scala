@@ -22,7 +22,7 @@ class UpdateFromDeleteUsingSuite extends munit.FunSuite {
     val af = users.update
       .from(posts)
       .set(r => r.users.age := lit(1))
-      .where(r => r.users.id ==== r.posts.user_id)
+      .where(r => r.users.id === r.posts.user_id)
       .compile.af
 
     assertEquals(
@@ -36,7 +36,7 @@ class UpdateFromDeleteUsingSuite extends munit.FunSuite {
       .from(posts)
       .from(tags)
       .set(r => r.users.age := lit(1))
-      .where(r => r.users.id ==== r.posts.user_id && r.posts.id ==== r.tags.post_id)
+      .where(r => r.users.id === r.posts.user_id && r.posts.id === r.tags.post_id)
       .compile.af
 
     assertEquals(
@@ -49,7 +49,7 @@ class UpdateFromDeleteUsingSuite extends munit.FunSuite {
     val af = users.update
       .from(posts)
       .set(r => r.users.age := lit(1))
-      .where(r => r.users.id ==== r.posts.user_id)
+      .where(r => r.users.id === r.posts.user_id)
       .returning(r => r.users.email)
       .compile.af
 
@@ -76,7 +76,7 @@ class UpdateFromDeleteUsingSuite extends munit.FunSuite {
     val af = users.update
       .from(posts.alias("p"))
       .set(r => r.users.age := lit(1))
-      .where(r => r.users.id ==== r.p.user_id)
+      .where(r => r.users.id === r.p.user_id)
       .compile.af
 
     assertEquals(
@@ -88,7 +88,7 @@ class UpdateFromDeleteUsingSuite extends munit.FunSuite {
   test("DELETE … USING one extra source renders correct SQL") {
     val af = users.delete
       .using(posts)
-      .where(r => r.users.id ==== r.posts.user_id)
+      .where(r => r.users.id === r.posts.user_id)
       .compile.af
 
     assertEquals(
@@ -101,7 +101,7 @@ class UpdateFromDeleteUsingSuite extends munit.FunSuite {
     val af = users.delete
       .using(posts)
       .using(tags)
-      .where(r => r.users.id ==== r.posts.user_id && r.posts.id ==== r.tags.post_id)
+      .where(r => r.users.id === r.posts.user_id && r.posts.id === r.tags.post_id)
       .compile.af
 
     assertEquals(
@@ -113,7 +113,7 @@ class UpdateFromDeleteUsingSuite extends munit.FunSuite {
   test("DELETE … USING with RETURNING renders correctly") {
     val af = users.delete
       .using(posts)
-      .where(r => r.users.id ==== r.posts.user_id)
+      .where(r => r.users.id === r.posts.user_id)
       .returning(r => r.users.email)
       .compile.af
 
@@ -138,7 +138,7 @@ class UpdateFromDeleteUsingSuite extends munit.FunSuite {
   test("DELETE … USING with aliased source uses alias in USING clause") {
     val af = users.delete
       .using(posts.alias("p"))
-      .where(r => r.users.id ==== r.p.user_id)
+      .where(r => r.users.id === r.p.user_id)
       .compile.af
 
     assertEquals(

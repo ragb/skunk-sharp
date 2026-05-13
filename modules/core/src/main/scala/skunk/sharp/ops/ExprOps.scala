@@ -75,14 +75,6 @@ extension [T, A](lhs: TypedExpr[T, A]) {
 
 }
 
-/** Column-to-expression equality alias for source compat. Equivalent to `===` with TypedExpr RHS. */
-extension [T, A](lhs: TypedExpr[T, A]) {
-
-  /** Same as `===` with TypedExpr RHS — column-vs-column / column-vs-function-call. */
-  inline def ====[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] = opCombine(lhs, " = ", rhs)
-
-}
-
 /** `lhs BETWEEN lo AND hi` family. RHS bounds must be `TypedExpr`s — pass `Param[T]`, `lit(v)`, or `Param.bind(v)`. */
 extension [T, A](lhs: TypedExpr[T, A]) {
 
@@ -116,13 +108,6 @@ extension [T, A](lhs: TypedExpr[T, A]) {
     opCombine(lhs, " IS DISTINCT FROM ", rhs)
 
   inline def isNotDistinctFrom[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] =
-    opCombine(lhs, " IS NOT DISTINCT FROM ", rhs)
-
-  /** Source-compat aliases for the column-vs-column NULL-safe variants. */
-  inline def isDistinctFromExpr[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] =
-    opCombine(lhs, " IS DISTINCT FROM ", rhs)
-
-  inline def isNotDistinctFromExpr[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] =
     opCombine(lhs, " IS NOT DISTINCT FROM ", rhs)
 
 }
