@@ -13,7 +13,7 @@ import org.typelevel.otel4s.metrics.Meter.Implicits.given
 import org.typelevel.otel4s.trace.Tracer.Implicits.given
 import skunk.{Session, TypingStrategy}
 import skunk.sharp.example.api.Routes
-import skunk.sharp.example.repository.{BookingRepository, BuildingRepository, RoomRepository}
+import skunk.sharp.example.repository.{BookingRepository, BuildingRepository, RoomRepository, SearchRepository}
 import sttp.capabilities.fs2.Fs2Streams
 import sttp.client3.{Request, Response, SttpBackend}
 import sttp.client3.http4s.Http4sBackend
@@ -100,7 +100,7 @@ trait ExampleAppFixture extends CatsEffectSuite with TestContainerForAll {
   protected def appBackend(c: containerDef.Container): Resource[IO, SttpBackend[IO, Fs2Streams[IO]]] =
     sessionPool(c).map { pool =>
       val routes: HttpRoutes[IO] =
-        Routes(pool, BuildingRepository.live, RoomRepository.live, BookingRepository.live)
+        Routes(pool, BuildingRepository.live, RoomRepository.live, BookingRepository.live, SearchRepository.live)
       val client: Client[IO]     = Client.fromHttpApp(routes.orNotFound)
       Http4sBackend.usingClient(client)
     }

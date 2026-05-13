@@ -9,7 +9,7 @@ import skunk.sharp.contrib.hstore.Hstore
 import skunk.sharp.contrib.ltree.LTree
 import skunk.sharp.data.Range
 import skunk.sharp.example.domain.{BookingRow, BuildingRow, RoomRow}
-import skunk.sharp.example.repository.{BookingFilter, BuildingFilter, RoomFilter}
+import skunk.sharp.example.repository.{BookingFilter, BuildingFilter, RoomFilter, SearchRepository}
 import skunk.sharp.pg.tags.PgRange
 
 import java.time.LocalDate
@@ -140,6 +140,46 @@ object Transformers {
         q.endsOnOrBefore.map(BookingFilter.EndsOnOrBefore(_))
       ).flatten
     }
+
+  // ---------- Search --------------------------------------------------------------------------
+
+  extension (row: SearchRepository.RoomWithBuilding)
+
+    def toResponse: RoomWithBuildingResponse = RoomWithBuildingResponse(
+      id = row.roomId,
+      buildingId = row.buildingId,
+      buildingName = row.buildingName,
+      buildingLocation = pointToLatLon(row.buildingGeom),
+      name = row.name,
+      capacity = row.capacity,
+      location = row.location: String,
+      amenities = amenitiesToWire(row.amenities)
+    )
+
+  extension (row: SearchRepository.BuildingAvailability)
+
+    def toResponse: BuildingAvailabilityResponse = BuildingAvailabilityResponse(
+      id = row.id,
+      name = row.name,
+      address = row.address,
+      location = pointToLatLon(row.geom),
+      freeRoomCount = row.freeRoomCount
+    )
+
+  extension (q: RoomSearchQuery)
+
+    /** Project the room-search bundle onto the [[RoomFilter]] ADT — same shape as `RoomFilterQuery.toFilters`. */
+    def toRoomFilters: List[RoomFilter] = List(
+      q.minCapacity.map(RoomFilter.CapacityAtLeast(_)),
+      q.maxCapacity.map(RoomFilter.CapacityAtMost(_)),
+      q.nameContains.map(RoomFilter.NameContains(_)),
+      q.locationUnder.map(s => RoomFilter.LocationUnder(LTree(s))),
+      q.hasAmenity.map(RoomFilter.HasAmenity(_))
+    ).flatten
+
+    /** Available-during pair — both bounds required, mirrors the OverlapsPeriod rule on booking filters. */
+    def availableDuring: Option[(java.time.LocalDate, java.time.LocalDate)] =
+      (q.availableFrom, q.availableTo).tupled
 
   // ---------- Helpers -------------------------------------------------------------------------
 

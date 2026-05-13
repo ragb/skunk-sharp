@@ -10,7 +10,7 @@ import sttp.tapir.server.http4s.Http4sServerInterpreter
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.swagger.bundle.SwaggerInterpreter
 import org.http4s.HttpRoutes
-import skunk.sharp.example.repository.{BookingRepository, BuildingRepository, RoomRepository}
+import skunk.sharp.example.repository.{BookingRepository, BuildingRepository, RoomRepository, SearchRepository}
 import Transformers.*
 
 object Routes {
@@ -24,7 +24,8 @@ object Routes {
     pool: cats.effect.Resource[IO, Session[IO]],
     buildings: BuildingRepository,
     rooms: RoomRepository,
-    bookings: BookingRepository
+    bookings: BookingRepository,
+    search: SearchRepository
   ): HttpRoutes[IO] = {
 
     // ---- Buildings ------------------------------------------------------------------------
@@ -164,11 +165,32 @@ object Routes {
       }
     )
 
+    // ---- Cross-resource search ------------------------------------------------------------
+
+    val searchEndpoints: List[ServerEndpoint[Any, IO]] = List(
+      Endpoints.search.rooms.serverLogic[IO] { q =>
+        Stream.resource(pool)
+          .flatMap(search.findRoomsNear((q.nearLat, q.nearLon), q.radiusMeters, q.toRoomFilters, q.availableDuring).run)
+          .map(_.toResponse)
+          .compile.toList
+          .map(_.asRight[Err])
+          .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
+      },
+      Endpoints.search.availability.serverLogic[IO] { q =>
+        Stream.resource(pool)
+          .flatMap(search.buildingsWithAvailability((q.nearLat, q.nearLon), q.radiusMeters, q.from, q.to).run)
+          .map(_.toResponse)
+          .compile.toList
+          .map(_.asRight[Err])
+          .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
+      }
+    )
+
     val swagger = SwaggerInterpreter()
       .fromEndpoints[IO](Endpoints.all, "Room Booking API", "2.0")
 
     Http4sServerInterpreter[IO]().toRoutes(
-      buildingEndpoints ++ roomEndpoints ++ bookingEndpoints ++ swagger
+      buildingEndpoints ++ roomEndpoints ++ bookingEndpoints ++ searchEndpoints ++ swagger
     )
   }
 

@@ -100,3 +100,33 @@ val table = Table.builder("places")
 
 …and write the casts in your queries (`geom::geography`). A first-class `geography`
 codec is the natural next step.
+
+## Composed search: JOIN with `NOT EXISTS` + aggregate
+
+The example app's `SearchRepository` (`modules/example/src/main/scala/.../SearchRepository.scala`)
+demonstrates the patterns layered together — one query that touches all three tables:
+
+```sql
+SELECT b.id, b.name, b.address, b.geom, COUNT(r.id) AS free_count
+FROM buildings b
+LEFT JOIN rooms r ON r.building_id = b.id
+                  AND NOT EXISTS (
+                    SELECT 1 FROM bookings bk
+                    WHERE bk.room_id = r.id
+                      AND bk.period && daterange($from, $to)
+                  )
+WHERE ST_DWithin(b.geom, ST_SetSRID(ST_MakePoint($lon, $lat), 4326), $radius)
+GROUP BY b.id, b.name, b.address, b.geom
+ORDER BY free_count DESC, b.name ASC
+```
+
+In skunk-sharp this is `buildings.leftJoin(rooms).on(...).select(...).where(...)
+.groupBy(...).orderBy(...).to[Row].compile` — fully **static** (compiled once,
+parameters bound per call) thanks to `Param[T]` for every scalar input and
+`Pg.notExists(...)` for the correlated subquery. Args at execute time is
+`(PgRange[LocalDate], Double, Double, Double)`.
+
+The query is index-backed end-to-end by the migrations already in place — V1's
+`EXCLUDE USING gist (room_id WITH =, period WITH &&)` on bookings serves the
+`NOT EXISTS`, V3's `buildings_geom_gist` serves `ST_DWithin`, V3's
+`rooms_building_id_idx` serves the join.
