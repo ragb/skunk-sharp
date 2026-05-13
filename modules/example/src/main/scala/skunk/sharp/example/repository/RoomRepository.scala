@@ -6,6 +6,10 @@ import cats.syntax.all.*
 import fs2.Stream
 import skunk.Session
 import skunk.sharp.*
+import skunk.sharp.contrib.hstore.*
+import skunk.sharp.contrib.hstore.Hstore
+import skunk.sharp.contrib.ltree.*
+import skunk.sharp.contrib.ltree.LTree
 import skunk.sharp.dsl.*
 import skunk.sharp.example.domain.RoomRow
 
@@ -40,7 +44,7 @@ object RoomRepository {
     private val cv = t.columnsView
 
     private val selectRow =
-      t.select(r => (r.id, r.name, r.capacity)).to[RoomRow]
+      t.select(r => (r.id, r.name, r.capacity, r.location, r.amenities)).to[RoomRow]
 
     // Compiled once — Args = Void, R = RoomRow.
     private val findAllQ = selectRow.compile
@@ -49,10 +53,15 @@ object RoomRepository {
     private val findByIdQ =
       selectRow.where(r => r.id === Param[UUID]).compile
 
-    // Compiled once — Args = (String, Int) (Create's fields, in declaration order).
+    // Compiled once — Args = (String, Int, LTree, Hstore) (Create's fields, in declaration order).
     private val createQ =
       t.insert
-        .withParams((name = Param[String], capacity = Param[Int]))
+        .withParams((
+          name = Param[String],
+          capacity = Param[Int],
+          location = Param[LTree],
+          amenities = Param[Hstore]
+        ))
         .returning(r => r.id)
         .compile
 
@@ -65,11 +74,15 @@ object RoomRepository {
      * has `Args = Void` and can be AND-folded with `dsl.allOf`.
      */
     private def toWhere(f: RoomFilter): Where[skunk.Void] = f match {
-      case RoomFilter.CapacityAtLeast(n) => cv.capacity >= Param.bind(n)
-      case RoomFilter.CapacityAtMost(n)  => cv.capacity <= Param.bind(n)
-      case RoomFilter.NameContains(s)    => cv.name.ilike(Param.bind(s"%$s%"))
-      case RoomFilter.NamesIn(ns)        => cv.name.in(ns.map(Param.bind(_)))
-      case RoomFilter.IdsIn(ids)         => cv.id.in(ids.map(Param.bind(_)))
+      case RoomFilter.CapacityAtLeast(n)   => cv.capacity >= Param.bind(n)
+      case RoomFilter.CapacityAtMost(n)    => cv.capacity <= Param.bind(n)
+      case RoomFilter.NameContains(s)      => cv.name.ilike(Param.bind(s"%$s%"))
+      case RoomFilter.NamesIn(ns)          => cv.name.in(ns.map(Param.bind(_)))
+      case RoomFilter.IdsIn(ids)           => cv.id.in(ids.map(Param.bind(_)))
+      case RoomFilter.LocationUnder(prefix) =>
+        cv.location.isDescendantOf(Param.bind(prefix))
+      case RoomFilter.HasAmenity(key)      =>
+        cv.amenities.hasKey(Param.bind(key))
     }
 
     def findFiltered(filters: List[RoomFilter]): Kleisli[Stream[IO, *], Session[IO], RoomRow] =
@@ -84,7 +97,7 @@ object RoomRepository {
       findByIdQ.optionK[IO](id)
 
     def create(data: RoomRow.Create): Kleisli[IO, Session[IO], UUID] =
-      createQ.uniqueK[IO]((data.name, data.capacity))
+      createQ.uniqueK[IO]((data.name, data.capacity, data.location, data.amenities))
 
     /**
      * `.patch` builds a different SET list per call depending on which fields are `Some`. There is no single static SQL

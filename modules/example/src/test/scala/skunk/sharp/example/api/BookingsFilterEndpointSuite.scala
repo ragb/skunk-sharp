@@ -21,7 +21,7 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
   private val listBookingsReq  = interpreter.toRequestThrowDecodeFailures(Endpoints.bookings.list, Some(baseUri))
 
   private def createRoom(name: String, capacity: Int)(using SttpBackend[IO, Fs2Streams[IO]]): IO[RoomResponse] =
-    createRoomReq(CreateRoomRequest(name, capacity)).sendOk
+    createRoomReq(CreateRoomRequest(name, capacity, location = "unsorted", amenities = Map.empty)).sendOk
 
   private def createBooking(
     roomId: UUID,
@@ -149,6 +149,48 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
               )
             )
             _ = assertEquals(rs.map(_.title), List("match"))
+          } yield ())
+      }
+    }
+  }
+
+  test("filter bookings by `bookerNameSimilar` — trigram match catches typos a substring would miss") {
+    withContainers { containers =>
+      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+        truncateAll(containers) *>
+          (for {
+            r <- createRoom("r", 1)
+            _ <- createBooking(
+              r.id,
+              "Kathleen O'Brien",
+              "design review",
+              LocalDate.parse("2024-01-01"),
+              LocalDate.parse("2024-01-02")
+            )
+            _ <-
+              createBooking(r.id, "Robert Smith", "team standup", LocalDate.parse("2024-01-03"), LocalDate.parse("2024-01-04"))
+            // A common typo of "Kathleen" — the existing substring match would not catch this; trigram similarity does.
+            // Default pg_trgm.similarity_threshold is 0.3, which is generous enough for this case.
+            typo <- listBookings(BookingFilterQuery.empty.copy(bookerNameSimilar = Some("Katleen")))
+            _ = assertEquals(typo.map(_.bookerName), List("Kathleen O'Brien"))
+            // The substring path (BookerNameContains) is still wired and works in the obvious case.
+            sub <- listBookings(BookingFilterQuery.empty.copy(bookerNameContains = Some("Robert")))
+            _ = assertEquals(sub.map(_.bookerName), List("Robert Smith"))
+          } yield ())
+      }
+    }
+  }
+
+  test("citext: bookerNameContains matches across casing without an explicit lower(...) call") {
+    withContainers { containers =>
+      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+        truncateAll(containers) *>
+          (for {
+            r <- createRoom("c", 1)
+            _ <- createBooking(r.id, "ALICE", "x", LocalDate.parse("2024-01-01"), LocalDate.parse("2024-01-02"))
+            // Stored as ALICE; queried with lowercase. citext handles case-folding at the storage layer.
+            hits <- listBookings(BookingFilterQuery.empty.copy(bookerNameContains = Some("alice")))
+            _ = assertEquals(hits.map(_.bookerName), List("ALICE"))
           } yield ())
       }
     }

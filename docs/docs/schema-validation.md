@@ -46,6 +46,9 @@ SchemaValidator.validateOrRaise[IO](session, users, posts)
 | `ExtraColumn` | A column exists in the database but is not in the declaration |
 | `TypeMismatch` | Declared type differs from DB — including parametric drift (`varchar(256)` vs `varchar(1024)`) |
 | `NullabilityMismatch` | Declared `NOT NULL` but DB column is nullable (or vice versa) |
+| `PrimaryKeyMissing` / `PrimaryKeyColumnsDiffer` / `ExtraPrimaryKey` | Declared PK set differs from `information_schema.table_constraints` |
+| `UniqueConstraintMissing` / `ExtraUniqueConstraint` | Declared UNIQUE constraint not present in the DB (or vice versa) |
+| `ExtensionMissing` | A Postgres extension required by a column tag (or supplied via `extraExtensions`) is not in `pg_extension` |
 
 ## What it checks
 
@@ -58,8 +61,45 @@ single round-trip per session. For each declared relation it compares:
   `numeric_precision`, `numeric_scale`)
 - Nullability
 
-It does **not** check indexes, constraints, or default expressions — those are owned by
-migrations, not by the DSL.
+It also checks:
+
+- **Primary key columns** declared via `.withPrimary("col")` — matched as a set against
+  `information_schema.table_constraints`.
+- **Unique constraints** declared via `.withUnique("col")` (and `.withUniqueIndex(...)`),
+  matched by column set so Postgres's auto-generated names don't trip the diff.
+- **Postgres extensions** required by declared column tags (citext, ltree, hstore, …) or
+  supplied explicitly via `extraExtensions` — looked up in `pg_extension`.
+
+It does **not** check non-unique indexes, foreign keys, check constraints, or default
+expressions — those are owned by migrations, not by the DSL.
+
+## Extensions and contrib tags
+
+Tag types in the contrib modules (`Citext`, `LTree`, `Hstore`, …) wire their required
+Postgres extension into their `PgTypeFor` instance. The validator collects every column's
+required extension (both via `PgTypeFor.requiredExtension` and via the column's
+`skunk.data.Type` looked up in `PgTypes.extensionByType`) and unions in any `extraExtensions`
+passed by the caller. Missing extensions surface as `Mismatch.ExtensionMissing(name)`.
+
+```scala mdoc:compile-only
+import skunk.sharp.validation.*
+import skunk.sharp.contrib.pgtrgm.PgTrgm
+import skunk.sharp.contrib.pgcrypto.PgCrypto
+import cats.effect.IO
+
+val session: skunk.Session[IO] = null
+
+// Function-only contribs (no tag column) need an explicit opt-in
+SchemaValidator.validateOrRaise[IO](
+  session,
+  Seq(users, posts),
+  extraExtensions = Set(PgTrgm.RequiredExtension, PgCrypto.RequiredExtension)
+)
+```
+
+Function-only modules (pgcrypto, fuzzystrmatch, pg_trgm operators on bare `String`) don't
+appear in any column's metadata, so the validator can't auto-discover them — pass their
+`RequiredExtension` constants via `extraExtensions` explicitly.
 
 ## Example: catching drift at boot
 

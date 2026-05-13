@@ -3,6 +3,9 @@ package skunk.sharp.example.api
 import cats.data.NonEmptyList
 import cats.syntax.all.*
 import io.github.arainko.ducktape.*
+import skunk.sharp.contrib.citext.Citext
+import skunk.sharp.contrib.hstore.Hstore
+import skunk.sharp.contrib.ltree.LTree
 import skunk.sharp.data.Range
 import skunk.sharp.example.domain.{BookingRow, RoomRow}
 import skunk.sharp.example.repository.{BookingFilter, RoomFilter}
@@ -13,7 +16,15 @@ import java.time.LocalDate
 object Transformers {
 
   extension (row: RoomRow)
-    def toResponse: RoomResponse = row.to[RoomResponse]
+
+    def toResponse: RoomResponse =
+      row.into[RoomResponse]
+        .transform(
+          // LTree <: String, so Scala-side it's already assignable; spell the conversion out so the
+          // wire shape (plain String) is obvious at the boundary.
+          Field.computed(_.location, r => r.location: String),
+          Field.computed(_.amenities, r => amenitiesToWire(r.amenities))
+        )
 
   extension (row: BookingRow)
 
@@ -21,14 +32,21 @@ object Transformers {
       row.into[BookingResponse]
         .transform(
           Field.renamed(_.roomId, _.room_id),
-          Field.renamed(_.bookerName, _.booker_name),
+          // Citext <: String — passes through unchanged on the wire.
+          Field.computed(_.bookerName, b => b.booker_name: String),
           Field.renamed(_.createdAt, _.created_at),
           Field.computed(_.startDate, b => rangeStart(b.period)),
           Field.computed(_.endDate, b => rangeEnd(b.period))
         )
 
   extension (req: CreateRoomRequest)
-    def toRow: RoomRow.Create = req.to[RoomRow.Create]
+
+    def toRow: RoomRow.Create =
+      req.into[RoomRow.Create]
+        .transform(
+          Field.computed(_.location, r => LTree(r.location)),
+          Field.computed(_.amenities, r => amenitiesFromWire(r.amenities))
+        )
 
   extension (req: PatchRoomRequest)
     def toRow: RoomRow.Patch = req.to[RoomRow.Patch]
@@ -39,7 +57,7 @@ object Transformers {
       req.into[BookingRow.Create]
         .transform(
           Field.renamed(_.room_id, _.roomId),
-          Field.renamed(_.booker_name, _.bookerName),
+          Field.computed(_.booker_name, r => Citext(r.bookerName)),
           Field.computed(_.period, r => PgRange[LocalDate](lower = Some(r.startDate), upper = Some(r.endDate)))
         )
 
@@ -54,7 +72,9 @@ object Transformers {
       q.maxCapacity.map(RoomFilter.CapacityAtMost(_)),
       q.nameContains.map(RoomFilter.NameContains(_)),
       NonEmptyList.fromList(q.names).map(RoomFilter.NamesIn(_)),
-      NonEmptyList.fromList(q.ids).map(RoomFilter.IdsIn(_))
+      NonEmptyList.fromList(q.ids).map(RoomFilter.IdsIn(_)),
+      q.locationUnder.map(s => RoomFilter.LocationUnder(LTree(s))),
+      q.hasAmenity.map(RoomFilter.HasAmenity(_))
     ).flatten
 
   extension (q: BookingFilterQuery)
@@ -70,6 +90,7 @@ object Transformers {
       List(
         NonEmptyList.fromList(q.roomIds).map(BookingFilter.RoomsIn(_)),
         q.bookerNameContains.map(BookingFilter.BookerNameContains(_)),
+        q.bookerNameSimilar.map(BookingFilter.BookerNameSimilar(_)),
         q.titleContains.map(BookingFilter.TitleContains(_)),
         overlap,
         q.startsOnOrAfter.map(BookingFilter.StartsOnOrAfter(_)),
@@ -88,5 +109,16 @@ object Transformers {
     case Range.Bounds(_, None, _, _)     => LocalDate.MAX
     case Range.Empty                     => LocalDate.MAX
   }
+
+  /**
+   * Project an `Hstore` (whose values are `Option[String]`) to the wire shape — drop entries whose value is NULL so the
+   * JSON object only carries the present keys. Lossy by design: the wire model is "the room has these stated
+   * amenities" rather than "the database has these keys, some with NULL values".
+   */
+  private def amenitiesToWire(h: Hstore): Map[String, String] =
+    h.collect { case (k, Some(v)) => k -> v }.toMap
+
+  private def amenitiesFromWire(m: Map[String, String]): Hstore =
+    Hstore(m.view.mapValues(v => Some(v): Option[String]).toMap)
 
 }

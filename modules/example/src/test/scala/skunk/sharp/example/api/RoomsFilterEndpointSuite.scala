@@ -27,8 +27,13 @@ class RoomsFilterEndpointSuite extends ExampleAppFixture {
   private val listReq       = interpreter.toRequestThrowDecodeFailures(Endpoints.rooms.list, Some(baseUri))
   private val getByIdReq    = interpreter.toRequest(Endpoints.rooms.getById, Some(baseUri))
 
-  private def createRoom(name: String, capacity: Int)(using SttpBackend[IO, Fs2Streams[IO]]): IO[RoomResponse] =
-    createRoomReq(CreateRoomRequest(name, capacity)).sendOk
+  private def createRoom(
+    name: String,
+    capacity: Int,
+    location: String = "unsorted",
+    amenities: Map[String, String] = Map.empty
+  )(using SttpBackend[IO, Fs2Streams[IO]]): IO[RoomResponse] =
+    createRoomReq(CreateRoomRequest(name, capacity, location, amenities)).sendOk
 
   private def listRooms(q: RoomFilterQuery)(using SttpBackend[IO, Fs2Streams[IO]]): IO[List[RoomResponse]] =
     listReq(q).sendOk
@@ -109,12 +114,10 @@ class RoomsFilterEndpointSuite extends ExampleAppFixture {
             _  <- createRoom("Hub-East", 30)
             _  <- createRoom("Plaza", 40)
             rs <- listRooms(
-              RoomFilterQuery(
+              RoomFilterQuery.empty.copy(
                 minCapacity = Some(10),
-                maxCapacity = None,
                 nameContains = Some("hub"),
-                names = List("Hub-North", "Hub-East"),
-                ids = Nil
+                names = List("Hub-North", "Hub-East")
               )
             )
             _ = assertEquals(rs.map(_.name).toSet, Set("Hub-North", "Hub-East"))
@@ -132,6 +135,46 @@ class RoomsFilterEndpointSuite extends ExampleAppFixture {
             _   <- createRoom("x2", 1)
             all <- listRooms(RoomFilterQuery.empty)
             _ = assertEquals(all.size, 2)
+          } yield ())
+      }
+    }
+  }
+
+  test("filter rooms by `locationUnder` (ltree descendant query)") {
+    withContainers { containers =>
+      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+        truncateAll(containers) *>
+          (for {
+            _    <- createRoom("dub-1", 4, location = "acme.dublin.floor3.r1")
+            _    <- createRoom("dub-2", 4, location = "acme.dublin.floor2.r1")
+            _    <- createRoom("cork-1", 4, location = "acme.cork.floor1.r1")
+            // Whole Dublin tree (`acme.dublin` ≤ floor3.r1 and floor2.r1; not Cork).
+            dub  <- listRooms(RoomFilterQuery.empty.copy(locationUnder = Some("acme.dublin")))
+            _ = assertEquals(dub.map(_.name).toSet, Set("dub-1", "dub-2"))
+            // One floor only.
+            f3   <- listRooms(RoomFilterQuery.empty.copy(locationUnder = Some("acme.dublin.floor3")))
+            _ = assertEquals(f3.map(_.name), List("dub-1"))
+          } yield ())
+      }
+    }
+  }
+
+  test("filter rooms by `hasAmenity` (hstore key existence) — and round-trip amenities through the response") {
+    withContainers { containers =>
+      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+        truncateAll(containers) *>
+          (for {
+            _ <- createRoom("A", 4, amenities = Map("projector" -> "4k", "whiteboard" -> "true"))
+            _ <- createRoom("B", 4, amenities = Map("whiteboard" -> "true"))
+            _ <- createRoom("C", 4, amenities = Map.empty)
+            // Only A has a projector key.
+            proj <- listRooms(RoomFilterQuery.empty.copy(hasAmenity = Some("projector")))
+            _ = assertEquals(proj.map(_.name), List("A"))
+            // Two rooms have a whiteboard.
+            wb <- listRooms(RoomFilterQuery.empty.copy(hasAmenity = Some("whiteboard")))
+            _ = assertEquals(wb.map(_.name).toSet, Set("A", "B"))
+            // The map travels back through the response intact.
+            _ = assertEquals(proj.head.amenities, Map("projector" -> "4k", "whiteboard" -> "true"))
           } yield ())
       }
     }

@@ -43,6 +43,28 @@ object PgTypes {
     }
   }
 
+  /**
+   * Authoritative registry mapping a Postgres type's short name to the extension it ships in. Used to auto-discover a
+   * column's required extension from its codec's [[skunk.data.Type]] — works for every column construction path
+   * (`Table.of[T]`, `Table.builder.column[T]`, `.column("n", codec)`, `.withColumnCodec(...)`), not just the
+   * `PgTypeFor`-driven ones.
+   *
+   * When a new contrib module ships a new Postgres type, add the mapping here so the schema validator picks it up.
+   */
+  val extensionByType: Map[String, String] = Map(
+    "citext"    -> "citext",
+    "ltree"     -> "ltree",
+    "lquery"    -> "ltree",
+    "ltxtquery" -> "ltree",
+    "hstore"    -> "hstore"
+  )
+
+  /**
+   * The Postgres extension this `skunk.data.Type` requires (`None` for built-in types). Looks up by short name, so
+   * parametric types collapse (`varchar(256)` ↦ `varchar`); only the type identity matters.
+   */
+  def extensionFor(t: Type): Option[String] = extensionByType.get(shortName(t))
+
   /** Mapping from skunk's short Postgres type name to the value `information_schema.columns.data_type` reports. */
   val informationSchemaDataType: Map[String, String] = Map(
     "bool"        -> "boolean",
@@ -90,12 +112,17 @@ object PgTypes {
     informationSchemaDataType.map { case (k, v) => v -> k }
 
   /**
-   * Reconstruct a skunk-style type name from the three columns `information_schema.columns` exposes. Used by the schema
+   * Reconstruct a skunk-style type name from the four columns `information_schema.columns` exposes. Used by the schema
    * validator so parametric drift (`varchar(256)` declared vs `varchar(1024)` in the DB) is caught alongside the
    * data-type-kind mismatch that [[dataType]] already handles.
    *
+   * For extension types Postgres reports `data_type = 'USER-DEFINED'` and the actual type lives in `udt_name`
+   * (`citext`, `ltree`, `hstore`, `vector`, …). We use `udt_name` for those.
+   *
    * @param dt
-   *   the `data_type` string (`"character varying"`, `"numeric"`, `"integer"`, …)
+   *   the `data_type` string (`"character varying"`, `"numeric"`, `"integer"`, `"USER-DEFINED"`, …)
+   * @param udtName
+   *   the `udt_name` string — the underlying type identifier, used when `dt` is `"USER-DEFINED"` or `"ARRAY"`
    * @param charMaxLength
    *   `character_maximum_length` for char / varchar columns
    * @param numericPrecision
@@ -105,11 +132,14 @@ object PgTypes {
    */
   def actualTypeName(
     dt: String,
+    udtName: String,
     charMaxLength: Option[Int],
     numericPrecision: Option[Int],
     numericScale: Option[Int]
   ): String = {
-    val short = shortFromInformationSchema.getOrElse(dt, dt)
+    val short =
+      if (dt == "USER-DEFINED") udtName
+      else shortFromInformationSchema.getOrElse(dt, dt)
     (short, charMaxLength, numericPrecision, numericScale) match {
       case ("varchar", Some(n), _, _)       => s"varchar($n)"
       case ("bpchar", Some(n), _, _)        => s"bpchar($n)"

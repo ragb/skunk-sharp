@@ -195,3 +195,42 @@ Use the built-in `empty` relation for queries with no FROM clause:
 // SELECT now()
 val now = empty.select(_ => Pg.now).compile
 ```
+
+## IN-list parameters with `Param.list[T](n)`
+
+For an `IN` list of a known size, `Param.list[T](n)` produces a single `Param[List[T]]`
+that expands to `n` placeholders — one prepared statement per size, one `List[T]` bind at
+execute time. Use when the size is known at build time (caller decides; mismatch raises
+at bind):
+
+```scala mdoc:silent
+val byIds = users.select
+  .where(u => u.id.in(Param.list[UUID](3)))
+  .compile
+// byIds: CompiledQuery[List[UUID], …]
+```
+
+For sizes that vary per call, rebuild the query per size, or use array equality
+(`col === ANY(Param[Arr[T]])`) instead.
+
+## Dynamic predicates with `allOf` / `anyOf`
+
+For predicates assembled from a runtime list (filter ADT, optional query parameters),
+use `allOf` / `anyOf`. They fold a varargs of `Where[Void]` with AND / OR; empty input
+collapses to `TRUE` / `FALSE` respectively.
+
+```scala mdoc:silent
+def filters(minAge: Option[Int], emailLike: Option[String]) = {
+  val cv = users.columnsView
+  val ws = List(
+    minAge.map(a    => cv.age >= Param.bind(a)),
+    emailLike.map(e => cv.email.like(Param.bind(e)))
+  ).flatten
+
+  users.select.where(_ => allOf(ws*)).compile
+}
+```
+
+Limited to `Where[Void]` — the AND identity (`Concat[Void, Void] = Void`) is what makes
+the fold lawful. Operator args slots are typed; for `&&` / `||` over parameterised
+`Where[A]`, just chain directly.

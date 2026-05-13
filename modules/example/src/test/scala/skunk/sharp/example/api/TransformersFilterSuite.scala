@@ -1,6 +1,7 @@
 package skunk.sharp.example.api
 
 import cats.data.NonEmptyList
+import skunk.sharp.contrib.ltree.LTree
 import skunk.sharp.example.repository.{BookingFilter, RoomFilter}
 import Transformers.*
 
@@ -25,7 +26,9 @@ class TransformersFilterSuite extends munit.FunSuite {
       maxCapacity = Some(50),
       nameContains = Some("hub"),
       names = List("alpha", "beta"),
-      ids = ids
+      ids = ids,
+      locationUnder = Some("acme.dublin"),
+      hasAmenity = Some("projector")
     )
     assertEquals(
       q.toFilters,
@@ -34,19 +37,15 @@ class TransformersFilterSuite extends munit.FunSuite {
         RoomFilter.CapacityAtMost(50),
         RoomFilter.NameContains("hub"),
         RoomFilter.NamesIn(NonEmptyList.of("alpha", "beta")),
-        RoomFilter.IdsIn(NonEmptyList.fromListUnsafe(ids))
+        RoomFilter.IdsIn(NonEmptyList.fromListUnsafe(ids)),
+        RoomFilter.LocationUnder(LTree("acme.dublin")),
+        RoomFilter.HasAmenity("projector")
       )
     )
   }
 
   test("RoomFilterQuery — empty multi-value lists drop out (no IN clause)") {
-    val q = RoomFilterQuery(
-      minCapacity = Some(1),
-      maxCapacity = None,
-      nameContains = None,
-      names = Nil,
-      ids = Nil
-    )
+    val q = RoomFilterQuery.empty.copy(minCapacity = Some(1))
     assertEquals(q.toFilters, List(RoomFilter.CapacityAtLeast(1)))
   }
 
@@ -61,6 +60,7 @@ class TransformersFilterSuite extends munit.FunSuite {
     val q    = BookingFilterQuery(
       roomIds = rids,
       bookerNameContains = Some("alice"),
+      bookerNameSimilar = Some("alyce"),
       titleContains = Some("standup"),
       overlapsFrom = Some(from),
       overlapsTo = Some(to),
@@ -72,6 +72,7 @@ class TransformersFilterSuite extends munit.FunSuite {
       List(
         BookingFilter.RoomsIn(NonEmptyList.fromListUnsafe(rids)),
         BookingFilter.BookerNameContains("alice"),
+        BookingFilter.BookerNameSimilar("alyce"),
         BookingFilter.TitleContains("standup"),
         BookingFilter.OverlapsPeriod(from, to),
         BookingFilter.StartsOnOrAfter(from),

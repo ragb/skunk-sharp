@@ -29,6 +29,7 @@ object SchemaValidator {
   private case class ColumnInfo(
     name: String,
     dataType: String,
+    udtName: String,
     isNullable: Boolean,
     charMaxLength: Option[Int],
     numericPrecision: Option[Int],
@@ -47,6 +48,7 @@ object SchemaValidator {
     sql"""
       SELECT column_name::text,
              data_type::text,
+             udt_name::text,
              is_nullable::text,
              character_maximum_length,
              numeric_precision,
@@ -55,9 +57,9 @@ object SchemaValidator {
       WHERE table_schema = $varchar
         AND table_name = $varchar
       ORDER BY ordinal_position
-    """.query(text *: text *: text *: int4.opt *: int4.opt *: int4.opt).map {
-      case (n, dt, nullableStr, cml, np, ns) =>
-        ColumnInfo(n, dt, nullableStr.equalsIgnoreCase("YES"), cml, np, ns)
+    """.query(text *: text *: text *: text *: int4.opt *: int4.opt *: int4.opt).map {
+      case (n, dt, udt, nullableStr, cml, np, ns) =>
+        ColumnInfo(n, dt, udt, nullableStr.equalsIgnoreCase("YES"), cml, np, ns)
     }
 
   /**
@@ -66,6 +68,10 @@ object SchemaValidator {
    * FOREIGN KEY / CHECK aren't validated (not declarable in the Scala description today).
    */
   private case class ConstraintRow(kind: String, name: String, column: String)
+
+  /** Names of every extension currently installed in the connected database (from `pg_extension`). */
+  private val extensionsQuery: Query[Void, String] =
+    sql"SELECT extname::text FROM pg_extension".query(text)
 
   private val constraintsQuery: Query[(String, String), ConstraintRow] =
     sql"""
@@ -82,16 +88,56 @@ object SchemaValidator {
       ORDER BY tc.constraint_name, kcu.ordinal_position
     """.query(text *: text *: text).map((k, n, c) => ConstraintRow(k, n, c))
 
-  /** Report-only primitive: returns every mismatch the declared relations have with the live database. */
-  def validate[F[_]: Concurrent](session: Session[F], relations: Relation[?]*): F[ValidationReport] =
-    relations.toList.traverse(validateOne(session, _)).map(reports => ValidationReport(reports.flatMap(_.mismatches)))
+  /**
+   * Report-only primitive: returns every mismatch the declared relations have with the live database.
+   *
+   * Postgres extensions required by columns whose `PgTypeFor` carries a `requiredExtension` (citext, ltree, hstore, …)
+   * are collected automatically from `relations`. `extraExtensions` opts in additional names for function-only contribs
+   * (pgcrypto, fuzzystrmatch) that don't appear in any column.
+   */
+  def validate[F[_]: Concurrent](
+    session: Session[F],
+    relations: Seq[Relation[?]],
+    extraExtensions: Set[String]
+  ): F[ValidationReport] = {
+    val required: Set[String] =
+      relations.iterator.flatMap(_.requiredExtensions).toSet ++ extraExtensions
+    val extensionsCheck: F[ValidationReport] =
+      if (required.isEmpty) ValidationReport.empty.pure[F]
+      else
+        session.execute(extensionsQuery).map { installed =>
+          val missing = (required -- installed.toSet).toList.sorted
+          ValidationReport(missing.map(Mismatch.ExtensionMissing(_)))
+        }
+    for {
+      ext     <- extensionsCheck
+      perRel  <- relations.toList.traverse(validateOne(session, _))
+      relRep  = ValidationReport(perRel.flatMap(_.mismatches))
+    } yield ext ++ relRep
+  }
 
-  /** Fail-fast helper: raises [[SchemaValidationException]] if any mismatches are found. */
-  def validateOrRaise[F[_]: Concurrent](session: Session[F], relations: Relation[?]*): F[Unit] =
-    validate(session, relations*).flatMap { report =>
+  /** Varargs convenience: report-only with no extra extensions. */
+  def validate[F[_]: Concurrent](session: Session[F], relations: Relation[?]*): F[ValidationReport] =
+    validate(session, relations, Set.empty)
+
+  /**
+   * Fail-fast helper: raises [[SchemaValidationException]] if any mismatches are found.
+   *
+   * `extraExtensions` is forwarded to [[validate]] for function-only contribs (pgcrypto, fuzzystrmatch).
+   */
+  def validateOrRaise[F[_]: Concurrent](
+    session: Session[F],
+    relations: Seq[Relation[?]],
+    extraExtensions: Set[String]
+  ): F[Unit] =
+    validate(session, relations, extraExtensions).flatMap { report =>
       if report.isValid then ().pure[F]
       else Concurrent[F].raiseError(new SchemaValidationException(report))
     }
+
+  /** Varargs convenience: fail-fast with no extra extensions. */
+  def validateOrRaise[F[_]: Concurrent](session: Session[F], relations: Relation[?]*): F[Unit] =
+    validateOrRaise(session, relations, Set.empty)
 
   private def validateOne[F[_]: Concurrent](session: Session[F], relation: Relation[?]): F[ValidationReport] = {
     // Derived relations (subquery-as-relation, VALUES, set-returning functions) aren't registered in
@@ -212,7 +258,13 @@ object SchemaValidator {
           // `skunk.data.Type`'s name, which already carries parameters for parametric types.
           val expected = col.tpe.name
           val actual   =
-            PgTypes.actualTypeName(info.dataType, info.charMaxLength, info.numericPrecision, info.numericScale)
+            PgTypes.actualTypeName(
+              info.dataType,
+              info.udtName,
+              info.charMaxLength,
+              info.numericPrecision,
+              info.numericScale
+            )
           val typeIssue =
             Option.when(expected != actual)(
               Mismatch.TypeMismatch(label, col.name, expected, actual)

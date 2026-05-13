@@ -82,7 +82,8 @@ final case class Column[T, N <: String & Singleton, Null <: Boolean, Attrs <: Tu
   tpe: Type,
   codec: Codec[T],
   isNullable: Null,
-  attrs: List[ColumnAttrValue] = Nil
+  attrs: List[ColumnAttrValue] = Nil,
+  requiredExtension: Option[String] = None
 ) {
 
   def qualifiedIdent: String = s""""$name""""
