@@ -14,6 +14,8 @@ object Endpoints {
   private val buildingFilterInput: EndpointInput[BuildingFilterQuery] = EndpointInput.derived[BuildingFilterQuery]
   private val roomFilterInput: EndpointInput[RoomFilterQuery]         = EndpointInput.derived[RoomFilterQuery]
   private val bookingFilterInput: EndpointInput[BookingFilterQuery]   = EndpointInput.derived[BookingFilterQuery]
+  private val roomSearchInput: EndpointInput[RoomSearchQuery]         = EndpointInput.derived[RoomSearchQuery]
+  private val availabilityInput: EndpointInput[AvailabilityQuery]     = EndpointInput.derived[AvailabilityQuery]
 
   // ---- Buildings ---------------------------------------------------------------------------
 
@@ -121,5 +123,34 @@ object Endpoints {
     val all = List(list, getById, create, delete)
   }
 
-  lazy val all: List[sttp.tapir.AnyEndpoint] = buildings.all ++ rooms.all ++ bookings.all
+  // ---- Cross-resource search ----------------------------------------------------------------
+
+  object search {
+
+    /**
+     * GET /api/v1/search/rooms — rooms within a radius of `(nearLat, nearLon)` matching the supplied room criteria
+     * and, if a date range is given, free during it. Backed by an `INNER JOIN rooms × buildings` with `ST_DWithin`
+     * on the building's geometry; results carry the parent building's id / name / location inline.
+     */
+    val rooms =
+      base.get
+        .in("api" / "v1" / "search" / "rooms")
+        .in(roomSearchInput)
+        .out(jsonBody[List[RoomWithBuildingResponse]])
+
+    /**
+     * GET /api/v1/search/availability — buildings within a radius, with the count of free rooms in `[from, to)`,
+     * ordered by free-room count descending. Designed for a "find a meeting room" landing page.
+     */
+    val availability =
+      base.get
+        .in("api" / "v1" / "search" / "availability")
+        .in(availabilityInput)
+        .out(jsonBody[List[BuildingAvailabilityResponse]])
+
+    val all = List(rooms, availability)
+  }
+
+  lazy val all: List[sttp.tapir.AnyEndpoint] =
+    buildings.all ++ rooms.all ++ bookings.all ++ search.all
 }

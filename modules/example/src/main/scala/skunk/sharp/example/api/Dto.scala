@@ -101,6 +101,57 @@ case class CreateBookingRequest(
 
 case class ApiError(message: String) derives Codec.AsObject, Schema
 
+// ---------- Cross-resource search ---------------------------------------------------------------
+
+/**
+ * Wide-row response for `GET /api/v1/search/rooms` — every room field plus its parent building's id, name, and
+ * location so the front end doesn't need a follow-up `GET /buildings/{id}` for each row.
+ */
+case class RoomWithBuildingResponse(
+  id: UUID,
+  buildingId: UUID,
+  buildingName: String,
+  buildingLocation: LatLon,
+  name: String,
+  capacity: Int,
+  location: String,
+  amenities: Map[String, String]
+) derives Codec.AsObject, Schema
+
+case class RoomSearchQuery(
+  @query nearLat: Double,
+  @query nearLon: Double,
+  @query radiusMeters: Double,
+  @query minCapacity: Option[Int],
+  @query maxCapacity: Option[Int],
+  @query nameContains: Option[String],
+  @query hasAmenity: Option[String],
+  @query locationUnder: Option[String],
+  @query availableFrom: Option[LocalDate],
+  @query availableTo: Option[LocalDate]
+)
+
+/** Aggregate row for `GET /api/v1/search/availability`. `freeRoomCount` is the count for the requested date range. */
+case class BuildingAvailabilityResponse(
+  id: UUID,
+  name: String,
+  address: String,
+  location: LatLon,
+  freeRoomCount: Long
+) derives Codec.AsObject, Schema
+
+/**
+ * Required query bundle for `GET /api/v1/search/availability`. All five fields are required — without dates we have
+ * no notion of "free", and without a spatial probe the result is unbounded.
+ */
+case class AvailabilityQuery(
+  @query nearLat: Double,
+  @query nearLon: Double,
+  @query radiusMeters: Double,
+  @query from: LocalDate,
+  @query to: LocalDate
+)
+
 case class BookingFilterQuery(
   @query roomIds: List[UUID],
   @query bookerNameContains: Option[String],
