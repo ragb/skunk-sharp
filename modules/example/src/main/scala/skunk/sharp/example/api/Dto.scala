@@ -7,8 +7,21 @@ import sttp.tapir.EndpointIO.annotations.query
 import java.time.{LocalDate, OffsetDateTime}
 import java.util.UUID
 
-case class RoomResponse(id: UUID, name: String, capacity: Int) derives Codec.AsObject, Schema
-case class CreateRoomRequest(name: String, capacity: Int) derives Codec.AsObject, Schema
+case class RoomResponse(
+  id: UUID,
+  name: String,
+  capacity: Int,
+  location: String,
+  amenities: Map[String, String]
+) derives Codec.AsObject, Schema
+
+case class CreateRoomRequest(
+  name: String,
+  capacity: Int,
+  location: String,
+  amenities: Map[String, String]
+) derives Codec.AsObject, Schema
+
 case class PatchRoomRequest(name: Option[String], capacity: Option[Int]) derives Codec.AsObject, Schema
 
 case class BookingResponse(
@@ -42,13 +55,15 @@ case class RoomFilterQuery(
   @query maxCapacity: Option[Int],
   @query nameContains: Option[String],
   @query names: List[String],
-  @query ids: List[UUID]
+  @query ids: List[UUID],
+  @query locationUnder: Option[String],
+  @query hasAmenity: Option[String]
 )
 
 object RoomFilterQuery {
 
   /** No filters supplied — handy for tests or default routing. */
-  val empty: RoomFilterQuery = RoomFilterQuery(None, None, None, Nil, Nil)
+  val empty: RoomFilterQuery = RoomFilterQuery(None, None, None, Nil, Nil, None, None)
 }
 
 /**
@@ -60,6 +75,7 @@ object RoomFilterQuery {
 case class BookingFilterQuery(
   @query roomIds: List[UUID],
   @query bookerNameContains: Option[String],
+  @query bookerNameSimilar: Option[String],
   @query titleContains: Option[String],
   @query overlapsFrom: Option[LocalDate],
   @query overlapsTo: Option[LocalDate],
@@ -68,5 +84,5 @@ case class BookingFilterQuery(
 )
 
 object BookingFilterQuery {
-  val empty: BookingFilterQuery = BookingFilterQuery(Nil, None, None, None, None, None, None)
+  val empty: BookingFilterQuery = BookingFilterQuery(Nil, None, None, None, None, None, None, None)
 }

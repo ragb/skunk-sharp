@@ -51,7 +51,8 @@ object DeriveColumns {
           tpe = PgTypes.typeOf(pf.codec),
           codec = pf.codec.opt,
           isNullable = true,
-          attrs = Nil
+          attrs = Nil,
+          requiredExtension = pf.requiredExtension
         )
         (col *: rest.value).asInstanceOf[Out]
       }
@@ -77,7 +78,8 @@ object DeriveColumns {
           tpe = PgTypes.typeOf(pf.codec),
           codec = pf.codec,
           isNullable = false,
-          attrs = Nil
+          attrs = Nil,
+          requiredExtension = pf.requiredExtension
         )
         (col *: rest.value).asInstanceOf[Out]
       }

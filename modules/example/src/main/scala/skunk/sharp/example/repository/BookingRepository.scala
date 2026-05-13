@@ -6,6 +6,8 @@ import cats.syntax.all.*
 import fs2.Stream
 import skunk.Session
 import skunk.sharp.*
+import skunk.sharp.contrib.citext.Citext
+import skunk.sharp.contrib.pgtrgm.*
 import skunk.sharp.dsl.*
 import skunk.sharp.pg.RangeOps.*
 import skunk.sharp.pg.tags.PgRange
@@ -52,12 +54,12 @@ object BookingRepository {
         .where(b => b.room_id === Param[UUID] && b.period.overlaps(Param[PgRange[LocalDate]]))
         .compile
 
-    // Compiled once — Args = (UUID, String, String, PgRange[LocalDate]) matching Create's field order.
+    // Compiled once — Args = (UUID, Citext, String, PgRange[LocalDate]) matching Create's field order.
     private val createQ =
       t.insert
         .withParams((
           room_id = Param[UUID],
-          booker_name = Param[String],
+          booker_name = Param[Citext],
           title = Param[String],
           period = Param[PgRange[LocalDate]]
         ))
@@ -78,7 +80,14 @@ object BookingRepository {
         cv.room_id.in(ids.map(Param.bind(_)))
 
       case BookingFilter.BookerNameContains(s) =>
+        // ILIKE on a citext column is equivalent to LIKE — both are case-insensitive at storage level. Kept as
+        // ILIKE to make the case-insensitive intent obvious at the call site.
         cv.booker_name.ilike(Param.bind(s"%$s%"))
+
+      case BookingFilter.BookerNameSimilar(q) =>
+        // Trigram-similarity match — catches typos / partials a substring LIKE would miss. Backed by the GIN index
+        // from the V2 migration. The threshold comes from Postgres's session-level pg_trgm.similarity_threshold.
+        cv.booker_name.similarTrgm(Param.bind(q))
 
       case BookingFilter.TitleContains(s) =>
         cv.title.ilike(Param.bind(s"%$s%"))
@@ -110,6 +119,7 @@ object BookingRepository {
 
     def create(data: BookingRow.Create): Kleisli[IO, Session[IO], UUID] =
       createQ.uniqueK[IO]((data.room_id, data.booker_name, data.title, data.period))
+    // Note: data.booker_name is already a Citext (set by the transformer at the request boundary).
 
     def delete(id: UUID): Kleisli[IO, Session[IO], Unit] =
       deleteQ.runK[IO](id).void

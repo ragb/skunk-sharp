@@ -27,8 +27,9 @@ skunk-sharp does **not** replace SQL. The DSL mirrors the SQL you would otherwis
 
 | Artifact | Description |
 | --- | --- |
-| `skunk-sharp-core` | The DSL — tables, views, SELECT/INSERT/UPDATE/DELETE, schema validation |
+| `skunk-sharp-core` | The DSL — tables, views, SELECT/INSERT/UPDATE/DELETE, schema validation, in-core Postgres-extension [contribs](contrib.md) (citext, ltree, hstore, pg_trgm, pgcrypto, fuzzystrmatch) |
 | `skunk-sharp-iron` | Optional [Iron](https://iltotore.github.io/iron/) refinement support |
+| `skunk-sharp-refined` | Optional [Refined](https://github.com/fthomas/refined) refinement support |
 | `skunk-sharp-circe` | Postgres `json`/`jsonb` via [skunk-circe](https://typelevel.org/skunk) |
 
 ## Status

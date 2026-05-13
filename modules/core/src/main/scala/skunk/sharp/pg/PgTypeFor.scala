@@ -19,6 +19,13 @@ import java.util.UUID
  */
 trait PgTypeFor[T] {
   def codec: Codec[T]
+
+  /**
+   * Postgres extension name (e.g. `"citext"`, `"ltree"`, `"hstore"`) that must be installed on the database for this
+   * type to function. `None` for built-in scalars and for any tag whose codec uses a built-in wire type. Contrib types
+   * (see `skunk.sharp.contrib.*`) override this so the schema validator can flag missing extensions.
+   */
+  def requiredExtension: Option[String] = None
 }
 
 object PgTypeFor {
@@ -29,6 +36,15 @@ object PgTypeFor {
     new PgTypeFor[T] {
       val codec = c
     }
+
+  /** Same as [[instance]] but tags this `PgTypeFor` as requiring the named Postgres extension. */
+  def instanceWithExtension[T](c: Codec[T], extension: String): PgTypeFor[T] = {
+    val ext = extension
+    new PgTypeFor[T] {
+      val codec                                  = c
+      override val requiredExtension: Option[String] = Some(ext)
+    }
+  }
 
   given PgTypeFor[Boolean]        = instance(pg.bool)
   given PgTypeFor[Short]          = instance(pg.int2)
@@ -46,5 +62,11 @@ object PgTypeFor {
   given PgTypeFor[OffsetDateTime] = instance(pg.timestamptz)
   given PgTypeFor[Duration]       = instance(pg.interval)
 
-  given [T](using p: PgTypeFor[T]): PgTypeFor[Option[T]] = instance(p.codec.opt)
+  given [T](using p: PgTypeFor[T]): PgTypeFor[Option[T]] = {
+    val inner = p
+    new PgTypeFor[Option[T]] {
+      val codec                                      = inner.codec.opt
+      override val requiredExtension: Option[String] = inner.requiredExtension
+    }
+  }
 }

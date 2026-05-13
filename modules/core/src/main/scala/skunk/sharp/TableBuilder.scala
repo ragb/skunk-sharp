@@ -53,7 +53,8 @@ final class TableBuilder[Cols <: Tuple, Name <: String & Singleton](
       this,
       pf.codec,
       isNullable = false,
-      hasDefault = false
+      hasDefault = false,
+      requiredExtension = pf.requiredExtension
     )
 
   /** Non-nullable column with a database-side default, explicit codec. */
@@ -71,7 +72,8 @@ final class TableBuilder[Cols <: Tuple, Name <: String & Singleton](
       this,
       pf.codec,
       isNullable = false,
-      hasDefault = true
+      hasDefault = true,
+      requiredExtension = pf.requiredExtension
     )
 
   /**
@@ -85,7 +87,12 @@ final class TableBuilder[Cols <: Tuple, Name <: String & Singleton](
 
   /** Nullable column, inferred codec. The inferred codec is wrapped with `.opt` internally. */
   inline def columnOpt[T](using pf: PgTypeFor[T]): TableBuilder.OptColumnCont[T, Cols, Name, EmptyTuple] =
-    new TableBuilder.OptColumnCont[T, Cols, Name, EmptyTuple](this, pf.codec, hasDefault = false)
+    new TableBuilder.OptColumnCont[T, Cols, Name, EmptyTuple](
+      this,
+      pf.codec,
+      hasDefault = false,
+      requiredExtension = pf.requiredExtension
+    )
 
   /** Nullable column with a database-side default, explicit codec. */
   inline def columnOptDefaulted[T, N <: String & Singleton](
@@ -101,7 +108,8 @@ final class TableBuilder[Cols <: Tuple, Name <: String & Singleton](
     new TableBuilder.OptColumnCont[T, Cols, Name, ColumnAttr.Default *: EmptyTuple](
       this,
       pf.codec,
-      hasDefault = true
+      hasDefault = true,
+      requiredExtension = pf.requiredExtension
     )
 
   /** Place the table in a non-default schema. */
@@ -166,7 +174,8 @@ object TableBuilder {
     b: TableBuilder[Cols, Name],
     codec: Codec[T],
     isNullable: Null,
-    hasDefault: Boolean
+    hasDefault: Boolean,
+    requiredExtension: Option[String]
   ) {
 
     inline def apply[N <: String & Singleton](
@@ -178,7 +187,8 @@ object TableBuilder {
         tpe = PgTypes.typeOf(codec),
         codec = codec,
         isNullable = isNullable,
-        attrs = if (hasDefault) List(ColumnAttrValue.Default) else Nil
+        attrs = if (hasDefault) List(ColumnAttrValue.Default) else Nil,
+        requiredExtension = requiredExtension
       )
       new TableBuilder(
         b.name,
@@ -193,7 +203,8 @@ object TableBuilder {
   final class OptColumnCont[T, Cols <: Tuple, Name <: String & Singleton, Attrs <: Tuple](
     b: TableBuilder[Cols, Name],
     codec: Codec[T],
-    hasDefault: Boolean
+    hasDefault: Boolean,
+    requiredExtension: Option[String]
   ) {
 
     inline def apply[N <: String & Singleton](
@@ -205,7 +216,8 @@ object TableBuilder {
         tpe = PgTypes.typeOf(codec),
         codec = codec.opt,
         isNullable = true,
-        attrs = if (hasDefault) List(ColumnAttrValue.Default) else Nil
+        attrs = if (hasDefault) List(ColumnAttrValue.Default) else Nil,
+        requiredExtension = requiredExtension
       )
       new TableBuilder(
         b.name,

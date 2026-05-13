@@ -11,7 +11,7 @@ import org.http4s.client.Client
 import org.testcontainers.utility.DockerImageName
 import org.typelevel.otel4s.metrics.Meter.Implicits.given
 import org.typelevel.otel4s.trace.Tracer.Implicits.given
-import skunk.Session
+import skunk.{Session, TypingStrategy}
 import skunk.sharp.example.api.Routes
 import skunk.sharp.example.repository.{BookingRepository, RoomRepository}
 import sttp.capabilities.fs2.Fs2Streams
@@ -54,7 +54,10 @@ trait ExampleAppFixture extends CatsEffectSuite with TestContainerForAll {
     Dumbo.withResourcesIn[IO]("migrations").apply(conn).runMigration.void.unsafeRunSync()
   }
 
-  /** A skunk session pool resource against the running container. */
+  /**
+   * A skunk session pool resource against the running container. `TypingStrategy.SearchPath` is required because the
+   * V2 migration introduces user-defined types (citext, ltree, hstore) that aren't in skunk's built-in oid table.
+   */
   protected def sessionPool(c: containerDef.Container): Resource[IO, Resource[IO, Session[IO]]] =
     Session
       .Builder[IO]
@@ -62,6 +65,7 @@ trait ExampleAppFixture extends CatsEffectSuite with TestContainerForAll {
       .withPort(c.mappedPort(5432))
       .withUserAndPassword(c.username, c.password)
       .withDatabase(c.databaseName)
+      .withTypingStrategy(TypingStrategy.SearchPath)
       .pooled(8)
 
   /**

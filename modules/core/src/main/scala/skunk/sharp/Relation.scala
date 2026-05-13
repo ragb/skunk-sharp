@@ -94,6 +94,28 @@ trait Relation[Cols <: Tuple] {
     schema.fold(quoteIdent(name))(s => s"${quoteIdent(s)}.${quoteIdent(name)}")
 
   /**
+   * Postgres extensions this relation depends on. Two discovery sources, unioned:
+   *
+   *   1. Each column's [[Column.requiredExtension]] — set by builders that resolved a `PgTypeFor[T]` carrying the
+   *      extension hint (e.g. `Table.of[Row]` deriving from `LTree`).
+   *   2. The column's own `tpe.name` looked up in [[skunk.sharp.pg.PgTypes.extensionByType]] — fires for every column
+   *      construction path, including explicit codec passes (`.column("loc", LTree.codec)`).
+   *
+   * Derived / subquery / VALUES relations inherit the extensions of whatever they refer to via their `columns` tuple
+   * — no special handling needed. The schema validator reads this and emits
+   * [[skunk.sharp.validation.Mismatch.ExtensionMissing]] for anything not installed in `pg_extension`.
+   */
+  def requiredExtensions: Set[String] = {
+    val cols    = columns.toList.asInstanceOf[List[skunk.sharp.Column[?, ?, ?, ?]]]
+    val builder = Set.newBuilder[String]
+    cols.foreach { c =>
+      c.requiredExtension.foreach(builder += _)
+      skunk.sharp.pg.PgTypes.extensionFor(c.tpe).foreach(builder += _)
+    }
+    builder.result()
+  }
+
+  /**
    * **The rendering kernel** — emit SQL for this relation in a FROM position using the supplied alias string. Each kind
    * overrides this to match its shape:
    *
