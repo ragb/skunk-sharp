@@ -30,7 +30,7 @@ val http4sV          = "0.23.30"
 val cirisV           = "3.6.0"
 val ducktapeV        = "0.2.12"
 
-lazy val root = tlCrossRootProject.aggregate(core, iron, refined, circe, tests, example, docs)
+lazy val root = tlCrossRootProject.aggregate(core, iron, refined, circe, postgis, tests, example, docs)
 
 lazy val core = project
   .in(file("modules/core"))
@@ -81,9 +81,21 @@ lazy val circe = project
     )
   )
 
+lazy val postgis = project
+  .in(file("modules/postgis"))
+  .dependsOn(core)
+  .settings(
+    name := "skunk-sharp-postgis",
+    libraryDependencies ++= Seq(
+      "org.tpolecat"  %% "skunk-postgis"     % skunkV,
+      "org.scalameta" %% "munit"             % munitV           % Test,
+      "org.typelevel" %% "munit-cats-effect" % munitCatsEffectV % Test
+    )
+  )
+
 lazy val example = project
   .in(file("modules/example"))
-  .dependsOn(core, circe)
+  .dependsOn(core, circe, postgis)
   .enablePlugins(NoPublishPlugin)
   .settings(
     name := "skunk-sharp-example",
@@ -108,7 +120,7 @@ lazy val example = project
 
 lazy val docs = project
   .in(file("docs"))
-  .dependsOn(core, iron, circe)
+  .dependsOn(core, iron, circe, postgis)
   .enablePlugins(TypelevelSitePlugin)
   .enablePlugins(NoPublishPlugin)
   .settings(
@@ -119,7 +131,7 @@ lazy val docs = project
 
 lazy val tests = project
   .in(file("modules/tests"))
-  .dependsOn(core, iron, refined, circe)
+  .dependsOn(core, iron, refined, circe, postgis)
   .enablePlugins(NoPublishPlugin)
   .settings(
     name := "skunk-sharp-tests",

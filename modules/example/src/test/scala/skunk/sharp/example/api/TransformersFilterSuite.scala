@@ -2,7 +2,7 @@ package skunk.sharp.example.api
 
 import cats.data.NonEmptyList
 import skunk.sharp.contrib.ltree.LTree
-import skunk.sharp.example.repository.{BookingFilter, RoomFilter}
+import skunk.sharp.example.repository.{BookingFilter, BuildingFilter, RoomFilter}
 import Transformers.*
 
 import java.time.LocalDate
@@ -10,10 +10,42 @@ import java.util.UUID
 
 /**
  * Pure unit tests for the query DTO ↔ filter ADT projection. The SQL-rendering side of each filter case is already
- * covered by core suites (`WhereSuite`, `ParamSuite`, `RangeSuite`) — what's specific to the example module is the
- * `q.toFilters` extension's logic, especially the paired-field rule for `OverlapsPeriod`.
+ * covered by core suites; what's specific to the example module is the `q.toFilters` extension's logic, especially
+ * the paired-field rules (`overlapsFrom`/`overlapsTo`, `nearLat`/`nearLon`/`radiusMeters`).
  */
 class TransformersFilterSuite extends munit.FunSuite {
+
+  // ---------- BuildingFilterQuery ---------------------------------------------------------------
+
+  test("BuildingFilterQuery.empty.toFilters is empty") {
+    assertEquals(BuildingFilterQuery.empty.toFilters, Nil)
+  }
+
+  test("BuildingFilterQuery — every field translates to its filter case") {
+    val ids = List(UUID.randomUUID, UUID.randomUUID)
+    val q   = BuildingFilterQuery(
+      nameContains = Some("hq"),
+      ids = ids,
+      nearLat = Some(53.34),
+      nearLon = Some(-6.26),
+      radiusMeters = Some(5000.0)
+    )
+    assertEquals(
+      q.toFilters,
+      List(
+        BuildingFilter.NameContains("hq"),
+        BuildingFilter.IdsIn(NonEmptyList.fromListUnsafe(ids)),
+        BuildingFilter.WithinMetersOf(53.34, -6.26, 5000.0)
+      )
+    )
+  }
+
+  test("BuildingFilterQuery — partial nearLat without nearLon drops WithinMetersOf") {
+    val q = BuildingFilterQuery.empty.copy(nearLat = Some(53.34))
+    assertEquals(q.toFilters, Nil)
+  }
+
+  // ---------- RoomFilterQuery -------------------------------------------------------------------
 
   test("RoomFilterQuery.empty.toFilters is empty") {
     assertEquals(RoomFilterQuery.empty.toFilters, Nil)
@@ -49,6 +81,8 @@ class TransformersFilterSuite extends munit.FunSuite {
     assertEquals(q.toFilters, List(RoomFilter.CapacityAtLeast(1)))
   }
 
+  // ---------- BookingFilterQuery ----------------------------------------------------------------
+
   test("BookingFilterQuery.empty.toFilters is empty") {
     assertEquals(BookingFilterQuery.empty.toFilters, Nil)
   }
@@ -81,9 +115,9 @@ class TransformersFilterSuite extends munit.FunSuite {
     )
   }
 
-  test("BookingFilterQuery — overlapsFrom alone (without overlapsTo) drops the OverlapsPeriod filter") {
+  test("BookingFilterQuery — overlapsFrom alone drops the OverlapsPeriod filter") {
     val q = BookingFilterQuery.empty.copy(overlapsFrom = Some(LocalDate.parse("2024-01-01")))
-    assertEquals(q.toFilters, Nil, "single-bound overlaps must not produce an OverlapsPeriod")
+    assertEquals(q.toFilters, Nil)
   }
 
   test("BookingFilterQuery — overlapsTo alone drops OverlapsPeriod too") {

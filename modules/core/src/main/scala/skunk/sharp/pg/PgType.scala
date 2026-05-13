@@ -56,7 +56,9 @@ object PgTypes {
     "ltree"     -> "ltree",
     "lquery"    -> "ltree",
     "ltxtquery" -> "ltree",
-    "hstore"    -> "hstore"
+    "hstore"    -> "hstore",
+    "geometry"  -> "postgis",
+    "geography" -> "postgis"
   )
 
   /**

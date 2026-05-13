@@ -15,12 +15,18 @@ import skunk.sharp.example.domain.RoomRow
 
 import java.util.UUID
 
+/**
+ * Room operations are always **scoped to a building**: every method takes the `buildingId` from the URL path and the
+ * generated SQL carries a `building_id = $1` clause that pairs with the user filters. This mirrors the REST layout
+ * (`/api/v1/buildings/{buildingId}/rooms/…`) and means a request that targets the wrong building (room belongs to a
+ * different one) cleanly returns 404 instead of leaking cross-tenant rows.
+ */
 trait RoomRepository {
-  def findFiltered(filters: List[RoomFilter]): Kleisli[Stream[IO, *], Session[IO], RoomRow]
-  def findById(id: UUID): Kleisli[IO, Session[IO], Option[RoomRow]]
+  def findFiltered(buildingId: UUID, filters: List[RoomFilter]): Kleisli[Stream[IO, *], Session[IO], RoomRow]
+  def findById(buildingId: UUID, id: UUID): Kleisli[IO, Session[IO], Option[RoomRow]]
   def create(data: RoomRow.Create): Kleisli[IO, Session[IO], UUID]
-  def patch(id: UUID, data: RoomRow.Patch): Kleisli[IO, Session[IO], Option[RoomRow]]
-  def delete(id: UUID): Kleisli[IO, Session[IO], Unit]
+  def patch(buildingId: UUID, id: UUID, data: RoomRow.Patch): Kleisli[IO, Session[IO], Option[RoomRow]]
+  def delete(buildingId: UUID, id: UUID): Kleisli[IO, Session[IO], Unit]
 }
 
 /**
@@ -28,35 +34,31 @@ trait RoomRepository {
  * Calls bind parameters and run; nothing is re-built per request.
  *
  * Two methods earn an exception: `.patch` (variable SET list per call) and `.findFiltered` (variable WHERE shape driven
- * by a runtime `List[RoomFilter]`). Both compile a fresh query per call and bake values via `Param.bind`, so the
- * user-facing `Args` collapses to `Void` and there's nothing to thread at execute time.
+ * by a runtime `List[RoomFilter]` plus the building scope). Both compile a fresh query per call and bake values via
+ * `Param.bind`, so the user-facing `Args` collapses to `Void` and there's nothing to thread at execute time.
  */
 object RoomRepository {
 
   val live: RoomRepository = new RoomRepository {
-    private val t = RoomRow.table
-
-    /**
-     * Captured columns view, statically typed as `ColumnsView[<RoomRow.table.Cols>]` — `cv.id` / `cv.name` /
-     * `cv.capacity` resolve via the named-tuple selector. Kept on the impl so [[toWhere]] is a normal method (not
-     * nested inside a `where(c => …)` lambda). Safe for the unaliased single-source case used here.
-     */
+    private val t  = RoomRow.table
     private val cv = t.columnsView
 
     private val selectRow =
-      t.select(r => (r.id, r.name, r.capacity, r.location, r.amenities)).to[RoomRow]
+      t.select(r => (r.id, r.building_id, r.name, r.capacity, r.location, r.amenities)).to[RoomRow]
 
-    // Compiled once — Args = Void, R = RoomRow.
-    private val findAllQ = selectRow.compile
+    // Compiled once — Args = UUID (the building id).
+    private val findAllInBuildingQ =
+      selectRow.where(r => r.building_id === Param[UUID]).compile
 
-    // Compiled once — Args = UUID.
+    // Compiled once — Args = (UUID, UUID) (building id, room id).
     private val findByIdQ =
-      selectRow.where(r => r.id === Param[UUID]).compile
+      selectRow.where(r => r.building_id === Param[UUID] && r.id === Param[UUID]).compile
 
-    // Compiled once — Args = (String, Int, LTree, Hstore) (Create's fields, in declaration order).
+    // Compiled once — Args = (UUID, String, Int, LTree, Hstore) (Create's fields, in declaration order).
     private val createQ =
       t.insert
         .withParams((
+          building_id = Param[UUID],
           name = Param[String],
           capacity = Param[Int],
           location = Param[LTree],
@@ -65,14 +67,11 @@ object RoomRepository {
         .returning(r => r.id)
         .compile
 
-    // Compiled once — Args = UUID.
+    // Compiled once — Args = (UUID, UUID).
     private val deleteQ =
-      t.delete.where(r => r.id === Param[UUID]).compile
+      t.delete.where(r => r.building_id === Param[UUID] && r.id === Param[UUID]).compile
 
-    /**
-     * Translate one filter case to a `Where[Void]`. Every arm bakes its runtime value via `Param.bind`, so the result
-     * has `Args = Void` and can be AND-folded with `dsl.allOf`.
-     */
+    /** Translate one user filter to a `Where[Void]`. The building-id scope is added on top in [[findFiltered]]. */
     private def toWhere(f: RoomFilter): Where[skunk.Void] = f match {
       case RoomFilter.CapacityAtLeast(n)   => cv.capacity >= Param.bind(n)
       case RoomFilter.CapacityAtMost(n)    => cv.capacity <= Param.bind(n)
@@ -81,41 +80,44 @@ object RoomRepository {
       case RoomFilter.IdsIn(ids)           => cv.id.in(ids.map(Param.bind(_)))
       case RoomFilter.LocationUnder(prefix) =>
         cv.location.isDescendantOf(Param.bind(prefix))
-      case RoomFilter.HasAmenity(key)      =>
+      case RoomFilter.HasAmenity(key) =>
         cv.amenities.hasKey(Param.bind(key))
     }
 
-    def findFiltered(filters: List[RoomFilter]): Kleisli[Stream[IO, *], Session[IO], RoomRow] =
-      if filters.isEmpty then findAllQ.streamKF[IO]() // hit the static-cache fast path
-      else
-        // `allOf` AND-folds the per-filter Wheres; empty would have rendered `WHERE TRUE` but we
-        // short-circuit above to keep the static cache.
-        selectRow.where(_ => allOf(filters.map(toWhere)*))
-          .compile.streamKF[IO]()
+    def findFiltered(
+      buildingId: UUID,
+      filters: List[RoomFilter]
+    ): Kleisli[Stream[IO, *], Session[IO], RoomRow] =
+      if filters.isEmpty then findAllInBuildingQ.streamKF[IO](buildingId, 64)
+      else {
+        // AND-fold the per-filter Wheres on top of the `building_id = $1` scope.
+        val scoped: List[Where[skunk.Void]] =
+          (cv.building_id === Param.bind(buildingId)) :: filters.map(toWhere)
+        selectRow.where(_ => allOf(scoped*)).compile.streamKF[IO]()
+      }
 
-    def findById(id: UUID): Kleisli[IO, Session[IO], Option[RoomRow]] =
-      findByIdQ.optionK[IO](id)
+    def findById(buildingId: UUID, id: UUID): Kleisli[IO, Session[IO], Option[RoomRow]] =
+      findByIdQ.optionK[IO]((buildingId, id))
 
     def create(data: RoomRow.Create): Kleisli[IO, Session[IO], UUID] =
-      createQ.uniqueK[IO]((data.name, data.capacity, data.location, data.amenities))
+      createQ.uniqueK[IO]((data.building_id, data.name, data.capacity, data.location, data.amenities))
 
     /**
      * `.patch` builds a different SET list per call depending on which fields are `Some`. There is no single static SQL
      * that covers every subset of N optional fields, so this method stays on the captured-args path: each call compiles
-     * a fresh `CommandTemplate` shaped to the present fields and Param.bind-bakes the values. See the "When captured
-     * args still earn their keep" note below.
+     * a fresh `CommandTemplate` shaped to the present fields and Param.bind-bakes the values.
      */
-    def patch(id: UUID, data: RoomRow.Patch): Kleisli[IO, Session[IO], Option[RoomRow]] =
-      if (data.name.isEmpty && data.capacity.isEmpty) findById(id)
+    def patch(buildingId: UUID, id: UUID, data: RoomRow.Patch): Kleisli[IO, Session[IO], Option[RoomRow]] =
+      if (data.name.isEmpty && data.capacity.isEmpty) findById(buildingId, id)
       else
         t.update
           .patch(data)
-          .where(r => r.id === Param.bind(id))
+          .where(r => r.building_id === Param.bind(buildingId) && r.id === Param.bind(id))
           .returningAll.to[RoomRow]
           .compile.optionK[IO]
 
-    def delete(id: UUID): Kleisli[IO, Session[IO], Unit] =
-      deleteQ.runK[IO](id).void
+    def delete(buildingId: UUID, id: UUID): Kleisli[IO, Session[IO], Unit] =
+      deleteQ.runK[IO]((buildingId, id)).void
   }
 
 }

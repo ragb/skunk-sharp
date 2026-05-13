@@ -11,17 +11,21 @@ import java.util.UUID
 /**
  * End-to-end test for `GET /api/v1/bookings`. Mirrors [[RoomsFilterEndpointSuite]] but exercises the date-range filter
  * cases — `OverlapsPeriod` (paired bounds), `StartsOnOrAfter` / `EndsOnOrBefore` (half-bounded), `RoomsIn`,
- * `BookerNameContains`, `TitleContains`. The repository materialises these via skunk-sharp's range operators (`&&`,
- * `<@`); this test covers the full path back to JSON responses.
+ * `BookerNameContains`, `BookerNameSimilar`, `TitleContains`.
  */
 class BookingsFilterEndpointSuite extends ExampleAppFixture {
 
-  private val createRoomReq    = interpreter.toRequestThrowDecodeFailures(Endpoints.rooms.create, Some(baseUri))
-  private val createBookingReq = interpreter.toRequestThrowDecodeFailures(Endpoints.bookings.create, Some(baseUri))
-  private val listBookingsReq  = interpreter.toRequestThrowDecodeFailures(Endpoints.bookings.list, Some(baseUri))
+  private val createBuildingReq = interpreter.toRequestThrowDecodeFailures(Endpoints.buildings.create, Some(baseUri))
+  private val createRoomReq     = interpreter.toRequestThrowDecodeFailures(Endpoints.rooms.create, Some(baseUri))
+  private val createBookingReq  = interpreter.toRequestThrowDecodeFailures(Endpoints.bookings.create, Some(baseUri))
+  private val listBookingsReq   = interpreter.toRequestThrowDecodeFailures(Endpoints.bookings.list, Some(baseUri))
 
-  private def createRoom(name: String, capacity: Int)(using SttpBackend[IO, Fs2Streams[IO]]): IO[RoomResponse] =
-    createRoomReq(CreateRoomRequest(name, capacity, location = "unsorted", amenities = Map.empty)).sendOk
+  private def createBuilding(using SttpBackend[IO, Fs2Streams[IO]]): IO[BuildingResponse] =
+    createBuildingReq(CreateBuildingRequest("HQ", "HQ address", LatLon(53.34, -6.26))).sendOk
+
+  private def createRoom(buildingId: UUID, name: String, capacity: Int)(using SttpBackend[IO, Fs2Streams[IO]])
+    : IO[RoomResponse] =
+    createRoomReq((buildingId, CreateRoomRequest(name, capacity, location = "unsorted", amenities = Map.empty))).sendOk
 
   private def createBooking(
     roomId: UUID,
@@ -40,13 +44,14 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
       appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
-            a  <- createRoom("A", 2)
-            b  <- createRoom("B", 2)
-            c  <- createRoom("C", 2)
-            _  <- createBooking(a.id, "alice", "ax", LocalDate.parse("2024-01-01"), LocalDate.parse("2024-01-10"))
-            _  <- createBooking(b.id, "bob", "bx", LocalDate.parse("2024-02-01"), LocalDate.parse("2024-02-10"))
-            _  <- createBooking(c.id, "carol", "cx", LocalDate.parse("2024-03-01"), LocalDate.parse("2024-03-10"))
-            rs <- listBookings(BookingFilterQuery.empty.copy(roomIds = List(a.id, b.id)))
+            b <- createBuilding
+            a <- createRoom(b.id, "A", 2)
+            r <- createRoom(b.id, "B", 2)
+            c <- createRoom(b.id, "C", 2)
+            _ <- createBooking(a.id, "alice", "ax", LocalDate.parse("2024-01-01"), LocalDate.parse("2024-01-10"))
+            _ <- createBooking(r.id, "bob", "bx", LocalDate.parse("2024-02-01"), LocalDate.parse("2024-02-10"))
+            _ <- createBooking(c.id, "carol", "cx", LocalDate.parse("2024-03-01"), LocalDate.parse("2024-03-10"))
+            rs <- listBookings(BookingFilterQuery.empty.copy(roomIds = List(a.id, r.id)))
             _ = assertEquals(rs.map(_.title).toSet, Set("ax", "bx"))
           } yield ())
       }
@@ -58,7 +63,8 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
       appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
-            r <- createRoom("only", 1)
+            b <- createBuilding
+            r <- createRoom(b.id, "only", 1)
             _ <- createBooking(
               r.id,
               "Alice Smith",
@@ -89,7 +95,8 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
       appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
-            r <- createRoom("ovr", 1)
+            b <- createBuilding
+            r <- createRoom(b.id, "ovr", 1)
             _ <- createBooking(r.id, "x", "ancient", LocalDate.parse("2000-01-01"), LocalDate.parse("2000-01-31"))
             _ <- createBooking(r.id, "x", "fresh", LocalDate.parse("2024-06-01"), LocalDate.parse("2024-06-30"))
             _ <- createBooking(r.id, "x", "future", LocalDate.parse("2030-01-01"), LocalDate.parse("2030-01-31"))
@@ -109,7 +116,8 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
       appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
-            r  <- createRoom("sb", 1)
+            b  <- createBuilding
+            r  <- createRoom(b.id, "sb", 1)
             _  <- createBooking(r.id, "x", "early", LocalDate.parse("2024-01-01"), LocalDate.parse("2024-01-31"))
             _  <- createBooking(r.id, "x", "middle", LocalDate.parse("2024-06-01"), LocalDate.parse("2024-06-30"))
             _  <- createBooking(r.id, "x", "late", LocalDate.parse("2024-12-01"), LocalDate.parse("2024-12-31"))
@@ -127,19 +135,16 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
       appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
-            a <- createRoom("RA", 1)
-            b <- createRoom("RB", 1)
-            // In room A: alice with booking that overlaps 2024-Q2 — match
+            b <- createBuilding
+            a <- createRoom(b.id, "RA", 1)
+            r <- createRoom(b.id, "RB", 1)
             _ <- createBooking(a.id, "alice", "match", LocalDate.parse("2024-04-01"), LocalDate.parse("2024-04-15"))
-            // In room A: bob with booking that overlaps — wrong booker, no match
             _ <-
               createBooking(a.id, "bob", "wrong-booker", LocalDate.parse("2024-05-01"), LocalDate.parse("2024-05-15"))
-            // In room A: alice in Q1 — wrong period, no match
             _ <-
               createBooking(a.id, "alice", "wrong-period", LocalDate.parse("2024-01-10"), LocalDate.parse("2024-01-20"))
-            // In room B: alice overlapping — wrong room, no match
             _ <-
-              createBooking(b.id, "alice", "wrong-room", LocalDate.parse("2024-04-10"), LocalDate.parse("2024-04-20"))
+              createBooking(r.id, "alice", "wrong-room", LocalDate.parse("2024-04-10"), LocalDate.parse("2024-04-20"))
             rs <- listBookings(
               BookingFilterQuery.empty.copy(
                 roomIds = List(a.id),
@@ -159,7 +164,8 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
       appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
-            r <- createRoom("r", 1)
+            b <- createBuilding
+            r <- createRoom(b.id, "r", 1)
             _ <- createBooking(
               r.id,
               "Kathleen O'Brien",
@@ -169,11 +175,8 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
             )
             _ <-
               createBooking(r.id, "Robert Smith", "team standup", LocalDate.parse("2024-01-03"), LocalDate.parse("2024-01-04"))
-            // A common typo of "Kathleen" — the existing substring match would not catch this; trigram similarity does.
-            // Default pg_trgm.similarity_threshold is 0.3, which is generous enough for this case.
             typo <- listBookings(BookingFilterQuery.empty.copy(bookerNameSimilar = Some("Katleen")))
             _ = assertEquals(typo.map(_.bookerName), List("Kathleen O'Brien"))
-            // The substring path (BookerNameContains) is still wired and works in the obvious case.
             sub <- listBookings(BookingFilterQuery.empty.copy(bookerNameContains = Some("Robert")))
             _ = assertEquals(sub.map(_.bookerName), List("Robert Smith"))
           } yield ())
@@ -186,9 +189,9 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
       appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
-            r <- createRoom("c", 1)
+            b <- createBuilding
+            r <- createRoom(b.id, "c", 1)
             _ <- createBooking(r.id, "ALICE", "x", LocalDate.parse("2024-01-01"), LocalDate.parse("2024-01-02"))
-            // Stored as ALICE; queried with lowercase. citext handles case-folding at the storage layer.
             hits <- listBookings(BookingFilterQuery.empty.copy(bookerNameContains = Some("alice")))
             _ = assertEquals(hits.map(_.bookerName), List("ALICE"))
           } yield ())
@@ -201,7 +204,8 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
       appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
-            r   <- createRoom("e", 1)
+            b   <- createBuilding
+            r   <- createRoom(b.id, "e", 1)
             _   <- createBooking(r.id, "x", "b1", LocalDate.parse("2024-01-01"), LocalDate.parse("2024-01-02"))
             _   <- createBooking(r.id, "x", "b2", LocalDate.parse("2024-02-01"), LocalDate.parse("2024-02-02"))
             all <- listBookings(BookingFilterQuery.empty)

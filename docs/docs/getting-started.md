@@ -10,6 +10,7 @@ libraryDependencies += "com.ruiandrebatista" %% "skunk-sharp-core" % "@VERSION@"
 libraryDependencies += "com.ruiandrebatista" %% "skunk-sharp-iron"    % "@VERSION@"
 libraryDependencies += "com.ruiandrebatista" %% "skunk-sharp-refined" % "@VERSION@"
 libraryDependencies += "com.ruiandrebatista" %% "skunk-sharp-circe"   % "@VERSION@"
+libraryDependencies += "com.ruiandrebatista" %% "skunk-sharp-postgis" % "@VERSION@"
 ```
 
 Requires **Scala 3.7+** (uses named tuples, stable since 3.7).
