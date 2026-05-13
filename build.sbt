@@ -1,3 +1,5 @@
+import org.typelevel.scalacoptions.{ScalacOptions, ScalaVersion}
+
 ThisBuild / tlBaseVersion       := "0.1"
 ThisBuild / organization        := "com.ruiandrebatista"
 ThisBuild / organizationName    := "Rui Batista"
@@ -13,6 +15,14 @@ ThisBuild / scalaVersion := "3.8.3"
 
 ThisBuild / tlJdkRelease    := Some(17)
 ThisBuild / tlFatalWarnings := true
+
+// SIP-71 `into` modifier — preview feature in Scala 3.8.x, stabilises in 3.9. Added via the typed `ScalacOption`
+// builder from `org.typelevel.scalac-options` so it's pinned to the right Scala range; drop once we move to 3.9+.
+ThisBuild / scalacOptions ++= {
+  val sv = ScalaVersion.fromString(scalaVersion.value).toOption
+  val opt = ScalacOptions.other("-preview", _.isAtLeast(ScalaVersion(3, 8, 0)))
+  sv.filter(opt.isSupported).fold(Seq.empty[String])(_ => opt.option :: opt.args)
+}
 
 val skunkV           = "1.0.0"
 val skunkCirceV      = "1.0.0"

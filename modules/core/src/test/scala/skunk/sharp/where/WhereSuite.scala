@@ -16,17 +16,17 @@ class WhereSuite extends munit.FunSuite {
   private val cols  = ColumnsView(users.columns)
 
   test("equality renders correctly") {
-    val w = cols.email === lit("a@b")
+    val w = cols.email === "a@b"
     assertEquals(w.fragment.sql.trim, """"email" = 'a@b'""")
   }
 
   test("AND composes two predicates") {
-    val w = (cols.email === lit("a@b")) && (cols.age >= lit(18))
+    val w = (cols.email === "a@b") && (cols.age >= 18)
     assertEquals(w.fragment.sql, """("email" = 'a@b' AND "age" >= 18)""")
   }
 
   test("OR / NOT compose") {
-    val w = !(cols.age < lit(18) || cols.age > lit(100))
+    val w = !(cols.age < 18 || cols.age > 100)
     assertEquals(w.fragment.sql, """NOT (("age" < 18 OR "age" > 100))""")
   }
 
@@ -63,7 +63,7 @@ class WhereSuite extends munit.FunSuite {
   }
 
   test("LIKE on string column") {
-    val w = cols.email.like(lit("%@example.com"))
+    val w = cols.email.like("%@example.com")
     assertEquals(w.fragment.sql.trim, """"email" LIKE '%@example.com'""")
   }
 
@@ -83,17 +83,17 @@ class WhereSuite extends munit.FunSuite {
   }
 
   test("BETWEEN with literal bounds renders the bounds inline") {
-    val w = cols.age.between(lit(18), lit(65))
+    val w = cols.age.between(18, 65)
     assertEquals(w.fragment.sql, """"age" BETWEEN 18 AND 65""")
   }
 
   test("NOT BETWEEN renders the keyword form, not the expanded AND") {
-    val w = cols.age.notBetween(lit(18), lit(65))
+    val w = cols.age.notBetween(18, 65)
     assertEquals(w.fragment.sql, """"age" NOT BETWEEN 18 AND 65""")
   }
 
   test("BETWEEN SYMMETRIC — Postgres auto-swap form") {
-    val w = cols.age.betweenSymmetric(lit(100), lit(0))
+    val w = cols.age.betweenSymmetric(100, 0)
     assertEquals(w.fragment.sql, """"age" BETWEEN SYMMETRIC 100 AND 0""")
   }
 
@@ -104,25 +104,25 @@ class WhereSuite extends munit.FunSuite {
   }
 
   test("IS NOT DISTINCT FROM — NULL-safe equality") {
-    val w = cols.age.isNotDistinctFrom(lit(42))
+    val w = cols.age.isNotDistinctFrom(42)
     assertEquals(w.fragment.sql, """"age" IS NOT DISTINCT FROM 42""")
   }
 
   test("SIMILAR TO renders the Postgres regex-ish form") {
-    val w = cols.email.similarTo(lit("[a-z]+@[a-z]+"))
+    val w = cols.email.similarTo("[a-z]+@[a-z]+")
     assertEquals(w.fragment.sql, """"email" SIMILAR TO '[a-z]+@[a-z]+'""")
   }
 
   test("NOT SIMILAR TO") {
-    val w = cols.email.notSimilarTo(lit("%.test"))
+    val w = cols.email.notSimilarTo("%.test")
     assertEquals(w.fragment.sql, """"email" NOT SIMILAR TO '%.test'""")
   }
 
   test("Where.allOf folds a List[Where[Void]] with AND (no leading TRUE for non-empty input)") {
     val w = Where.allOf(List(
-      cols.email === lit("a@b"),
-      cols.age >= lit(18),
-      cols.age <= lit(65)
+      cols.email === "a@b",
+      cols.age >= 18,
+      cols.age <= 65
     ))
     assertEquals(w.fragment.sql, """(("email" = 'a@b' AND "age" >= 18) AND "age" <= 65)""")
     val _: skunk.sharp.where.Where[skunk.Void] = w
@@ -134,13 +134,13 @@ class WhereSuite extends munit.FunSuite {
   }
 
   test("Where.anyOf folds with OR; empty input is FALSE") {
-    val w = Where.anyOf(List(cols.age === lit(10), cols.age === lit(20)))
+    val w = Where.anyOf(List(cols.age === 10, cols.age === 20))
     assertEquals(w.fragment.sql, """("age" = 10 OR "age" = 20)""")
     assertEquals(Where.anyOf(List.empty[skunk.sharp.where.Where[skunk.Void]]).fragment.sql, "FALSE")
   }
 
   test("Where.allOf works with any cats.Foldable (NonEmptyList here)") {
-    val w = Where.allOf(cats.data.NonEmptyList.of(cols.age >= lit(0), cols.age <= lit(100)))
+    val w = Where.allOf(cats.data.NonEmptyList.of(cols.age >= 0, cols.age <= 100))
     assertEquals(w.fragment.sql, """("age" >= 0 AND "age" <= 100)""")
   }
 
