@@ -91,6 +91,7 @@
     <li class="level1 nav-leaf"><a href="#a-worked-example">A worked example</a></li>
     <li class="level1 nav-leaf"><a href="#bounding-box-vs-exact-predicates">Bounding-box vs. exact predicates</a></li>
     <li class="level1 nav-leaf"><a href="#geographies-and-srids">Geographies and SRIDs</a></li>
+    <li class="level1 nav-leaf"><a href="#composed-search-join-with-not-exists-aggregate">Composed search: JOIN with <code>NOT EXISTS</code> + aggregate</a></li>
   </ul>
 
   <p class="footer"></p>
@@ -103,7 +104,7 @@
         <p>Spatial types and <code>ST_*</code> operators, layered on top of <a href="https://github.com/typelevel/skunk/tree/main/modules/postgis">skunk-postgis</a>.
         <strong>Shipped as a separate artifact</strong> — skunk-postgis pulls in a scodec / EWKB dependency
         that not every consumer wants, so the bridge module follows the same separation:</p>
-        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;com.ruiandrebatista&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-postgis&quot;</span><span> % </span><span class="string-literal">&quot;0.1-a32858a-SNAPSHOT&quot;</span></code></pre>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;com.ruiandrebatista&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-postgis&quot;</span><span> % </span><span class="string-literal">&quot;0.1-310720b-SNAPSHOT&quot;</span></code></pre>
         <p>Requires <code>CREATE EXTENSION postgis;</code> on the target database. The schema validator picks
         this up automatically from any column with a geometry-typed <code>PgTypeFor</code>, and also from
         the explicit-codec construction path — <code>Table.builder.column(&quot;loc&quot;, skunk.postgis.codecs.all.point)</code>
@@ -193,6 +194,30 @@
 </span><span>  .</span><span class="identifier">build</span></code></pre>
         <p>…and write the casts in your queries (<code>geom::geography</code>). A first-class <code>geography</code>
         codec is the natural next step.</p>
+        
+        <h2 id="composed-search-join-with-not-exists-aggregate" class="section"><a class="anchor-link left" href="#composed-search-join-with-not-exists-aggregate"><i class="icofont-laika link">&#xef71;</i></a>Composed search: JOIN with <code>NOT EXISTS</code> + aggregate</h2>
+        <p>The example app&#39;s <code>SearchRepository</code> (<code>modules/example/src/main/scala/.../SearchRepository.scala</code>)
+        demonstrates the patterns layered together — one query that touches all three tables:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">SELECT</span><span> </span><span class="identifier">b</span><span>.</span><span class="identifier">id</span><span>, </span><span class="identifier">b</span><span>.</span><span class="identifier">name</span><span>, </span><span class="identifier">b</span><span>.</span><span class="identifier">address</span><span>, </span><span class="identifier">b</span><span>.</span><span class="identifier">geom</span><span>, </span><span class="keyword">COUNT</span><span>(</span><span class="identifier">r</span><span>.</span><span class="identifier">id</span><span>) </span><span class="keyword">AS</span><span> </span><span class="identifier">free_count</span><span>
+</span><span class="keyword">FROM</span><span> </span><span class="identifier">buildings</span><span> </span><span class="identifier">b</span><span>
+</span><span class="keyword">LEFT</span><span> </span><span class="keyword">JOIN</span><span> </span><span class="identifier">rooms</span><span> </span><span class="identifier">r</span><span> </span><span class="keyword">ON</span><span> </span><span class="identifier">r</span><span>.</span><span class="identifier">building_id</span><span> = </span><span class="identifier">b</span><span>.</span><span class="identifier">id</span><span>
+                  </span><span class="keyword">AND</span><span> </span><span class="keyword">NOT</span><span> </span><span class="keyword">EXISTS</span><span> (
+                    </span><span class="keyword">SELECT</span><span> </span><span class="number-literal">1</span><span> </span><span class="keyword">FROM</span><span> </span><span class="identifier">bookings</span><span> </span><span class="identifier">bk</span><span>
+                    </span><span class="keyword">WHERE</span><span> </span><span class="identifier">bk</span><span>.</span><span class="identifier">room_id</span><span> = </span><span class="identifier">r</span><span>.</span><span class="identifier">id</span><span>
+                      </span><span class="keyword">AND</span><span> </span><span class="identifier">bk</span><span>.</span><span class="identifier">period</span><span> &amp;&amp; </span><span class="identifier">daterange</span><span>($</span><span class="keyword">from</span><span>, $</span><span class="keyword">to</span><span>)
+                  )
+</span><span class="keyword">WHERE</span><span> </span><span class="identifier">ST_DWithin</span><span>(</span><span class="identifier">b</span><span>.</span><span class="identifier">geom</span><span>, </span><span class="identifier">ST_SetSRID</span><span>(</span><span class="identifier">ST_MakePoint</span><span>($</span><span class="identifier">lon</span><span>, $</span><span class="identifier">lat</span><span>), </span><span class="number-literal">4326</span><span>), $</span><span class="identifier">radius</span><span>)
+</span><span class="keyword">GROUP</span><span> </span><span class="keyword">BY</span><span> </span><span class="identifier">b</span><span>.</span><span class="identifier">id</span><span>, </span><span class="identifier">b</span><span>.</span><span class="identifier">name</span><span>, </span><span class="identifier">b</span><span>.</span><span class="identifier">address</span><span>, </span><span class="identifier">b</span><span>.</span><span class="identifier">geom</span><span>
+</span><span class="keyword">ORDER</span><span> </span><span class="keyword">BY</span><span> </span><span class="identifier">free_count</span><span> </span><span class="keyword">DESC</span><span>, </span><span class="identifier">b</span><span>.</span><span class="identifier">name</span><span> </span><span class="keyword">ASC</span></code></pre>
+        <p>In skunk-sharp this is <code>buildings.leftJoin(rooms).on(...).select(...).where(...)
+.groupBy(...).orderBy(...).to[Row].compile</code> — fully <strong>static</strong> (compiled once,
+        parameters bound per call) thanks to <code>Param[T]</code> for every scalar input and
+        <code>Pg.notExists(...)</code> for the correlated subquery. Args at execute time is
+        <code>(PgRange[LocalDate], Double, Double, Double)</code>.</p>
+        <p>The query is index-backed end-to-end by the migrations already in place — V1&#39;s
+        <code>EXCLUDE USING gist (room_id WITH =, period WITH &amp;&amp;)</code> on bookings serves the
+        <code>NOT EXISTS</code>, V3&#39;s <code>buildings_geom_gist</code> serves <code>ST_DWithin</code>, V3&#39;s
+        <code>rooms_building_id_idx</code> serves the join.</p>
 
         
 <hr class="footer-rule"/>
