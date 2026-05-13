@@ -126,13 +126,13 @@ as the prefix:
 ```scala mdoc:silent
 // INNER JOIN
 val joined = users
-  .innerJoin(posts).on(r => r.users.id ==== r.posts.author_id)
+  .innerJoin(posts).on(r => r.users.id === r.posts.author_id)
   .select(r => (r.users.email, r.posts.title))
   .compile
 
 // LEFT JOIN — right-side columns become nullable at the type level
 val leftJoined = users
-  .leftJoin(posts).on(r => r.users.id ==== r.posts.author_id)
+  .leftJoin(posts).on(r => r.users.id === r.posts.author_id)
   .select(r => (r.users.email, Pg.count(r.posts.id).as("n")))
   .groupBy(r => r.users.email)
   .compile
@@ -147,7 +147,7 @@ Use `.alias("x")` when the same table appears more than once:
 
 ```scala mdoc:silent
 val selfJoin = users.alias("u1")
-  .innerJoin(users.alias("u2")).on(r => r.u1.age ==== r.u2.age)
+  .innerJoin(users.alias("u2")).on(r => r.u1.age === r.u2.age)
   .select(r => (r.u1.email, r.u2.email))
   .compile
 ```
@@ -160,7 +160,7 @@ Correlation (referencing an outer column) is automatic through lexical scope.
 ```scala mdoc:silent
 // Scalar subquery in projection
 val withCount = users.alias("u").select(u =>
-  (u.email, posts.select(_ => Pg.countAll).where(p => p.author_id ==== u.id).asExpr)
+  (u.email, posts.select(_ => Pg.countAll).where(p => p.author_id === u.id).asExpr)
 ).compile
 
 // IN subquery
@@ -170,7 +170,7 @@ val withPosts = users.select
 
 // EXISTS
 val active = users.alias("u").select
-  .where(u => Pg.exists(posts.select(_ => Pg.countAll).where(p => p.author_id ==== u.id)))
+  .where(u => Pg.exists(posts.select(_ => Pg.countAll).where(p => p.author_id === u.id)))
   .compile
 ```
 

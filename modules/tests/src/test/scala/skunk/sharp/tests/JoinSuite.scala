@@ -31,7 +31,7 @@ class JoinSuite extends PgFixture {
           _ <- assertIO(
             users
               .innerJoin(posts)
-              .on(r => r.users.id ==== r.posts.user_id)
+              .on(r => r.users.id === r.posts.user_id)
               .select(r => (r.users.email, r.posts.title))
               .where(r => r.posts.id === Param.bind(pid))
               .compile
@@ -54,7 +54,7 @@ class JoinSuite extends PgFixture {
           _ <- assertIO(
             users
               .leftJoin(posts)
-              .on(r => r.users.id ==== r.posts.user_id)
+              .on(r => r.users.id === r.posts.user_id)
               .select(r => (r.users.email, r.posts.title))
               .where(r => r.users.id === Param.bind(uid))
               .compile
@@ -82,7 +82,7 @@ class JoinSuite extends PgFixture {
           _ <- assertIO(
             users
               .leftJoin(posts)
-              .on(r => r.users.id ==== r.posts.user_id)
+              .on(r => r.users.id === r.posts.user_id)
               .select(r => (r.users.email, Pg.count(r.posts.id).as("n")))
               .where(r => r.users.id === Param.bind(uid))
               .groupBy(r => r.users.email)
@@ -111,8 +111,8 @@ class JoinSuite extends PgFixture {
           ).compile.run(s)
           _ <- assertIO(
             users
-              .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
-              .leftJoin(tags).on(r => r.posts.id ==== r.tags.post_id)
+              .innerJoin(posts).on(r => r.users.id === r.posts.user_id)
+              .leftJoin(tags).on(r => r.posts.id === r.tags.post_id)
               .select(r => (r.users.email, r.posts.title, r.tags.name))
               .where(r => r.users.id === Param.bind(uid))
               .orderBy(r => r.tags.name.asc)
@@ -142,7 +142,7 @@ class JoinSuite extends PgFixture {
             users
               .crossJoin(posts)
               .select(r => (r.users.email, r.posts.title))
-              .where(r => r.users.id ==== r.posts.user_id && r.users.id === Param.bind(uid))
+              .where(r => r.users.id === r.posts.user_id && r.users.id === Param.bind(uid))
               .compile
               .run(s),
             List(("cross@x", "cross-post"))
@@ -166,7 +166,7 @@ class JoinSuite extends PgFixture {
             users
               .alias("u")
               .innerJoin(posts.alias("p"))
-              .on(r => r.u.id ==== r.p.user_id)
+              .on(r => r.u.id === r.p.user_id)
               .select(r => (r.u.email, r.p.title))
               .where(r => r.p.id === Param.bind(pid))
               .compile
@@ -214,7 +214,7 @@ class JoinSuite extends PgFixture {
           ).compile.run(s)
           pairs <- users
             .rightJoin(inbox)
-            .on(r => r.users.email ==== r.users_inbox.email)
+            .on(r => r.users.email === r.users_inbox.email)
             .select(r => (r.users.email, r.users_inbox.email))
             .where(r => r.users_inbox.email.like(Param.bind(s"%-$tag@x")))
             .compile.run(s).map(_.toSet)
@@ -256,7 +256,7 @@ class JoinSuite extends PgFixture {
             .alias("u")
             .crossJoinLateral(o =>
               posts.select
-                .where(p => p.user_id ==== o.id)
+                .where(p => p.user_id === o.id)
                 .orderBy(p => p.created_at.desc)
                 .limit(2)
                 .alias("recent")
@@ -296,7 +296,7 @@ class JoinSuite extends PgFixture {
             .alias("u")
             .innerJoinLateral(o =>
               posts.select(p => p.title)
-                .where(p => p.user_id ==== o.id)
+                .where(p => p.user_id === o.id)
                 .orderBy(p => p.created_at.desc)
                 .limit(1)
                 .alias("recent")
@@ -331,7 +331,7 @@ class JoinSuite extends PgFixture {
             .alias("u")
             .leftJoinLateral(o =>
               posts.select
-                .where(p => p.user_id ==== o.id)
+                .where(p => p.user_id === o.id)
                 .limit(1)
                 .alias("latest")
             )
@@ -386,7 +386,7 @@ class JoinSuite extends PgFixture {
           ).compile.run(s)
           pairs <- users
             .fullJoin(inbox)
-            .on(r => r.users.email ==== r.users_inbox.email)
+            .on(r => r.users.email === r.users_inbox.email)
             .select(r => (r.users.email, r.users_inbox.email))
             .where(r =>
               r.users.email.like(Param.bind(s"%-$tag@x")) || r.users_inbox.email.like(Param.bind(s"%-$tag@x"))

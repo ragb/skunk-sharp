@@ -107,7 +107,7 @@ inline def cte[Ss <: Tuple, GroupsT <: Tuple, WA, HA, N <: String & Singleton, S
  *   val totals = cte("totals",
  *     orders.select(o => (o.user_id, Pg.sum(o.amount).as("total"))).groupBy(o => o.user_id)
  *   )
- *   totals.innerJoin(users).on(r => r.totals.user_id ==== r.users.id).select(r => (r.users.email, r.totals.total)).compile
+ *   totals.innerJoin(users).on(r => r.totals.user_id === r.users.id).select(r => (r.users.email, r.totals.total)).compile
  * }}}
  */
 inline def cte[

@@ -56,7 +56,7 @@ class SubquerySuite extends PgFixture {
             users
               .alias("u")
               .select(u => u.email)
-              .where(u => Pg.exists(posts.select(_ => lit(1)).where(p => p.user_id ==== u.id)))
+              .where(u => Pg.exists(posts.select(_ => lit(1)).where(p => p.user_id === u.id)))
               .compile.run(s).map(_.toSet),
             Set("has-posts@x", "exw@x")
           )
@@ -82,7 +82,7 @@ class SubquerySuite extends PgFixture {
               .select(u => u.email)
               .where(u =>
                 u.id.in(cats.data.NonEmptyList.of(Param.bind(uidWith), Param.bind(uidWO))) &&
-                  Pg.notExists(posts.select(_ => lit(1)).where(p => p.user_id ==== u.id))
+                  Pg.notExists(posts.select(_ => lit(1)).where(p => p.user_id === u.id))
               )
               .compile.run(s),
             List("nex-without@x")
@@ -110,7 +110,7 @@ class SubquerySuite extends PgFixture {
               .select(u =>
                 (
                   u.email,
-                  posts.select(_ => Pg.countAll).where(p => p.user_id ==== u.id).asExpr
+                  posts.select(_ => Pg.countAll).where(p => p.user_id === u.id).asExpr
                 )
               )
               .where(u => u.id === Param.bind(uid))

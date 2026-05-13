@@ -65,7 +65,7 @@ class ValuesSuite extends PgFixture {
           labelled <- users
             .alias("u")
             .innerJoin(buckets)
-            .on(r => r.u.age ==== r.buckets.age)
+            .on(r => r.u.age === r.buckets.age)
             .select(r => (r.u.email, r.buckets.bucket))
             .where(r => r.u.email.like(Param.bind(s"%-$tag@x")))
             .compile.run(s).map(_.toSet)

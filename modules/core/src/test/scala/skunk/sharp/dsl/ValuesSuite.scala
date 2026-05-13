@@ -51,7 +51,7 @@ class ValuesSuite extends munit.FunSuite {
 
     val af = users
       .innerJoin(labels)
-      .on(r => r.users.id ==== r.labels.uid)
+      .on(r => r.users.id === r.labels.uid)
       .select(r => (r.users.email, r.labels.label))
       .compile
       .af

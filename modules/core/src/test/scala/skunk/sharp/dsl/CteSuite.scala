@@ -61,7 +61,7 @@ class CteSuite extends munit.FunSuite {
     val activeUsers = cte("active_users", users.select.where(u => u.deleted_at.isNull))
     val published   = cte("published", posts.select.where(p => p.status === lit("published")))
     val af          = activeUsers
-      .innerJoin(published).on(r => r.active_users.id ==== r.published.user_id)
+      .innerJoin(published).on(r => r.active_users.id === r.published.user_id)
       .select(r => (r.active_users.email, r.published.title))
       .compile.af
     assert(af.fragment.sql.startsWith("WITH "), af.fragment.sql)

@@ -74,7 +74,7 @@ class MultiSchemaSuite extends PgFixture {
             .leftJoin(products)
             // events.product_id is nullable; r.products.id is not. Cast the nullable side to drop the Option from
             // the Scala type — SQL NULL still flows correctly through the = operator in an ON predicate.
-            .on(r => r.events.product_id.cast[UUID] ==== r.products.id)
+            .on(r => r.events.product_id.cast[UUID] === r.products.id)
             .select(r => (r.events.action, r.products.name))
             .orderBy(r => r.events.action.asc)
             .compile.run(s)

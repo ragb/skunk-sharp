@@ -21,7 +21,7 @@ class JoinSuite extends munit.FunSuite {
   test("INNER JOIN (no explicit alias) — table names used as aliases") {
     val af = users
       .innerJoin(posts)
-      .on(r => r.users.id ==== r.posts.user_id)
+      .on(r => r.users.id === r.posts.user_id)
       .select(r => (r.users.email, r.posts.title))
       .compile
       .af
@@ -35,7 +35,7 @@ class JoinSuite extends munit.FunSuite {
   test("INNER JOIN with WHERE + ORDER BY + LIMIT (no explicit alias)") {
     val af = users
       .innerJoin(posts)
-      .on(r => r.users.id ==== r.posts.user_id)
+      .on(r => r.users.id === r.posts.user_id)
       .select(r => (r.users.email, r.posts.title, r.posts.created_at))
       .where(r => r.users.age >= lit(18))
       .orderBy(r => r.posts.created_at.desc)
@@ -52,7 +52,7 @@ class JoinSuite extends munit.FunSuite {
   test("LEFT JOIN renders LEFT JOIN; ON still sees declared types") {
     val af = users
       .leftJoin(posts)
-      .on(r => r.users.id ==== r.posts.user_id) // right side not yet nullabilified in ON
+      .on(r => r.users.id === r.posts.user_id) // right side not yet nullabilified in ON
       .select(r => (r.users.email, r.posts.title))
       .compile
       .af
@@ -67,7 +67,7 @@ class JoinSuite extends munit.FunSuite {
     // r.posts.title has type TypedColumn[Option[String], true] here, so the compiled query returns Option[String].
     val _: QueryTemplate[?, Option[String]] = users
       .leftJoin(posts)
-      .on(r => r.users.id ==== r.posts.user_id)
+      .on(r => r.users.id === r.posts.user_id)
       .select(r => r.posts.title)
       .compile
   }
@@ -75,7 +75,7 @@ class JoinSuite extends munit.FunSuite {
   test("aliased aggregate through a JOIN projection") {
     val af = users
       .innerJoin(posts)
-      .on(r => r.users.id ==== r.posts.user_id)
+      .on(r => r.users.id === r.posts.user_id)
       .select(r => (r.users.email, Pg.count(r.posts.id).as("post_count")))
       .compile
       .af
@@ -90,7 +90,7 @@ class JoinSuite extends munit.FunSuite {
     val af = users
       .alias("u")
       .innerJoin(posts.alias("p"))
-      .on(r => r.u.id ==== r.p.user_id)
+      .on(r => r.u.id === r.p.user_id)
       .select(r => (r.u.email, r.p.title))
       .compile
       .af
@@ -104,7 +104,7 @@ class JoinSuite extends munit.FunSuite {
   test("mixed: auto-aliased left + explicitly-aliased right") {
     val af = users
       .innerJoin(posts.alias("p"))
-      .on(r => r.users.id ==== r.p.user_id)
+      .on(r => r.users.id === r.p.user_id)
       .select(r => (r.users.email, r.p.title))
       .compile
       .af
@@ -127,8 +127,8 @@ class JoinSuite extends munit.FunSuite {
 
   test("three-table INNER JOIN chain") {
     val af = users
-      .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
-      .innerJoin(tags).on(r => r.posts.id ==== r.tags.post_id)
+      .innerJoin(posts).on(r => r.users.id === r.posts.user_id)
+      .innerJoin(tags).on(r => r.posts.id === r.tags.post_id)
       .select(r => (r.users.email, r.posts.title, r.tags.name))
       .compile
       .af
@@ -142,8 +142,8 @@ class JoinSuite extends munit.FunSuite {
   test("three-table mixed INNER + LEFT — right-most cols flip to Option") {
     // The compile-time type of the last projection is Option[String] because tags was left-joined.
     val q: QueryTemplate[?, (String, String, Option[String])] = users
-      .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
-      .leftJoin(tags).on(r => r.posts.id ==== r.tags.post_id)
+      .innerJoin(posts).on(r => r.users.id === r.posts.user_id)
+      .leftJoin(tags).on(r => r.posts.id === r.tags.post_id)
       .select(r => (r.users.email, r.posts.title, r.tags.name))
       .compile
 
@@ -157,7 +157,7 @@ class JoinSuite extends munit.FunSuite {
     val af = users
       .crossJoin(posts)
       .select(r => (r.users.email, r.posts.title))
-      .where(r => r.users.id ==== r.posts.user_id)
+      .where(r => r.users.id === r.posts.user_id)
       .compile
       .af
 
@@ -187,7 +187,7 @@ class JoinSuite extends munit.FunSuite {
     // r.users.email is TypedColumn[Option[String], true] because `users` was null-padded by the RIGHT join.
     val q: QueryTemplate[?, (Option[String], String)] = users
       .rightJoin(posts)
-      .on(r => r.users.id ==== r.posts.user_id)
+      .on(r => r.users.id === r.posts.user_id)
       .select(r => (r.users.email, r.posts.title))
       .compile
 
@@ -202,7 +202,7 @@ class JoinSuite extends munit.FunSuite {
     // force the multi-source compile path and exercise that the ON predicate did type-check against non-null cols.
     val af = users
       .rightJoin(posts)
-      .on(r => r.users.id ==== r.posts.user_id)
+      .on(r => r.users.id === r.posts.user_id)
       .select(r => (r.users.email, r.posts.title))
       .compile.af
 
@@ -214,7 +214,7 @@ class JoinSuite extends munit.FunSuite {
   test("FULL JOIN renders FULL OUTER JOIN; both sides decode as Option") {
     val q: QueryTemplate[?, (Option[String], Option[String])] = users
       .fullJoin(posts)
-      .on(r => r.users.id ==== r.posts.user_id)
+      .on(r => r.users.id === r.posts.user_id)
       .select(r => (r.users.email, r.posts.title))
       .compile
 
@@ -228,8 +228,8 @@ class JoinSuite extends munit.FunSuite {
 
   test("INNER then RIGHT — the original INNER's cols flip to Option when RIGHT is applied") {
     val q: QueryTemplate[?, (Option[String], Option[String], String)] = users
-      .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
-      .rightJoin(tags).on(r => r.posts.id ==== r.tags.post_id)
+      .innerJoin(posts).on(r => r.users.id === r.posts.user_id)
+      .rightJoin(tags).on(r => r.posts.id === r.tags.post_id)
       .select(r => (r.users.email, r.posts.title, r.tags.name))
       .compile
 
@@ -248,7 +248,7 @@ class JoinSuite extends munit.FunSuite {
 
   test("INNER JOIN LATERAL renders LATERAL keyword; inner WHERE correlates against outer cols") {
     val af = users
-      .innerJoinLateral(u => posts.select.where(p => p.user_id ==== u.id).limit(3).alias("recent"))
+      .innerJoinLateral(u => posts.select.where(p => p.user_id === u.id).limit(3).alias("recent"))
       .on(_ => lit(true))
       .select(r => (r.users.email, r.recent.title))
       .compile
@@ -262,7 +262,7 @@ class JoinSuite extends munit.FunSuite {
 
   test("CROSS JOIN LATERAL — no .on required, transitions straight to SelectBuilder") {
     val af = users
-      .crossJoinLateral(u => posts.select.where(p => p.user_id ==== u.id).limit(1).alias("top"))
+      .crossJoinLateral(u => posts.select.where(p => p.user_id === u.id).limit(1).alias("top"))
       .select(r => (r.users.email, r.top.title))
       .compile
       .af
@@ -275,7 +275,7 @@ class JoinSuite extends munit.FunSuite {
 
   test("LEFT JOIN LATERAL — lateral cols decode as Option when the inner produces zero rows") {
     val q: QueryTemplate[?, (String, Option[String])] = users
-      .leftJoinLateral(u => posts.select.where(p => p.user_id ==== u.id).limit(1).alias("top"))
+      .leftJoinLateral(u => posts.select.where(p => p.user_id === u.id).limit(1).alias("top"))
       .on(_ => lit(true))
       .select(r => (r.users.email, r.top.title))
       .compile
@@ -285,8 +285,8 @@ class JoinSuite extends munit.FunSuite {
 
   test("chained LATERAL after an INNER JOIN — multi-source outer view reaches inner WHERE") {
     val af = users
-      .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
-      .innerJoinLateral(r => tags.select.where(t => t.post_id ==== r.posts.id).limit(2).alias("top_tags"))
+      .innerJoin(posts).on(r => r.users.id === r.posts.user_id)
+      .innerJoinLateral(r => tags.select.where(t => t.post_id === r.posts.id).limit(2).alias("top_tags"))
       .on(_ => lit(true))
       .select(r => (r.users.email, r.posts.title, r.top_tags.name))
       .compile
@@ -332,7 +332,7 @@ class JoinSuite extends munit.FunSuite {
       .select(u => (u.id, u.email))
       .where(u => u.age >= lit(18))
       .alias("adults")
-      .innerJoin(posts).on(r => r.adults.id ==== r.posts.user_id)
+      .innerJoin(posts).on(r => r.adults.id === r.posts.user_id)
       .select(r => (r.adults.email, r.posts.title))
       .compile
       .af
@@ -346,7 +346,7 @@ class JoinSuite extends munit.FunSuite {
   test("INNER JOIN LATERAL against a projected SELECT — per-outer-row top-N") {
     val af = users
       .innerJoinLateral(u =>
-        posts.select(p => (p.id, p.title)).where(p => p.user_id ==== u.id).limit(3).alias("recent")
+        posts.select(p => (p.id, p.title)).where(p => p.user_id === u.id).limit(3).alias("recent")
       )
       .on(_ => lit(true))
       .select(r => (r.users.email, r.recent.title))
@@ -380,7 +380,7 @@ class JoinSuite extends munit.FunSuite {
     // FULL JOIN, posts's cols are already Option (from LEFT) and tags's are still declared (non-null), so we use
     // raw comparisons there by round-tripping through literals that match both sides at the bare types.
     val q: QueryTemplate[?, (Option[String], Option[String], Option[String])] = users
-      .leftJoin(posts).on(r => r.users.id ==== r.posts.user_id)
+      .leftJoin(posts).on(r => r.users.id === r.posts.user_id)
       .fullJoin(tags).on(_ => lit(true))
       .select(r => (r.users.email, r.posts.title, r.tags.name))
       .compile

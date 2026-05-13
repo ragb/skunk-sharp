@@ -450,7 +450,7 @@ class NegativeTestsSuite extends munit.FunSuite {
       import skunk.sharp.dsl.*
       import NegativeTestsSuite.User
       val users = Table.of[User]("users")
-      users.innerJoin(users).on(r => r.users.id ==== r.users.id)
+      users.innerJoin(users).on(r => r.users.id === r.users.id)
     """)
     assert(errs.nonEmpty, "self-join with matching implicit aliases should be rejected")
     val msg = errs.map(_.message).mkString("\n")
@@ -465,7 +465,7 @@ class NegativeTestsSuite extends munit.FunSuite {
       import skunk.sharp.dsl.*
       import NegativeTestsSuite.User
       val users = Table.of[User]("users")
-      users.alias("u1").innerJoin(users.alias("u2")).on(r => r.u1.id ==== r.u2.id)
+      users.alias("u1").innerJoin(users.alias("u2")).on(r => r.u1.id === r.u2.id)
     """)
     assert(errs.isEmpty, s"distinct-alias self-join should compile; got: ${errs.map(_.message).mkString("\n")}")
   }
@@ -475,7 +475,7 @@ class NegativeTestsSuite extends munit.FunSuite {
       import skunk.sharp.dsl.*
       import NegativeTestsSuite.User
       val users = Table.of[User]("users")
-      users.innerJoin(users.alias("u2")).on(r => r.users.id ==== r.u2.id)
+      users.innerJoin(users.alias("u2")).on(r => r.users.id === r.u2.id)
     """)
     assert(errs.isEmpty, s"implicit + distinct explicit should compile; got: ${errs.map(_.message).mkString("\n")}")
   }
@@ -489,8 +489,8 @@ class NegativeTestsSuite extends munit.FunSuite {
       val users = Table.of[User]("users")
       val posts = Table.of[Post]("posts")
       users
-        .innerJoin(posts).on(r => r.users.id ==== r.posts.user_id)
-        .innerJoin(users).on(r => r.users.id ==== r.posts.user_id)   // third source collides with the first
+        .innerJoin(posts).on(r => r.users.id === r.posts.user_id)
+        .innerJoin(users).on(r => r.users.id === r.posts.user_id)   // third source collides with the first
     """)
     assert(errs.nonEmpty, "alias collision against an earlier source (not just the previous) should be rejected")
   }
