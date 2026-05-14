@@ -2,15 +2,34 @@
 
 ## Installation
 
+skunk-sharp is published to **GitHub Packages**, so add the resolver alongside the
+dependencies:
+
 ```scala
 // build.sbt
-libraryDependencies += "com.ruiandrebatista" %% "skunk-sharp-core" % "@VERSION@"
+resolvers += "skunk-sharp @ GitHub Packages" at
+  "https://maven.pkg.github.com/ragb/skunk-sharp"
+
+libraryDependencies += "io.github.ragb" %% "skunk-sharp-core" % "@VERSION@"
 
 // Optional modules
-libraryDependencies += "com.ruiandrebatista" %% "skunk-sharp-iron"    % "@VERSION@"
-libraryDependencies += "com.ruiandrebatista" %% "skunk-sharp-refined" % "@VERSION@"
-libraryDependencies += "com.ruiandrebatista" %% "skunk-sharp-circe"   % "@VERSION@"
-libraryDependencies += "com.ruiandrebatista" %% "skunk-sharp-postgis" % "@VERSION@"
+libraryDependencies += "io.github.ragb" %% "skunk-sharp-iron"    % "@VERSION@"
+libraryDependencies += "io.github.ragb" %% "skunk-sharp-refined" % "@VERSION@"
+libraryDependencies += "io.github.ragb" %% "skunk-sharp-circe"   % "@VERSION@"
+libraryDependencies += "io.github.ragb" %% "skunk-sharp-postgis" % "@VERSION@"
+```
+
+GitHub Packages requires authentication **even for public packages**. Add a GitHub
+[personal access token](https://github.com/settings/tokens) with the `read:packages`
+scope to your sbt credentials — e.g. in `~/.sbt/1.0/github.sbt`:
+
+```scala
+credentials += Credentials(
+  "GitHub Package Registry",
+  "maven.pkg.github.com",
+  "YOUR_GITHUB_USERNAME",
+  sys.env("GITHUB_TOKEN")
+)
 ```
 
 Requires **Scala 3.7+** (uses named tuples, stable since 3.7).

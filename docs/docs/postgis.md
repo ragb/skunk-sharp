@@ -5,7 +5,7 @@ Spatial types and `ST_*` operators, layered on top of [skunk-postgis](https://gi
 that not every consumer wants, so the bridge module follows the same separation:
 
 ```scala
-libraryDependencies += "com.ruiandrebatista" %% "skunk-sharp-postgis" % "@VERSION@"
+libraryDependencies += "io.github.ragb" %% "skunk-sharp-postgis" % "@VERSION@"
 ```
 
 Requires `CREATE EXTENSION postgis;` on the target database. The schema validator picks

@@ -1,8 +1,11 @@
 import org.typelevel.scalacoptions.{ScalacOptions, ScalaVersion}
 
 ThisBuild / tlBaseVersion       := "0.1"
-ThisBuild / organization        := "com.ruiandrebatista"
+ThisBuild / organization        := "io.github.ragb"
 ThisBuild / organizationName    := "Rui Batista"
+ThisBuild / tlGitHubRepo        := Some("skunk-sharp")
+// scmInfo/homepage are derived from the git remote, not tlGitHubRepo — pin it anyway, silence lintUnused.
+Global / excludeLintKeys += tlGitHubRepo
 ThisBuild / licenses            := Seq(License.Apache2)
 ThisBuild / headerCreate / skip := true
 ThisBuild / headerCheck / skip  := true
@@ -24,6 +27,32 @@ ThisBuild / scalacOptions ++= {
   sv.filter(opt.isSupported).fold(Seq.empty[String])(_ => opt.option :: opt.args)
 }
 
+// --- Publishing: GitHub Packages -------------------------------------------------
+// sbt-typelevel's release pipeline (tlCiRelease) is hard-wired to Sonatype. We override the
+// generated publish step + publishTo to target GitHub Packages instead. Switching back to
+// Maven Central later = delete this block and re-run githubWorkflowGenerate.
+ThisBuild / githubWorkflowPublish := Seq(
+  WorkflowStep.Sbt(List("publish"), name = Some("Publish to GitHub Packages"))
+)
+// GitHub Packages doesn't take signed artifacts — drop the PGP "import signing key" preamble.
+ThisBuild / githubWorkflowPublishPreamble := Seq.empty
+// This repo has GitHub's Dependency Graph feature disabled, so the submission job 404s. Drop it.
+ThisBuild / tlCiDependencyGraphJob := false
+
+// publishTo is set per-project by sbt-typelevel's Sonatype plugin, so it must be overridden
+// per-project (a ThisBuild fallback would be shadowed). CI authenticates via the GITHUB_TOKEN
+// secret, already exposed build-wide in the generated workflow's env block.
+lazy val githubPackagesPublish = Seq(
+  publishTo         := Some("GitHub Packages" at "https://maven.pkg.github.com/ragb/skunk-sharp"),
+  publishMavenStyle := true,
+  credentials += Credentials(
+    "GitHub Package Registry",
+    "maven.pkg.github.com",
+    "ragb",
+    sys.env.getOrElse("GITHUB_TOKEN", "")
+  )
+)
+
 val skunkV           = "1.0.0"
 val skunkCirceV      = "1.0.0"
 val circeV           = "0.14.15"
@@ -44,6 +73,7 @@ lazy val root = tlCrossRootProject.aggregate(core, iron, refined, circe, postgis
 
 lazy val core = project
   .in(file("modules/core"))
+  .settings(githubPackagesPublish)
   .settings(
     name := "skunk-sharp-core",
     libraryDependencies ++= Seq(
@@ -57,6 +87,7 @@ lazy val core = project
 lazy val iron = project
   .in(file("modules/iron"))
   .dependsOn(core)
+  .settings(githubPackagesPublish)
   .settings(
     name := "skunk-sharp-iron",
     libraryDependencies ++= Seq(
@@ -69,6 +100,7 @@ lazy val iron = project
 lazy val refined = project
   .in(file("modules/refined"))
   .dependsOn(core)
+  .settings(githubPackagesPublish)
   .settings(
     name := "skunk-sharp-refined",
     libraryDependencies ++= Seq(
@@ -81,6 +113,7 @@ lazy val refined = project
 lazy val circe = project
   .in(file("modules/circe"))
   .dependsOn(core)
+  .settings(githubPackagesPublish)
   .settings(
     name := "skunk-sharp-circe",
     libraryDependencies ++= Seq(
@@ -94,6 +127,7 @@ lazy val circe = project
 lazy val postgis = project
   .in(file("modules/postgis"))
   .dependsOn(core)
+  .settings(githubPackagesPublish)
   .settings(
     name := "skunk-sharp-postgis",
     libraryDependencies ++= Seq(
