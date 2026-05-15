@@ -73,11 +73,11 @@ object RoomRepository {
 
     /** Translate one user filter to a `Where[Void]`. The building-id scope is added on top in [[findFiltered]]. */
     private def toWhere(f: RoomFilter): Where[skunk.Void] = f match {
-      case RoomFilter.CapacityAtLeast(n)   => cv.capacity >= Param.bind(n)
-      case RoomFilter.CapacityAtMost(n)    => cv.capacity <= Param.bind(n)
-      case RoomFilter.NameContains(s)      => cv.name.ilike(Param.bind(s"%$s%"))
-      case RoomFilter.NamesIn(ns)          => cv.name.in(ns.map(Param.bind(_)))
-      case RoomFilter.IdsIn(ids)           => cv.id.in(ids.map(Param.bind(_)))
+      case RoomFilter.CapacityAtLeast(n)    => cv.capacity >= Param.bind(n)
+      case RoomFilter.CapacityAtMost(n)     => cv.capacity <= Param.bind(n)
+      case RoomFilter.NameContains(s)       => cv.name.ilike(Param.bind(s"%$s%"))
+      case RoomFilter.NamesIn(ns)           => cv.name.in(ns.map(Param.bind(_)))
+      case RoomFilter.IdsIn(ids)            => cv.id.in(ids.map(Param.bind(_)))
       case RoomFilter.LocationUnder(prefix) =>
         cv.location.isDescendantOf(Param.bind(prefix))
       case RoomFilter.HasAmenity(key) =>
@@ -91,8 +91,7 @@ object RoomRepository {
       if filters.isEmpty then findAllInBuildingQ.streamKF[IO](buildingId, 64)
       else {
         // AND-fold the per-filter Wheres on top of the `building_id = $1` scope.
-        val scoped: List[Where[skunk.Void]] =
-          (cv.building_id === Param.bind(buildingId)) :: filters.map(toWhere)
+        val scoped: List[Where[skunk.Void]] = (cv.building_id === Param.bind(buildingId)) :: filters.map(toWhere)
         selectRow.where(_ => allOf(scoped*)).compile.streamKF[IO]()
       }
 

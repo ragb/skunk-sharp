@@ -10,8 +10,8 @@ import java.util.UUID
 
 /**
  * Pure unit tests for the query DTO ↔ filter ADT projection. The SQL-rendering side of each filter case is already
- * covered by core suites; what's specific to the example module is the `q.toFilters` extension's logic, especially
- * the paired-field rules (`overlapsFrom`/`overlapsTo`, `nearLat`/`nearLon`/`radiusMeters`).
+ * covered by core suites; what's specific to the example module is the `q.toFilters` extension's logic, especially the
+ * paired-field rules (`overlapsFrom`/`overlapsTo`, `nearLat`/`nearLon`/`radiusMeters`).
  */
 class TransformersFilterSuite extends munit.FunSuite {
 

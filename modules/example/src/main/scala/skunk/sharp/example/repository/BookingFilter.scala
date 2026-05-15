@@ -27,9 +27,9 @@ object BookingFilter {
   final case class TitleContains(substring: String) extends BookingFilter
 
   /**
-   * `booker_name % q` — trigram-similarity match. Catches typos and partials (`"katleen"` matches `"Kathleen"`)
-   * where the plain `ILIKE '%katleen%'` form would miss. Backed by the trigram GIN index from the V2 migration; the
-   * threshold comes from Postgres's session-level `pg_trgm.similarity_threshold` (default 0.3).
+   * `booker_name % q` — trigram-similarity match. Catches typos and partials (`"katleen"` matches `"Kathleen"`) where
+   * the plain `ILIKE '%katleen%'` form would miss. Backed by the trigram GIN index from the V2 migration; the threshold
+   * comes from Postgres's session-level `pg_trgm.similarity_threshold` (default 0.3).
    */
   final case class BookerNameSimilar(q: String) extends BookingFilter
 

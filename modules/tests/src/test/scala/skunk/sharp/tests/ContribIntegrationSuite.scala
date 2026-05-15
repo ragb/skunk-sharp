@@ -59,7 +59,7 @@ class ContribIntegrationSuite extends PgFixture {
     withContainers { containers =>
       session(containers).use { s =>
         for {
-          _ <- accounts.insert((id = 1, email = Citext("Alice@Example.COM"), body = "hello")).compile.run(s)
+          _     <- accounts.insert((id = 1, email = Citext("Alice@Example.COM"), body = "hello")).compile.run(s)
           found <- accounts.select(_.id)
             .where(a => a.email === Param.bind(Citext("alice@example.com")))
             .compile.option(s)
@@ -158,7 +158,7 @@ class ContribIntegrationSuite extends PgFixture {
       session(containers).use { s =>
         val payload = Hstore("color" -> Some("blue"), "size" -> Some("xl"), "missing" -> None)
         for {
-          _ <- things.insert((id = 30, props = payload)).compile.run(s)
+          _    <- things.insert((id = 30, props = payload)).compile.run(s)
           back <- things.select(_.props).where(t => t.id === Param.bind(30)).compile.unique(s)
           _ = assertEquals(back, payload)
           found <- things.select(_.id)
@@ -191,7 +191,7 @@ class ContribIntegrationSuite extends PgFixture {
         for {
           report <- SchemaValidator.validate[IO](s, Seq.empty, Set("definitely_not_installed"))
           missing = report.mismatches.collect { case Mismatch.ExtensionMissing(n) => n }
-          _ = assertEquals(missing, List("definitely_not_installed"))
+          _       = assertEquals(missing, List("definitely_not_installed"))
         } yield ()
       }
     }
@@ -201,7 +201,8 @@ class ContribIntegrationSuite extends PgFixture {
     withContainers { containers =>
       session(containers).use { s =>
         for {
-          report <- SchemaValidator.validate[IO](s, Seq.empty, Set(PgCrypto.RequiredExtension, PgFuzzy.RequiredExtension))
+          report <-
+            SchemaValidator.validate[IO](s, Seq.empty, Set(PgCrypto.RequiredExtension, PgFuzzy.RequiredExtension))
           _ = assert(
             !report.mismatches.exists(_.isInstanceOf[Mismatch.ExtensionMissing]),
             s"unexpected ExtensionMissing entries: ${report.mismatches}"

@@ -99,8 +99,8 @@ object Mismatch {
 
   /**
    * A Postgres extension required by one of the declared relations (via a column with `requiredExtension` set) or
-   * supplied explicitly to [[skunk.sharp.validation.SchemaValidator.validate]] is not installed (`pg_extension` has
-   * no row with this name). `relation` is `"<database>"` because the extension is database-wide, not relation-local.
+   * supplied explicitly to [[skunk.sharp.validation.SchemaValidator.validate]] is not installed (`pg_extension` has no
+   * row with this name). `relation` is `"<database>"` because the extension is database-wide, not relation-local.
    */
   final case class ExtensionMissing(name: String) extends Mismatch {
     val relation: String = "<database>"

@@ -11,10 +11,10 @@ object LiteralSyntaxSuite {
 }
 
 /**
- * Covers the singleton-typed `given Conversion`s shipped from `TypedExpr`'s companion object. Because they live
- * there — and because `TypedExpr` is declared `into trait` — primitive literals slot directly into any operator's
- * `TypedExpr` RHS slot without needing an import or `language.implicitConversions`. The conversion fires only for
- * singleton-typed sources (true literals and stable `val`s); method calls, vars and widened expressions are rejected.
+ * Covers the singleton-typed `given Conversion`s shipped from `TypedExpr`'s companion object. Because they live there —
+ * and because `TypedExpr` is declared `into trait` — primitive literals slot directly into any operator's `TypedExpr`
+ * RHS slot without needing an import or `language.implicitConversions`. The conversion fires only for singleton-typed
+ * sources (true literals and stable `val`s); method calls, vars and widened expressions are rejected.
  */
 class LiteralSyntaxSuite extends munit.FunSuite {
   import LiteralSyntaxSuite.User

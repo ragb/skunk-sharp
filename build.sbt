@@ -1,9 +1,9 @@
-import org.typelevel.scalacoptions.{ScalacOptions, ScalaVersion}
+import org.typelevel.scalacoptions.{ScalaVersion, ScalacOptions}
 
-ThisBuild / tlBaseVersion       := "0.1"
-ThisBuild / organization        := "io.github.ragb"
-ThisBuild / organizationName    := "Rui Batista"
-ThisBuild / tlGitHubRepo        := Some("skunk-sharp")
+ThisBuild / tlBaseVersion    := "0.1"
+ThisBuild / organization     := "io.github.ragb"
+ThisBuild / organizationName := "Rui Batista"
+ThisBuild / tlGitHubRepo     := Some("skunk-sharp")
 // scmInfo/homepage are derived from the git remote, not tlGitHubRepo — pin it anyway, silence lintUnused.
 Global / excludeLintKeys += tlGitHubRepo
 ThisBuild / licenses            := Seq(License.Apache2)
@@ -22,7 +22,7 @@ ThisBuild / tlFatalWarnings := true
 // SIP-71 `into` modifier — preview feature in Scala 3.8.x, stabilises in 3.9. Added via the typed `ScalacOption`
 // builder from `org.typelevel.scalac-options` so it's pinned to the right Scala range; drop once we move to 3.9+.
 ThisBuild / scalacOptions ++= {
-  val sv = ScalaVersion.fromString(scalaVersion.value).toOption
+  val sv  = ScalaVersion.fromString(scalaVersion.value).toOption
   val opt = ScalacOptions.other("-preview", _.isAtLeast(ScalaVersion(3, 8, 0)))
   sv.filter(opt.isSupported).fold(Seq.empty[String])(_ => opt.option :: opt.args)
 }

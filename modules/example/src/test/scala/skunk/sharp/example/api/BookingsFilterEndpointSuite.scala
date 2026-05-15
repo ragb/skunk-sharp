@@ -23,7 +23,9 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
   private def createBuilding(using SttpBackend[IO, Fs2Streams[IO]]): IO[BuildingResponse] =
     createBuildingReq(CreateBuildingRequest("HQ", "HQ address", LatLon(53.34, -6.26))).sendOk
 
-  private def createRoom(buildingId: UUID, name: String, capacity: Int)(using SttpBackend[IO, Fs2Streams[IO]])
+  private def createRoom(buildingId: UUID, name: String, capacity: Int)(using
+    SttpBackend[IO, Fs2Streams[IO]]
+  )
     : IO[RoomResponse] =
     createRoomReq((buildingId, CreateRoomRequest(name, capacity, location = "unsorted", amenities = Map.empty))).sendOk
 
@@ -44,13 +46,13 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
       appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
-            b <- createBuilding
-            a <- createRoom(b.id, "A", 2)
-            r <- createRoom(b.id, "B", 2)
-            c <- createRoom(b.id, "C", 2)
-            _ <- createBooking(a.id, "alice", "ax", LocalDate.parse("2024-01-01"), LocalDate.parse("2024-01-10"))
-            _ <- createBooking(r.id, "bob", "bx", LocalDate.parse("2024-02-01"), LocalDate.parse("2024-02-10"))
-            _ <- createBooking(c.id, "carol", "cx", LocalDate.parse("2024-03-01"), LocalDate.parse("2024-03-10"))
+            b  <- createBuilding
+            a  <- createRoom(b.id, "A", 2)
+            r  <- createRoom(b.id, "B", 2)
+            c  <- createRoom(b.id, "C", 2)
+            _  <- createBooking(a.id, "alice", "ax", LocalDate.parse("2024-01-01"), LocalDate.parse("2024-01-10"))
+            _  <- createBooking(r.id, "bob", "bx", LocalDate.parse("2024-02-01"), LocalDate.parse("2024-02-10"))
+            _  <- createBooking(c.id, "carol", "cx", LocalDate.parse("2024-03-01"), LocalDate.parse("2024-03-10"))
             rs <- listBookings(BookingFilterQuery.empty.copy(roomIds = List(a.id, r.id)))
             _ = assertEquals(rs.map(_.title).toSet, Set("ax", "bx"))
           } yield ())
@@ -174,7 +176,13 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
               LocalDate.parse("2024-01-02")
             )
             _ <-
-              createBooking(r.id, "Robert Smith", "team standup", LocalDate.parse("2024-01-03"), LocalDate.parse("2024-01-04"))
+              createBooking(
+                r.id,
+                "Robert Smith",
+                "team standup",
+                LocalDate.parse("2024-01-03"),
+                LocalDate.parse("2024-01-04")
+              )
             typo <- listBookings(BookingFilterQuery.empty.copy(bookerNameSimilar = Some("Katleen")))
             _ = assertEquals(typo.map(_.bookerName), List("Kathleen O'Brien"))
             sub <- listBookings(BookingFilterQuery.empty.copy(bookerNameContains = Some("Robert")))
@@ -189,9 +197,9 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
       appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
-            b <- createBuilding
-            r <- createRoom(b.id, "c", 1)
-            _ <- createBooking(r.id, "ALICE", "x", LocalDate.parse("2024-01-01"), LocalDate.parse("2024-01-02"))
+            b    <- createBuilding
+            r    <- createRoom(b.id, "c", 1)
+            _    <- createBooking(r.id, "ALICE", "x", LocalDate.parse("2024-01-01"), LocalDate.parse("2024-01-02"))
             hits <- listBookings(BookingFilterQuery.empty.copy(bookerNameContains = Some("alice")))
             _ = assertEquals(hits.map(_.bookerName), List("ALICE"))
           } yield ())

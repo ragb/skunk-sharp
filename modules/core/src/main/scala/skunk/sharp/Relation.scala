@@ -101,8 +101,8 @@ trait Relation[Cols <: Tuple] {
    *   2. The column's own `tpe.name` looked up in [[skunk.sharp.pg.PgTypes.extensionByType]] — fires for every column
    *      construction path, including explicit codec passes (`.column("loc", LTree.codec)`).
    *
-   * Derived / subquery / VALUES relations inherit the extensions of whatever they refer to via their `columns` tuple
-   * — no special handling needed. The schema validator reads this and emits
+   * Derived / subquery / VALUES relations inherit the extensions of whatever they refer to via their `columns` tuple —
+   * no special handling needed. The schema validator reads this and emits
    * [[skunk.sharp.validation.Mismatch.ExtensionMissing]] for anything not installed in `pg_extension`.
    */
   def requiredExtensions: Set[String] = {

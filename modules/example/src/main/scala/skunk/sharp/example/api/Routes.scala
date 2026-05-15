@@ -96,7 +96,7 @@ object Routes {
       Endpoints.rooms.create.serverLogic[IO] { case (buildingId, req) =>
         pool.useKleisli(
           (for {
-            _    <- EitherT.fromOptionF(
+            _ <- EitherT.fromOptionF(
               buildings.findById(buildingId),
               notFound(s"Building $buildingId not found")
             )

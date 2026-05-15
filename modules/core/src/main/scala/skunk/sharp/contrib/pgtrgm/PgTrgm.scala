@@ -8,8 +8,8 @@ import skunk.sharp.where.Where
  * matching.
  *
  * Requires `CREATE EXTENSION pg_trgm;` — the validator picks this up if any tag column needs it, but for typical use
- * (function calls + operator extensions on `String`-typed columns), pass `extraExtensions = Set(PgTrgm.RequiredExtension)`
- * to `SchemaValidator.validate`.
+ * (function calls + operator extensions on `String`-typed columns), pass
+ * `extraExtensions = Set(PgTrgm.RequiredExtension)` to `SchemaValidator.validate`.
  */
 trait PgTrgm {
 

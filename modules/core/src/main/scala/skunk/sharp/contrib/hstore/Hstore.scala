@@ -23,7 +23,7 @@ object Hstore {
   val RequiredExtension: String = "hstore"
 
   def apply(entries: Map[String, Option[String]]): Hstore = entries
-  def apply(entries: (String, Option[String])*): Hstore  = entries.toMap
+  def apply(entries: (String, Option[String])*): Hstore   = entries.toMap
 
   val codec: Codec[Hstore] =
     Codec.simple[Hstore](encode, decode(_).map(apply), Type("hstore"))
@@ -31,8 +31,8 @@ object Hstore {
   given PgTypeFor[Hstore] = PgTypeFor.instanceWithExtension(codec, RequiredExtension)
 
   private def encode(h: Hstore): String = {
-    val sb       = new StringBuilder
-    var first    = true
+    val sb    = new StringBuilder
+    var first = true
     h.iterator.foreach { case (k, vOpt) =>
       if (first) first = false else sb ++= ", "
       sb += '"'
@@ -70,8 +70,8 @@ object Hstore {
       if (i >= len || s.charAt(i) != '"') Left(s"hstore: expected '\"' at offset $i")
       else {
         i += 1
-        val buf = new StringBuilder
-        var done = false
+        val buf         = new StringBuilder
+        var done        = false
         var err: String = null
         while (!done && err == null) {
           if (i >= len) err = "hstore: unterminated quoted token"
@@ -100,8 +100,10 @@ object Hstore {
             i += 2
             skipWs()
             // Value is either NULL (case-insensitive, unquoted) or a quoted string.
-            if (i + 3 < len && s.regionMatches(true, i, "NULL", 0, 4) &&
-                (i + 4 == len || !isUnquotedTail(s.charAt(i + 4)))) {
+            if (
+              i + 3 < len && s.regionMatches(true, i, "NULL", 0, 4) &&
+              (i + 4 == len || !isUnquotedTail(s.charAt(i + 4)))
+            ) {
               i += 4
               out.put(k, None)
             } else

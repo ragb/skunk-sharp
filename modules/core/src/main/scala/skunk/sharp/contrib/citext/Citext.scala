@@ -3,9 +3,9 @@ package skunk.sharp.contrib.citext
 import skunk.sharp.contrib.TextTag
 
 /**
- * `citext` — case-insensitive text. Comparison, hashing, `=` / `LIKE` are all case-insensitive at the storage layer,
- * so declaring `email: Citext` (instead of bare `String`) gives Scala-side type safety without any per-call
- * `lower(...)` ceremony.
+ * `citext` — case-insensitive text. Comparison, hashing, `=` / `LIKE` are all case-insensitive at the storage layer, so
+ * declaring `email: Citext` (instead of bare `String`) gives Scala-side type safety without any per-call `lower(...)`
+ * ceremony.
  *
  * Requires `CREATE EXTENSION citext;` — picked up by the schema validator automatically through the `PgTypeFor`
  * registered on the companion.

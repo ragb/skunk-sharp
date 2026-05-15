@@ -23,8 +23,8 @@ case class PatchBuildingRequest(name: Option[String], address: Option[String], l
 
 /**
  * Query-parameter bundle for `GET /api/v1/buildings`. The trio `nearLat` / `nearLon` / `radiusMeters` ties together to
- * form a `WithinMetersOf` filter; the spatial primitive (`ST_DWithin`) wants all three or none. The routing layer
- * emits the filter only when all three are present.
+ * form a `WithinMetersOf` filter; the spatial primitive (`ST_DWithin`) wants all three or none. The routing layer emits
+ * the filter only when all three are present.
  */
 case class BuildingFilterQuery(
   @query nameContains: Option[String],
@@ -104,8 +104,8 @@ case class ApiError(message: String) derives Codec.AsObject, Schema
 // ---------- Cross-resource search ---------------------------------------------------------------
 
 /**
- * Wide-row response for `GET /api/v1/search/rooms` — every room field plus its parent building's id, name, and
- * location so the front end doesn't need a follow-up `GET /buildings/{id}` for each row.
+ * Wide-row response for `GET /api/v1/search/rooms` — every room field plus its parent building's id, name, and location
+ * so the front end doesn't need a follow-up `GET /buildings/{id}` for each row.
  */
 case class RoomWithBuildingResponse(
   id: UUID,
@@ -141,8 +141,8 @@ case class BuildingAvailabilityResponse(
 ) derives Codec.AsObject, Schema
 
 /**
- * Required query bundle for `GET /api/v1/search/availability`. All five fields are required — without dates we have
- * no notion of "free", and without a spatial probe the result is unbounded.
+ * Required query bundle for `GET /api/v1/search/availability`. All five fields are required — without dates we have no
+ * notion of "free", and without a spatial probe the result is unbounded.
  */
 case class AvailabilityQuery(
   @query nearLat: Double,
