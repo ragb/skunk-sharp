@@ -102,14 +102,28 @@
         <h1 id="getting-started" class="title">Getting Started</h1>
         
         <h2 id="installation" class="section"><a class="anchor-link left" href="#installation"><i class="icofont-laika link">&#xef71;</i></a>Installation</h2>
+        <p>skunk-sharp is published to <strong>GitHub Packages</strong>, so add the resolver alongside the
+        dependencies:</p>
         <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// build.sbt
-</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;com.ruiandrebatista&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-core&quot;</span><span> % </span><span class="string-literal">&quot;0.1-280fe16-SNAPSHOT&quot;</span><span>
+</span><span class="identifier">resolvers</span><span> += </span><span class="string-literal">&quot;skunk-sharp @ GitHub Packages&quot;</span><span> </span><span class="identifier">at</span><span>
+  </span><span class="string-literal">&quot;https://maven.pkg.github.com/ragb/skunk-sharp&quot;</span><span>
+
+</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-core&quot;</span><span> % </span><span class="string-literal">&quot;0.1-c88dc93-SNAPSHOT&quot;</span><span>
 
 </span><span class="comment">// Optional modules
-</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;com.ruiandrebatista&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-iron&quot;</span><span>    % </span><span class="string-literal">&quot;0.1-280fe16-SNAPSHOT&quot;</span><span>
-</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;com.ruiandrebatista&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-refined&quot;</span><span> % </span><span class="string-literal">&quot;0.1-280fe16-SNAPSHOT&quot;</span><span>
-</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;com.ruiandrebatista&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-circe&quot;</span><span>   % </span><span class="string-literal">&quot;0.1-280fe16-SNAPSHOT&quot;</span><span>
-</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;com.ruiandrebatista&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-postgis&quot;</span><span> % </span><span class="string-literal">&quot;0.1-280fe16-SNAPSHOT&quot;</span></code></pre>
+</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-iron&quot;</span><span>    % </span><span class="string-literal">&quot;0.1-c88dc93-SNAPSHOT&quot;</span><span>
+</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-refined&quot;</span><span> % </span><span class="string-literal">&quot;0.1-c88dc93-SNAPSHOT&quot;</span><span>
+</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-circe&quot;</span><span>   % </span><span class="string-literal">&quot;0.1-c88dc93-SNAPSHOT&quot;</span><span>
+</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-postgis&quot;</span><span> % </span><span class="string-literal">&quot;0.1-c88dc93-SNAPSHOT&quot;</span></code></pre>
+        <p>GitHub Packages requires authentication <strong>even for public packages</strong>. Add a GitHub
+        <a href="https://github.com/settings/tokens">personal access token</a> with the <code>read:packages</code>
+        scope to your sbt credentials — e.g. in <code>~/.sbt/1.0/github.sbt</code>:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="identifier">credentials</span><span> += </span><span class="type-name">Credentials</span><span>(
+  </span><span class="string-literal">&quot;GitHub Package Registry&quot;</span><span>,
+  </span><span class="string-literal">&quot;maven.pkg.github.com&quot;</span><span>,
+  </span><span class="string-literal">&quot;YOUR_GITHUB_USERNAME&quot;</span><span>,
+  </span><span class="identifier">sys</span><span>.</span><span class="identifier">env</span><span>(</span><span class="string-literal">&quot;GITHUB_TOKEN&quot;</span><span>)
+)</span></code></pre>
         <p>Requires <strong>Scala 3.7+</strong> (uses named tuples, stable since 3.7).</p>
         
         <h2 id="a-complete-example" class="section"><a class="anchor-link left" href="#a-complete-example"><i class="icofont-laika link">&#xef71;</i></a>A complete example</h2>
