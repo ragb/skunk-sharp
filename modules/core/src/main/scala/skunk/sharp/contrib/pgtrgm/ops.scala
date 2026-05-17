@@ -7,8 +7,8 @@ import skunk.sharp.where.Where
 
 /**
  * Trigram operators on `String`-shaped expressions. Method names use plain English (`.similarTrgm`, `.trgmDistance`)
- * instead of Postgres's symbolic operators (`%`, `<->`, …) so they don't fight for namespace with anything else and stay
- * obviously trigram-specific at the call site.
+ * instead of Postgres's symbolic operators (`%`, `<->`, …) so they don't fight for namespace with anything else and
+ * stay obviously trigram-specific at the call site.
  *
  * The `Stripped[T] <:< String` evidence lets the operators apply to any tag whose underlying type is `String`
  * (`Citext`, `Varchar[N]`, `LTree`, …) without ceremony.

@@ -39,7 +39,9 @@ class RoomsFilterEndpointSuite extends ExampleAppFixture {
   )(using SttpBackend[IO, Fs2Streams[IO]]): IO[RoomResponse] =
     createRoomReq((buildingId, CreateRoomRequest(name, capacity, location, amenities))).sendOk
 
-  private def listRooms(buildingId: UUID, q: RoomFilterQuery)(using SttpBackend[IO, Fs2Streams[IO]])
+  private def listRooms(buildingId: UUID, q: RoomFilterQuery)(using
+    SttpBackend[IO, Fs2Streams[IO]]
+  )
     : IO[List[RoomResponse]] = listReq((buildingId, q)).sendOk
 
   test("filter rooms by minCapacity / maxCapacity within a building") {
@@ -85,10 +87,10 @@ class RoomsFilterEndpointSuite extends ExampleAppFixture {
       appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
-            ba <- createBuilding("A")
-            bb <- createBuilding("B")
-            _  <- createRoom(ba.id, "room-in-A", 2)
-            _  <- createRoom(bb.id, "room-in-B", 2)
+            ba  <- createBuilding("A")
+            bb  <- createBuilding("B")
+            _   <- createRoom(ba.id, "room-in-A", 2)
+            _   <- createRoom(bb.id, "room-in-B", 2)
             inA <- listRooms(ba.id, RoomFilterQuery.empty)
             inB <- listRooms(bb.id, RoomFilterQuery.empty)
             _ = assertEquals(inA.map(_.name), List("room-in-A"))
@@ -103,13 +105,13 @@ class RoomsFilterEndpointSuite extends ExampleAppFixture {
       appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
-            b    <- createBuilding()
-            _    <- createRoom(b.id, "dub-1", 4, location = "acme.dublin.floor3.r1")
-            _    <- createRoom(b.id, "dub-2", 4, location = "acme.dublin.floor2.r1")
-            _    <- createRoom(b.id, "cork-1", 4, location = "acme.cork.floor1.r1")
-            dub  <- listRooms(b.id, RoomFilterQuery.empty.copy(locationUnder = Some("acme.dublin")))
+            b   <- createBuilding()
+            _   <- createRoom(b.id, "dub-1", 4, location = "acme.dublin.floor3.r1")
+            _   <- createRoom(b.id, "dub-2", 4, location = "acme.dublin.floor2.r1")
+            _   <- createRoom(b.id, "cork-1", 4, location = "acme.cork.floor1.r1")
+            dub <- listRooms(b.id, RoomFilterQuery.empty.copy(locationUnder = Some("acme.dublin")))
             _ = assertEquals(dub.map(_.name).toSet, Set("dub-1", "dub-2"))
-            f3   <- listRooms(b.id, RoomFilterQuery.empty.copy(locationUnder = Some("acme.dublin.floor3")))
+            f3 <- listRooms(b.id, RoomFilterQuery.empty.copy(locationUnder = Some("acme.dublin.floor3")))
             _ = assertEquals(f3.map(_.name), List("dub-1"))
           } yield ())
       }
@@ -121,10 +123,10 @@ class RoomsFilterEndpointSuite extends ExampleAppFixture {
       appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
-            b <- createBuilding()
-            _ <- createRoom(b.id, "A", 4, amenities = Map("projector" -> "4k", "whiteboard" -> "true"))
-            _ <- createRoom(b.id, "B", 4, amenities = Map("whiteboard" -> "true"))
-            _ <- createRoom(b.id, "C", 4, amenities = Map.empty)
+            b    <- createBuilding()
+            _    <- createRoom(b.id, "A", 4, amenities = Map("projector" -> "4k", "whiteboard" -> "true"))
+            _    <- createRoom(b.id, "B", 4, amenities = Map("whiteboard" -> "true"))
+            _    <- createRoom(b.id, "C", 4, amenities = Map.empty)
             proj <- listRooms(b.id, RoomFilterQuery.empty.copy(hasAmenity = Some("projector")))
             _ = assertEquals(proj.map(_.name), List("A"))
             wb <- listRooms(b.id, RoomFilterQuery.empty.copy(hasAmenity = Some("whiteboard")))

@@ -19,9 +19,9 @@ import java.time.LocalDate
 import java.util.UUID
 
 /**
- * Cross-resource read-side queries: cross-building room search + per-building availability counts. Each method
- * composes a single skunk-sharp query that joins two or three tables, applies spatial / temporal / domain filters,
- * and ships the matching rows back as a stream.
+ * Cross-resource read-side queries: cross-building room search + per-building availability counts. Each method composes
+ * a single skunk-sharp query that joins two or three tables, applies spatial / temporal / domain filters, and ships the
+ * matching rows back as a stream.
  */
 trait SearchRepository {
 
@@ -41,8 +41,8 @@ trait SearchRepository {
   ): Kleisli[Stream[IO, *], Session[IO], SearchRepository.RoomWithBuilding]
 
   /**
-   * Buildings within a radius of `(lat, lon)`, with the count of rooms that are NOT booked during `[from, to)`.
-   * Ordered by free-room count descending — perfect for a "find a meeting room" landing page.
+   * Buildings within a radius of `(lat, lon)`, with the count of rooms that are NOT booked during `[from, to)`. Ordered
+   * by free-room count descending — perfect for a "find a meeting room" landing page.
    */
   def buildingsWithAvailability(
     near: (Double, Double),
@@ -162,19 +162,21 @@ object SearchRepository {
       buildings.leftJoin(rooms)
         .on { j =>
           j.rooms.building_id === j.buildings.id &&
-            Pg.notExists(
-              bookings.select(_ => lit(1)).where(bk =>
-                bk.room_id === j.rooms.id && bk.period.overlaps(period)
-              )
+          Pg.notExists(
+            bookings.select(_ => lit(1)).where(bk =>
+              bk.room_id === j.rooms.id && bk.period.overlaps(period)
             )
+          )
         }
-        .select(j => (
-          j.buildings.id,
-          j.buildings.name,
-          j.buildings.address,
-          j.buildings.geom,
-          Pg.count(j.rooms.id)
-        ))
+        .select(j =>
+          (
+            j.buildings.id,
+            j.buildings.name,
+            j.buildings.address,
+            j.buildings.geom,
+            Pg.count(j.rooms.id)
+          )
+        )
         .where(j => j.buildings.geom.dWithin(probe, radius))
         .groupBy(j => (j.buildings.id, j.buildings.name, j.buildings.address, j.buildings.geom))
         .orderBy(j => (Pg.count(j.rooms.id).desc, j.buildings.name.asc))
@@ -193,4 +195,5 @@ object SearchRepository {
       buildingsWithAvailabilityQ.streamKF[IO]((period, lon, lat, radius), 64)
     }
   }
+
 }

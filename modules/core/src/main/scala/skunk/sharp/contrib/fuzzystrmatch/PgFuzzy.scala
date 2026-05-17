@@ -27,10 +27,10 @@ trait PgFuzzy {
     delCost: TypedExpr[Int, D],
     subCost: TypedExpr[Int, E]
   ): TypedExpr[Int, Where.Concat[A, Where.Concat[B, Where.Concat[C, Where.Concat[D, E]]]]] = {
-    val deTail = TypedExpr.combineSepInl[D, E](delCost.fragment, ", ", subCost.fragment)
-    val cdeTail = TypedExpr.combineSepInl[C, Where.Concat[D, E]](insCost.fragment, ", ", deTail)
+    val deTail   = TypedExpr.combineSepInl[D, E](delCost.fragment, ", ", subCost.fragment)
+    val cdeTail  = TypedExpr.combineSepInl[C, Where.Concat[D, E]](insCost.fragment, ", ", deTail)
     val bcdeTail = TypedExpr.combineSepInl[B, Where.Concat[C, Where.Concat[D, E]]](b.fragment, ", ", cdeTail)
-    val inner = TypedExpr
+    val inner    = TypedExpr
       .combineSepInl[A, Where.Concat[B, Where.Concat[C, Where.Concat[D, E]]]](a.fragment, ", ", bcdeTail)
     val frag = TypedExpr.wrap("levenshtein(", inner, ")")
     TypedExpr[Int, Where.Concat[A, Where.Concat[B, Where.Concat[C, Where.Concat[D, E]]]]](frag, skunk.codec.all.int4)

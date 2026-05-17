@@ -53,6 +53,14 @@ pull_request_rules:
       add:
       - iron
       remove: []
+- name: Label postgis PRs
+  conditions:
+  - files~=^modules/postgis/
+  actions:
+    label:
+      add:
+      - postgis
+      remove: []
 - name: Label refined PRs
   conditions:
   - files~=^modules/refined/

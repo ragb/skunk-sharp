@@ -19,7 +19,8 @@ class SearchEndpointSuite extends ExampleAppFixture {
   private val createRoomReq     = interpreter.toRequestThrowDecodeFailures(Endpoints.rooms.create, Some(baseUri))
   private val createBookingReq  = interpreter.toRequestThrowDecodeFailures(Endpoints.bookings.create, Some(baseUri))
   private val searchRoomsReq    = interpreter.toRequestThrowDecodeFailures(Endpoints.search.rooms, Some(baseUri))
-  private val availabilityReq   =
+
+  private val availabilityReq =
     interpreter.toRequestThrowDecodeFailures(Endpoints.search.availability, Some(baseUri))
 
   private val DublinCentre = LatLon(53.3498, -6.2603)
@@ -37,7 +38,9 @@ class SearchEndpointSuite extends ExampleAppFixture {
   )(using SttpBackend[IO, Fs2Streams[IO]]): IO[RoomResponse] =
     createRoomReq((buildingId, CreateRoomRequest(name, capacity, location, amenities))).sendOk
 
-  private def createBooking(roomId: UUID, from: LocalDate, to: LocalDate)(using SttpBackend[IO, Fs2Streams[IO]])
+  private def createBooking(roomId: UUID, from: LocalDate, to: LocalDate)(using
+    SttpBackend[IO, Fs2Streams[IO]]
+  )
     : IO[BookingResponse] =
     createBookingReq(CreateBookingRequest(roomId, "booker", "title", from, to)).sendOk
 
@@ -53,7 +56,7 @@ class SearchEndpointSuite extends ExampleAppFixture {
             _    <- createRoom(dub.id, "DubRoom1", 4)
             _    <- createRoom(dub.id, "DubRoom2", 8)
             _    <- createRoom(cork.id, "CorkRoom1", 6)
-            rs <- searchRoomsReq(RoomSearchQuery(
+            rs   <- searchRoomsReq(RoomSearchQuery(
               nearLat = DublinCentre.lat,
               nearLon = DublinCentre.lon,
               radiusMeters = 0.05, // ~5 km in degrees at this latitude
@@ -78,9 +81,16 @@ class SearchEndpointSuite extends ExampleAppFixture {
         truncateAll(containers) *>
           (for {
             dub <- createBuilding("Dublin HQ", DublinCentre)
-            _   <- createRoom(dub.id, "ProjF3", 4, location = "acme.dublin.floor3.r1", amenities = Map("projector" -> "4k"))
-            _   <- createRoom(dub.id, "NoProjF3", 4, location = "acme.dublin.floor3.r2", amenities = Map())
-            _   <- createRoom(dub.id, "ProjF2", 4, location = "acme.dublin.floor2.r1", amenities = Map("projector" -> "1080p"))
+            _   <-
+              createRoom(dub.id, "ProjF3", 4, location = "acme.dublin.floor3.r1", amenities = Map("projector" -> "4k"))
+            _ <- createRoom(dub.id, "NoProjF3", 4, location = "acme.dublin.floor3.r2", amenities = Map())
+            _ <- createRoom(
+              dub.id,
+              "ProjF2",
+              4,
+              location = "acme.dublin.floor2.r1",
+              amenities = Map("projector" -> "1080p")
+            )
             // Combined filter: has a projector AND on floor 3.
             rs <- searchRoomsReq(RoomSearchQuery(
               nearLat = DublinCentre.lat,
@@ -109,7 +119,7 @@ class SearchEndpointSuite extends ExampleAppFixture {
             r1  <- createRoom(dub.id, "Free", 4)
             r2  <- createRoom(dub.id, "Booked", 4)
             _   <- createBooking(r2.id, LocalDate.parse("2024-06-01"), LocalDate.parse("2024-06-30"))
-            rs <- searchRoomsReq(RoomSearchQuery(
+            rs  <- searchRoomsReq(RoomSearchQuery(
               nearLat = DublinCentre.lat,
               nearLon = DublinCentre.lon,
               radiusMeters = 0.05,
@@ -146,8 +156,8 @@ class SearchEndpointSuite extends ExampleAppFixture {
             _   <- createRoom(tri.id, "T1", 2)
             // Cork building: 5 rooms — outside radius, must not appear.
             cork <- createBuilding("Cork Office", CorkCity)
-            _ <- (1 to 5).toList.traverse(i => createRoom(cork.id, s"C$i", 2))
-            res <- availabilityReq(AvailabilityQuery(
+            _    <- (1 to 5).toList.traverse(i => createRoom(cork.id, s"C$i", 2))
+            res  <- availabilityReq(AvailabilityQuery(
               nearLat = DublinCentre.lat,
               nearLon = DublinCentre.lon,
               radiusMeters = 0.05,
@@ -186,11 +196,11 @@ class SearchEndpointSuite extends ExampleAppFixture {
       appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
-            b  <- createBuilding("Fully Booked", DublinCentre)
-            r1 <- createRoom(b.id, "R1", 2)
-            r2 <- createRoom(b.id, "R2", 2)
-            _ <- createBooking(r1.id, LocalDate.parse("2024-06-01"), LocalDate.parse("2024-06-30"))
-            _ <- createBooking(r2.id, LocalDate.parse("2024-06-01"), LocalDate.parse("2024-06-30"))
+            b   <- createBuilding("Fully Booked", DublinCentre)
+            r1  <- createRoom(b.id, "R1", 2)
+            r2  <- createRoom(b.id, "R2", 2)
+            _   <- createBooking(r1.id, LocalDate.parse("2024-06-01"), LocalDate.parse("2024-06-30"))
+            _   <- createBooking(r2.id, LocalDate.parse("2024-06-01"), LocalDate.parse("2024-06-30"))
             res <- availabilityReq(AvailabilityQuery(
               nearLat = DublinCentre.lat,
               nearLon = DublinCentre.lon,

@@ -110,9 +110,9 @@ object SchemaValidator {
           ValidationReport(missing.map(Mismatch.ExtensionMissing(_)))
         }
     for {
-      ext     <- extensionsCheck
-      perRel  <- relations.toList.traverse(validateOne(session, _))
-      relRep  = ValidationReport(perRel.flatMap(_.mismatches))
+      ext    <- extensionsCheck
+      perRel <- relations.toList.traverse(validateOne(session, _))
+      relRep = ValidationReport(perRel.flatMap(_.mismatches))
     } yield ext ++ relRep
   }
 

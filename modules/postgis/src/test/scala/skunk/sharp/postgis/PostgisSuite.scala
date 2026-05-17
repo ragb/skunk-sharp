@@ -35,8 +35,8 @@ class PostgisSuite extends munit.FunSuite {
   }
 
   test("ST_DWithin renders correct SQL") {
-    val t    = Table.of[Site]("sites")
-    val cols = ColumnsView(t.columns)
+    val t     = Table.of[Site]("sites")
+    val cols  = ColumnsView(t.columns)
     val probe = PgPostgis.setSRID(
       PgPostgis.makePoint(Param.bind(-6.26), Param.bind(53.34)),
       Param.bind(4326)

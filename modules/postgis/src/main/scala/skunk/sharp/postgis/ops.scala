@@ -6,8 +6,8 @@ import skunk.sharp.where.Where
 
 /**
  * Operator surface on `TypedExpr[T <: Geometry, A]`. Method names spell out the operator (`.bboxOverlaps`,
- * `.bboxContains`) instead of taking the symbolic forms (`&&`, `~`, `@`); same convention as the other contribs.
- * `ST_*` predicates also have method aliases (`.distance`, `.contains`, …) for shorter call sites.
+ * `.bboxContains`) instead of taking the symbolic forms (`&&`, `~`, `@`); same convention as the other contribs. `ST_*`
+ * predicates also have method aliases (`.distance`, `.contains`, …) for shorter call sites.
  */
 extension [T <: Geometry, A](lhs: TypedExpr[T, A]) {
 

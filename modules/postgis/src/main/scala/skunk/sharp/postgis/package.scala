@@ -3,8 +3,8 @@ package skunk.sharp
 /**
  * `skunk-sharp-postgis` — PostGIS support layered on top of [[skunk.postgis]].
  *
- * skunk-postgis owns the value types (`Geometry`, `Point`, `LineString`, `Polygon`, …) and the EWKB codecs; this
- * module adds the bits skunk-sharp users need:
+ * skunk-postgis owns the value types (`Geometry`, `Point`, `LineString`, `Polygon`, …) and the EWKB codecs; this module
+ * adds the bits skunk-sharp users need:
  *
  *   - `PgTypeFor[Geometry]` and per-shape `PgTypeFor`s, each tagged with `requiredExtension = Some("postgis")` so the
  *     schema validator surfaces a missing extension as a [[skunk.sharp.validation.Mismatch.ExtensionMissing]].

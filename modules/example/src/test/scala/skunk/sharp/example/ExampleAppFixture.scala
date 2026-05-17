@@ -59,8 +59,8 @@ trait ExampleAppFixture extends CatsEffectSuite with TestContainerForAll {
   }
 
   /**
-   * A skunk session pool resource against the running container. `TypingStrategy.SearchPath` is required because the
-   * V2 migration introduces user-defined types (citext, ltree, hstore) that aren't in skunk's built-in oid table.
+   * A skunk session pool resource against the running container. `TypingStrategy.SearchPath` is required because the V2
+   * migration introduces user-defined types (citext, ltree, hstore) that aren't in skunk's built-in oid table.
    */
   protected def sessionPool(c: containerDef.Container): Resource[IO, Resource[IO, Session[IO]]] =
     Session
@@ -101,7 +101,7 @@ trait ExampleAppFixture extends CatsEffectSuite with TestContainerForAll {
     sessionPool(c).map { pool =>
       val routes: HttpRoutes[IO] =
         Routes(pool, BuildingRepository.live, RoomRepository.live, BookingRepository.live, SearchRepository.live)
-      val client: Client[IO]     = Client.fromHttpApp(routes.orNotFound)
+      val client: Client[IO] = Client.fromHttpApp(routes.orNotFound)
       Http4sBackend.usingClient(client)
     }
 

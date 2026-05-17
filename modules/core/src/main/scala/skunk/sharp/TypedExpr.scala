@@ -79,20 +79,21 @@ object TypedExpr {
   /**
    * Runtime counterpart of the [[lit]] macro — build a `TypedExpr[T, Void]` whose fragment carries `sqlText` inline in
    * its `parts` (no `$N` placeholders, no encoder side effects). Used by the singleton-typed `given Conversion`s in
-   * [[skunk.sharp.syntax.literal]] so that `col === 42` (and the like) produce the same SQL form as
-   * `col === 42`. Callers are responsible for the SQL spelling: pre-format primitives with [[renderInt]],
-   * [[renderString]], etc.
+   * [[skunk.sharp.syntax.literal]] so that `col === 42` (and the like) produce the same SQL form as `col === 42`.
+   * Callers are responsible for the SQL spelling: pre-format primitives with [[renderInt]], [[renderString]], etc.
    */
   def litRendered[T](sqlText: String)(using pf: PgTypeFor[T]): TypedExpr[T, Void] =
     apply[T, Void](voidFragment(sqlText), pf.codec)
 
-  /** SQL rendering for primitive literals — mirrors the cases handled by `litMacro` so the runtime conversions stay
-   *  byte-identical to the macro-produced output. */
-  def renderInt(v: Int): String       = v.toString
-  def renderLong(v: Long): String     = v.toString
-  def renderShort(v: Short): String   = v.toString
-  def renderByte(v: Byte): String     = v.toString
-  def renderBool(v: Boolean): String  = if v then "TRUE" else "FALSE"
+  /**
+   * SQL rendering for primitive literals — mirrors the cases handled by `litMacro` so the runtime conversions stay
+   * byte-identical to the macro-produced output.
+   */
+  def renderInt(v: Int): String      = v.toString
+  def renderLong(v: Long): String    = v.toString
+  def renderShort(v: Short): String  = v.toString
+  def renderByte(v: Byte): String    = v.toString
+  def renderBool(v: Boolean): String = if v then "TRUE" else "FALSE"
 
   /** SQL-string literal with single quotes, doubling internal single quotes per the Postgres escape rule. */
   def renderString(v: String): String = s"'${v.replace("'", "''")}'"

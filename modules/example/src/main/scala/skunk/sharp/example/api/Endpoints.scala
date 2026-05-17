@@ -128,9 +128,9 @@ object Endpoints {
   object search {
 
     /**
-     * GET /api/v1/search/rooms — rooms within a radius of `(nearLat, nearLon)` matching the supplied room criteria
-     * and, if a date range is given, free during it. Backed by an `INNER JOIN rooms × buildings` with `ST_DWithin`
-     * on the building's geometry; results carry the parent building's id / name / location inline.
+     * GET /api/v1/search/rooms — rooms within a radius of `(nearLat, nearLon)` matching the supplied room criteria and,
+     * if a date range is given, free during it. Backed by an `INNER JOIN rooms × buildings` with `ST_DWithin` on the
+     * building's geometry; results carry the parent building's id / name / location inline.
      */
     val rooms =
       base.get
@@ -153,4 +153,5 @@ object Endpoints {
 
   lazy val all: List[sttp.tapir.AnyEndpoint] =
     buildings.all ++ rooms.all ++ bookings.all ++ search.all
+
 }

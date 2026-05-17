@@ -51,8 +51,8 @@ object BuildingRepository {
      * uniformly with the other filter cases.
      */
     private def toWhere(f: BuildingFilter): Where[skunk.Void] = f match {
-      case BuildingFilter.NameContains(s) => cv.name.ilike(Param.bind(s"%$s%"))
-      case BuildingFilter.IdsIn(ids)      => cv.id.in(ids.map(Param.bind(_)))
+      case BuildingFilter.NameContains(s)                  => cv.name.ilike(Param.bind(s"%$s%"))
+      case BuildingFilter.IdsIn(ids)                       => cv.id.in(ids.map(Param.bind(_)))
       case BuildingFilter.WithinMetersOf(lat, lon, meters) =>
         val probe = PgPostgis.setSRID(
           PgPostgis.makePoint(Param.bind(lon), Param.bind(lat)),

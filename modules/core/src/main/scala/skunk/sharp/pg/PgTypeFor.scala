@@ -41,7 +41,7 @@ object PgTypeFor {
   def instanceWithExtension[T](c: Codec[T], extension: String): PgTypeFor[T] = {
     val ext = extension
     new PgTypeFor[T] {
-      val codec                                  = c
+      val codec                                      = c
       override val requiredExtension: Option[String] = Some(ext)
     }
   }
@@ -69,4 +69,5 @@ object PgTypeFor {
       override val requiredExtension: Option[String] = inner.requiredExtension
     }
   }
+
 }

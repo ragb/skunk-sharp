@@ -95,7 +95,7 @@ class ContribSuite extends munit.FunSuite {
   }
 
   test("trigram operators render correct SQL") {
-    val t    = Table.of[(Int, String)]("dummy")
+    val t = Table.of[(Int, String)]("dummy")
     // Bypass Table.of[Tuple]; use builder explicitly for a string col
     val users = Table.builder("docs").column[String]("body").build
     val cols  = ColumnsView(users.columns)

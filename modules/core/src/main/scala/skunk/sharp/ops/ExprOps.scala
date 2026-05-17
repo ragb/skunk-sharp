@@ -57,10 +57,10 @@ private inline def opCombine[T, U, A, B](
 extension [T, A](lhs: TypedExpr[T, A]) {
 
   /**
-   * `lhs = rhs` — RHS is a `TypedExpr` (`Param[T]`, `lit(v)`, another column). Primitive literals (and
-   * singleton-typed values) of `T` also work directly — the singleton-typed `Conversion` instances in
-   * [[skunk.sharp.TypedExpr]]'s companion fire automatically because `TypedExpr` is declared `into trait`. No
-   * import or `language.implicitConversions` needed.
+   * `lhs = rhs` — RHS is a `TypedExpr` (`Param[T]`, `lit(v)`, another column). Primitive literals (and singleton-typed
+   * values) of `T` also work directly — the singleton-typed `Conversion` instances in [[skunk.sharp.TypedExpr]]'s
+   * companion fire automatically because `TypedExpr` is declared `into trait`. No import or
+   * `language.implicitConversions` needed.
    */
   inline def ===[B](rhs: TypedExpr[T, B]): Where[Where.Concat[A, B]] = opCombine(lhs, " = ", rhs)
 
