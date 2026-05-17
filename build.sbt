@@ -1,6 +1,6 @@
 import org.typelevel.scalacoptions.{ScalaVersion, ScalacOptions}
 
-ThisBuild / tlBaseVersion    := "0.1"
+ThisBuild / tlBaseVersion    := "0.0"
 ThisBuild / organization     := "io.github.ragb"
 ThisBuild / organizationName := "Rui Batista"
 ThisBuild / tlGitHubRepo     := Some("skunk-sharp")
