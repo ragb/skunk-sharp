@@ -36,6 +36,10 @@ ThisBuild / githubWorkflowPublish := Seq(
 )
 // GitHub Packages doesn't take signed artifacts — drop the PGP "import signing key" preamble.
 ThisBuild / githubWorkflowPublishPreamble := Seq.empty
+// sbt-typelevel still wires GPG signing into the `publish` task, but CI has no signing key (and
+// GitHub Packages neither needs nor wants signatures). Make a missing key a warning instead of a
+// fatal error so `publish` uploads unsigned jars rather than failing on `gpg: No secret key`.
+ThisBuild / gpgWarnOnFailure := true
 // This repo has GitHub's Dependency Graph feature disabled, so the submission job 404s. Drop it.
 ThisBuild / tlCiDependencyGraphJob := false
 
