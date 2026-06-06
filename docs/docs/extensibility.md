@@ -97,7 +97,8 @@ val q = users.select(u => lower(u.email))
 
 ## Writing a companion module
 
-The pattern for a hypothetical `skunk-sharp-jsonb` module:
+The pattern, illustrated with a jsonb module (the shipped `skunk-sharp-circe` module
+is built exactly like this):
 
 ```scala
 // 1. Opaque type + codec + PgTypeFor (with extension hint if needed)
@@ -140,4 +141,5 @@ Set(...)` for `SchemaValidator.validate`.
 | `skunk-sharp-iron` | [Iron](https://iltotore.github.io/iron/) refinement bridges |
 | `skunk-sharp-refined` | [Refined](https://github.com/fthomas/refined) refinement bridges |
 | `skunk-sharp-circe` | `json` / `jsonb` codecs via skunk-circe |
+| `skunk-sharp-postgis` | PostGIS spatial types and `ST_*` operators — see [PostGIS](postgis.md) |
 | `skunk.sharp.contrib.*` | In-core contribs: citext, ltree, hstore, pg_trgm, pgcrypto, fuzzystrmatch — see [Contrib modules](contrib.md) |
