@@ -45,11 +45,11 @@ ThisBuild / tlCiDependencyGraphJob := false
 lazy val githubPackagesPublish = Seq(
   publishTo         := Some("GitHub Packages" at "https://maven.pkg.github.com/ragb/skunk-sharp"),
   publishMavenStyle := true,
-  // sbt-typelevel wires GPG signing into `publish` (it reads `publish / gpgWarnOnFailure`, whose
-  // project-scope default is false), but CI has no signing key and GitHub Packages neither needs
-  // nor wants signatures. Set it true at project scope — applied after the plugin's settings, so
-  // it wins delegation — to make a missing key a warning and upload unsigned jars.
-  gpgWarnOnFailure := true,
+  // sbt-typelevel's signing plugin (io.crashbox.gpg.SbtGpg) overrides `publish / packagedArtifacts`
+  // to GPG-sign every artifact. CI has no signing key and GitHub Packages neither needs nor wants
+  // signatures, so shadow that override with the plain (unsigned) artifacts — applied after the
+  // plugin's settings, so it wins. This skips gpg entirely (no signing attempt, no warning).
+  publish / packagedArtifacts := packagedArtifacts.value,
   credentials += Credentials(
     "GitHub Package Registry",
     "maven.pkg.github.com",
