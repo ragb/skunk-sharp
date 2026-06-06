@@ -36,10 +36,6 @@ ThisBuild / githubWorkflowPublish := Seq(
 )
 // GitHub Packages doesn't take signed artifacts — drop the PGP "import signing key" preamble.
 ThisBuild / githubWorkflowPublishPreamble := Seq.empty
-// sbt-typelevel still wires GPG signing into the `publish` task, but CI has no signing key (and
-// GitHub Packages neither needs nor wants signatures). Make a missing key a warning instead of a
-// fatal error so `publish` uploads unsigned jars rather than failing on `gpg: No secret key`.
-ThisBuild / gpgWarnOnFailure := true
 // This repo has GitHub's Dependency Graph feature disabled, so the submission job 404s. Drop it.
 ThisBuild / tlCiDependencyGraphJob := false
 
@@ -49,6 +45,11 @@ ThisBuild / tlCiDependencyGraphJob := false
 lazy val githubPackagesPublish = Seq(
   publishTo         := Some("GitHub Packages" at "https://maven.pkg.github.com/ragb/skunk-sharp"),
   publishMavenStyle := true,
+  // sbt-typelevel wires GPG signing into `publish` (it reads `publish / gpgWarnOnFailure`, whose
+  // project-scope default is false), but CI has no signing key and GitHub Packages neither needs
+  // nor wants signatures. Set it true at project scope — applied after the plugin's settings, so
+  // it wins delegation — to make a missing key a warning and upload unsigned jars.
+  gpgWarnOnFailure  := true,
   credentials += Credentials(
     "GitHub Package Registry",
     "maven.pkg.github.com",
