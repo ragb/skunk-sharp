@@ -177,7 +177,8 @@
              .</span><span class="identifier">compile</span></code></pre>
         
         <h2 id="writing-a-companion-module" class="section"><a class="anchor-link left" href="#writing-a-companion-module"><i class="icofont-laika link">&#xef71;</i></a>Writing a companion module</h2>
-        <p>The pattern for a hypothetical <code>skunk-sharp-jsonb</code> module:</p>
+        <p>The pattern, illustrated with a jsonb module (the shipped <code>skunk-sharp-circe</code> module
+        is built exactly like this):</p>
         <pre><code class="nohighlight"><span class="comment">// 1. Opaque type + codec + PgTypeFor (with extension hint if needed)
 </span><span class="keyword">opaque</span><span> </span><span class="keyword">type</span><span> </span><span class="type-name">Jsonb</span><span> &lt;: </span><span class="identifier">io</span><span>.</span><span class="identifier">circe</span><span>.</span><span class="type-name">Json</span><span> = </span><span class="identifier">io</span><span>.</span><span class="identifier">circe</span><span>.</span><span class="type-name">Json</span><span>
 </span><span class="keyword">object</span><span> </span><span class="type-name">Jsonb</span><span>:
@@ -225,6 +226,10 @@ Set(...)</code> for <code>SchemaValidator.validate</code>.</p>
             <tr>
               <td><code>skunk-sharp-circe</code></td>
               <td><code>json</code> / <code>jsonb</code> codecs via skunk-circe</td>
+            </tr>
+            <tr>
+              <td><code>skunk-sharp-postgis</code></td>
+              <td>PostGIS spatial types and <code>ST_*</code> operators — see <a href="postgis.html">PostGIS</a></td>
             </tr>
             <tr>
               <td><code>skunk.sharp.contrib.*</code></td>
