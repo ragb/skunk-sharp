@@ -49,7 +49,7 @@ lazy val githubPackagesPublish = Seq(
   // project-scope default is false), but CI has no signing key and GitHub Packages neither needs
   // nor wants signatures. Set it true at project scope — applied after the plugin's settings, so
   // it wins delegation — to make a missing key a warning and upload unsigned jars.
-  gpgWarnOnFailure  := true,
+  gpgWarnOnFailure := true,
   credentials += Credentials(
     "GitHub Package Registry",
     "maven.pkg.github.com",
