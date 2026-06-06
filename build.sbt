@@ -36,6 +36,16 @@ ThisBuild / githubWorkflowPublish := Seq(
 )
 // GitHub Packages doesn't take signed artifacts — drop the PGP "import signing key" preamble.
 ThisBuild / githubWorkflowPublishPreamble := Seq.empty
+// After publishing on a tag, cut a GitHub Release with auto-generated notes so each version shows
+// up on the Releases page rather than as a bare tag. Guarded to tags (the publish job also runs on
+// main pushes); `gh` authenticates via the GITHUB_TOKEN already in the workflow env.
+ThisBuild / githubWorkflowPublishPostamble := Seq(
+  WorkflowStep.Run(
+    commands = List("gh release create ${{ github.ref_name }} --generate-notes --verify-tag"),
+    name = Some("Create GitHub release"),
+    cond = Some("startsWith(github.ref, 'refs/tags/v')")
+  )
+)
 // This repo has GitHub's Dependency Graph feature disabled, so the submission job 404s. Drop it.
 ThisBuild / tlCiDependencyGraphJob := false
 
