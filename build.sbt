@@ -14,7 +14,7 @@ ThisBuild / developers          := List(
   tlGitHubDev("ragb", "Rui Batista")
 )
 
-ThisBuild / scalaVersion := "3.8.3"
+ThisBuild / scalaVersion := "3.8.4"
 
 ThisBuild / tlJdkRelease    := Some(17)
 ThisBuild / tlFatalWarnings := true
@@ -72,17 +72,16 @@ val skunkV           = "1.0.0"
 val skunkCirceV      = "1.0.0"
 val circeV           = "0.14.15"
 val catsEffectV      = "3.7.0"
-val munitV           = "1.2.4"
-val munitCatsEffectV = "2.1.0"
-val ironV            = "3.0.2"
+val munitV           = "1.3.2"
+val munitCatsEffectV = "2.2.0"
+val ironV            = "3.3.1"
 val refinedV         = "0.11.3"
 val testcontainersV  = "0.44.1"
-val dumboV           = "0.9.0"
-val otel4sV          = "0.16.0"
-val tapirV           = "1.11.9"
-val http4sV          = "0.23.30"
-val cirisV           = "3.6.0"
-val ducktapeV        = "0.2.12"
+val dumboV           = "0.10.1"
+val tapirV           = "1.13.19"
+val http4sV          = "0.23.34"
+val cirisV           = "3.15.0"
+val ducktapeV        = "0.2.13"
 
 lazy val root = tlCrossRootProject.aggregate(core, iron, refined, circe, postgis, tests, example, docs)
 
@@ -166,13 +165,12 @@ lazy val example = project
       "is.cir"                        %% "ciris"                           % cirisV,
       "io.github.arainko"             %% "ducktape"                        % ducktapeV,
       "dev.rolang"                    %% "dumbo"                           % dumboV,
-      "org.typelevel"                 %% "otel4s-core"                     % otel4sV,
       "org.scalameta"                 %% "munit"                           % munitV           % Test,
       "org.typelevel"                 %% "munit-cats-effect"               % munitCatsEffectV % Test,
       "com.dimafeng"                  %% "testcontainers-scala-munit"      % testcontainersV  % Test,
       "com.dimafeng"                  %% "testcontainers-scala-postgresql" % testcontainersV  % Test,
       "com.softwaremill.sttp.tapir"   %% "tapir-sttp-client"               % tapirV           % Test,
-      "com.softwaremill.sttp.client3" %% "http4s-backend"                  % "3.9.8"          % Test,
+      "com.softwaremill.sttp.client3" %% "http4s-backend"                  % "3.11.0"         % Test,
       "io.circe"                      %% "circe-parser"                    % circeV           % Test
     )
   )
@@ -199,7 +197,6 @@ lazy val tests = project
       "org.typelevel" %% "munit-cats-effect"               % munitCatsEffectV % Test,
       "com.dimafeng"  %% "testcontainers-scala-munit"      % testcontainersV  % Test,
       "com.dimafeng"  %% "testcontainers-scala-postgresql" % testcontainersV  % Test,
-      "dev.rolang"    %% "dumbo"                           % dumboV           % Test,
-      "org.typelevel" %% "otel4s-core"                     % otel4sV          % Test
+      "dev.rolang"    %% "dumbo"                           % dumboV           % Test
     )
   )
