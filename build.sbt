@@ -78,7 +78,6 @@ val ironV            = "3.3.1"
 val refinedV         = "0.11.3"
 val testcontainersV  = "0.44.1"
 val dumboV           = "0.10.1"
-val otel4sV          = "0.16.0" // pinned: skunk 1.0.0 depends on otel4s 0.16.x; 1.0.0 splits the modules (binary-incompatible)
 val tapirV           = "1.13.19"
 val http4sV          = "0.23.34"
 val cirisV           = "3.15.0"
@@ -166,7 +165,6 @@ lazy val example = project
       "is.cir"                        %% "ciris"                           % cirisV,
       "io.github.arainko"             %% "ducktape"                        % ducktapeV,
       "dev.rolang"                    %% "dumbo"                           % dumboV,
-      "org.typelevel"                 %% "otel4s-core"                     % otel4sV,
       "org.scalameta"                 %% "munit"                           % munitV           % Test,
       "org.typelevel"                 %% "munit-cats-effect"               % munitCatsEffectV % Test,
       "com.dimafeng"                  %% "testcontainers-scala-munit"      % testcontainersV  % Test,
@@ -199,7 +197,6 @@ lazy val tests = project
       "org.typelevel" %% "munit-cats-effect"               % munitCatsEffectV % Test,
       "com.dimafeng"  %% "testcontainers-scala-munit"      % testcontainersV  % Test,
       "com.dimafeng"  %% "testcontainers-scala-postgresql" % testcontainersV  % Test,
-      "dev.rolang"    %% "dumbo"                           % dumboV           % Test,
-      "org.typelevel" %% "otel4s-core"                     % otel4sV          % Test
+      "dev.rolang"    %% "dumbo"                           % dumboV           % Test
     )
   )
