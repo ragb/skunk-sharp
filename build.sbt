@@ -14,9 +14,7 @@ ThisBuild / developers          := List(
   tlGitHubDev("ragb", "Rui Batista")
 )
 
-// Pinned to 3.8.3: 3.8.4 emits [E184] "match type reduction failed" warnings for the DSL's
-// single-TypedExpr projection machinery (ExprOutputs), which -Werror turns fatal. Revisit on 3.9.
-ThisBuild / scalaVersion := "3.8.3"
+ThisBuild / scalaVersion := "3.8.4"
 
 ThisBuild / tlJdkRelease    := Some(17)
 ThisBuild / tlFatalWarnings := true
