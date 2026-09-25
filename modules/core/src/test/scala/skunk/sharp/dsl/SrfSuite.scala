@@ -7,6 +7,7 @@ import java.util.UUID
 
 object SrfSuite {
   case class User(id: UUID, email: String, tags: Arr[String])
+  case class Item(name: String, qty: Int)
 }
 
 class SrfSuite extends munit.FunSuite {
@@ -115,5 +116,32 @@ class SrfSuite extends munit.FunSuite {
     val before = counter.get
     (1 to 50).foreach(_ => build())
     assertEquals(counter.get - before, 0L)
+  }
+
+  // ---- unnestRows: the batch as one List[Row] parameter ----
+
+  test("unnestRows[CaseClass] takes the whole batch as one List parameter, split into per-field arrays") {
+    val q: QueryTemplate[List[Item], (String, Int)] =
+      Pg.unnestRows[Item].alias("i").select(r => (r.name, r.qty)).compile
+    assertEquals(q.fragment.sql, """SELECT "i"."name", "i"."qty" FROM unnest($1, $2) AS "i"("name", "qty")""")
+    assertEquals(
+      q.fragment.encoder.encode(List(Item("a", 1), Item("b", 2))).flatten.map(_.value),
+      List("{\"a\",\"b\"}", "{\"1\",\"2\"}")
+    )
+  }
+
+  test("unnestRows accepts a named-tuple row type too") {
+    val q = Pg.unnestRows[(name: String, qty: Int)].alias("i").select(r => r.qty).compile
+    val _: QueryTemplate[List[(name: String, qty: Int)], Int] = q
+    assertEquals(
+      q.fragment.encoder.encode(List((name = "a", qty = 7))).flatten.map(_.value),
+      List("{\"a\"}", "{\"7\"}")
+    )
+  }
+
+  test("multi-array unnest rejects arrays of different lengths when encoding") {
+    val q = Pg.unnestAsRelation((name = Param[List[String]], qty = Param[List[Int]])).alias("i").select.compile
+    val e = intercept[IllegalArgumentException](q.fragment.encoder.encode((List("a", "b"), List(1))))
+    assert(e.getMessage.contains("same length (got 2, 1)"), e.getMessage)
   }
 }

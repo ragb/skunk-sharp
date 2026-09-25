@@ -3,7 +3,6 @@ package skunk.sharp.dsl
 import skunk.{Codec, Fragment, Void}
 import skunk.sharp.*
 import skunk.sharp.internal.{CompileChecks, RawConstants, RowCodecs}, RowCodecs.tupleCodec
-import skunk.sharp.ops.Stripped
 import skunk.sharp.where.Where
 
 import scala.NamedTuple
@@ -35,8 +34,8 @@ final class MergeBuilder[Cols <: Tuple, Name <: String & Singleton, CR <: Tuple,
 ) {
 
   /** `ON <cond>` — the join between target and source. Required before any `WHEN` branch. */
-  inline def on[A](f: JoinedView[Ss] => Where[A]): MergeCommand[Cols, Name, CR, Ss, A, Void, false] =
-    new MergeCommand[Cols, Name, CR, Ss, A, Void, false](
+  inline def on[A](f: JoinedView[Ss] => Where[A]): MergeCommand[Cols, Name, CR, Ss, A, Void, false, EmptyTuple] =
+    new MergeCommand[Cols, Name, CR, Ss, A, Void, false, EmptyTuple](
       table,
       sources,
       f(buildJoinedView(sources)).fragment,
@@ -56,7 +55,8 @@ final class MergeCommand[
   Ss <: Tuple,
   OnArgs,
   CArgs,
-  Ready <: Boolean
+  Ready <: Boolean,
+  Closed <: Tuple
 ] @scala.annotation.publicInBinary private[sharp] (
   private[sharp] val table: Table[Cols, Name],
   private[sharp] val sources: Ss,
@@ -64,39 +64,56 @@ final class MergeCommand[
   private[sharp] val clauses: Fragment[CArgs]
 ) {
 
-  /** `WHEN MATCHED THEN …` — unconditional. */
-  def whenMatched: MergeMatched[Cols, Name, CR, Ss, OnArgs, CArgs, Void] =
+  // Branches of one kind after an unconditional branch of that kind can never fire — Postgres rejects them
+  // ("unreachable WHEN clause"). `Closed` lists the kinds already closed that way; each entry point checks it.
+
+  /** `WHEN MATCHED THEN …` — unconditional; no further `whenMatched` branch may follow. */
+  inline def whenMatched: MergeMatched[Cols, Name, CR, Ss, OnArgs, CArgs, Void, Closed, true] = {
+    Merge.requireOpen[Closed, Merge.Matched]
     new MergeMatched(this, TypedExpr.voidFragment("WHEN MATCHED"))
+  }
 
   /** `WHEN MATCHED AND <cond> THEN …` — `cond` sees both target and source. */
-  inline def whenMatched[A](f: JoinedView[Ss] => Where[A]): MergeMatched[Cols, Name, CR, Ss, OnArgs, CArgs, A] =
+  inline def whenMatched[A](f: JoinedView[Ss] => Where[A])
+    : MergeMatched[Cols, Name, CR, Ss, OnArgs, CArgs, A, Closed, false] = {
+    Merge.requireOpen[Closed, Merge.Matched]
     new MergeMatched(this, TypedExpr.wrap("WHEN MATCHED AND ", f(buildJoinedView(sources)).fragment, ""))
+  }
 
-  /** `WHEN NOT MATCHED THEN …` — a source row with no target row. Unconditional. */
-  def whenNotMatched: MergeNotMatched[Cols, Name, CR, Ss, OnArgs, CArgs, Void] =
+  /** `WHEN NOT MATCHED THEN …` — a source row with no target row. Unconditional; no further one may follow. */
+  inline def whenNotMatched: MergeNotMatched[Cols, Name, CR, Ss, OnArgs, CArgs, Void, Closed, true] = {
+    Merge.requireOpen[Closed, Merge.NotMatched]
     new MergeNotMatched(this, TypedExpr.voidFragment("WHEN NOT MATCHED"))
+  }
 
   /** `WHEN NOT MATCHED AND <cond> THEN …` — `cond` sees only the source row. */
-  inline def whenNotMatched[A](f: ColumnsView[CR] => Where[A]): MergeNotMatched[Cols, Name, CR, Ss, OnArgs, CArgs, A] =
+  inline def whenNotMatched[A](f: ColumnsView[CR] => Where[A])
+    : MergeNotMatched[Cols, Name, CR, Ss, OnArgs, CArgs, A, Closed, false] = {
+    Merge.requireOpen[Closed, Merge.NotMatched]
     new MergeNotMatched(this, TypedExpr.wrap("WHEN NOT MATCHED AND ", f(Merge.sourceView[CR](sources)).fragment, ""))
+  }
 
   /** `WHEN NOT MATCHED BY SOURCE THEN …` (PG 17+) — a target row with no source row. Unconditional. */
-  def whenNotMatchedBySource: MergeBySource[Cols, Name, CR, Ss, OnArgs, CArgs, Void] =
+  inline def whenNotMatchedBySource: MergeBySource[Cols, Name, CR, Ss, OnArgs, CArgs, Void, Closed, true] = {
+    Merge.requireOpen[Closed, Merge.BySource]
     new MergeBySource(this, TypedExpr.voidFragment("WHEN NOT MATCHED BY SOURCE"))
+  }
 
   /** `WHEN NOT MATCHED BY SOURCE AND <cond> THEN …` (PG 17+) — `cond` sees only the target row. */
   inline def whenNotMatchedBySource[A](
     f: ColumnsView[Cols] => Where[A]
-  ): MergeBySource[Cols, Name, CR, Ss, OnArgs, CArgs, A] =
+  ): MergeBySource[Cols, Name, CR, Ss, OnArgs, CArgs, A, Closed, false] = {
+    Merge.requireOpen[Closed, Merge.BySource]
     new MergeBySource(
       this,
       TypedExpr.wrap("WHEN NOT MATCHED BY SOURCE AND ", f(Merge.targetView(table)).fragment, "")
     )
+  }
 
   /** Append a finished `WHEN … THEN …` branch. */
-  private[sharp] inline def addClause[X](clause: Fragment[X])
-    : MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[CArgs, X], true] =
-    new MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[CArgs, X], true](
+  private[sharp] inline def addClause[X, C2 <: Tuple](clause: Fragment[X])
+    : MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[CArgs, X], true, C2] =
+    new MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[CArgs, X], true, C2](
       table,
       sources,
       onFragment,
@@ -181,9 +198,11 @@ final class MergeMatched[
   Ss <: Tuple,
   OnArgs,
   CArgs,
-  CondA
+  CondA,
+  Closed <: Tuple,
+  U <: Boolean
 ] @scala.annotation.publicInBinary private[sharp] (
-  private[sharp] val cmd: MergeCommand[Cols, Name, CR, Ss, OnArgs, CArgs, ?],
+  private[sharp] val cmd: MergeCommand[Cols, Name, CR, Ss, OnArgs, CArgs, ?, Closed],
   private[sharp] val cond: Fragment[CondA]
 ) {
 
@@ -192,7 +211,10 @@ final class MergeMatched[
    * generated ones); assigning a source column is a compile error.
    */
   inline def update[A](f: MergeSetView[Ss] => SetAssignment[?, A])
-    : MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[CArgs, Where.Concat[CondA, A]], true] = {
+    : MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[
+      CArgs,
+      Where.Concat[CondA, A]
+    ], true, Merge.CloseIf[U, Merge.Matched, Closed]] = {
     val sa = f(buildJoinedView(cmd.sources).asInstanceOf[MergeSetView[Ss]])
     cmd.addClause(TypedExpr.combineSepInl[CondA, A](cond, " THEN UPDATE SET ", sa.fragment))
   }
@@ -203,7 +225,7 @@ final class MergeMatched[
     : MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[
       CArgs,
       Where.Concat[CondA, Where.FoldConcat[SetArgsOf[T]]]
-    ], true] =
+    ], true, Merge.CloseIf[U, Merge.Matched, Closed]] =
     cmd.addClause(
       TypedExpr.combineSepInl[CondA, Where.FoldConcat[SetArgsOf[T]]](
         cond,
@@ -216,11 +238,17 @@ final class MergeMatched[
     )
 
   /** `THEN DELETE` — delete the matched target row. */
-  inline def delete: MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[CArgs, CondA], true] =
+  inline def delete: MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[
+    CArgs,
+    CondA
+  ], true, Merge.CloseIf[U, Merge.Matched, Closed]] =
     cmd.addClause(TypedExpr.wrap("", cond, " THEN DELETE"))
 
   /** `THEN DO NOTHING`. */
-  inline def doNothing: MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[CArgs, CondA], true] =
+  inline def doNothing: MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[
+    CArgs,
+    CondA
+  ], true, Merge.CloseIf[U, Merge.Matched, Closed]] =
     cmd.addClause(TypedExpr.wrap("", cond, " THEN DO NOTHING"))
 
 }
@@ -233,9 +261,11 @@ final class MergeNotMatched[
   Ss <: Tuple,
   OnArgs,
   CArgs,
-  CondA
+  CondA,
+  Closed <: Tuple,
+  U <: Boolean
 ] @scala.annotation.publicInBinary private[sharp] (
-  private[sharp] val cmd: MergeCommand[Cols, Name, CR, Ss, OnArgs, CArgs, ?],
+  private[sharp] val cmd: MergeCommand[Cols, Name, CR, Ss, OnArgs, CArgs, ?, Closed],
   private[sharp] val cond: Fragment[CondA]
 ) {
 
@@ -246,7 +276,10 @@ final class MergeNotMatched[
    */
   inline def insert[R <: NamedTuple.AnyNamedTuple, TOut](f: ColumnsView[CR] => R)(using
     pa: ProjArgsOf.Aux[NamedTuple.DropNames[R], TOut]
-  ): MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[CArgs, Where.Concat[CondA, TOut]], true] = {
+  ): MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[
+    CArgs,
+    Where.Concat[CondA, TOut]
+  ], true, Merge.CloseIf[U, Merge.NotMatched, Closed]] = {
     CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[R]]
     CompileChecks.requireCoversRequired[Cols, NamedTuple.Names[R]]
     CompileChecks.requireNoneGenerated[Cols, NamedTuple.Names[R]]
@@ -259,7 +292,10 @@ final class MergeNotMatched[
   }
 
   /** `THEN DO NOTHING`. */
-  inline def doNothing: MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[CArgs, CondA], true] =
+  inline def doNothing: MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[
+    CArgs,
+    CondA
+  ], true, Merge.CloseIf[U, Merge.NotMatched, Closed]] =
     cmd.addClause(TypedExpr.wrap("", cond, " THEN DO NOTHING"))
 
 }
@@ -272,15 +308,20 @@ final class MergeBySource[
   Ss <: Tuple,
   OnArgs,
   CArgs,
-  CondA
+  CondA,
+  Closed <: Tuple,
+  U <: Boolean
 ] @scala.annotation.publicInBinary private[sharp] (
-  private[sharp] val cmd: MergeCommand[Cols, Name, CR, Ss, OnArgs, CArgs, ?],
+  private[sharp] val cmd: MergeCommand[Cols, Name, CR, Ss, OnArgs, CArgs, ?, Closed],
   private[sharp] val cond: Fragment[CondA]
 ) {
 
   /** `THEN UPDATE SET <col := expr>` — only the target row is visible. */
   inline def update[A](f: SetView[Cols] => SetAssignment[?, A])
-    : MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[CArgs, Where.Concat[CondA, A]], true] = {
+    : MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[
+      CArgs,
+      Where.Concat[CondA, A]
+    ], true, Merge.CloseIf[U, Merge.BySource, Closed]] = {
     val sa = f(Merge.targetView(cmd.table).asInstanceOf[SetView[Cols]])
     cmd.addClause(TypedExpr.combineSepInl[CondA, A](cond, " THEN UPDATE SET ", sa.fragment))
   }
@@ -291,7 +332,7 @@ final class MergeBySource[
     : MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[
       CArgs,
       Where.Concat[CondA, Where.FoldConcat[SetArgsOf[T]]]
-    ], true] =
+    ], true, Merge.CloseIf[U, Merge.BySource, Closed]] =
     cmd.addClause(
       TypedExpr.combineSepInl[CondA, Where.FoldConcat[SetArgsOf[T]]](
         cond,
@@ -304,11 +345,17 @@ final class MergeBySource[
     )
 
   /** `THEN DELETE` — delete the target row that has no source row. */
-  inline def delete: MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[CArgs, CondA], true] =
+  inline def delete: MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[
+    CArgs,
+    CondA
+  ], true, Merge.CloseIf[U, Merge.BySource, Closed]] =
     cmd.addClause(TypedExpr.wrap("", cond, " THEN DELETE"))
 
   /** `THEN DO NOTHING`. */
-  inline def doNothing: MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[CArgs, CondA], true] =
+  inline def doNothing: MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[
+    CArgs,
+    CondA
+  ], true, Merge.CloseIf[U, Merge.BySource, Closed]] =
     cmd.addClause(TypedExpr.wrap("", cond, " THEN DO NOTHING"))
 
 }
@@ -327,7 +374,46 @@ type MergeSetView[Ss <: Tuple] = Ss match {
     NamedTuple.NamedTuple[at *: as *: EmptyTuple, SetView[ct] *: SourceView[cs] *: EmptyTuple]
 }
 
+/**
+ * Evidence that expression type `V` can be written into a column of Scala type `C` (named `N`): `V` is a
+ * `TypedExpr[C, ?]`, or `C = Option[X]` and `V` is a `TypedExpr[X, ?]`.
+ */
+@scala.annotation.implicitNotFound(
+  "skunk-sharp: MERGE INSERT value for column ${N} doesn't match the column's type ${C} (the expression is ${V})"
+)
+sealed trait ExprFits[V, C, N]
+
+object ExprFits {
+  private val instance: ExprFits[Any, Any, Any] = new ExprFits[Any, Any, Any] {}
+
+  given exact[V, C, N](using V <:< TypedExpr[C, ?]): ExprFits[V, C, N] = instance.asInstanceOf[ExprFits[V, C, N]]
+
+  given intoNullable[V, X, N](using V <:< TypedExpr[X, ?]): ExprFits[V, Option[X], N] =
+    instance.asInstanceOf[ExprFits[V, Option[X], N]]
+
+}
+
 object Merge {
+
+  // Branch kinds, as singletons so the error message can name them.
+  type Matched    = "WHEN MATCHED"
+  type NotMatched = "WHEN NOT MATCHED"
+  type BySource   = "WHEN NOT MATCHED BY SOURCE"
+
+  /** `Closed` after a branch of kind `K`: an unconditional branch (`U = true`) closes its kind. */
+  type CloseIf[U <: Boolean, K, Closed <: Tuple] <: Tuple = U match {
+    case true  => K *: Closed
+    case false => Closed
+  }
+
+  /** A branch of kind `K` is unreachable once an unconditional branch of that kind has been added. */
+  inline def requireOpen[Closed <: Tuple, K <: String & Singleton]: Unit =
+    inline if constValue[skunk.sharp.Contains[K, Closed]] then
+      error(
+        "skunk-sharp: unreachable " + constValue[K] + " branch — an earlier unconditional " + constValue[K] +
+          " already catches every such row. Add a condition to the earlier branch, or drop this one."
+      )
+    else ()
 
   /** The source row's columns, qualified by the source alias. */
   private[sharp] def sourceView[CR <: Tuple](sources: Tuple): ColumnsView[CR] = {
@@ -345,8 +431,8 @@ object Merge {
 
   /**
    * Each INSERT expression's value type must fit its target column: exactly the column's type for a NOT NULL column;
-   * for a nullable column, either `Option[X]` or `X`. (`summonInline`, not `summonFrom`: the latter's type patterns
-   * accept any `v` here.)
+   * for a nullable column, either `Option[X]` or `X`. Evidence is [[ExprFits]], whose `@implicitNotFound` names the
+   * column. (`summonInline`, not `summonFrom`: the latter's type patterns accept any `v` here.)
    */
   inline def requireExprTypesMatch[Cols <: Tuple, Ns <: Tuple, Vs <: Tuple]: Unit =
     inline erasedValue[Ns] match {
@@ -354,9 +440,7 @@ object Merge {
       case _: (n *: nt)  =>
         inline erasedValue[Vs] match {
           case _: (v *: vt) =>
-            inline if constValue[ColumnNullable[Cols, n & String & Singleton]] then
-              summonInline[Stripped[ExprValue[v]] <:< Stripped[ColumnType[Cols, n & String & Singleton]]]
-            else summonInline[ExprValue[v] <:< ColumnType[Cols, n & String & Singleton]]
+            summonInline[ExprFits[v, ColumnType[Cols, n & String & Singleton], n]]
             requireExprTypesMatch[Cols, nt, vt]
         }
     }

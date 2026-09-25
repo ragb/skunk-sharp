@@ -1,6 +1,6 @@
 package skunk.sharp.pg.functions
 
-import skunk.{AppliedFragment, Codec, Fragment}
+import skunk.{AppliedFragment, Codec, Encoder, Fragment}
 import skunk.codec.all as pg
 import skunk.sharp.*
 import skunk.sharp.dsl.{IsSrf, ProjArgsOf}
@@ -94,6 +94,71 @@ type ArrayElem[A] = A match {
 type ArrayElems[T <: Tuple] <: Tuple = T match {
   case EmptyTuple              => EmptyTuple
   case TypedExpr[a, ?] *: tail => ArrayElem[a] *: ArrayElems[tail]
+}
+
+/**
+ * Array codecs for each field type in `T` — one Postgres array parameter per column of a batch. Resolved at the call
+ * site from the `PgTypeFor[Arr[E]]` instances.
+ */
+@scala.annotation.implicitNotFound(
+  "skunk-sharp: no Postgres array codec for some field of ${T}. Array codecs come with `import skunk.sharp.dsl.given` " +
+    "and cover the primitive element types (Option fields aren't supported in a batch)."
+)
+trait ArrayCodecs[T <: Tuple] {
+  def codecs: List[Codec[skunk.data.Arr[Any]]]
+}
+
+object ArrayCodecs {
+
+  given empty: ArrayCodecs[EmptyTuple] = new ArrayCodecs[EmptyTuple] { val codecs = Nil }
+
+  given cons[H, T <: Tuple](using h: PgTypeFor[skunk.data.Arr[H]], t: ArrayCodecs[T]): ArrayCodecs[H *: T] =
+    new ArrayCodecs[H *: T] {
+      val codecs = h.codec.asInstanceOf[Codec[skunk.data.Arr[Any]]] :: t.codecs
+    }
+
+}
+
+/**
+ * Encoder for a whole batch as one value: `List[Row]` → one array per field, `$n, $n+1, …`. Splitting at encode time
+ * means every array has exactly one element per row.
+ */
+private[sharp] def rowsAsArraysEncoder[Row](codecs: List[Codec[skunk.data.Arr[Any]]]): Encoder[List[Row]] =
+  new Encoder[List[Row]] {
+    override val types: List[skunk.data.Type]      = codecs.flatMap(_.types)
+    override val sql: cats.data.State[Int, String] =
+      cats.data.State { (n0: Int) =>
+        codecs.zipWithIndex.foldLeft((n0, "")) { case ((n, acc), (c, i)) =>
+          val (n1, s) = c.sql.run(n).value
+          (n1, if (i == 0) s else s"$acc, $s")
+        }
+      }
+    override def encode(rows: List[Row]): List[Option[skunk.data.Encoded]] = {
+      val fields = rows.map(_.asInstanceOf[Product].productIterator.toList)
+      codecs.zipWithIndex.flatMap { case (c, i) => c.encode(skunk.data.Arr.fromFoldable(fields.map(_(i)))) }
+    }
+  }
+
+/** Wrap a multi-array args fragment so unequal array lengths fail fast with a clear error before hitting Postgres. */
+private[sharp] def requireEqualLengths[A](frag: Fragment[A], project: A => List[Any]): Fragment[A] = {
+  val inner = frag.encoder
+  val enc   = new Encoder[A] {
+    override val types: List[skunk.data.Type]                   = inner.types
+    override val sql: cats.data.State[Int, String]              = inner.sql
+    override def encode(a: A): List[Option[skunk.data.Encoded]] = {
+      val lengths = project(a).collect {
+        case xs: Iterable[?]        => xs.size
+        case arr: skunk.data.Arr[?] => arr.flattenTo(List).size
+      }
+      if (lengths.distinct.sizeIs > 1)
+        throw new IllegalArgumentException(
+          s"skunk-sharp: unnest arrays must all have the same length (got ${lengths.mkString(", ")}); Postgres would " +
+            "pad the shorter ones with NULL. Pg.unnestRows takes the rows as one List instead."
+        )
+      inner.encode(a)
+    }
+  }
+  Fragment(frag.parts, enc, frag.origin)
 }
 
 /**
@@ -200,8 +265,8 @@ trait PgSrf {
    *   // → unnest($1, $2) AS "incoming"("name", "qty"), Args = (List[String], List[Int])
    * }}}
    *
-   * Arrays should have the same length: Postgres pads shorter ones with NULL, which the non-`Option` columns here don't
-   * expect.
+   * The arrays must have the same length (checked when the statement is encoded: Postgres would pad shorter ones with
+   * NULL). To make that unrepresentable, pass the rows themselves with [[unnestRows]].
    */
   inline def unnestAsRelation[R <: NamedTuple.AnyNamedTuple, TOut](arrays: R)(using
     dc: DeriveColumns[NamedTuple.Names[R], ArrayElems[NamedTuple.DropNames[R]]],
@@ -209,7 +274,32 @@ trait PgSrf {
   ): TypedBodyRelation[dc.Out, TOut] { type Alias = "unnest"; type Mode = AliasMode.Explicit } = {
     val exprs = arrays.asInstanceOf[Tuple].toList.asInstanceOf[List[TypedExpr[?, ?]]]
     val args  = TypedExpr.combineList[TOut](exprs.map(_.fragment), ", ", (a: TOut) => pa.project(a))
-    srfRelationN[dc.Out, TOut]("unnest", args, dc.value.asInstanceOf[dc.Out])
+    srfRelationN[dc.Out, TOut](
+      "unnest",
+      requireEqualLengths(args, (a: TOut) => pa.project(a)),
+      dc.value.asInstanceOf[dc.Out]
+    )
+  }
+
+  /**
+   * A whole batch of rows as **one** typed parameter: `unnest($1, $2, …) AS "unnest"("f1", "f2", …)`, where the
+   * `List[Row]` bound at execute time is split into one array per field. `Row` is a case class or a named tuple; its
+   * field names become the columns. Every array gets exactly one element per row, so lengths can't disagree.
+   *
+   * {{{
+   *   case class Sync(name: String, capacity: Int)
+   *   Pg.unnestRows[Sync].alias("incoming")   // Args = List[Sync]
+   * }}}
+   *
+   * Needs `import skunk.sharp.dsl.given` for the array codecs.
+   */
+  inline def unnestRows[Row](using
+    dc: DeriveColumns[NamedTuple.Names[NamedTuple.From[Row]], NamedTuple.DropNames[NamedTuple.From[Row]]],
+    ac: ArrayCodecs[NamedTuple.DropNames[NamedTuple.From[Row]]]
+  ): TypedBodyRelation[dc.Out, List[Row]] { type Alias = "unnest"; type Mode = AliasMode.Explicit } = {
+    val enc  = rowsAsArraysEncoder[Row](ac.codecs)
+    val frag = Fragment[List[Row]](List(Right(enc.sql)), enc, skunk.util.Origin.unknown)
+    srfRelationN[dc.Out, List[Row]]("unnest", frag, dc.value.asInstanceOf[dc.Out])
   }
 
 }
