@@ -48,9 +48,10 @@ build the probe point with `ST_SetSRID(ST_MakePoint(lon, lat), 4326)` and feed i
 `ST_DWithin`:
 
 ```scala mdoc:silent
-val lat    = Param[Double]
-val lon    = Param[Double]
-val radius = Param[Double]
+// Three Doubles, and ST_MakePoint wants lon before lat — named params make the order irrelevant.
+val lat    = Param.named["lat", Double]
+val lon    = Param.named["lon", Double]
+val radius = Param.named["radius", Double]
 
 val nearby = buildings.select
   .where { b =>
@@ -60,12 +61,15 @@ val nearby = buildings.select
     )
     b.geom.dWithin(probe, radius)
   }
-  .compile  // CompiledQuery[(Double, Double, Double), NamedRow]
+  .compile
+// nearby.run(session)((lon = -6.26, lat = 53.34, radius = 500.0))
 ```
 
 `b.geom` is a `TypedColumn[Point, false, "geom"]`; `b.geom.dWithin(probe, radius)`
-widens to `Geometry` internally so it threads through `ST_DWithin` cleanly. The
-captured-args tuple is exactly the three `Param`s in the order they appear.
+widens to `Geometry` internally so it threads through `ST_DWithin` cleanly. Because every
+parameter is named, the query runs with a named tuple instead of a positional `(Double, Double,
+Double)` whose order would have to match the SQL. See
+[Named parameters](select.md#named-parameters).
 
 ## Bounding-box vs. exact predicates
 
@@ -122,9 +126,9 @@ ORDER BY free_count DESC, b.name ASC
 
 In skunk-sharp this is `buildings.leftJoin(rooms).on(...).select(...).where(...)
 .groupBy(...).orderBy(...).to[Row].compile` — fully **static** (compiled once,
-parameters bound per call) thanks to `Param[T]` for every scalar input and
-`Pg.notExists(...)` for the correlated subquery. Args at execute time is
-`(PgRange[LocalDate], Double, Double, Double)`.
+parameters bound per call) thanks to a named `Param` for every scalar input and
+`Pg.notExists(...)` for the correlated subquery. It runs with
+`(period = …, lon = …, lat = …, radius = …)`.
 
 The query is index-backed end-to-end by the migrations already in place — V1's
 `EXCLUDE USING gist (room_id WITH =, period WITH &&)` on bookings serves the

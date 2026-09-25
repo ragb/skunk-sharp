@@ -280,11 +280,11 @@ object InsertCommand {
   private[sharp] def buildSingleParams[Cols <: Tuple, Args](
     table: Table[Cols, ?],
     names: List[String],
-    params: List[Param[?]],
+    params: List[Codec[?]],
     conflictHeaderAf: AppliedFragment
   ): InsertCommand[Cols, Args, Void] = {
     val projected            = lookupProjected(table, names)
-    val perRow: Codec[Tuple] = tupleCodec(params.map(_.codec))
+    val perRow: Codec[Tuple] = tupleCodec(params)
     val rowEnc               = perRow.values
     val frag: Fragment[Args] = Fragment(List(Right(rowEnc.sql)), rowEnc.asInstanceOf[Encoder[Args]], Origin.unknown)
     mk(table, projected, InsertSource.TypedRowParams(frag), conflictHeaderAf, SelectBuilder.emptyVoidSlot)
@@ -447,8 +447,9 @@ extension [Cols <: Tuple, Name <: String & Singleton](table: Table[Cols, Name]) 
 
 /** Strip the `Param[_]` wrapper from each tuple element: `(Param[A], Param[B]) → (A, B)`. */
 type StripParams[T <: Tuple] <: Tuple = T match {
-  case EmptyTuple       => EmptyTuple
-  case Param[t] *: tail => t *: StripParams[tail]
+  case EmptyTuple               => EmptyTuple
+  case Param[t] *: tail         => t *: StripParams[tail]
+  case NamedParam[l, t] *: tail => Named[l, t] *: StripParams[tail]
 }
 
 extension [Cols <: Tuple](b: InsertBuilder[Cols]) {
@@ -473,12 +474,15 @@ extension [Cols <: Tuple](b: InsertBuilder[Cols]) {
     CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[R]]
     CompileChecks.requireCoversRequired[Cols, NamedTuple.Names[R]]
     CompileChecks.requireNoneGenerated[Cols, NamedTuple.Names[R]]
-    val names  = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
-    val params = row.asInstanceOf[Tuple].toList.map {
-      case p: Param[?] => p
-      case other       =>
+    val names                  = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
+    val params: List[Codec[?]] = row.asInstanceOf[Tuple].toList.map {
+      case p: Param[?]                    => p.codec
+      case p: NamedParam[?, ?] @unchecked =>
+        // Named slots carry a `Named` wrapper at execute time (see `NamedArgs.toSlots`); unwrap for the column codec.
+        p.pcodec.asInstanceOf[Codec[Any]].imap[Any](v => v)(n => n.asInstanceOf[Named[?, ?]].value)
+      case other =>
         throw new IllegalArgumentException(
-          s"skunk-sharp: .withParams expects every field to be a Param[T]; got: $other (${other.getClass.getName})"
+          s"skunk-sharp: .withParams expects every field to be a Param[T] or Param.named[L, T]; got: $other (${other.getClass.getName})"
         )
     }
     InsertCommand.buildSingleParams[Cols, StripParams[NamedTuple.DropNames[R]]](

@@ -33,7 +33,32 @@ final class Param[T](val pcodec: Codec[T]) extends TypedExpr[T, T] {
 
 }
 
+/**
+ * A named placeholder — `Param.named["buildingId", UUID]`. Renders `$n` like [[Param]]; its Args slot is
+ * `Named["buildingId", UUID]`, so a statement whose placeholders are all named runs with a named tuple of distinct
+ * names (`q.run(s)((buildingId = id))`) — see [[Named]].
+ */
+final class NamedParam[L <: String & Singleton, T](val pcodec: Codec[T]) extends TypedExpr[T, Named[L, T]] {
+
+  val codec: Codec[T] = pcodec
+
+  val fragment: Fragment[Named[L, T]] =
+    Fragment(List(Right(pcodec.sql)), pcodec.contramap[Named[L, T]](_.value), Origin.unknown)
+
+}
+
 object Param {
+
+  /**
+   * A **named** placeholder: every occurrence of the same name in a statement is bound from one value, and a statement
+   * whose placeholders are all named runs with a named tuple instead of a positional one.
+   *
+   * {{{
+   *   val q = rooms.select.where(r => r.building_id === Param.named["buildingId", UUID] && r.capacity >= Param.named["min", Int]).compile
+   *   q.run(session)((buildingId = id, min = 4))
+   * }}}
+   */
+  def named[L <: String & Singleton, T](using pf: PgTypeFor[T]): NamedParam[L, T] = new NamedParam[L, T](pf.codec)
 
   /**
    * Construct a `Param[T]` resolving the codec from `PgTypeFor[T]`. The summoner picks the canonical Postgres type for

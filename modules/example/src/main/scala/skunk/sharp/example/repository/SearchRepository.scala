@@ -150,13 +150,13 @@ object SearchRepository {
     // on the JOIN's ON predicate filters out rooms whose period overlaps an existing booking, so COUNT(rooms.id)
     // returns just the free ones (NULL → not counted).
     //
-    // Fully static — compiled once at object init. Args at execute time = (PgRange[LocalDate], Double, Double, Double)
-    // = (period, lon, lat, radius), in the order the `Param`s appear during template construction.
+    // Fully static — compiled once at object init. All parameters are named, so it runs with
+    // (period = …, lon = …, lat = …, radius = …) — no positional order to keep in sync with the query.
     private val buildingsWithAvailabilityQ = {
-      val period = Param[PgRange[LocalDate]]
-      val lon    = Param[Double]
-      val lat    = Param[Double]
-      val radius = Param[Double]
+      val period = Param.named["period", PgRange[LocalDate]]
+      val lon    = Param.named["lon", Double]
+      val lat    = Param.named["lat", Double]
+      val radius = Param.named["radius", Double]
       val probe  = PgPostgis.setSRID(PgPostgis.makePoint(lon, lat), lit(4326))
 
       buildings.leftJoin(rooms)
@@ -192,7 +192,7 @@ object SearchRepository {
     ): Kleisli[Stream[IO, *], Session[IO], BuildingAvailability] = {
       val (lat, lon) = near
       val period     = PgRange[LocalDate](lower = Some(from), upper = Some(to))
-      buildingsWithAvailabilityQ.streamKF[IO]((period, lon, lat, radius), 64)
+      buildingsWithAvailabilityQ.streamKF[IO]((period = period, lon = lon, lat = lat, radius = radius), 64)
     }
   }
 

@@ -302,4 +302,23 @@ trait PgSrf {
     srfRelationN[dc.Out, List[Row]]("unnest", frag, dc.value.asInstanceOf[dc.Out])
   }
 
+  /**
+   * [[unnestRows]] as a **named** parameter, so a statement can be run with named-tuple Args:
+   *
+   * {{{
+   *   stock.merge(Pg.unnestRows[StockLine]("lines").alias("batch"))…
+   *   // q.run(session)((lines = batch, …))
+   * }}}
+   */
+  inline def unnestRows[Row](label: String & Singleton)(using
+    dc: DeriveColumns[NamedTuple.Names[NamedTuple.From[Row]], NamedTuple.DropNames[NamedTuple.From[Row]]],
+    ac: ArrayCodecs[NamedTuple.DropNames[NamedTuple.From[Row]]]
+  ): TypedBodyRelation[dc.Out, Named[label.type, List[Row]]] {
+    type Alias = "unnest"; type Mode = AliasMode.Explicit
+  } = {
+    val enc  = rowsAsArraysEncoder[Row](ac.codecs).contramap[Named[label.type, List[Row]]](_.value)
+    val frag = Fragment[Named[label.type, List[Row]]](List(Right(enc.sql)), enc, skunk.util.Origin.unknown)
+    srfRelationN[dc.Out, Named[label.type, List[Row]]]("unnest", frag, dc.value.asInstanceOf[dc.Out])
+  }
+
 }

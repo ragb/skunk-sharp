@@ -86,21 +86,22 @@ class MergeSuite extends PgFixture {
     }
   }
 
-  test("typed Params in a subquery source and a branch condition bind at execute time") {
+  test("named Params in a subquery source and a branch condition bind at execute time") {
     withContainers { containers =>
       session(containers).use { s =>
-        // Only merge source rows with qty >= $1; only insert when qty < $2.
-        val q: CommandTemplate[(Int, Int)] = stock
-          .merge(incoming.select.where(i => i.qty >= Param[Int]).alias("src"))
+        // Only merge source rows with qty >= minQty; only insert when qty < maxQty. Two Ints — named, so they can't be
+        // swapped.
+        val q = stock
+          .merge(incoming.select.where(i => i.qty >= Param.named["minQty", Int]).alias("src"))
           .on(r => r.merge_stock.sku === r.src.sku)
           .whenMatched
           .update(r => r.merge_stock.qty := r.src.qty)
-          .whenNotMatched(i => i.qty < Param[Int])
+          .whenNotMatched(i => i.qty < Param.named["maxQty", Int])
           .insert(i => (sku = i.sku, qty = i.qty))
           .compile
         for {
           _    <- seed(s)
-          _    <- q.run(s)((1, 5))
+          _    <- q.run(s)((minQty = 1, maxQty = 5))
           rows <- stockRows(s)
           // b (qty 0) filtered out by the source; a updated; d (4 < 5) inserted; c untouched.
           _ = assertEquals(rows.map(r => (r._1, r._2)), List("a" -> 10, "b" -> 2, "c" -> 3, "d" -> 4))

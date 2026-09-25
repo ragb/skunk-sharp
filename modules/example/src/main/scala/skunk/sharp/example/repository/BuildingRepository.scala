@@ -34,10 +34,14 @@ object BuildingRepository {
     private val findAllQ  = selectRow.compile
     private val findByIdQ = selectRow.where(b => b.id === Param[UUID]).compile
 
-    // Args = (String, String, Point) — matches Create's field order.
+    // Named: two String params that would otherwise be swappable. Run with (name = …, address = …, geom = …).
     private val createQ =
       t.insert
-        .withParams((name = Param[String], address = Param[String], geom = Param[Point]))
+        .withParams((
+          name = Param.named["name", String],
+          address = Param.named["address", String],
+          geom = Param.named["geom", Point]
+        ))
         .returning(b => b.id)
         .compile
 
@@ -69,7 +73,7 @@ object BuildingRepository {
       findByIdQ.optionK[IO](id)
 
     def create(data: BuildingRow.Create): Kleisli[IO, Session[IO], UUID] =
-      createQ.uniqueK[IO]((data.name, data.address, data.geom))
+      createQ.uniqueK[IO]((name = data.name, address = data.address, geom = data.geom))
 
     def patch(id: UUID, data: BuildingRow.Patch): Kleisli[IO, Session[IO], Option[BuildingRow]] =
       if (data.name.isEmpty && data.address.isEmpty && data.geom.isEmpty) findById(id)
