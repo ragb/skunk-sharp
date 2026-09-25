@@ -57,46 +57,48 @@ object RoomRepository {
     private val findAllInBuildingQ =
       selectRow.where(r => r.building_id === Param[UUID]).compile
 
-    // Compiled once — Args = (UUID, UUID) (building id, room id).
+    // Compiled once — named, since both params are UUIDs: run with (buildingId = …, id = …).
     private val findByIdQ =
-      selectRow.where(r => r.building_id === Param[UUID] && r.id === Param[UUID]).compile
+      selectRow.where(r =>
+        r.building_id === Param.named["buildingId", UUID] && r.id === Param.named["id", UUID]
+      ).compile
 
-    // Compiled once — Args = (UUID, String, Int, LTree, Hstore) (Create's fields, in declaration order).
+    // Compiled once — run with (buildingId = …, name = …, capacity = …, location = …, amenities = …).
     private val createQ =
       t.insert
         .withParams((
-          building_id = Param[UUID],
-          name = Param[String],
-          capacity = Param[Int],
-          location = Param[LTree],
-          amenities = Param[Hstore]
+          building_id = Param.named["buildingId", UUID],
+          name = Param.named["name", String],
+          capacity = Param.named["capacity", Int],
+          location = Param.named["location", LTree],
+          amenities = Param.named["amenities", Hstore]
         ))
         .returning(r => r.id)
         .compile
 
     // Compiled once — a single MERGE whose whole batch is one typed parameter: `Pg.unnestRows` splits the
     // `List[RoomRow.Sync]` into `unnest($1, $2)` arrays at encode time, so the same prepared statement serves any number
-    // of rooms. Args = (List[RoomRow.Sync], UUID, UUID, UUID): the rooms, then the building id for the ON scope, the
-    // INSERT, and the BY SOURCE scope.
-    private val syncQ: QueryTemplate[(List[RoomRow.Sync], UUID, UUID, UUID), String] =
-      t.merge(Pg.unnestRows[RoomRow.Sync].alias("incoming"))
-        .on(r => r.rooms.building_id === Param[UUID] && r.rooms.name === r.incoming.name)
+    // of rooms. All parameters are named, so it runs with (rooms = …, buildingId = …) — the building id is used three
+    // times (ON scope, INSERT, BY SOURCE scope) but passed once.
+    private val syncQ =
+      t.merge(Pg.unnestRows[RoomRow.Sync]("rooms").alias("incoming"))
+        .on(r => r.rooms.building_id === Param.named["buildingId", UUID] && r.rooms.name === r.incoming.name)
         .whenMatched(r => (r.rooms.capacity !== r.incoming.capacity))
         .update(r => r.rooms.capacity := r.incoming.capacity)
         .whenNotMatched
-        .insert(i => (building_id = Param[UUID], name = i.name, capacity = i.capacity))
+        .insert(i => (building_id = Param.named["buildingId", UUID], name = i.name, capacity = i.capacity))
         // Every room outside this building is also "not matched by source" (the ON clause pins the building), so the
         // DELETE is scoped to the building explicitly — and skips rooms that still have bookings.
         .whenNotMatchedBySource(r =>
-          r.building_id === Param[UUID] &&
+          r.building_id === Param.named["buildingId", UUID] &&
             Pg.notExists(BookingRow.table.select(_ => lit(1)).where(b => b.room_id === r.id))
         )
         .delete
         .returning(_ => Pg.mergeAction)
 
-    // Compiled once — Args = (UUID, UUID).
+    // Compiled once — named (two UUIDs): run with (buildingId = …, id = …).
     private val deleteQ =
-      t.delete.where(r => r.building_id === Param[UUID] && r.id === Param[UUID]).compile
+      t.delete.where(r => r.building_id === Param.named["buildingId", UUID] && r.id === Param.named["id", UUID]).compile
 
     /** Translate one user filter to a `Where[Void]`. The building-id scope is added on top in [[findFiltered]]. */
     private def toWhere(f: RoomFilter): Where[skunk.Void] = f match {
@@ -123,10 +125,16 @@ object RoomRepository {
       }
 
     def findById(buildingId: UUID, id: UUID): Kleisli[IO, Session[IO], Option[RoomRow]] =
-      findByIdQ.optionK[IO]((buildingId, id))
+      findByIdQ.optionK[IO]((buildingId = buildingId, id = id))
 
     def create(data: RoomRow.Create): Kleisli[IO, Session[IO], UUID] =
-      createQ.uniqueK[IO]((data.building_id, data.name, data.capacity, data.location, data.amenities))
+      createQ.uniqueK[IO]((
+        buildingId = data.building_id,
+        name = data.name,
+        capacity = data.capacity,
+        location = data.location,
+        amenities = data.amenities
+      ))
 
     /**
      * `.patch` builds a different SET list per call depending on which fields are `Some`. There is no single static SQL
@@ -143,10 +151,10 @@ object RoomRepository {
           .compile.optionK[IO]
 
     def delete(buildingId: UUID, id: UUID): Kleisli[IO, Session[IO], Unit] =
-      deleteQ.runK[IO]((buildingId, id)).void
+      deleteQ.runK[IO]((buildingId = buildingId, id = id)).void
 
     def sync(buildingId: UUID, rooms: List[RoomRow.Sync]): Kleisli[IO, Session[IO], List[String]] =
-      syncQ.runK[IO]((rooms, buildingId, buildingId, buildingId))
+      syncQ.runK[IO]((rooms = rooms, buildingId = buildingId))
   }
 
 }

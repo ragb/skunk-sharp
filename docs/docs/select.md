@@ -272,6 +272,34 @@ val byIds = users.select
 For sizes that vary per call, rebuild the query per size, or use array equality
 (`col === ANY(Param[Arr[T]])`) instead.
 
+## Named parameters
+
+`Param[T]` placeholders are positional: the compiled statement takes a tuple in the order the
+placeholders appear in the SQL. That's fine for simple statements. For complex ones — several
+same-typed values that could be swapped, or one value used in several places — name them with
+`Param.named["name", T]`. When **every** placeholder of a statement is named, it runs with a
+**named tuple**, one field per distinct name, and a name used several times is bound once:
+
+```scala mdoc:silent
+val inAgeBand = users.select
+  .where(u =>
+    u.age >= Param.named["min", Int] && u.age <= Param.named["max", Int] &&
+      (u.age !== Param.named["min", Int]).or(u.email.like(Param.named["pattern", String]))
+  )
+  .compile
+// inAgeBand.run(session)((min = 18, max = 30, pattern = "%@example.com"))
+```
+
+- Fields follow each name's first appearance in the SQL (`min`, `max`, `pattern` above);
+  a misspelled or missing name doesn't compile.
+- Using one name with two different types doesn't compile: `named parameter ("min" : String)
+  is used with different types …`.
+- A statement that mixes named and positional placeholders stays positional (named slots then
+  take a bare value in their position).
+- Nothing changes in the SQL or the compiled plan — names only exist at the call site.
+  `prepared`, `stream`, `cursor` and the Kleisli variants take the same named tuple.
+- Batch helpers take a name too: `Pg.unnestRows[Row]("rows")` (see [MERGE](merge.md)).
+
 ## Dynamic predicates with `allOf` / `anyOf`
 
 For predicates assembled from a runtime list (filter ADT, optional query parameters),

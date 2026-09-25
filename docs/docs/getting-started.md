@@ -63,7 +63,9 @@ With the table in scope, the DSL entry points are extension methods directly on 
 
 Static-by-default: literal values go through `lit(v)` (compile-time constant, inlined as `'v'`)
 or `Param.bind(v)` (bake the value into a Void-args fragment). Use `Param[T]` for deferred
-parameters that get supplied at execute time.
+parameters that get supplied at execute time, and `Param.named["name", T]` when a statement has
+several same-typed parameters or reuses one — it then runs with a named tuple (see
+[Named parameters](select.md#named-parameters)).
 
 ```scala mdoc:silent
 // SELECT — compiles to a CompiledQuery[...]

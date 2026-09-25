@@ -40,6 +40,8 @@ object BookingRepository {
     // Compiled once — Args = Void.
     private val findAllQ = selectRow.compile
 
+    // Simple statements stay positional; named Params are for the ones where order is easy to get wrong.
+
     // Compiled once — Args = UUID.
     private val findByIdQ =
       selectRow.where(b => b.id === Param[UUID]).compile
@@ -54,14 +56,14 @@ object BookingRepository {
         .where(b => b.room_id === Param[UUID] && b.period.overlaps(Param[PgRange[LocalDate]]))
         .compile
 
-    // Compiled once — Args = (UUID, Citext, String, PgRange[LocalDate]) matching Create's field order.
+    // Compiled once — named (four fields, two of them text): run with (roomId = …, bookerName = …, title = …, period = …).
     private val createQ =
       t.insert
         .withParams((
-          room_id = Param[UUID],
-          booker_name = Param[Citext],
-          title = Param[String],
-          period = Param[PgRange[LocalDate]]
+          room_id = Param.named["roomId", UUID],
+          booker_name = Param.named["bookerName", Citext],
+          title = Param.named["title", String],
+          period = Param.named["period", PgRange[LocalDate]]
         ))
         .returning(b => b.id)
         .compile
@@ -118,7 +120,12 @@ object BookingRepository {
       findOverlappingQ.runK[IO]((roomId, PgRange[LocalDate](lower = Some(start), upper = Some(end))))
 
     def create(data: BookingRow.Create): Kleisli[IO, Session[IO], UUID] =
-      createQ.uniqueK[IO]((data.room_id, data.booker_name, data.title, data.period))
+      createQ.uniqueK[IO]((
+        roomId = data.room_id,
+        bookerName = data.booker_name,
+        title = data.title,
+        period = data.period
+      ))
     // Note: data.booker_name is already a Citext (set by the transformer at the request boundary).
 
     def delete(id: UUID): Kleisli[IO, Session[IO], Unit] =

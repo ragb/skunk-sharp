@@ -75,16 +75,18 @@ stock.merge(incoming).on(r => r.stock.sku === r.incoming.sku)
 ## Sources and parameters
 
 The source can be any table, view, aliased relation, or aliased subquery. `Param`s anywhere — in a subquery source,
-`.on`, a branch condition, or an action — become the compiled command's arguments, in SQL order:
+`.on`, a branch condition, or an action — become the compiled command's arguments, in SQL order. MERGE statements
+tend to collect several same-typed parameters, which is where
+[named parameters](select.md#named-parameters) pay off:
 
 ```scala mdoc:silent
-val filtered: CommandTemplate[(Int, Int)] = stock
-  .merge(incoming.select.where(i => i.qty >= Param[Int]).alias("src"))
+val filtered = stock
+  .merge(incoming.select.where(i => i.qty >= Param.named["minQty", Int]).alias("src"))
   .on(r => r.stock.sku === r.src.sku)
   .whenMatched.update(r => r.stock.qty := r.src.qty)
-  .whenNotMatched(s => s.qty < Param[Int]).insert(s => (sku = s.sku, qty = s.qty))
+  .whenNotMatched(s => s.qty < Param.named["maxQty", Int]).insert(s => (sku = s.sku, qty = s.qty))
   .compile
-// filtered.run(session)((1, 100))
+// filtered.run(session)((minQty = 1, maxQty = 100))
 ```
 
 A common pattern is a staging table with the target's shape: `stock.merge(stock.renamed("stock_staging"))`.
@@ -111,6 +113,9 @@ val syncStock: CommandTemplate[List[StockLine]] = stock
 // MERGE INTO "stock" USING unnest($1, $2) AS "batch"("sku", "qty") ON …
 // syncStock.run(session)(List(StockLine("a", 1), StockLine("b", 2)))
 ```
+
+Give the batch a name — `Pg.unnestRows[StockLine]("lines")` — to use it in a fully
+named statement: `syncStock.run(session)((lines = batch, …))`.
 
 If you already hold one list per column, `Pg.unnestAsRelation((sku = Param[List[String]], qty = Param[List[Int]]))`
 takes them as separate parameters. The lists must be the same length (checked when the statement is encoded). The

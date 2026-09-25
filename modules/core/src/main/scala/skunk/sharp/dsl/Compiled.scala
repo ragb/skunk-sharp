@@ -1,5 +1,7 @@
 package skunk.sharp.dsl
 
+import skunk.sharp.NamedArgs
+
 import cats.data.Kleisli
 import cats.effect.Resource
 import fs2.Stream
@@ -105,48 +107,65 @@ object QueryTemplateMapping {
  */
 extension [Args, R](q: QueryTemplate[Args, R]) {
 
+  // `args` is `NamedArgs.RunArgs[Args]`: the positional Args tuple, or — when every placeholder is `Param.named` — a named
+  // tuple with one field per distinct name. `NamedArgs.toSlots` maps it back to the encoder's positional slots.
+
   /** Run and collect all rows. */
-  inline def run[F[_]](session: Session[F])(args: Args): F[List[R]] =
-    session.execute(q.typedQuery)(args)
+  inline def run[F[_]](session: Session[F])(args: NamedArgs.RunArgs[Args]): F[List[R]] =
+    session.execute(q.typedQuery)(NamedArgs.toSlots[Args](args))
 
   /** Run and return exactly one row. Fails if the row count is not 1. */
-  inline def unique[F[_]](session: Session[F])(args: Args): F[R] =
-    session.unique(q.typedQuery)(args)
+  inline def unique[F[_]](session: Session[F])(args: NamedArgs.RunArgs[Args]): F[R] =
+    session.unique(q.typedQuery)(NamedArgs.toSlots[Args](args))
 
   /** Run and return at most one row. Fails if the row count is greater than 1. */
-  inline def option[F[_]](session: Session[F])(args: Args): F[Option[R]] =
-    session.option(q.typedQuery)(args)
+  inline def option[F[_]](session: Session[F])(args: NamedArgs.RunArgs[Args]): F[Option[R]] =
+    session.option(q.typedQuery)(NamedArgs.toSlots[Args](args))
 
   /** Stream rows with back-pressure. `chunkSize` is the number of rows fetched per network round-trip. */
-  inline def stream[F[_]](session: Session[F], chunkSize: Int)(args: Args): Stream[F, R] =
-    session.stream(q.typedQuery)(args, chunkSize)
+  inline def stream[F[_]](session: Session[F], chunkSize: Int)(args: NamedArgs.RunArgs[Args]): Stream[F, R] =
+    session.stream(q.typedQuery)(NamedArgs.toSlots[Args](args), chunkSize)
 
   /** Open a cursor for manual row-by-row fetching. Resource-safe. */
-  inline def cursor[F[_]](session: Session[F])(args: Args): Resource[F, Cursor[F, R]] =
-    session.cursor(q.typedQuery)(args)
+  inline def cursor[F[_]](session: Session[F])(args: NamedArgs.RunArgs[Args]): Resource[F, Cursor[F, R]] =
+    session.cursor(q.typedQuery)(NamedArgs.toSlots[Args](args))
 
-  /** Prepare the query as a [[skunk.PreparedQuery]] for re-execution with different argument values. */
-  def prepared[F[_]](session: Session[F]): F[PreparedQuery[F, Args, R]] =
-    session.prepare(q.typedQuery)
+  /**
+   * Prepare the query as a [[skunk.PreparedQuery]] for re-execution with different argument values. Takes the same
+   * argument shape as [[run]] (named tuple for all-named statements).
+   */
+  inline def prepared[F[_]](session: Session[F]): F[PreparedQuery[F, NamedArgs.RunArgs[Args], R]] =
+    session.prepare(q.typedQuery.contramap[NamedArgs.RunArgs[Args]](a => NamedArgs.toSlots[Args](a)))
 
   /** Bind a specific args value, producing the opaque [[skunk.AppliedFragment]] form. */
-  def bind(args: Args): AppliedFragment = q.fragment(args)
+  inline def bind(args: NamedArgs.RunArgs[Args]): AppliedFragment = q.fragment(NamedArgs.toSlots[Args](args))
 
   /** Kleisli variant of [[run]] — session injected at the call edge; args bound up front. */
-  def runK[F[_]](args: Args): Kleisli[F, Session[F], List[R]] = Kleisli(s => run(s)(args))
+  inline def runK[F[_]](args: NamedArgs.RunArgs[Args]): Kleisli[F, Session[F], List[R]] = {
+    val slots = NamedArgs.toSlots[Args](args)
+    Kleisli(s => s.execute(q.typedQuery)(slots))
+  }
 
   /** Kleisli variant of [[unique]]. */
-  def uniqueK[F[_]](args: Args): Kleisli[F, Session[F], R] = Kleisli(s => unique(s)(args))
+  inline def uniqueK[F[_]](args: NamedArgs.RunArgs[Args]): Kleisli[F, Session[F], R] = {
+    val slots = NamedArgs.toSlots[Args](args)
+    Kleisli(s => s.unique(q.typedQuery)(slots))
+  }
 
   /** Kleisli variant of [[option]]. */
-  def optionK[F[_]](args: Args): Kleisli[F, Session[F], Option[R]] = Kleisli(s => option(s)(args))
+  inline def optionK[F[_]](args: NamedArgs.RunArgs[Args]): Kleisli[F, Session[F], Option[R]] = {
+    val slots = NamedArgs.toSlots[Args](args)
+    Kleisli(s => s.option(q.typedQuery)(slots))
+  }
 
   /**
    * A `Kleisli` whose container is `Stream[F, *]` — i.e., `Session[F] => Stream[F, R]`. Calling `.run(session)` gives a
    * plain `Stream[F, R]`, so multiple streams share a session without any natural-transformation boilerplate.
    */
-  def streamKF[F[_]](args: Args, chunkSize: Int): Kleisli[Stream[F, *], Session[F], R] =
-    Kleisli(s => stream[F](s, chunkSize)(args))
+  inline def streamKF[F[_]](args: NamedArgs.RunArgs[Args], chunkSize: Int): Kleisli[Stream[F, *], Session[F], R] = {
+    val slots = NamedArgs.toSlots[Args](args)
+    Kleisli(s => s.stream(q.typedQuery)(slots, chunkSize))
+  }
 
 }
 
@@ -191,17 +210,20 @@ extension [R](q: QueryTemplate[Void, R]) {
 /** Session-facing operations for commands (INSERT/UPDATE/DELETE without RETURNING). */
 extension [Args](c: CommandTemplate[Args]) {
 
-  /** Execute and return the completion message. */
-  inline def run[F[_]](session: Session[F])(args: Args): F[Completion] =
-    session.execute(c.typedCommand)(args)
+  /** Execute and return the completion message. `args` as for [[QueryTemplate]]'s `run` (named or positional). */
+  inline def run[F[_]](session: Session[F])(args: NamedArgs.RunArgs[Args]): F[Completion] =
+    session.execute(c.typedCommand)(NamedArgs.toSlots[Args](args))
 
   /** Prepare the command as a [[skunk.PreparedCommand]] for re-execution with different argument values. */
-  def prepared[F[_]](session: Session[F]): F[PreparedCommand[F, Args]] =
-    session.prepare(c.typedCommand)
+  inline def prepared[F[_]](session: Session[F]): F[PreparedCommand[F, NamedArgs.RunArgs[Args]]] =
+    session.prepare(c.typedCommand.contramap[NamedArgs.RunArgs[Args]](a => NamedArgs.toSlots[Args](a)))
 
-  def bind(args: Args): AppliedFragment = c.fragment(args)
+  inline def bind(args: NamedArgs.RunArgs[Args]): AppliedFragment = c.fragment(NamedArgs.toSlots[Args](args))
 
-  def runK[F[_]](args: Args): Kleisli[F, Session[F], Completion] = Kleisli(s => run(s)(args))
+  inline def runK[F[_]](args: NamedArgs.RunArgs[Args]): Kleisli[F, Session[F], Completion] = {
+    val slots = NamedArgs.toSlots[Args](args)
+    Kleisli(s => s.execute(c.typedCommand)(slots))
+  }
 
 }
 
