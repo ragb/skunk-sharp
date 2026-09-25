@@ -77,8 +77,7 @@ object CompileChecks {
     inline erasedValue[Cols] match {
       case _: EmptyTuple                        => ()
       case _: (Column[t, n, nu, attrs] *: tail) =>
-        inline if constValue[skunk.sharp.Contains[skunk.sharp.ColumnAttr.Default, attrs]] then
-          requireCoversRequired[tail, Ns]
+        inline if constValue[skunk.sharp.Omittable[attrs]] then requireCoversRequired[tail, Ns]
         else
           inline if constValue[skunk.sharp.Contains[n, Ns]] then requireCoversRequired[tail, Ns]
           else
@@ -86,6 +85,23 @@ object CompileChecks {
               "skunk-sharp: insert is missing required column \"" + constValue[n & String] +
                 "\". Columns without a database default must be present in the row."
             )
+    }
+
+  /**
+   * Assert no name in `Ns` refers to a generated column (`.withGenerated`). Postgres rejects any INSERT / UPDATE that
+   * supplies a value for one, so catch it here. Run after [[requireAllNamesInCols]] — the lookup needs every name to
+   * exist.
+   */
+  inline def requireNoneGenerated[Cols <: Tuple, Ns <: Tuple]: Unit =
+    inline erasedValue[Ns] match {
+      case _: EmptyTuple  => ()
+      case _: (n *: rest) =>
+        inline if constValue[skunk.sharp.ColumnGenerated[Cols, n & String & Singleton]] then
+          error(
+            "skunk-sharp: column \"" + constValue[n & String] +
+              "\" is generated (.withGenerated) — Postgres computes its value, so it can't be written by INSERT or UPDATE. Leave it out."
+          )
+        else requireNoneGenerated[Cols, rest]
     }
 
   /**

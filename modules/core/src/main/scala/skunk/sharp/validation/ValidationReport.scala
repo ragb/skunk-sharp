@@ -40,6 +40,26 @@ object Mismatch {
 
   }
 
+  /**
+   * The column's generated-ness differs: declared `.withGenerated` but the database column is a plain one, or the
+   * database column is `GENERATED ALWAYS AS (…)` but the Scala description doesn't say so (so the DSL would let you
+   * write to it).
+   */
+  final case class GeneratedMismatch(
+    relation: String,
+    column: String,
+    expectedGenerated: Boolean,
+    actualGenerated: Boolean
+  ) extends Mismatch {
+
+    def pretty =
+      if actualGenerated then
+        s"relation $relation: column $column is GENERATED in the database but not declared with .withGenerated"
+      else
+        s"relation $relation: column $column is declared .withGenerated but is not a generated column in the database"
+
+  }
+
   /** Declared primary-key column(s) found, but the database has no primary key at all on this relation. */
   final case class PrimaryKeyMissing(relation: String, expected: Set[String]) extends Mismatch {
     def pretty = s"relation $relation: expected primary key on ${expected.mkString("(", ", ", ")")} but DB has none"
