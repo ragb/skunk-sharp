@@ -42,6 +42,10 @@ Like a JOIN, the `.on` and `whenMatched` lambdas see both relations by name (or 
 | `.whenNotMatched` / `.whenNotMatched(s => cond)` | the source row only | `.insert(…)`, `.doNothing` |
 | `.whenNotMatchedBySource` / `.whenNotMatchedBySource(t => cond)` (PG 17+) | the target row only | `.update(…)`, `.delete`, `.doNothing` |
 
+A branch after an **unconditional** branch of the same kind can never fire, and Postgres rejects it ("unreachable
+WHEN clause"). The DSL rejects it at compile time: after `.whenMatched.update(…)`, another `.whenMatched…` doesn't
+compile. Put conditional branches first and the catch-all last.
+
 The views mirror what Postgres allows: a `WHEN NOT MATCHED` row has no target row, so the lambda simply has no
 target columns to refer to.
 
@@ -88,26 +92,29 @@ A common pattern is a staging table with the target's shape: `stock.merge(stock.
 ## Batches as typed parameters
 
 To merge a batch of rows that lives in your application, don't build a `VALUES` list per call: that bakes the values
-into the SQL, so every batch is a different statement. Pass one array per column instead, through
-`Pg.unnestAsRelation`, and the whole batch becomes typed arguments of **one** statement you compile once:
-
-`List[T]` parameters map to Postgres arrays through the collection codecs, which need `import skunk.sharp.dsl.given`:
+into the SQL, so every batch is a different statement. Pass the batch as **one** typed parameter with
+`Pg.unnestRows[Row]`. `Row` is a case class or named tuple; at execute time the `List[Row]` is split into one Postgres
+array per field (`unnest($1, $2)`), so a single prepared statement serves any batch size. The array codecs need
+`import skunk.sharp.dsl.given`:
 
 ```scala mdoc:silent
 import skunk.sharp.dsl.given
 
-val syncStock: CommandTemplate[(List[String], List[Int])] = stock
-  .merge(Pg.unnestAsRelation((sku = Param[List[String]], qty = Param[List[Int]])).alias("batch"))
+case class StockLine(sku: String, qty: Int)
+
+val syncStock: CommandTemplate[List[StockLine]] = stock
+  .merge(Pg.unnestRows[StockLine].alias("batch"))
   .on(r => r.stock.sku === r.batch.sku)
   .whenMatched.update(r => r.stock.qty := r.batch.qty)
   .whenNotMatched.insert(b => (sku = b.sku, qty = b.qty))
   .compile
 // MERGE INTO "stock" USING unnest($1, $2) AS "batch"("sku", "qty") ON …
-// syncStock.run(session)((List("a", "b"), List(1, 2)))
+// syncStock.run(session)(List(StockLine("a", 1), StockLine("b", 2)))
 ```
 
-The arrays should have the same length — Postgres pads shorter ones with NULL. The example app's
-`PUT /api/v1/buildings/{id}/rooms` endpoint uses this shape to sync a building's rooms in one statement.
+If you already hold one list per column, `Pg.unnestAsRelation((sku = Param[List[String]], qty = Param[List[Int]]))`
+takes them as separate parameters. The lists must be the same length (checked when the statement is encoded). The
+example app's `PUT /api/v1/buildings/{id}/rooms` endpoint syncs a building's rooms this way in one statement.
 
 ## RETURNING (PG 17+)
 

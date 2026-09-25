@@ -74,11 +74,12 @@ object RoomRepository {
         .returning(r => r.id)
         .compile
 
-    // Compiled once — a single MERGE whose whole batch travels as typed array parameters (`unnest($1, $2)`), so the
-    // same prepared statement serves any number of rooms. Args = (List[String], List[Int], UUID, UUID, UUID): the
-    // names and capacities, then the building id for the ON scope, the INSERT, and the BY SOURCE scope.
-    private val syncQ: QueryTemplate[(List[String], List[Int], UUID, UUID, UUID), String] =
-      t.merge(Pg.unnestAsRelation((name = Param[List[String]], capacity = Param[List[Int]])).alias("incoming"))
+    // Compiled once — a single MERGE whose whole batch is one typed parameter: `Pg.unnestRows` splits the
+    // `List[RoomRow.Sync]` into `unnest($1, $2)` arrays at encode time, so the same prepared statement serves any number
+    // of rooms. Args = (List[RoomRow.Sync], UUID, UUID, UUID): the rooms, then the building id for the ON scope, the
+    // INSERT, and the BY SOURCE scope.
+    private val syncQ: QueryTemplate[(List[RoomRow.Sync], UUID, UUID, UUID), String] =
+      t.merge(Pg.unnestRows[RoomRow.Sync].alias("incoming"))
         .on(r => r.rooms.building_id === Param[UUID] && r.rooms.name === r.incoming.name)
         .whenMatched(r => (r.rooms.capacity !== r.incoming.capacity))
         .update(r => r.rooms.capacity := r.incoming.capacity)
@@ -145,7 +146,7 @@ object RoomRepository {
       deleteQ.runK[IO]((buildingId, id)).void
 
     def sync(buildingId: UUID, rooms: List[RoomRow.Sync]): Kleisli[IO, Session[IO], List[String]] =
-      syncQ.runK[IO]((rooms.map(_.name), rooms.map(_.capacity), buildingId, buildingId, buildingId))
+      syncQ.runK[IO]((rooms, buildingId, buildingId, buildingId))
   }
 
 }

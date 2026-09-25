@@ -202,7 +202,10 @@ class MergeSuite extends munit.FunSuite {
       stock.merge(incoming).on(r => r.stock.sku === r.incoming.sku).whenNotMatched
         .insert(s => (sku = s.qty, qty = s.qty))
     """)
-    assert(mistyped.contains("Int <:< String"), mistyped)
+    assert(
+      mistyped.contains("""MERGE INSERT value for column ("sku" : String) doesn't match the column's type String"""),
+      mistyped
+    )
   }
 
   test("WHEN MATCHED UPDATE can't assign a generated column") {
@@ -268,5 +271,50 @@ class MergeSuite extends munit.FunSuite {
       stock.merge(incoming).on(r => r.stock.sku === r.incoming.sku).whenMatched.update(r => r.incoming.qty := r.stock.qty)
     """)
     assert(msg.contains("\"qty\" belongs to the MERGE source"), msg)
+  }
+
+  test("a branch after an unconditional branch of the same kind is unreachable — compile error") {
+    val m1 = errorsOf("""
+      import skunk.sharp.dsl.*
+      import MergeSuite.*
+      stock.merge(incoming).on(r => r.stock.sku === r.incoming.sku)
+        .whenMatched.delete
+        .whenMatched(r => r.incoming.qty === 0).doNothing
+    """)
+    assert(m1.contains("unreachable WHEN MATCHED branch"), m1)
+    val m2 = errorsOf("""
+      import skunk.sharp.dsl.*
+      import MergeSuite.*
+      stock.merge(incoming).on(r => r.stock.sku === r.incoming.sku)
+        .whenNotMatched.doNothing
+        .whenNotMatched.insert(s => (sku = s.sku, qty = s.qty))
+    """)
+    assert(m2.contains("unreachable WHEN NOT MATCHED branch"), m2)
+    val m3 = errorsOf("""
+      import skunk.sharp.dsl.*
+      import MergeSuite.*
+      stock.merge(incoming).on(r => r.stock.sku === r.incoming.sku)
+        .whenNotMatchedBySource.delete
+        .whenNotMatchedBySource(t => t.qty === 0).doNothing
+    """)
+    assert(m3.contains("unreachable WHEN NOT MATCHED BY SOURCE branch"), m3)
+  }
+
+  test("conditional branches before an unconditional one, and other kinds after it, are fine") {
+    val q = stock
+      .merge(incoming)
+      .on(r => r.stock.sku === r.incoming.sku)
+      .whenMatched(r => r.incoming.qty === 0)
+      .delete
+      .whenMatched(r => r.incoming.qty === 1)
+      .doNothing
+      .whenMatched
+      .update(r => r.stock.qty := r.incoming.qty)
+      .whenNotMatched
+      .insert(s => (sku = s.sku, qty = s.qty))
+      .whenNotMatchedBySource
+      .delete
+      .compile
+    assert(q.fragment.sql.endsWith("WHEN NOT MATCHED BY SOURCE THEN DELETE"), q.fragment.sql)
   }
 }
