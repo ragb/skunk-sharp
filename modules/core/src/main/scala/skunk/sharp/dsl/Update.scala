@@ -36,17 +36,18 @@ final class UpdateBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
   }
 
   /**
-   * `SET (<col := v>, ...)` — tuple form for multiple assignments. `SetArgs` is fixed to `Void`: the underlying typed
-   * Fragment encoder still composes whatever args the assignments contribute, but the static `SetArgs` slot stays
-   * `Void`. For typed-Args across multiple SET items, use the `&` infix combinator (`c.email := Param[String] & c.age
-   * := Param[Int]`) which threads `Concat[A1, A2]`.
+   * `SET (<col := v>, ...)` — tuple form for multiple assignments. `SetArgs` is the flat fold of every assignment's
+   * Args, so `(c.email := Param[String], c.age := lit(1))` is `UpdateWithSet[…, String]`; all-baked tuples stay `Void`.
    */
   @scala.annotation.targetName("setTuple")
-  def set(f: SetView[Cols] => Tuple): UpdateWithSet[Cols, Name, Void] = {
-    val raw      = f(table.columnsView.asInstanceOf[SetView[Cols]]).toList.asInstanceOf[List[SetAssignment[?, ?]]]
-    val combined = SetAssignment.combineAll(raw)
-    new UpdateWithSet[Cols, Name, Void](table, combined)
-  }
+  inline def set[T <: Tuple](f: SetView[Cols] => T): UpdateWithSet[Cols, Name, Where.FoldConcat[SetArgsOf[T]]] =
+    new UpdateWithSet[Cols, Name, Where.FoldConcat[SetArgsOf[T]]](
+      table,
+      SetAssignment.combineTyped[Where.FoldConcat[SetArgsOf[T]]](
+        f(table.columnsView.asInstanceOf[SetView[Cols]]),
+        c => Where.projectFoldConcat[SetArgsOf[T]](c)
+      )
+    )
 
   inline def patch[R <: NamedTuple.AnyNamedTuple](p: R): UpdateWithSet[Cols, Name, Void] = {
     CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[R]]
@@ -119,7 +120,11 @@ private[sharp] def buildPatch[Cols <: Tuple, Name <: String & Singleton](
   new UpdateWithSet[Cols, Name, Void](table, combined)
 }
 
-final class UpdateWithSet[Cols <: Tuple, Name <: String & Singleton, SetArgs] private[sharp] (
+final class UpdateWithSet[
+  Cols <: Tuple,
+  Name <: String & Singleton,
+  SetArgs
+] @scala.annotation.publicInBinary private[sharp] (
   private[sharp] val table: Table[Cols, Name],
   private[sharp] val setFragment: Fragment[?]
 ) {
@@ -257,17 +262,27 @@ final class UpdateFromBuilder[Cols <: Tuple, Name <: String & Singleton, Ss <: T
     new UpdateFromWithSet[Cols, Name, Ss, A](table, sources, sa.fragment)
   }
 
-  /** Tuple-form SET — `SetArgs` widens to `Void`. Use `&` for typed-Args across multiple items. */
+  /** Tuple-form SET — `SetArgs` is the flat fold of every assignment's Args (all-baked tuples stay `Void`). */
   @scala.annotation.targetName("setTuple")
-  def set(f: SetJoinedView[Ss] => Tuple): UpdateFromWithSet[Cols, Name, Ss, Void] = {
-    val raw = f(buildJoinedView(sources).asInstanceOf[SetJoinedView[Ss]]).toList.asInstanceOf[List[SetAssignment[?, ?]]]
-    val combined = SetAssignment.combineAll(raw)
-    new UpdateFromWithSet[Cols, Name, Ss, Void](table, sources, combined)
-  }
+  inline def set[T <: Tuple](f: SetJoinedView[Ss] => T)
+    : UpdateFromWithSet[Cols, Name, Ss, Where.FoldConcat[SetArgsOf[T]]] =
+    new UpdateFromWithSet[Cols, Name, Ss, Where.FoldConcat[SetArgsOf[T]]](
+      table,
+      sources,
+      SetAssignment.combineTyped[Where.FoldConcat[SetArgsOf[T]]](
+        f(buildJoinedView(sources).asInstanceOf[SetJoinedView[Ss]]),
+        c => Where.projectFoldConcat[SetArgsOf[T]](c)
+      )
+    )
 
 }
 
-final class UpdateFromWithSet[Cols <: Tuple, Name <: String & Singleton, Ss <: Tuple, SetArgs] private[sharp] (
+final class UpdateFromWithSet[
+  Cols <: Tuple,
+  Name <: String & Singleton,
+  Ss <: Tuple,
+  SetArgs
+] @scala.annotation.publicInBinary private[sharp] (
   private[sharp] val table: Table[Cols, Name],
   private[sharp] val sources: Ss,
   private[sharp] val setFragment: Fragment[?]
@@ -505,6 +520,18 @@ object SetAssignment {
   }
 
   /**
+   * Comma-join a tuple of assignments into one `Fragment[CA]`, where `CA` is the flat fold of their Args and `proj`
+   * maps a `CA` value back to one value per assignment (`Where.projectFoldConcat`, materialised at the inline call
+   * site). Non-inline and public-in-binary so inline callers expanding in user code never need an accessor.
+   */
+  @scala.annotation.publicInBinary
+  private[sharp] def combineTyped[CA](items: Tuple, proj: CA => List[Any]): Fragment[CA] = {
+    val list = items.toList.asInstanceOf[List[SetAssignment[?, ?]]]
+    require(list.nonEmpty, "skunk-sharp: cannot combine empty SET list")
+    TypedExpr.combineList[CA](list.map(_.fragment), ", ", proj)
+  }
+
+  /**
    * Infix `&` combinator — comma-style joining for tuple shapes. `proj` re-pairs `Concat[A1, A2]` → `(A1, A2)` for the
    * combined product encoder's contramap; materialised at the call site as `c => Where.projectConcat[A1, A2](c)` so the
    * inline dispatch reduces with concrete `A1`/`A2`.
@@ -563,6 +590,12 @@ type SetViewsOf[Ss <: Tuple] <: Tuple = Ss match {
 }
 
 // ---- Entry point ----------------------------------------------------------------------------------
+
+/** Per-assignment Args of a tuple of [[SetAssignment]]s — folded with `Where.FoldConcat` for tuple-form SET. */
+type SetArgsOf[T <: Tuple] <: Tuple = T match {
+  case EmptyTuple               => EmptyTuple
+  case SetAssignment[?, a] *: t => a *: SetArgsOf[t]
+}
 
 extension [Cols <: Tuple, Name <: String & Singleton](table: Table[Cols, Name]) {
   def update: UpdateBuilder[Cols, Name] = new UpdateBuilder[Cols, Name](table)
