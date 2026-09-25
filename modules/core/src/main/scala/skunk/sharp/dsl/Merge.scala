@@ -103,15 +103,18 @@ final class MergeCommand[
       TypedExpr.combineSepInl[CArgs, X](clauses, " ", clause)
     )
 
+  // Header / keyword parts are lifted with `liftAfToVoid` directly rather than the inline `SelectBuilder.bake`: inlining
+  // `bake` here makes this file depend on an inline accessor in `SelectBuilder$` that a clean build doesn't emit
+  // (NoSuchMethodError at runtime).
   private def mergeParts: List[SelectBuilder.BodyPart] = {
     val source = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]](1)
-    List[SelectBuilder.BodyPart](SelectBuilder.bake(table.mergeIntoHeader)) ++
+    List[SelectBuilder.BodyPart](Left(TypedExpr.liftAfToVoid(table.mergeIntoHeader))) ++
       aliasedFromEntryParts(source) ++
-      List[SelectBuilder.BodyPart](SelectBuilder.bake(RawConstants.ON), Right(onFragment), Right(clauses))
+      List[SelectBuilder.BodyPart](Left(TypedExpr.liftAfToVoid(RawConstants.ON)), Right(onFragment), Right(clauses))
   }
 
   private def returningParts(ret: Fragment[?]): List[SelectBuilder.BodyPart] =
-    mergeParts ++ List[SelectBuilder.BodyPart](SelectBuilder.bake(RawConstants.RETURNING), Right(ret))
+    mergeParts ++ List[SelectBuilder.BodyPart](Left(TypedExpr.liftAfToVoid(RawConstants.RETURNING)), Right(ret))
 
   /** The source's body Args (a typed subquery source), skipping the target at index 0 — always `Void`. */
   private def sourceBodyArgs(bff: SourceBodyArgsProj[? <: Tuple], sArgs: Any): Any =
