@@ -4,7 +4,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import skunk.sharp.example.ExampleAppFixture
 import sttp.capabilities.fs2.Fs2Streams
-import sttp.client3.SttpBackend
+import sttp.client4.StreamBackend
 
 import java.time.LocalDate
 import java.util.UUID
@@ -26,7 +26,7 @@ class SearchEndpointSuite extends ExampleAppFixture {
   private val DublinCentre = LatLon(53.3498, -6.2603)
   private val CorkCity     = LatLon(51.8985, -8.4756)
 
-  private def createBuilding(name: String, l: LatLon)(using SttpBackend[IO, Fs2Streams[IO]]): IO[BuildingResponse] =
+  private def createBuilding(name: String, l: LatLon)(using StreamBackend[IO, Fs2Streams[IO]]): IO[BuildingResponse] =
     createBuildingReq(CreateBuildingRequest(name, address = s"$name address", location = l)).sendOk
 
   private def createRoom(
@@ -35,11 +35,11 @@ class SearchEndpointSuite extends ExampleAppFixture {
     capacity: Int,
     location: String = "unsorted",
     amenities: Map[String, String] = Map.empty
-  )(using SttpBackend[IO, Fs2Streams[IO]]): IO[RoomResponse] =
+  )(using StreamBackend[IO, Fs2Streams[IO]]): IO[RoomResponse] =
     createRoomReq((buildingId, CreateRoomRequest(name, capacity, location, amenities))).sendOk
 
   private def createBooking(roomId: UUID, from: LocalDate, to: LocalDate)(using
-    SttpBackend[IO, Fs2Streams[IO]]
+    StreamBackend[IO, Fs2Streams[IO]]
   )
     : IO[BookingResponse] =
     createBookingReq(CreateBookingRequest(roomId, "booker", "title", from, to)).sendOk
@@ -48,7 +48,7 @@ class SearchEndpointSuite extends ExampleAppFixture {
 
   test("search/rooms: joins rooms × buildings; spatial filter scopes to the Dublin building") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             dub  <- createBuilding("Dublin HQ", DublinCentre)
@@ -77,7 +77,7 @@ class SearchEndpointSuite extends ExampleAppFixture {
 
   test("search/rooms: room filters compose with the spatial filter (hasAmenity + locationUnder)") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             dub <- createBuilding("Dublin HQ", DublinCentre)
@@ -112,7 +112,7 @@ class SearchEndpointSuite extends ExampleAppFixture {
 
   test("search/rooms: availableFrom+availableTo excludes rooms with overlapping bookings (NOT EXISTS)") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             dub <- createBuilding("Dublin HQ", DublinCentre)
@@ -142,7 +142,7 @@ class SearchEndpointSuite extends ExampleAppFixture {
 
   test("search/availability: buildings ordered by free-room count descending in the date range") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             // Dublin building: 3 rooms, 1 booked → 2 free.
@@ -173,7 +173,7 @@ class SearchEndpointSuite extends ExampleAppFixture {
 
   test("search/availability: a building with no rooms still shows up with freeRoomCount = 0 (LEFT JOIN)") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             _   <- createBuilding("Empty Office", DublinCentre)
@@ -193,7 +193,7 @@ class SearchEndpointSuite extends ExampleAppFixture {
 
   test("search/availability: a fully booked building reports 0 free rooms") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             b   <- createBuilding("Fully Booked", DublinCentre)

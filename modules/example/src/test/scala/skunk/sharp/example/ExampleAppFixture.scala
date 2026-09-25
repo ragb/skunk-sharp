@@ -15,14 +15,14 @@ import skunk.{Session, TypingStrategy}
 import skunk.sharp.example.api.Routes
 import skunk.sharp.example.repository.{BookingRepository, BuildingRepository, RoomRepository, SearchRepository}
 import sttp.capabilities.fs2.Fs2Streams
-import sttp.client3.{Request, Response, SttpBackend}
-import sttp.client3.http4s.Http4sBackend
+import sttp.client4.{Request, Response, StreamBackend}
+import sttp.client4.http4s.Http4sBackend
 import sttp.model.Uri as SttpUri
-import sttp.tapir.client.sttp.SttpClientInterpreter
+import sttp.tapir.client.sttp4.SttpClientInterpreter
 
 /**
  * Integration-test fixture for the example app: spins up Postgres in a container, runs the example's own dumbo
- * migrations, builds the live `Routes`, and exposes an in-process **sttp `SttpBackend[IO, …]`** wired to the route
+ * migrations, builds the live `Routes`, and exposes an in-process **sttp `StreamBackend[IO, …]`** wired to the route
  * handler via `Http4sBackend.usingClient(Client.fromHttpApp(routes.orNotFound))`.
  *
  * Tests use [[SttpClientInterpreter]] to derive typed sttp requests directly from the same `Endpoints.rooms.list` /
@@ -97,7 +97,7 @@ trait ExampleAppFixture extends CatsEffectSuite with TestContainerForAll {
    * Build an sttp backend wired in-process to the live app's routes. Tests should use this with [[interpreter]] to
    * derive typed requests from the published [[skunk.sharp.example.api.Endpoints]] values.
    */
-  protected def appBackend(c: containerDef.Container): Resource[IO, SttpBackend[IO, Fs2Streams[IO]]] =
+  protected def appBackend(c: containerDef.Container): Resource[IO, StreamBackend[IO, Fs2Streams[IO]]] =
     sessionPool(c).map { pool =>
       val routes: HttpRoutes[IO] =
         Routes(pool, BuildingRepository.live, RoomRepository.live, BookingRepository.live, SearchRepository.live)
@@ -107,27 +107,27 @@ trait ExampleAppFixture extends CatsEffectSuite with TestContainerForAll {
 
   // ---- Request execution helpers (backend as a context parameter) ---------------------------
   //
-  // Each suite declares `given SttpBackend[…]` once (typically by binding the lambda parameter via the
+  // Each suite declares `given StreamBackend[…]` once (typically by binding the lambda parameter via the
   // `case given` pattern), then calls `.sendOk` / `.sendStatus` on tapir-derived requests without
   // threading the backend through every call.
 
   /**
    * Send a request whose body is a tapir-derived `Either[E, O]` and unwrap the right side, raising on the left. Use for
-   * the happy-path assertions where a non-2xx is a test failure. Tapir-derived requests have capability `Any`; the
-   * backend's `Fs2Streams[IO] & Effect[IO]` trivially conforms.
+   * the happy-path assertions where a non-2xx is a test failure. Tapir-derived requests need no capabilities, so the
+   * stream backend sends them as-is.
    */
-  extension [E, O](req: Request[Either[E, O], Any])
+  extension [E, O](req: Request[Either[E, O]])
 
-    protected def sendOk(using backend: SttpBackend[IO, Fs2Streams[IO]]): IO[O] =
+    protected def sendOk(using backend: StreamBackend[IO, Fs2Streams[IO]]): IO[O] =
       req.send(backend).flatMap(_.body match {
         case Right(o) => IO.pure(o)
         case Left(e)  => IO.raiseError(new RuntimeException(s"request failed: $e"))
       })
 
   /** Send and return the full response — for status-code assertions and error-envelope inspection. */
-  extension [T](req: Request[T, Any])
+  extension [T](req: Request[T])
 
-    protected def sendResp(using backend: SttpBackend[IO, Fs2Streams[IO]]): IO[Response[T]] =
+    protected def sendResp(using backend: StreamBackend[IO, Fs2Streams[IO]]): IO[Response[T]] =
       req.send(backend)
 
 }

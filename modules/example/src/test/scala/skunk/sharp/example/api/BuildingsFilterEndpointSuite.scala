@@ -3,7 +3,7 @@ package skunk.sharp.example.api
 import cats.effect.IO
 import skunk.sharp.example.ExampleAppFixture
 import sttp.capabilities.fs2.Fs2Streams
-import sttp.client3.SttpBackend
+import sttp.client4.StreamBackend
 import sttp.model.StatusCode
 
 import java.util.UUID
@@ -26,15 +26,15 @@ class BuildingsFilterEndpointSuite extends ExampleAppFixture {
   private val TrinityCollege = LatLon(53.3438, -6.2546)
   private val CorkCity       = LatLon(51.8985, -8.4756)
 
-  private def createBuilding(name: String, l: LatLon)(using SttpBackend[IO, Fs2Streams[IO]]): IO[BuildingResponse] =
+  private def createBuilding(name: String, l: LatLon)(using StreamBackend[IO, Fs2Streams[IO]]): IO[BuildingResponse] =
     createReq(CreateBuildingRequest(name, address = s"$name address", location = l)).sendOk
 
-  private def listBuildings(q: BuildingFilterQuery)(using SttpBackend[IO, Fs2Streams[IO]]): IO[List[BuildingResponse]] =
+  private def listBuildings(q: BuildingFilterQuery)(using StreamBackend[IO, Fs2Streams[IO]]): IO[List[BuildingResponse]] =
     listReq(q).sendOk
 
   test("create + getById round-trips a building including its lat/lon location") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           createBuilding("HQ", DublinCentre).flatMap { b =>
             assertEquals(b.location, DublinCentre)
@@ -51,7 +51,7 @@ class BuildingsFilterEndpointSuite extends ExampleAppFixture {
 
   test("WithinMetersOf (ST_DWithin) matches close buildings and rejects far-away ones") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             _ <- createBuilding("HQ", DublinCentre)
@@ -84,7 +84,7 @@ class BuildingsFilterEndpointSuite extends ExampleAppFixture {
 
   test("nameContains + ids and partial near* triple — nameContains alone still applies, near* trio drops") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             a    <- createBuilding("Atrium", DublinCentre)
@@ -100,7 +100,7 @@ class BuildingsFilterEndpointSuite extends ExampleAppFixture {
 
   test("404 on a missing building id") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           getByIdReq(UUID.randomUUID).sendResp.map { resp =>
             assertEquals(resp.code, StatusCode.NotFound)

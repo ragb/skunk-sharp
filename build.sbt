@@ -70,18 +70,19 @@ lazy val githubPackagesPublish = Seq(
 
 val skunkV           = "1.0.0"
 val skunkCirceV      = "1.0.0"
-val circeV           = "0.14.15"
-val catsEffectV      = "3.7.0"
-val munitV           = "1.3.2"
-val munitCatsEffectV = "2.2.0"
-val ironV            = "3.3.1"
-val refinedV         = "0.11.3"
+val circeV           = "0.14.16"
+val catsEffectV      = "3.7.1"
+val munitV           = "1.3.6"
+val munitCatsEffectV = "2.2.1"
+val ironV            = "3.3.2"
+val refinedV         = "0.11.4"
 val testcontainersV  = "0.44.1"
-val dumboV           = "0.10.1"
-val tapirV           = "1.13.19"
-val http4sV          = "0.23.34"
-val cirisV           = "3.15.0"
+val dumboV           = "0.10.2"
+val tapirV           = "1.13.31"
+val http4sV          = "0.23.37"
+val cirisV           = "3.15.1"
 val ducktapeV        = "0.2.13"
+val sttpClientV      = "4.0.27"
 
 lazy val root = tlCrossRootProject.aggregate(core, iron, refined, circe, postgis, tests, example, docs)
 
@@ -169,8 +170,8 @@ lazy val example = project
       "org.typelevel"                 %% "munit-cats-effect"               % munitCatsEffectV % Test,
       "com.dimafeng"                  %% "testcontainers-scala-munit"      % testcontainersV  % Test,
       "com.dimafeng"                  %% "testcontainers-scala-postgresql" % testcontainersV  % Test,
-      "com.softwaremill.sttp.tapir"   %% "tapir-sttp-client"               % tapirV           % Test,
-      "com.softwaremill.sttp.client3" %% "http4s-backend"                  % "3.11.0"         % Test,
+      "com.softwaremill.sttp.tapir"   %% "tapir-sttp-client4"              % tapirV           % Test,
+      "com.softwaremill.sttp.client4" %% "http4s-backend"                  % sttpClientV      % Test,
       "io.circe"                      %% "circe-parser"                    % circeV           % Test
     )
   )

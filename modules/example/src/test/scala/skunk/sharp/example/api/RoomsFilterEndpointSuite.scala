@@ -3,7 +3,7 @@ package skunk.sharp.example.api
 import cats.effect.IO
 import skunk.sharp.example.ExampleAppFixture
 import sttp.capabilities.fs2.Fs2Streams
-import sttp.client3.SttpBackend
+import sttp.client4.StreamBackend
 import sttp.model.StatusCode
 
 import java.util.UUID
@@ -16,7 +16,7 @@ import java.util.UUID
  * param shape on the server (`Option[T]`, repeated `List[T]`), and the *same* endpoint value on the client side
  * rebuilds those query params from the typed DTO — both sides exchange `RoomFilterQuery` values, no string-keying.
  *
- * The `SttpBackend` is bound as a `given` per test via `case given …` in the resource-`use` lambda.
+ * The `StreamBackend` is bound as a `given` per test via `case given …` in the resource-`use` lambda.
  */
 class RoomsFilterEndpointSuite extends ExampleAppFixture {
 
@@ -26,7 +26,7 @@ class RoomsFilterEndpointSuite extends ExampleAppFixture {
   private val getByIdReq        = interpreter.toRequest(Endpoints.rooms.getById, Some(baseUri))
 
   private def createBuilding(name: String = "HQ", lat: Double = 53.34, lon: Double = -6.26)(using
-    SttpBackend[IO, Fs2Streams[IO]]
+    StreamBackend[IO, Fs2Streams[IO]]
   ): IO[BuildingResponse] =
     createBuildingReq(CreateBuildingRequest(name, address = s"$name address", location = LatLon(lat, lon))).sendOk
 
@@ -36,17 +36,17 @@ class RoomsFilterEndpointSuite extends ExampleAppFixture {
     capacity: Int,
     location: String = "unsorted",
     amenities: Map[String, String] = Map.empty
-  )(using SttpBackend[IO, Fs2Streams[IO]]): IO[RoomResponse] =
+  )(using StreamBackend[IO, Fs2Streams[IO]]): IO[RoomResponse] =
     createRoomReq((buildingId, CreateRoomRequest(name, capacity, location, amenities))).sendOk
 
   private def listRooms(buildingId: UUID, q: RoomFilterQuery)(using
-    SttpBackend[IO, Fs2Streams[IO]]
+    StreamBackend[IO, Fs2Streams[IO]]
   )
     : IO[List[RoomResponse]] = listReq((buildingId, q)).sendOk
 
   test("filter rooms by minCapacity / maxCapacity within a building") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             b   <- createBuilding()
@@ -66,7 +66,7 @@ class RoomsFilterEndpointSuite extends ExampleAppFixture {
 
   test("filter rooms by nameContains (ILIKE substring)") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             b     <- createBuilding()
@@ -84,7 +84,7 @@ class RoomsFilterEndpointSuite extends ExampleAppFixture {
 
   test("rooms are scoped to their building — querying a different building doesn't leak them") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             ba  <- createBuilding("A")
@@ -102,7 +102,7 @@ class RoomsFilterEndpointSuite extends ExampleAppFixture {
 
   test("filter rooms by `locationUnder` (ltree descendant query)") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             b   <- createBuilding()
@@ -120,7 +120,7 @@ class RoomsFilterEndpointSuite extends ExampleAppFixture {
 
   test("filter rooms by `hasAmenity` (hstore key existence) — and round-trip amenities through the response") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             b    <- createBuilding()
@@ -139,7 +139,7 @@ class RoomsFilterEndpointSuite extends ExampleAppFixture {
 
   test("404 on a missing room id surfaces as a NotFound status with the JSON error envelope") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           createBuilding().flatMap { b =>
             getByIdReq((b.id, UUID.randomUUID)).sendResp.map { resp =>
@@ -152,7 +152,7 @@ class RoomsFilterEndpointSuite extends ExampleAppFixture {
 
   test("404 when listing rooms for a non-existent building") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           listReq((UUID.randomUUID, RoomFilterQuery.empty)).sendResp.map { resp =>
             assertEquals(resp.code, StatusCode.NotFound)
