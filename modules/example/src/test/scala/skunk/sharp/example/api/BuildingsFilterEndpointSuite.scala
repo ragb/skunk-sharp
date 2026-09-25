@@ -29,7 +29,9 @@ class BuildingsFilterEndpointSuite extends ExampleAppFixture {
   private def createBuilding(name: String, l: LatLon)(using StreamBackend[IO, Fs2Streams[IO]]): IO[BuildingResponse] =
     createReq(CreateBuildingRequest(name, address = s"$name address", location = l)).sendOk
 
-  private def listBuildings(q: BuildingFilterQuery)(using StreamBackend[IO, Fs2Streams[IO]]): IO[List[BuildingResponse]] =
+  private def listBuildings(q: BuildingFilterQuery)(using
+    StreamBackend[IO, Fs2Streams[IO]]
+  ): IO[List[BuildingResponse]] =
     listReq(q).sendOk
 
   test("create + getById round-trips a building including its lat/lon location") {
