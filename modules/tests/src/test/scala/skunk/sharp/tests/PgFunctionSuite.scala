@@ -2,7 +2,7 @@ package skunk.sharp.tests
 
 import skunk.sharp.dsl.*
 
-import java.time.{LocalDate, LocalDateTime}
+import java.time.{Duration, LocalDate, LocalDateTime}
 
 /**
  * Integration tests for the built-in [[skunk.sharp.Pg]] functions. Uses `empty.select(...)` everywhere so we don't need
@@ -391,6 +391,53 @@ class PgFunctionSuite extends PgFixture {
           _ = assert(vr > BigDecimal(0), s"variance = $vr")
           _ = assert(sdp > BigDecimal(0), s"stddev_pop = $sdp")
           _ = assert(vrp > BigDecimal(0), s"var_pop = $vrp")
+        } yield ()
+      }
+    }
+  }
+
+  // ---- UUID (Postgres 18) ----
+
+  test("uuidv7 produces version-7 UUIDs whose embedded timestamp is now") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        for {
+          u  <- empty.select(Pg.uuidv7).compile.unique(s)
+          v  <- empty.select(Pg.uuidExtractVersion(param(u))).compile.unique(s)
+          ts <- empty.select(Pg.uuidExtractTimestamp(param(u))).compile.unique(s)
+          n  <- empty.select(Pg.now).compile.unique(s)
+          _ = assertEquals(u.version, 7)
+          _ = assertEquals(v, Some(7.toShort))
+          _ = assert(ts.exists(t => math.abs(Duration.between(t, n).toSeconds) < 60), s"$ts vs $n")
+        } yield ()
+      }
+    }
+  }
+
+  test("uuidv7(shift) moves the embedded timestamp by the interval") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        for {
+          ts <- empty.select(Pg.uuidExtractTimestamp(Pg.uuidv7(param(Duration.ofDays(1))))).compile.unique(s)
+          n  <- empty.select(Pg.now).compile.unique(s)
+          _ = assert(ts.exists(t => math.abs(Duration.between(n.plusDays(1), t).toSeconds) < 60), s"$ts vs $n")
+        } yield ()
+      }
+    }
+  }
+
+  test("uuidv4 / genRandomUuid produce version-4 UUIDs with no extractable timestamp") {
+    withContainers { containers =>
+      session(containers).use { s =>
+        for {
+          u4 <- empty.select(Pg.uuidv4).compile.unique(s)
+          ur <- empty.select(Pg.genRandomUuid).compile.unique(s)
+          ts <- empty.select(Pg.uuidExtractTimestamp(param(u4))).compile.unique(s)
+          v  <- empty.select(Pg.uuidExtractVersion(param(ur))).compile.unique(s)
+          _ = assertEquals(u4.version, 4)
+          _ = assertEquals(ur.version, 4)
+          _ = assertEquals(ts, None)
+          _ = assertEquals(v, Some(4.toShort))
         } yield ()
       }
     }

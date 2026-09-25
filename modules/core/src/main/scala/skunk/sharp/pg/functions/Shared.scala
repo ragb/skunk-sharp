@@ -9,6 +9,8 @@ import skunk.sharp.where.Where
 
 type StrLike[T] = Stripped[T] <:< String
 
+type UuidLike[T] = Stripped[T] <:< java.util.UUID
+
 type Lift[T, U] = T match {
   case Option[x] => Option[U]
   case _         => U

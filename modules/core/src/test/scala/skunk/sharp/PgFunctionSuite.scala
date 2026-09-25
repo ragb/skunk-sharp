@@ -329,4 +329,21 @@ class PgFunctionSuite extends munit.FunSuite {
     assert(af.fragment.sql.contains("regr_avgx("), af.fragment.sql)
     assert(af.fragment.sql.contains("regr_sxx("), af.fragment.sql)
   }
+
+  // ---- UUID ----
+
+  test("uuid generators render as nullary calls; uuidv7(shift) wraps its argument") {
+    val q = empty
+      .select(_ => (Pg.genRandomUuid, Pg.uuidv4, Pg.uuidv7, Pg.uuidv7(Param[java.time.Duration])))
+      .compile
+    assertEquals(q.fragment.sql, "SELECT gen_random_uuid(), uuidv4(), uuidv7(), uuidv7($1)")
+  }
+
+  test("uuidExtractTimestamp / uuidExtractVersion render against a column") {
+    val af = products.select(p => (Pg.uuidExtractTimestamp(p.id), Pg.uuidExtractVersion(p.id))).compile.af
+    assertEquals(
+      af.fragment.sql,
+      """SELECT uuid_extract_timestamp("id"), uuid_extract_version("id") FROM "products""""
+    )
+  }
 }

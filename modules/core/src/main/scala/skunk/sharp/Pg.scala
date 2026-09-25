@@ -27,6 +27,7 @@ object Pg
     extends PgNumeric
     with PgString
     with PgTime
+    with PgUuid
     with PgSession
     with PgAggregate
     with PgNull
