@@ -2,6 +2,7 @@ package skunk.sharp.dsl
 
 import skunk.{AppliedFragment, Codec, Fragment, Void}
 import skunk.sharp.*
+import skunk.sharp.internal.RawConstants
 import skunk.sharp.where.Where
 
 import scala.NamedTuple
@@ -58,6 +59,58 @@ extension [Cols <: Tuple](r: Relation[Cols]) {
       override def hasFromClause: Boolean                       = underlying.hasFromClause
       override def qualifiedName: String                        = underlying.qualifiedName
       override def fromFragmentWith(x: String): AppliedFragment = underlying.fromFragmentWith(x)
+    }
+  }
+
+}
+
+/**
+ * `.alias` for relations with typed body Args — set-returning functions with `Param` args, typed subqueries. Keeps the
+ * `BA` type parameter (so the Args still reach the outer query), the body fragment, and the SRF rendering; the generic
+ * [[Relation]] `.alias` above would reset them to `Void` / plain FROM rendering.
+ */
+extension [Cols <: Tuple, BA](r: TypedBodyRelation[Cols, BA]) {
+
+  @scala.annotation.targetName("aliasTyped")
+  def alias[A <: String & Singleton](a: A)
+    : TypedBodyRelation[Cols, BA] { type Alias = A; type Mode = AliasMode.Explicit } = {
+    val underlying = r
+    val newAlias   = a
+    underlying match {
+      case srf: IsSrf =>
+        new TypedBodyRelation[Cols, BA] with IsSrf {
+          type Alias = A
+          type Mode  = AliasMode.Explicit
+          val currentAlias: A                                          = newAlias
+          def name: String                                             = underlying.name
+          def columns: Cols                                            = underlying.columns
+          def schema: Option[String]                                   = underlying.schema
+          def expectedTableType: String                                = underlying.expectedTableType
+          override def hasFromClause: Boolean                          = underlying.hasFromClause
+          override def qualifiedName: String                           = underlying.qualifiedName
+          override def fromFragmentWith(x: String): AppliedFragment    = underlying.fromFragmentWith(x)
+          override lazy val starProjFromAfOpt: Option[AppliedFragment] = None
+          def srfFuncName: String                                      = srf.srfFuncName
+          def srfArgsFragment: Fragment[?]                             = srf.srfArgsFragment
+          def srfColumnName: String                                    = srf.srfColumnName
+          override def srfColumnsSql: String                           = srf.srfColumnsSql
+        }
+      case _ =>
+        new TypedBodyRelation[Cols, BA] {
+          type Alias = A
+          type Mode  = AliasMode.Explicit
+          val currentAlias: A                                          = newAlias
+          def name: String                                             = underlying.name
+          def columns: Cols                                            = underlying.columns
+          def schema: Option[String]                                   = underlying.schema
+          def expectedTableType: String                                = underlying.expectedTableType
+          override def hasFromClause: Boolean                          = underlying.hasFromClause
+          override def qualifiedName: String                           = underlying.qualifiedName
+          override def fromFragmentWith(x: String): AppliedFragment    = underlying.fromFragmentWith(x)
+          override def bodyFragmentOpt: Option[Fragment[?]]            = underlying.bodyFragmentOpt
+          override lazy val starProjFromAfOpt: Option[AppliedFragment] =
+            if (underlying.bodyFragmentOpt.isDefined) None else underlying.starProjFromAfOpt
+        }
     }
   }
 
@@ -640,11 +693,13 @@ final class IncompleteJoin[
  */
 private[sharp] def aliasedFromEntryParts(s: SourceEntry[?, ?, ?, ?, ?]): List[SelectBuilder.BodyPart] =
   s.relation match {
+    // Function names, aliases and column names are code-level constants, so the per-source SQL around the typed slot is
+    // interned: repeated `.compile`s reuse one AppliedFragment instead of allocating a dynamic one each time.
     case srf: IsSrf =>
       List(
-        SelectBuilder.bake(TypedExpr.raw(s"${srf.srfFuncName}(")),
+        SelectBuilder.bake(RawConstants.intern(s"${srf.srfFuncName}(")),
         Right(srf.srfArgsFragment.asInstanceOf[Fragment[Any]]),
-        SelectBuilder.bake(TypedExpr.raw(s""") AS "${s.alias}"("${srf.srfColumnName}")"""))
+        SelectBuilder.bake(RawConstants.intern(s""") AS "${s.alias}"(${srf.srfColumnsSql})"""))
       )
     case _ =>
       s.relation.bodyFragmentOpt match {
@@ -652,7 +707,7 @@ private[sharp] def aliasedFromEntryParts(s: SourceEntry[?, ?, ?, ?, ?]): List[Se
           List(
             SelectBuilder.bake(TypedExpr.raw("(")),
             Right(bodyFrag),
-            SelectBuilder.bake(TypedExpr.raw(s""") AS "${s.alias}""""))
+            SelectBuilder.bake(RawConstants.intern(s""") AS "${s.alias}""""))
           )
         case None =>
           List(
@@ -671,6 +726,9 @@ private[sharp] trait IsSrf {
   def srfFuncName: String
   def srfArgsFragment: Fragment[?]
   def srfColumnName: String
+
+  /** The quoted output column list after the alias — one column for most SRFs, several for multi-array `unnest`. */
+  def srfColumnsSql: String = s""""$srfColumnName""""
 }
 
 // ---- SourceBodyArgs match type + SourceBodyArgsOf typeclass -----------------------------------

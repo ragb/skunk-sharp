@@ -1,6 +1,6 @@
 package skunk.sharp.bench
 
-import skunk.sharp.dsl.*
+import skunk.sharp.dsl.{*, given}
 
 import java.util.UUID
 
@@ -46,6 +46,25 @@ object CompileBench {
       .where(r => r.users.age >= Param.bind(age))
       .select(r => (r.users.email, r.posts.title))
       .compile.af
+
+  val staging = users.renamed("users_staging")
+
+  def mergeUpsert(age: Int): skunk.AppliedFragment =
+    users.merge(staging).on(r => r.users.id === r.users_staging.id)
+      .whenMatched.update(r => r.users.email := r.users_staging.email)
+      .whenNotMatched(s => s.age >= Param.bind(age))
+      .insert(s => (id = s.id, email = s.email, age = s.age, createdAt = s.createdAt))
+      .compile.af
+
+  // The example app's room-sync shape: a batch as typed array Params through `unnest`, a correlated NOT EXISTS.
+  val batch = Pg.unnestAsRelation((email = Param[List[String]], age = Param[List[Int]])).alias("batch")
+
+  def mergeUnnestBatch(): CommandTemplate[(List[String], List[Int])] =
+    users.merge(batch).on(r => r.users.email === r.batch.email)
+      .whenMatched.update(r => r.users.age := r.batch.age)
+      .whenNotMatchedBySource(u => Pg.notExists(posts.select(_ => lit(1)).where(p => p.authorId === u.id)))
+      .delete
+      .compile
 
   // ---- Driver --------------------------------------------------------------------------------------
 
@@ -125,6 +144,16 @@ object CompileBench {
       n,
       i =>
         deleteWhere(new UUID(0L, i.toLong))
+    )
+    runScenario(
+      "MERGE INTO users USING users_staging …",
+      n,
+      i => mergeUpsert(18 + (i & 31))
+    )
+    runScenario(
+      "MERGE INTO users USING unnest($1, $2) … NOT EXISTS (…)",
+      n,
+      i => mergeUnnestBatch().fragment((List(s"u$i@example.com"), List(18 + (i & 31))))
     )
     runScenario(
       "SELECT … FROM users INNER JOIN posts ON …",

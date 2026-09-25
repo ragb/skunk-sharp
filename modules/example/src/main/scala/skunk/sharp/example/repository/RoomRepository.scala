@@ -10,8 +10,8 @@ import skunk.sharp.contrib.hstore.*
 import skunk.sharp.contrib.hstore.Hstore
 import skunk.sharp.contrib.ltree.*
 import skunk.sharp.contrib.ltree.LTree
-import skunk.sharp.dsl.*
-import skunk.sharp.example.domain.RoomRow
+import skunk.sharp.dsl.{*, given}
+import skunk.sharp.example.domain.{BookingRow, RoomRow}
 
 import java.util.UUID
 
@@ -27,6 +27,13 @@ trait RoomRepository {
   def create(data: RoomRow.Create): Kleisli[IO, Session[IO], UUID]
   def patch(buildingId: UUID, id: UUID, data: RoomRow.Patch): Kleisli[IO, Session[IO], Option[RoomRow]]
   def delete(buildingId: UUID, id: UUID): Kleisli[IO, Session[IO], Unit]
+
+  /**
+   * Make the building's rooms match `rooms` (by name) in one statement: update changed capacities, insert new rooms,
+   * delete rooms missing from the list — except rooms that still have bookings, which are kept. Returns one
+   * `merge_action()` (`INSERT` / `UPDATE` / `DELETE`) per affected room.
+   */
+  def sync(buildingId: UUID, rooms: List[RoomRow.Sync]): Kleisli[IO, Session[IO], List[String]]
 }
 
 /**
@@ -66,6 +73,25 @@ object RoomRepository {
         ))
         .returning(r => r.id)
         .compile
+
+    // Compiled once — a single MERGE whose whole batch travels as typed array parameters (`unnest($1, $2)`), so the
+    // same prepared statement serves any number of rooms. Args = (List[String], List[Int], UUID, UUID, UUID): the
+    // names and capacities, then the building id for the ON scope, the INSERT, and the BY SOURCE scope.
+    private val syncQ: QueryTemplate[(List[String], List[Int], UUID, UUID, UUID), String] =
+      t.merge(Pg.unnestAsRelation((name = Param[List[String]], capacity = Param[List[Int]])).alias("incoming"))
+        .on(r => r.rooms.building_id === Param[UUID] && r.rooms.name === r.incoming.name)
+        .whenMatched(r => (r.rooms.capacity !== r.incoming.capacity))
+        .update(r => r.rooms.capacity := r.incoming.capacity)
+        .whenNotMatched
+        .insert(i => (building_id = Param[UUID], name = i.name, capacity = i.capacity))
+        // Every room outside this building is also "not matched by source" (the ON clause pins the building), so the
+        // DELETE is scoped to the building explicitly — and skips rooms that still have bookings.
+        .whenNotMatchedBySource(r =>
+          r.building_id === Param[UUID] &&
+            Pg.notExists(BookingRow.table.select(_ => lit(1)).where(b => b.room_id === r.id))
+        )
+        .delete
+        .returning(_ => Pg.mergeAction)
 
     // Compiled once — Args = (UUID, UUID).
     private val deleteQ =
@@ -117,6 +143,9 @@ object RoomRepository {
 
     def delete(buildingId: UUID, id: UUID): Kleisli[IO, Session[IO], Unit] =
       deleteQ.runK[IO]((buildingId, id)).void
+
+    def sync(buildingId: UUID, rooms: List[RoomRow.Sync]): Kleisli[IO, Session[IO], List[String]] =
+      syncQ.runK[IO]((rooms.map(_.name), rooms.map(_.capacity), buildingId, buildingId, buildingId))
   }
 
 }

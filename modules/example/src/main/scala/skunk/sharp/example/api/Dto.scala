@@ -59,6 +59,12 @@ case class CreateRoomRequest(
 
 case class PatchRoomRequest(name: Option[String], capacity: Option[Int]) derives Codec.AsObject, Schema
 
+/** One room in a `PUT …/rooms` sync — rooms are matched by name within the building. */
+case class SyncRoomRequest(name: String, capacity: Int) derives Codec.AsObject, Schema
+
+/** What a room sync did: rooms inserted, rooms whose capacity changed, rooms removed. */
+case class SyncRoomsResponse(inserted: Int, updated: Int, deleted: Int) derives Codec.AsObject, Schema
+
 /**
  * Query-parameter bundle for `GET /api/v1/buildings/{buildingId}/rooms`. The buildingId is on the URL path, so the
  * filter bundle only carries within-building criteria.

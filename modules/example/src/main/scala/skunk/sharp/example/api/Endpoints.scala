@@ -91,7 +91,17 @@ object Endpoints {
         .in(basePath / path[UUID]("id"))
         .out(statusCode(StatusCode.NoContent))
 
-    val all = List(list, getById, create, patch, delete)
+    /**
+     * PUT /api/v1/buildings/{buildingId}/rooms — replace the building's room list (matched by name): one MERGE updates,
+     * inserts, and deletes rooms missing from the list, except rooms that still have bookings.
+     */
+    val sync =
+      base.put
+        .in(basePath)
+        .in(jsonBody[List[SyncRoomRequest]])
+        .out(jsonBody[SyncRoomsResponse])
+
+    val all = List(list, getById, create, patch, delete, sync)
   }
 
   // ---- Bookings (cross-building; flat) ------------------------------------------------------

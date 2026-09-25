@@ -71,4 +71,49 @@ class SrfSuite extends munit.FunSuite {
     assert(af.fragment.sql.contains("""WHERE "n" >= 5"""), af.fragment.sql)
     assert(af.fragment.sql.endsWith(""" ORDER BY "n" DESC"""), af.fragment.sql)
   }
+
+  // ---- Multi-array unnest ----
+
+  test("multi-array unnest zips typed array Params into one relation") {
+    val q: QueryTemplate[(List[String], List[Int]), (String, Int)] =
+      Pg.unnestAsRelation((name = Param[List[String]], qty = Param[List[Int]]))
+        .alias("incoming")
+        .select(r => (r.name, r.qty))
+        .compile
+    assertEquals(
+      q.fragment.sql,
+      """SELECT "incoming"."name", "incoming"."qty" FROM unnest($1, $2) AS "incoming"("name", "qty")"""
+    )
+  }
+
+  test("multi-array unnest joins like any relation") {
+    val q = users
+      .innerJoin(Pg.unnestAsRelation((email = Param[List[String]], score = Param[List[Int]])).alias("u2"))
+      .on(r => r.users.email === r.u2.email)
+      .select(r => (r.users.id, r.u2.score))
+      .compile
+    val _: QueryTemplate[(List[String], List[Int]), (UUID, Int)] = q
+    assert(
+      q.fragment.sql.endsWith(
+        """FROM "users" INNER JOIN unnest($1, $2) AS "u2"("email", "score") ON "users"."email" = "u2"."email""""
+      ),
+      q.fragment.sql
+    )
+  }
+
+  test("SRF and typed-subquery sources allocate no dynamic AppliedFragments per compile") {
+    // Per-thread counter: other suites run in parallel and may build dynamic fragments on purpose.
+    val counter = skunk.sharp.internal.RawConstants.rawDynamicThreadCount
+    // Relations are declared once, like tables; the per-relation projection cache (`starProjAf`) then warms once.
+    val incoming = Pg.unnestAsRelation((name = Param[List[String]], qty = Param[List[Int]])).alias("incoming")
+    val sub      = users.select.where(u => u.email === Param[String]).alias("sub")
+    def build()  = {
+      incoming.select.compile
+      users.innerJoin(sub).on(r => r.users.id === r.sub.id).select(r => r.users.email).compile
+    }
+    build() // warm the intern table
+    val before = counter.get
+    (1 to 50).foreach(_ => build())
+    assertEquals(counter.get - before, 0L)
+  }
 }

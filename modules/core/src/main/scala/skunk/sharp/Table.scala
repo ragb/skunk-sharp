@@ -39,6 +39,7 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
    */
   lazy val deleteFromHeader: skunk.AppliedFragment = TypedExpr.raw(s"DELETE FROM $qualifiedName")
   lazy val updateSetHeader: skunk.AppliedFragment  = TypedExpr.raw(s"UPDATE $qualifiedName SET ")
+  lazy val mergeIntoHeader: skunk.AppliedFragment  = TypedExpr.raw(s"MERGE INTO $qualifiedName USING ")
 
   /**
    * Cached `INSERT INTO "name" ("col1", "col2", …) ` header for the full-column-set case — the typical

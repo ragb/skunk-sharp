@@ -80,6 +80,8 @@ All under [modules/core/src/main/scala/skunk/sharp/dsl/](modules/core/src/main/s
 - `Update.scala` — extension on `Table`. **Staged state machine**: `users.update` → `UpdateBuilder` (has only `.set`) → `.set(...)` → `UpdateWithSet` (has only `.where` and `.updateAll`) → either `.where(...)` or `.updateAll` → `UpdateReady` (has `.compile`, `.returning*`, chained `.where`). Calling `.compile` without a WHERE or an explicit `.updateAll` is a compile error — the method simply doesn't exist on `UpdateWithSet`. `:=` is an extension on `TypedColumn`.
 - `Delete.scala` — extension on `Table`. **Staged state machine**: `users.delete` → `DeleteBuilder` (has only `.where` and `.deleteAll`) → either `.where(...)` or `.deleteAll` → `DeleteReady` (`.compile`, `.returning*`, chained `.where`). `users.delete.compile` without a WHERE or explicit `.deleteAll` does not compile.
 
+- `Merge.scala` — extension on `Table`. `stock.merge(source)` → `MergeBuilder` (only `.on`) → `MergeCommand[…, Ready]` with `.whenMatched` / `.whenNotMatched` / `.whenNotMatchedBySource` (each optionally conditioned) → action (`.update` / `.delete` / `.doNothing`, `.insert` for not-matched). `Ready` flips to `true` after the first branch; `.compile` / `.returning*` check it via `inline if constValue[Ready]`. Branch lambdas get only what Postgres allows: matched = joined view, not-matched = source `ColumnsView`, by-source = target `ColumnsView`; SET lambdas use `SetView` (by-source) / `MergeSetView` (matched: target `SetView` + source as read-only `SourceColumn`s whose `:=` is a compile error). All branches fold into one `Fragment[CArgs]` as they're added. `Pg.mergeAction` for RETURNING.
+
 **Select locking is gated to Tables.** `SelectBuilder[R <: Relation[Cols], Cols]` and `ProjectedSelect[R, Cols, Row]` thread the relation type through so `.forUpdate` / `.forShare` / `.forNoKeyUpdate` / `.forKeyShare` / `.skipLocked` / `.noWait` require `R <:< Table[Cols]` via an implicit `<:<` evidence. Calling them on a `View` is a compile error — Postgres would reject them at runtime anyway.
 
 `.offset(n)` without a prior `.limit(n)` is **allowed** — Postgres supports it per SQL:2008, and we don't lint valid SQL at the type level.
@@ -179,8 +181,9 @@ Shipped:
 - CTEs (incl. typed-args, transitive deps via [`CteDepsAllVoid`](modules/core/src/main/scala/skunk/sharp/dsl/Cte.scala)).
 - SET operations (`UNION` / `INTERSECT` / `EXCEPT`, with `ALL` variants).
 - `INSERT … VALUES`, `INSERT … FROM SELECT`, `ON CONFLICT … DO NOTHING/UPDATE/UPDATE FROM EXCLUDED`.
+- `MERGE` (PG 15+), incl. `WHEN NOT MATCHED BY SOURCE` and `RETURNING` with `merge_action()` (PG 17+).
 - `UPDATE … FROM` / `DELETE … USING` (with typed-args FROM/USING tail sources).
-- Set-returning functions (`Pg.generateSeries`, `Pg.unnestAsRelation`) with typed args.
+- Set-returning functions (`Pg.generateSeries`, `Pg.unnestAsRelation`) with typed args, incl. multi-array `Pg.unnestAsRelation((a = Param[List[A]], b = Param[List[B]]))` — the way to pass a batch of rows as typed Args of one statement (vs. `Values.of`, which bakes values via `AppliedFragment`s). `.alias` on a `TypedBodyRelation` keeps its `BA` / SRF rendering (a separate `aliasTyped` extension); SRF / subquery source SQL is interned in `aliasedFromEntryParts`.
 - Iron + refined refinement bridges; Circe-backed `json` / `jsonb`.
 - Docs site (Typelevel-site / mdoc) under [docs/docs/](docs/docs/) — every snippet type-checks against the live library at compile.
 
