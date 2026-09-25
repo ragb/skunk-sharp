@@ -73,6 +73,7 @@
     <li class="level1 nav-leaf"><a href="insert.html">INSERT</a></li>
     <li class="level1 active nav-leaf"><a href="#">UPDATE</a></li>
     <li class="level1 nav-leaf"><a href="delete.html">DELETE</a></li>
+    <li class="level1 nav-leaf"><a href="merge.html">MERGE</a></li>
     <li class="level1 nav-leaf"><a href="schema-validation.html">Schema Validation</a></li>
     <li class="level1 nav-leaf"><a href="contrib.html">Contrib modules</a></li>
     <li class="level1 nav-leaf"><a href="postgis.html">PostGIS — <code>skunk-sharp-postgis</code></a></li>
@@ -134,7 +135,14 @@
 </span><span class="keyword">val</span><span> </span><span class="identifier">updateBoth</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">update</span><span>
   .</span><span class="identifier">set</span><span>(</span><span class="identifier">u</span><span> =&gt; (</span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span> := </span><span class="identifier">lit</span><span>(</span><span class="string-literal">&quot;x@example.com&quot;</span><span>), </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> := </span><span class="identifier">lit</span><span>(</span><span class="number-literal">31</span><span>)))
   .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> &lt; </span><span class="identifier">lit</span><span>(</span><span class="number-literal">18</span><span>))
-  .</span><span class="identifier">compile</span></code></pre>
+  .</span><span class="identifier">compile</span><span>
+
+</span><span class="comment">// Params anywhere in the tuple become typed arguments, in order: CommandTemplate[(String, Int, UUID)]
+</span><span class="keyword">val</span><span> </span><span class="identifier">rename</span><span>: </span><span class="type-name">CommandTemplate</span><span>[(</span><span class="type-name">String</span><span>, </span><span class="type-name">Int</span><span>, </span><span class="type-name">UUID</span><span>)] = </span><span class="identifier">users</span><span>.</span><span class="identifier">update</span><span>
+  .</span><span class="identifier">set</span><span>(</span><span class="identifier">u</span><span> =&gt; (</span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span> := </span><span class="type-name">Param</span><span>[</span><span class="type-name">String</span><span>], </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> := </span><span class="type-name">Param</span><span>[</span><span class="type-name">Int</span><span>]))
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">id</span><span> === </span><span class="type-name">Param</span><span>[</span><span class="type-name">UUID</span><span>])
+  .</span><span class="identifier">compile</span><span>
+</span><span class="comment">// rename.run(session)((&quot;new@example.com&quot;, 31, id))</span></code></pre>
         
         <h2 id="bulk-update" class="section"><a class="anchor-link left" href="#bulk-update"><i class="icofont-laika link">&#xef71;</i></a>Bulk UPDATE</h2>
         <p>Use <code>.updateAll</code> to confirm you intentionally want no WHERE clause:</p>

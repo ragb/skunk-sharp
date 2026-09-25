@@ -73,6 +73,7 @@
     <li class="level1 nav-leaf"><a href="insert.html">INSERT</a></li>
     <li class="level1 nav-leaf"><a href="update.html">UPDATE</a></li>
     <li class="level1 nav-leaf"><a href="delete.html">DELETE</a></li>
+    <li class="level1 nav-leaf"><a href="merge.html">MERGE</a></li>
     <li class="level1 nav-leaf"><a href="schema-validation.html">Schema Validation</a></li>
     <li class="level1 nav-leaf"><a href="contrib.html">Contrib modules</a></li>
     <li class="level1 active nav-leaf"><a href="#">PostGIS — <code>skunk-sharp-postgis</code></a></li>
@@ -104,7 +105,7 @@
         <p>Spatial types and <code>ST_*</code> operators, layered on top of <a href="https://github.com/typelevel/skunk/tree/main/modules/postgis">skunk-postgis</a>.
         <strong>Shipped as a separate artifact</strong> — skunk-postgis pulls in a scodec / EWKB dependency
         that not every consumer wants, so the bridge module follows the same separation:</p>
-        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-postgis&quot;</span><span> % </span><span class="string-literal">&quot;0.0.1-14-d64124c-SNAPSHOT&quot;</span></code></pre>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-postgis&quot;</span><span> % </span><span class="string-literal">&quot;0.0.1-22-386077d-SNAPSHOT&quot;</span></code></pre>
         <p>Requires <code>CREATE EXTENSION postgis;</code> on the target database. The schema validator picks
         this up automatically from any column with a geometry-typed <code>PgTypeFor</code>, and also from
         the explicit-codec construction path — <code>Table.builder.column(&quot;loc&quot;, skunk.postgis.codecs.all.point)</code>

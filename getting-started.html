@@ -73,6 +73,7 @@
     <li class="level1 nav-leaf"><a href="insert.html">INSERT</a></li>
     <li class="level1 nav-leaf"><a href="update.html">UPDATE</a></li>
     <li class="level1 nav-leaf"><a href="delete.html">DELETE</a></li>
+    <li class="level1 nav-leaf"><a href="merge.html">MERGE</a></li>
     <li class="level1 nav-leaf"><a href="schema-validation.html">Schema Validation</a></li>
     <li class="level1 nav-leaf"><a href="contrib.html">Contrib modules</a></li>
     <li class="level1 nav-leaf"><a href="postgis.html">PostGIS — <code>skunk-sharp-postgis</code></a></li>
@@ -108,13 +109,13 @@
 </span><span class="identifier">resolvers</span><span> += </span><span class="string-literal">&quot;skunk-sharp @ GitHub Packages&quot;</span><span> </span><span class="identifier">at</span><span>
   </span><span class="string-literal">&quot;https://maven.pkg.github.com/ragb/skunk-sharp&quot;</span><span>
 
-</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-core&quot;</span><span> % </span><span class="string-literal">&quot;0.0.1-14-d64124c-SNAPSHOT&quot;</span><span>
+</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-core&quot;</span><span> % </span><span class="string-literal">&quot;0.0.1-22-386077d-SNAPSHOT&quot;</span><span>
 
 </span><span class="comment">// Optional modules
-</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-iron&quot;</span><span>    % </span><span class="string-literal">&quot;0.0.1-14-d64124c-SNAPSHOT&quot;</span><span>
-</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-refined&quot;</span><span> % </span><span class="string-literal">&quot;0.0.1-14-d64124c-SNAPSHOT&quot;</span><span>
-</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-circe&quot;</span><span>   % </span><span class="string-literal">&quot;0.0.1-14-d64124c-SNAPSHOT&quot;</span><span>
-</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-postgis&quot;</span><span> % </span><span class="string-literal">&quot;0.0.1-14-d64124c-SNAPSHOT&quot;</span></code></pre>
+</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-iron&quot;</span><span>    % </span><span class="string-literal">&quot;0.0.1-22-386077d-SNAPSHOT&quot;</span><span>
+</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-refined&quot;</span><span> % </span><span class="string-literal">&quot;0.0.1-22-386077d-SNAPSHOT&quot;</span><span>
+</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-circe&quot;</span><span>   % </span><span class="string-literal">&quot;0.0.1-22-386077d-SNAPSHOT&quot;</span><span>
+</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-postgis&quot;</span><span> % </span><span class="string-literal">&quot;0.0.1-22-386077d-SNAPSHOT&quot;</span></code></pre>
         <p>GitHub Packages requires authentication <strong>even for public packages</strong>. Add a GitHub
         <a href="https://github.com/settings/tokens">personal access token</a> with the <code>read:packages</code>
         scope to your sbt credentials — e.g. in <code>~/.sbt/1.0/github.sbt</code>:</p>

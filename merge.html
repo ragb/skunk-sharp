@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+  
+  <head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="generator" content="Typelevel Laika + Helium Theme" />
+  <title>MERGE</title>
+  
+  <meta name="author" content="Rui Batista"/>
+  
+  
+  <meta name="description" content="skunk-sharp-docs"/>
+  
+  
+  
+  
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato:400,700">
+  
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Fira+Mono:500">
+  
+  <link rel="stylesheet" type="text/css" href="helium/site/icofont.min.css" />
+    <link rel="stylesheet" type="text/css" href="helium/site/laika-helium.css" />
+  <script src="helium/site/laika-helium.js"></script>
+  
+  
+  <script> /* for avoiding page load transitions */ </script>
+</head>
+
+  <body>
+
+    <header id="top-bar" class="light-default dark-default">
+
+  <div class="row">
+    <a id="nav-icon">
+      <i class="icofont-laika navigationMenu" title="Navigation">&#xefa2;</i>
+    </a>
+    
+    
+  </div>
+
+  <a class="icon-link glyph-link" href="index.html"><i class="icofont-laika home" title="Home">&#xef47;</i></a>
+
+  <div class="row links">
+    
+    <a class="icon-link svg-link" href="https://github.com/ragb/skunk-sharp"><span class="github" title="Source Code"><svg class="svg-icon" width="100%" height="100%" viewBox="0 0 100 100" version="1.1" xmlns="http://www.w3.org/2000/svg" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+  <g class="svg-shape">
+    <path d="M49.995,1c-27.609,-0 -49.995,22.386 -49.995,50.002c-0,22.09 14.325,40.83 34.194,47.444c2.501,0.458 3.413,-1.086 3.413,-2.412c0,-1.185 -0.043,-4.331 -0.067,-8.503c-13.908,3.021 -16.843,-6.704 -16.843,-6.704c-2.274,-5.773 -5.552,-7.311 -5.552,-7.311c-4.54,-3.103 0.344,-3.042 0.344,-3.042c5.018,0.356 7.658,5.154 7.658,5.154c4.46,7.64 11.704,5.433 14.552,4.156c0.454,-3.232 1.744,-5.436 3.174,-6.685c-11.102,-1.262 -22.775,-5.553 -22.775,-24.713c-0,-5.457 1.949,-9.92 5.147,-13.416c-0.516,-1.265 -2.231,-6.348 0.488,-13.233c0,0 4.199,-1.344 13.751,5.126c3.988,-1.108 8.266,-1.663 12.518,-1.682c4.245,0.019 8.523,0.574 12.517,1.682c9.546,-6.47 13.736,-5.126 13.736,-5.126c2.728,6.885 1.013,11.968 0.497,13.233c3.204,3.496 5.141,7.959 5.141,13.416c0,19.209 -11.691,23.436 -22.83,24.673c1.795,1.544 3.394,4.595 3.394,9.26c0,6.682 -0.061,12.076 -0.061,13.715c0,1.338 0.899,2.894 3.438,2.406c19.853,-6.627 34.166,-25.354 34.166,-47.438c-0,-27.616 -22.389,-50.002 -50.005,-50.002"/>
+  </g>
+</svg></span></a>
+    
+  </div>  
+
+</header>
+    
+    <nav id="sidebar">
+
+  <div class="row">
+    
+    <a class="icon-link svg-link" href="https://github.com/ragb/skunk-sharp"><span class="github" title="Source Code"><svg class="svg-icon" width="100%" height="100%" viewBox="0 0 100 100" version="1.1" xmlns="http://www.w3.org/2000/svg" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+  <g class="svg-shape">
+    <path d="M49.995,1c-27.609,-0 -49.995,22.386 -49.995,50.002c-0,22.09 14.325,40.83 34.194,47.444c2.501,0.458 3.413,-1.086 3.413,-2.412c0,-1.185 -0.043,-4.331 -0.067,-8.503c-13.908,3.021 -16.843,-6.704 -16.843,-6.704c-2.274,-5.773 -5.552,-7.311 -5.552,-7.311c-4.54,-3.103 0.344,-3.042 0.344,-3.042c5.018,0.356 7.658,5.154 7.658,5.154c4.46,7.64 11.704,5.433 14.552,4.156c0.454,-3.232 1.744,-5.436 3.174,-6.685c-11.102,-1.262 -22.775,-5.553 -22.775,-24.713c-0,-5.457 1.949,-9.92 5.147,-13.416c-0.516,-1.265 -2.231,-6.348 0.488,-13.233c0,0 4.199,-1.344 13.751,5.126c3.988,-1.108 8.266,-1.663 12.518,-1.682c4.245,0.019 8.523,0.574 12.517,1.682c9.546,-6.47 13.736,-5.126 13.736,-5.126c2.728,6.885 1.013,11.968 0.497,13.233c3.204,3.496 5.141,7.959 5.141,13.416c0,19.209 -11.691,23.436 -22.83,24.673c1.795,1.544 3.394,4.595 3.394,9.26c0,6.682 -0.061,12.076 -0.061,13.715c0,1.338 0.899,2.894 3.438,2.406c19.853,-6.627 34.166,-25.354 34.166,-47.438c-0,-27.616 -22.389,-50.002 -50.005,-50.002"/>
+  </g>
+</svg></span></a>
+    
+  </div>
+
+  <ul class="nav-list">
+    <li class="level1 nav-leaf"><a href="getting-started.html">Getting Started</a></li>
+    <li class="level1 nav-leaf"><a href="tables.html">Tables and Views</a></li>
+    <li class="level1 nav-leaf"><a href="select.html">SELECT</a></li>
+    <li class="level1 nav-leaf"><a href="insert.html">INSERT</a></li>
+    <li class="level1 nav-leaf"><a href="update.html">UPDATE</a></li>
+    <li class="level1 nav-leaf"><a href="delete.html">DELETE</a></li>
+    <li class="level1 active nav-leaf"><a href="#">MERGE</a></li>
+    <li class="level1 nav-leaf"><a href="schema-validation.html">Schema Validation</a></li>
+    <li class="level1 nav-leaf"><a href="contrib.html">Contrib modules</a></li>
+    <li class="level1 nav-leaf"><a href="postgis.html">PostGIS — <code>skunk-sharp-postgis</code></a></li>
+    <li class="level1 nav-leaf"><a href="extensibility.html">Extensibility</a></li>
+  </ul>
+
+</nav>
+
+    <div id="container">
+
+      
+<nav id="page-nav">
+  <p class="header"><a href="#">MERGE</a></p>
+
+  <ul class="nav-list">
+    <li class="level1 nav-leaf"><a href="#upsert">Upsert</a></li>
+    <li class="level1 nav-leaf"><a href="#branches">Branches</a></li>
+    <li class="level1 nav-leaf"><a href="#sources-and-parameters">Sources and parameters</a></li>
+    <li class="level1 nav-leaf"><a href="#batches-as-typed-parameters">Batches as typed parameters</a></li>
+    <li class="level1 nav-leaf"><a href="#returning-pg-17">RETURNING (PG 17+)</a></li>
+  </ul>
+
+  <p class="footer"></p>
+</nav>
+
+
+      <main class="content">
+
+        <h1 id="merge" class="title">MERGE</h1>
+        <p><code>MERGE</code> (Postgres 15+) joins a target table with a source and runs a list of <code>WHEN</code> branches in order: the first
+        branch whose condition holds acts on the row. It covers what <code>INSERT … ON CONFLICT</code> can&#39;t: conditional deletes,
+        several branches with different actions, and (Postgres 17+) removing target rows that are missing from the source.</p>
+        <pre class="keep-together pdf epub"><code class="text">target.merge(source)  →  .on(…)  →  one or more .when…(…).&lt;action&gt;  →  .compile / .returning(…)</code></pre>
+        <p><code>.compile</code> only exists once there is at least one <code>WHEN</code> branch.</p>
+        
+        <h2 id="upsert" class="section"><a class="anchor-link left" href="#upsert"><i class="icofont-laika link">&#xef71;</i></a>Upsert</h2>
+        <pre><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">dsl</span><span>.*
+
+</span><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">Stock</span><span>(</span><span class="identifier">sku</span><span>: </span><span class="type-name">String</span><span>, </span><span class="identifier">qty</span><span>: </span><span class="type-name">Int</span><span>, </span><span class="identifier">note</span><span>: </span><span class="type-name">Option</span><span>[</span><span class="type-name">String</span><span>])
+</span><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">Incoming</span><span>(</span><span class="identifier">sku</span><span>: </span><span class="type-name">String</span><span>, </span><span class="identifier">qty</span><span>: </span><span class="type-name">Int</span><span>)
+
+</span><span class="keyword">val</span><span> </span><span class="identifier">stock</span><span>    = </span><span class="type-name">Table</span><span>.</span><span class="identifier">of</span><span>[</span><span class="type-name">Stock</span><span>](</span><span class="string-literal">&quot;stock&quot;</span><span>).</span><span class="identifier">withPrimary</span><span>(</span><span class="string-literal">&quot;sku&quot;</span><span>).</span><span class="identifier">withDefault</span><span>(</span><span class="string-literal">&quot;note&quot;</span><span>)
+</span><span class="keyword">val</span><span> </span><span class="identifier">incoming</span><span> = </span><span class="type-name">Table</span><span>.</span><span class="identifier">of</span><span>[</span><span class="type-name">Incoming</span><span>](</span><span class="string-literal">&quot;incoming&quot;</span><span>)
+
+</span><span class="comment">// MERGE INTO &quot;stock&quot; USING &quot;incoming&quot; ON &quot;stock&quot;.&quot;sku&quot; = &quot;incoming&quot;.&quot;sku&quot;
+//   WHEN MATCHED THEN UPDATE SET &quot;qty&quot; = &quot;incoming&quot;.&quot;qty&quot;
+//   WHEN NOT MATCHED THEN INSERT (&quot;sku&quot;, &quot;qty&quot;) VALUES (&quot;incoming&quot;.&quot;sku&quot;, &quot;incoming&quot;.&quot;qty&quot;)
+</span><span class="keyword">val</span><span> </span><span class="identifier">upsert</span><span> = </span><span class="identifier">stock</span><span>
+  .</span><span class="identifier">merge</span><span>(</span><span class="identifier">incoming</span><span>)
+  .</span><span class="identifier">on</span><span>(</span><span class="identifier">r</span><span> =&gt; </span><span class="identifier">r</span><span>.</span><span class="identifier">stock</span><span>.</span><span class="identifier">sku</span><span> === </span><span class="identifier">r</span><span>.</span><span class="identifier">incoming</span><span>.</span><span class="identifier">sku</span><span>)
+  .</span><span class="identifier">whenMatched</span><span>.</span><span class="identifier">update</span><span>(</span><span class="identifier">r</span><span> =&gt; </span><span class="identifier">r</span><span>.</span><span class="identifier">stock</span><span>.</span><span class="identifier">qty</span><span> := </span><span class="identifier">r</span><span>.</span><span class="identifier">incoming</span><span>.</span><span class="identifier">qty</span><span>)
+  .</span><span class="identifier">whenNotMatched</span><span>.</span><span class="identifier">insert</span><span>(</span><span class="identifier">s</span><span> =&gt; (</span><span class="identifier">sku</span><span> = </span><span class="identifier">s</span><span>.</span><span class="identifier">sku</span><span>, </span><span class="identifier">qty</span><span> = </span><span class="identifier">s</span><span>.</span><span class="identifier">qty</span><span>))
+  .</span><span class="identifier">compile</span></code></pre>
+        <p>Like a JOIN, the <code>.on</code> and <code>whenMatched</code> lambdas see both relations by name (or alias): <code>r.stock</code>, <code>r.incoming</code>.</p>
+        
+        <h2 id="branches" class="section"><a class="anchor-link left" href="#branches"><i class="icofont-laika link">&#xef71;</i></a>Branches</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Branch</th>
+              <th>The lambda sees</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>.whenMatched</code> / <code>.whenMatched(r =&gt; cond)</code></td>
+              <td>target and source</td>
+              <td><code>.update(…)</code>, <code>.delete</code>, <code>.doNothing</code></td>
+            </tr>
+            <tr>
+              <td><code>.whenNotMatched</code> / <code>.whenNotMatched(s =&gt; cond)</code></td>
+              <td>the source row only</td>
+              <td><code>.insert(…)</code>, <code>.doNothing</code></td>
+            </tr>
+            <tr>
+              <td><code>.whenNotMatchedBySource</code> / <code>.whenNotMatchedBySource(t =&gt; cond)</code> (PG 17+)</td>
+              <td>the target row only</td>
+              <td><code>.update(…)</code>, <code>.delete</code>, <code>.doNothing</code></td>
+            </tr>
+          </tbody>
+        </table>
+        <p>The views mirror what Postgres allows: a <code>WHEN NOT MATCHED</code> row has no target row, so the lambda simply has no
+        target columns to refer to.</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// Sync `stock` to `incoming`: update, delete zeroed rows, insert new ones, delete rows gone from the source.
+</span><span class="keyword">val</span><span> </span><span class="identifier">sync</span><span> = </span><span class="identifier">stock</span><span>
+  .</span><span class="identifier">merge</span><span>(</span><span class="identifier">incoming</span><span>)
+  .</span><span class="identifier">on</span><span>(</span><span class="identifier">r</span><span> =&gt; </span><span class="identifier">r</span><span>.</span><span class="identifier">stock</span><span>.</span><span class="identifier">sku</span><span> === </span><span class="identifier">r</span><span>.</span><span class="identifier">incoming</span><span>.</span><span class="identifier">sku</span><span>)
+  .</span><span class="identifier">whenMatched</span><span>(</span><span class="identifier">r</span><span> =&gt; </span><span class="identifier">r</span><span>.</span><span class="identifier">incoming</span><span>.</span><span class="identifier">qty</span><span> === </span><span class="number-literal">0</span><span>).</span><span class="identifier">delete</span><span>
+  .</span><span class="identifier">whenMatched</span><span>.</span><span class="identifier">update</span><span>(</span><span class="identifier">r</span><span> =&gt; </span><span class="identifier">r</span><span>.</span><span class="identifier">stock</span><span>.</span><span class="identifier">qty</span><span> := </span><span class="identifier">r</span><span>.</span><span class="identifier">incoming</span><span>.</span><span class="identifier">qty</span><span>)
+  .</span><span class="identifier">whenNotMatched</span><span>.</span><span class="identifier">insert</span><span>(</span><span class="identifier">s</span><span> =&gt; (</span><span class="identifier">sku</span><span> = </span><span class="identifier">s</span><span>.</span><span class="identifier">sku</span><span>, </span><span class="identifier">qty</span><span> = </span><span class="identifier">s</span><span>.</span><span class="identifier">qty</span><span>))
+  .</span><span class="identifier">whenNotMatchedBySource</span><span>.</span><span class="identifier">delete</span><span>
+  .</span><span class="identifier">compile</span></code></pre>
+        <p><code>.insert</code> gets the same compile-time checks as <code>table.insert</code>: every name must be a target column, every required
+        column must be present, generated columns (<code>.withGenerated</code>) can&#39;t be written, and each expression&#39;s type must fit
+        its column. <code>.update</code> uses the same <code>:=</code> assignments as UPDATE, including the ban on assigning generated columns; in a
+        <code>whenMatched</code> branch the source columns are readable but not assignable (<code>r.incoming.qty := …</code> doesn&#39;t compile).</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// Does not compile: insert is missing required column &quot;qty&quot;.
+</span><span class="identifier">stock</span><span>.</span><span class="identifier">merge</span><span>(</span><span class="identifier">incoming</span><span>).</span><span class="identifier">on</span><span>(</span><span class="identifier">r</span><span> =&gt; </span><span class="identifier">r</span><span>.</span><span class="identifier">stock</span><span>.</span><span class="identifier">sku</span><span> === </span><span class="identifier">r</span><span>.</span><span class="identifier">incoming</span><span>.</span><span class="identifier">sku</span><span>)
+  .</span><span class="identifier">whenNotMatched</span><span>.</span><span class="identifier">insert</span><span>(</span><span class="identifier">s</span><span> =&gt; (</span><span class="identifier">sku</span><span> = </span><span class="identifier">s</span><span>.</span><span class="identifier">sku</span><span>))
+</span><span class="comment">// error: 
+// skunk-sharp: insert is missing required column &quot;qty&quot;. Columns without a database default must be present in the row.</span></code></pre>
+        
+        <h2 id="sources-and-parameters" class="section"><a class="anchor-link left" href="#sources-and-parameters"><i class="icofont-laika link">&#xef71;</i></a>Sources and parameters</h2>
+        <p>The source can be any table, view, aliased relation, or aliased subquery. <code>Param</code>s anywhere — in a subquery source,
+        <code>.on</code>, a branch condition, or an action — become the compiled command&#39;s arguments, in SQL order:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">val</span><span> </span><span class="identifier">filtered</span><span>: </span><span class="type-name">CommandTemplate</span><span>[(</span><span class="type-name">Int</span><span>, </span><span class="type-name">Int</span><span>)] = </span><span class="identifier">stock</span><span>
+  .</span><span class="identifier">merge</span><span>(</span><span class="identifier">incoming</span><span>.</span><span class="identifier">select</span><span>.</span><span class="identifier">where</span><span>(</span><span class="identifier">i</span><span> =&gt; </span><span class="identifier">i</span><span>.</span><span class="identifier">qty</span><span> &gt;= </span><span class="type-name">Param</span><span>[</span><span class="type-name">Int</span><span>]).</span><span class="identifier">alias</span><span>(</span><span class="string-literal">&quot;src&quot;</span><span>))
+  .</span><span class="identifier">on</span><span>(</span><span class="identifier">r</span><span> =&gt; </span><span class="identifier">r</span><span>.</span><span class="identifier">stock</span><span>.</span><span class="identifier">sku</span><span> === </span><span class="identifier">r</span><span>.</span><span class="identifier">src</span><span>.</span><span class="identifier">sku</span><span>)
+  .</span><span class="identifier">whenMatched</span><span>.</span><span class="identifier">update</span><span>(</span><span class="identifier">r</span><span> =&gt; </span><span class="identifier">r</span><span>.</span><span class="identifier">stock</span><span>.</span><span class="identifier">qty</span><span> := </span><span class="identifier">r</span><span>.</span><span class="identifier">src</span><span>.</span><span class="identifier">qty</span><span>)
+  .</span><span class="identifier">whenNotMatched</span><span>(</span><span class="identifier">s</span><span> =&gt; </span><span class="identifier">s</span><span>.</span><span class="identifier">qty</span><span> &lt; </span><span class="type-name">Param</span><span>[</span><span class="type-name">Int</span><span>]).</span><span class="identifier">insert</span><span>(</span><span class="identifier">s</span><span> =&gt; (</span><span class="identifier">sku</span><span> = </span><span class="identifier">s</span><span>.</span><span class="identifier">sku</span><span>, </span><span class="identifier">qty</span><span> = </span><span class="identifier">s</span><span>.</span><span class="identifier">qty</span><span>))
+  .</span><span class="identifier">compile</span><span>
+</span><span class="comment">// filtered.run(session)((1, 100))</span></code></pre>
+        <p>A common pattern is a staging table with the target&#39;s shape: <code>stock.merge(stock.renamed(&quot;stock_staging&quot;))</code>.</p>
+        
+        <h2 id="batches-as-typed-parameters" class="section"><a class="anchor-link left" href="#batches-as-typed-parameters"><i class="icofont-laika link">&#xef71;</i></a>Batches as typed parameters</h2>
+        <p>To merge a batch of rows that lives in your application, don&#39;t build a <code>VALUES</code> list per call: that bakes the values
+        into the SQL, so every batch is a different statement. Pass one array per column instead, through
+        <code>Pg.unnestAsRelation</code>, and the whole batch becomes typed arguments of <strong>one</strong> statement you compile once:</p>
+        <p><code>List[T]</code> parameters map to Postgres arrays through the collection codecs, which need <code>import skunk.sharp.dsl.given</code>:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">dsl</span><span>.</span><span class="keyword">given</span><span>
+
+</span><span class="keyword">val</span><span> </span><span class="identifier">syncStock</span><span>: </span><span class="type-name">CommandTemplate</span><span>[(</span><span class="type-name">List</span><span>[</span><span class="type-name">String</span><span>], </span><span class="type-name">List</span><span>[</span><span class="type-name">Int</span><span>])] = </span><span class="identifier">stock</span><span>
+  .</span><span class="identifier">merge</span><span>(</span><span class="type-name">Pg</span><span>.</span><span class="identifier">unnestAsRelation</span><span>((</span><span class="identifier">sku</span><span> = </span><span class="type-name">Param</span><span>[</span><span class="type-name">List</span><span>[</span><span class="type-name">String</span><span>]], </span><span class="identifier">qty</span><span> = </span><span class="type-name">Param</span><span>[</span><span class="type-name">List</span><span>[</span><span class="type-name">Int</span><span>]])).</span><span class="identifier">alias</span><span>(</span><span class="string-literal">&quot;batch&quot;</span><span>))
+  .</span><span class="identifier">on</span><span>(</span><span class="identifier">r</span><span> =&gt; </span><span class="identifier">r</span><span>.</span><span class="identifier">stock</span><span>.</span><span class="identifier">sku</span><span> === </span><span class="identifier">r</span><span>.</span><span class="identifier">batch</span><span>.</span><span class="identifier">sku</span><span>)
+  .</span><span class="identifier">whenMatched</span><span>.</span><span class="identifier">update</span><span>(</span><span class="identifier">r</span><span> =&gt; </span><span class="identifier">r</span><span>.</span><span class="identifier">stock</span><span>.</span><span class="identifier">qty</span><span> := </span><span class="identifier">r</span><span>.</span><span class="identifier">batch</span><span>.</span><span class="identifier">qty</span><span>)
+  .</span><span class="identifier">whenNotMatched</span><span>.</span><span class="identifier">insert</span><span>(</span><span class="identifier">b</span><span> =&gt; (</span><span class="identifier">sku</span><span> = </span><span class="identifier">b</span><span>.</span><span class="identifier">sku</span><span>, </span><span class="identifier">qty</span><span> = </span><span class="identifier">b</span><span>.</span><span class="identifier">qty</span><span>))
+  .</span><span class="identifier">compile</span><span>
+</span><span class="comment">// MERGE INTO &quot;stock&quot; USING unnest($1, $2) AS &quot;batch&quot;(&quot;sku&quot;, &quot;qty&quot;) ON …
+// syncStock.run(session)((List(&quot;a&quot;, &quot;b&quot;), List(1, 2)))</span></code></pre>
+        <p>The arrays should have the same length — Postgres pads shorter ones with NULL. The example app&#39;s
+        <code>PUT /api/v1/buildings/{id}/rooms</code> endpoint uses this shape to sync a building&#39;s rooms in one statement.</p>
+        
+        <h2 id="returning-pg-17" class="section"><a class="anchor-link left" href="#returning-pg-17"><i class="icofont-laika link">&#xef71;</i></a>RETURNING (PG 17+)</h2>
+        <p><code>.returning</code> / <code>.returningTuple</code> can use columns from both sides, plus <code>Pg.mergeAction</code>, which is <code>&#39;INSERT&#39;</code>,
+        <code>&#39;UPDATE&#39;</code> or <code>&#39;DELETE&#39;</code> for each returned row:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">val</span><span> </span><span class="identifier">audited</span><span> = </span><span class="identifier">stock</span><span>
+  .</span><span class="identifier">merge</span><span>(</span><span class="identifier">incoming</span><span>)
+  .</span><span class="identifier">on</span><span>(</span><span class="identifier">r</span><span> =&gt; </span><span class="identifier">r</span><span>.</span><span class="identifier">stock</span><span>.</span><span class="identifier">sku</span><span> === </span><span class="identifier">r</span><span>.</span><span class="identifier">incoming</span><span>.</span><span class="identifier">sku</span><span>)
+  .</span><span class="identifier">whenMatched</span><span>.</span><span class="identifier">update</span><span>(</span><span class="identifier">r</span><span> =&gt; </span><span class="identifier">r</span><span>.</span><span class="identifier">stock</span><span>.</span><span class="identifier">qty</span><span> := </span><span class="identifier">r</span><span>.</span><span class="identifier">incoming</span><span>.</span><span class="identifier">qty</span><span>)
+  .</span><span class="identifier">whenNotMatched</span><span>.</span><span class="identifier">insert</span><span>(</span><span class="identifier">s</span><span> =&gt; (</span><span class="identifier">sku</span><span> = </span><span class="identifier">s</span><span>.</span><span class="identifier">sku</span><span>, </span><span class="identifier">qty</span><span> = </span><span class="identifier">s</span><span>.</span><span class="identifier">qty</span><span>))
+  .</span><span class="identifier">returningTuple</span><span>(</span><span class="identifier">r</span><span> =&gt; (</span><span class="type-name">Pg</span><span>.</span><span class="identifier">mergeAction</span><span>, </span><span class="identifier">r</span><span>.</span><span class="identifier">stock</span><span>.</span><span class="identifier">sku</span><span>))
+</span><span class="comment">// audited.run(session): List[(String, String)]</span></code></pre>
+
+        
+<hr class="footer-rule"/>
+<footer>
+  Site generated by <a href="https://typelevel.org/Laika/">Laika</a> with the Helium theme.
+</footer>
+
+
+      </main>
+
+    </div>
+
+  </body>
+
+</html>
