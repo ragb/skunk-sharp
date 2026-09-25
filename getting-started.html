@@ -109,13 +109,13 @@
 </span><span class="identifier">resolvers</span><span> += </span><span class="string-literal">&quot;skunk-sharp @ GitHub Packages&quot;</span><span> </span><span class="identifier">at</span><span>
   </span><span class="string-literal">&quot;https://maven.pkg.github.com/ragb/skunk-sharp&quot;</span><span>
 
-</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-core&quot;</span><span> % </span><span class="string-literal">&quot;0.0.1-24-b2fb187-SNAPSHOT&quot;</span><span>
+</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-core&quot;</span><span> % </span><span class="string-literal">&quot;0.0.1-26-bacf9b5-SNAPSHOT&quot;</span><span>
 
 </span><span class="comment">// Optional modules
-</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-iron&quot;</span><span>    % </span><span class="string-literal">&quot;0.0.1-24-b2fb187-SNAPSHOT&quot;</span><span>
-</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-refined&quot;</span><span> % </span><span class="string-literal">&quot;0.0.1-24-b2fb187-SNAPSHOT&quot;</span><span>
-</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-circe&quot;</span><span>   % </span><span class="string-literal">&quot;0.0.1-24-b2fb187-SNAPSHOT&quot;</span><span>
-</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-postgis&quot;</span><span> % </span><span class="string-literal">&quot;0.0.1-24-b2fb187-SNAPSHOT&quot;</span></code></pre>
+</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-iron&quot;</span><span>    % </span><span class="string-literal">&quot;0.0.1-26-bacf9b5-SNAPSHOT&quot;</span><span>
+</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-refined&quot;</span><span> % </span><span class="string-literal">&quot;0.0.1-26-bacf9b5-SNAPSHOT&quot;</span><span>
+</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-circe&quot;</span><span>   % </span><span class="string-literal">&quot;0.0.1-26-bacf9b5-SNAPSHOT&quot;</span><span>
+</span><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-postgis&quot;</span><span> % </span><span class="string-literal">&quot;0.0.1-26-bacf9b5-SNAPSHOT&quot;</span></code></pre>
         <p>GitHub Packages requires authentication <strong>even for public packages</strong>. Add a GitHub
         <a href="https://github.com/settings/tokens">personal access token</a> with the <code>read:packages</code>
         scope to your sbt credentials — e.g. in <code>~/.sbt/1.0/github.sbt</code>:</p>
@@ -150,7 +150,9 @@
         <p>With the table in scope, the DSL entry points are extension methods directly on <code>users</code>:</p>
         <p>Static-by-default: literal values go through <code>lit(v)</code> (compile-time constant, inlined as <code>&#39;v&#39;</code>)
         or <code>Param.bind(v)</code> (bake the value into a Void-args fragment). Use <code>Param[T]</code> for deferred
-        parameters that get supplied at execute time.</p>
+        parameters that get supplied at execute time, and <code>Param.named[&quot;name&quot;, T]</code> when a statement has
+        several same-typed parameters or reuses one — it then runs with a named tuple (see
+        <a href="select.html#named-parameters">Named parameters</a>).</p>
         <pre><code class="nohighlight"><span class="comment">// SELECT — compiles to a CompiledQuery[...]
 </span><span class="keyword">val</span><span> </span><span class="identifier">allAdults</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>
   .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> &gt;= </span><span class="identifier">lit</span><span>(</span><span class="number-literal">18</span><span>))

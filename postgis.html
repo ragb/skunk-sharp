@@ -105,7 +105,7 @@
         <p>Spatial types and <code>ST_*</code> operators, layered on top of <a href="https://github.com/typelevel/skunk/tree/main/modules/postgis">skunk-postgis</a>.
         <strong>Shipped as a separate artifact</strong> — skunk-postgis pulls in a scodec / EWKB dependency
         that not every consumer wants, so the bridge module follows the same separation:</p>
-        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-postgis&quot;</span><span> % </span><span class="string-literal">&quot;0.0.1-24-b2fb187-SNAPSHOT&quot;</span></code></pre>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="identifier">libraryDependencies</span><span> += </span><span class="string-literal">&quot;io.github.ragb&quot;</span><span> %% </span><span class="string-literal">&quot;skunk-sharp-postgis&quot;</span><span> % </span><span class="string-literal">&quot;0.0.1-26-bacf9b5-SNAPSHOT&quot;</span></code></pre>
         <p>Requires <code>CREATE EXTENSION postgis;</code> on the target database. The schema validator picks
         this up automatically from any column with a geometry-typed <code>PgTypeFor</code>, and also from
         the explicit-codec construction path — <code>Table.builder.column(&quot;loc&quot;, skunk.postgis.codecs.all.point)</code>
@@ -154,9 +154,10 @@
         <p>Filtering buildings within a radius of a given lat/lon is the canonical PostGIS query —
         build the probe point with <code>ST_SetSRID(ST_MakePoint(lon, lat), 4326)</code> and feed it to
         <code>ST_DWithin</code>:</p>
-        <pre><code class="nohighlight"><span class="keyword">val</span><span> </span><span class="identifier">lat</span><span>    = </span><span class="type-name">Param</span><span>[</span><span class="type-name">Double</span><span>]
-</span><span class="keyword">val</span><span> </span><span class="identifier">lon</span><span>    = </span><span class="type-name">Param</span><span>[</span><span class="type-name">Double</span><span>]
-</span><span class="keyword">val</span><span> </span><span class="identifier">radius</span><span> = </span><span class="type-name">Param</span><span>[</span><span class="type-name">Double</span><span>]
+        <pre><code class="nohighlight"><span class="comment">// Three Doubles, and ST_MakePoint wants lon before lat — named params make the order irrelevant.
+</span><span class="keyword">val</span><span> </span><span class="identifier">lat</span><span>    = </span><span class="type-name">Param</span><span>.</span><span class="identifier">named</span><span>[</span><span class="string-literal">&quot;lat&quot;</span><span>, </span><span class="type-name">Double</span><span>]
+</span><span class="keyword">val</span><span> </span><span class="identifier">lon</span><span>    = </span><span class="type-name">Param</span><span>.</span><span class="identifier">named</span><span>[</span><span class="string-literal">&quot;lon&quot;</span><span>, </span><span class="type-name">Double</span><span>]
+</span><span class="keyword">val</span><span> </span><span class="identifier">radius</span><span> = </span><span class="type-name">Param</span><span>.</span><span class="identifier">named</span><span>[</span><span class="string-literal">&quot;radius&quot;</span><span>, </span><span class="type-name">Double</span><span>]
 
 </span><span class="keyword">val</span><span> </span><span class="identifier">nearby</span><span> = </span><span class="identifier">buildings</span><span>.</span><span class="identifier">select</span><span>
   .</span><span class="identifier">where</span><span> { </span><span class="identifier">b</span><span> =&gt;
@@ -166,10 +167,13 @@
     )
     </span><span class="identifier">b</span><span>.</span><span class="identifier">geom</span><span>.</span><span class="identifier">dWithin</span><span>(</span><span class="identifier">probe</span><span>, </span><span class="identifier">radius</span><span>)
   }
-  .</span><span class="identifier">compile</span><span>  </span><span class="comment">// CompiledQuery[(Double, Double, Double), NamedRow]</span></code></pre>
+  .</span><span class="identifier">compile</span><span>
+</span><span class="comment">// nearby.run(session)((lon = -6.26, lat = 53.34, radius = 500.0))</span></code></pre>
         <p><code>b.geom</code> is a <code>TypedColumn[Point, false, &quot;geom&quot;]</code>; <code>b.geom.dWithin(probe, radius)</code>
-        widens to <code>Geometry</code> internally so it threads through <code>ST_DWithin</code> cleanly. The
-        captured-args tuple is exactly the three <code>Param</code>s in the order they appear.</p>
+        widens to <code>Geometry</code> internally so it threads through <code>ST_DWithin</code> cleanly. Because every
+        parameter is named, the query runs with a named tuple instead of a positional <code>(Double, Double,
+Double)</code> whose order would have to match the SQL. See
+        <a href="select.html#named-parameters">Named parameters</a>.</p>
         
         <h2 id="bounding-box-vs-exact-predicates" class="section"><a class="anchor-link left" href="#bounding-box-vs-exact-predicates"><i class="icofont-laika link">&#xef71;</i></a>Bounding-box vs. exact predicates</h2>
         <p>The cheap <code>&amp;&amp;</code> / <code>~</code> / <code>@</code> bounding-box operators short-circuit on a GiST index and
@@ -212,9 +216,9 @@
 </span><span class="keyword">ORDER</span><span> </span><span class="keyword">BY</span><span> </span><span class="identifier">free_count</span><span> </span><span class="keyword">DESC</span><span>, </span><span class="identifier">b</span><span>.</span><span class="identifier">name</span><span> </span><span class="keyword">ASC</span></code></pre>
         <p>In skunk-sharp this is <code>buildings.leftJoin(rooms).on(...).select(...).where(...)
 .groupBy(...).orderBy(...).to[Row].compile</code> — fully <strong>static</strong> (compiled once,
-        parameters bound per call) thanks to <code>Param[T]</code> for every scalar input and
-        <code>Pg.notExists(...)</code> for the correlated subquery. Args at execute time is
-        <code>(PgRange[LocalDate], Double, Double, Double)</code>.</p>
+        parameters bound per call) thanks to a named <code>Param</code> for every scalar input and
+        <code>Pg.notExists(...)</code> for the correlated subquery. It runs with
+        <code>(period = …, lon = …, lat = …, radius = …)</code>.</p>
         <p>The query is index-backed end-to-end by the migrations already in place — V1&#39;s
         <code>EXCLUDE USING gist (room_id WITH =, period WITH &amp;&amp;)</code> on bookings serves the
         <code>NOT EXISTS</code>, V3&#39;s <code>buildings_geom_gist</code> serves <code>ST_DWithin</code>, V3&#39;s

@@ -101,6 +101,7 @@
     <li class="level1 nav-leaf"><a href="#uuids">UUIDs</a></li>
     <li class="level1 nav-leaf"><a href="#primitive-literals-as-direct-rhs">Primitive literals as direct RHS</a></li>
     <li class="level1 nav-leaf"><a href="#in-list-parameters-with-param-list-t-n">IN-list parameters with <code>Param.list[T](n)</code></a></li>
+    <li class="level1 nav-leaf"><a href="#named-parameters">Named parameters</a></li>
     <li class="level1 nav-leaf"><a href="#dynamic-predicates-with-allof-anyof">Dynamic predicates with <code>allOf</code> / <code>anyOf</code></a></li>
   </ul>
 
@@ -316,6 +317,31 @@
 </span><span class="comment">// byIds: CompiledQuery[List[UUID], …]</span></code></pre>
         <p>For sizes that vary per call, rebuild the query per size, or use array equality
         (<code>col === ANY(Param[Arr[T]])</code>) instead.</p>
+        
+        <h2 id="named-parameters" class="section"><a class="anchor-link left" href="#named-parameters"><i class="icofont-laika link">&#xef71;</i></a>Named parameters</h2>
+        <p><code>Param[T]</code> placeholders are positional: the compiled statement takes a tuple in the order the
+        placeholders appear in the SQL. That&#39;s fine for simple statements. For complex ones — several
+        same-typed values that could be swapped, or one value used in several places — name them with
+        <code>Param.named[&quot;name&quot;, T]</code>. When <strong>every</strong> placeholder of a statement is named, it runs with a
+        <strong>named tuple</strong>, one field per distinct name, and a name used several times is bound once:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">val</span><span> </span><span class="identifier">inAgeBand</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt;
+    </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> &gt;= </span><span class="type-name">Param</span><span>.</span><span class="identifier">named</span><span>[</span><span class="string-literal">&quot;min&quot;</span><span>, </span><span class="type-name">Int</span><span>] &amp;&amp; </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> &lt;= </span><span class="type-name">Param</span><span>.</span><span class="identifier">named</span><span>[</span><span class="string-literal">&quot;max&quot;</span><span>, </span><span class="type-name">Int</span><span>] &amp;&amp;
+      (</span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> !== </span><span class="type-name">Param</span><span>.</span><span class="identifier">named</span><span>[</span><span class="string-literal">&quot;min&quot;</span><span>, </span><span class="type-name">Int</span><span>]).</span><span class="identifier">or</span><span>(</span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span>.</span><span class="identifier">like</span><span>(</span><span class="type-name">Param</span><span>.</span><span class="identifier">named</span><span>[</span><span class="string-literal">&quot;pattern&quot;</span><span>, </span><span class="type-name">String</span><span>]))
+  )
+  .</span><span class="identifier">compile</span><span>
+</span><span class="comment">// inAgeBand.run(session)((min = 18, max = 30, pattern = &quot;%@example.com&quot;))</span></code></pre>
+        <ul>
+          <li>Fields follow each name&#39;s first appearance in the SQL (<code>min</code>, <code>max</code>, <code>pattern</code> above);
+          a misspelled or missing name doesn&#39;t compile.</li>
+          <li>Using one name with two different types doesn&#39;t compile: <code>named parameter (&quot;min&quot; : String)
+is used with different types …</code>.</li>
+          <li>A statement that mixes named and positional placeholders stays positional (named slots then
+          take a bare value in their position).</li>
+          <li>Nothing changes in the SQL or the compiled plan — names only exist at the call site.
+          <code>prepared</code>, <code>stream</code>, <code>cursor</code> and the Kleisli variants take the same named tuple.</li>
+          <li>Batch helpers take a name too: <code>Pg.unnestRows[Row](&quot;rows&quot;)</code> (see <a href="merge.html">MERGE</a>).</li>
+        </ul>
         
         <h2 id="dynamic-predicates-with-allof-anyof" class="section"><a class="anchor-link left" href="#dynamic-predicates-with-allof-anyof"><i class="icofont-laika link">&#xef71;</i></a>Dynamic predicates with <code>allOf</code> / <code>anyOf</code></h2>
         <p>For predicates assembled from a runtime list (filter ADT, optional query parameters),
