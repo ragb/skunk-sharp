@@ -156,6 +156,9 @@
             </tr>
           </tbody>
         </table>
+        <p>A branch after an <strong>unconditional</strong> branch of the same kind can never fire, and Postgres rejects it (&quot;unreachable
+        WHEN clause&quot;). The DSL rejects it at compile time: after <code>.whenMatched.update(…)</code>, another <code>.whenMatched…</code> doesn&#39;t
+        compile. Put conditional branches first and the catch-all last.</p>
         <p>The views mirror what Postgres allows: a <code>WHEN NOT MATCHED</code> row has no target row, so the lambda simply has no
         target columns to refer to.</p>
         <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// Sync `stock` to `incoming`: update, delete zeroed rows, insert new ones, delete rows gone from the source.
@@ -191,21 +194,25 @@
         
         <h2 id="batches-as-typed-parameters" class="section"><a class="anchor-link left" href="#batches-as-typed-parameters"><i class="icofont-laika link">&#xef71;</i></a>Batches as typed parameters</h2>
         <p>To merge a batch of rows that lives in your application, don&#39;t build a <code>VALUES</code> list per call: that bakes the values
-        into the SQL, so every batch is a different statement. Pass one array per column instead, through
-        <code>Pg.unnestAsRelation</code>, and the whole batch becomes typed arguments of <strong>one</strong> statement you compile once:</p>
-        <p><code>List[T]</code> parameters map to Postgres arrays through the collection codecs, which need <code>import skunk.sharp.dsl.given</code>:</p>
+        into the SQL, so every batch is a different statement. Pass the batch as <strong>one</strong> typed parameter with
+        <code>Pg.unnestRows[Row]</code>. <code>Row</code> is a case class or named tuple; at execute time the <code>List[Row]</code> is split into one Postgres
+        array per field (<code>unnest($1, $2)</code>), so a single prepared statement serves any batch size. The array codecs need
+        <code>import skunk.sharp.dsl.given</code>:</p>
         <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">dsl</span><span>.</span><span class="keyword">given</span><span>
 
-</span><span class="keyword">val</span><span> </span><span class="identifier">syncStock</span><span>: </span><span class="type-name">CommandTemplate</span><span>[(</span><span class="type-name">List</span><span>[</span><span class="type-name">String</span><span>], </span><span class="type-name">List</span><span>[</span><span class="type-name">Int</span><span>])] = </span><span class="identifier">stock</span><span>
-  .</span><span class="identifier">merge</span><span>(</span><span class="type-name">Pg</span><span>.</span><span class="identifier">unnestAsRelation</span><span>((</span><span class="identifier">sku</span><span> = </span><span class="type-name">Param</span><span>[</span><span class="type-name">List</span><span>[</span><span class="type-name">String</span><span>]], </span><span class="identifier">qty</span><span> = </span><span class="type-name">Param</span><span>[</span><span class="type-name">List</span><span>[</span><span class="type-name">Int</span><span>]])).</span><span class="identifier">alias</span><span>(</span><span class="string-literal">&quot;batch&quot;</span><span>))
+</span><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">StockLine</span><span>(</span><span class="identifier">sku</span><span>: </span><span class="type-name">String</span><span>, </span><span class="identifier">qty</span><span>: </span><span class="type-name">Int</span><span>)
+
+</span><span class="keyword">val</span><span> </span><span class="identifier">syncStock</span><span>: </span><span class="type-name">CommandTemplate</span><span>[</span><span class="type-name">List</span><span>[</span><span class="type-name">StockLine</span><span>]] = </span><span class="identifier">stock</span><span>
+  .</span><span class="identifier">merge</span><span>(</span><span class="type-name">Pg</span><span>.</span><span class="identifier">unnestRows</span><span>[</span><span class="type-name">StockLine</span><span>].</span><span class="identifier">alias</span><span>(</span><span class="string-literal">&quot;batch&quot;</span><span>))
   .</span><span class="identifier">on</span><span>(</span><span class="identifier">r</span><span> =&gt; </span><span class="identifier">r</span><span>.</span><span class="identifier">stock</span><span>.</span><span class="identifier">sku</span><span> === </span><span class="identifier">r</span><span>.</span><span class="identifier">batch</span><span>.</span><span class="identifier">sku</span><span>)
   .</span><span class="identifier">whenMatched</span><span>.</span><span class="identifier">update</span><span>(</span><span class="identifier">r</span><span> =&gt; </span><span class="identifier">r</span><span>.</span><span class="identifier">stock</span><span>.</span><span class="identifier">qty</span><span> := </span><span class="identifier">r</span><span>.</span><span class="identifier">batch</span><span>.</span><span class="identifier">qty</span><span>)
   .</span><span class="identifier">whenNotMatched</span><span>.</span><span class="identifier">insert</span><span>(</span><span class="identifier">b</span><span> =&gt; (</span><span class="identifier">sku</span><span> = </span><span class="identifier">b</span><span>.</span><span class="identifier">sku</span><span>, </span><span class="identifier">qty</span><span> = </span><span class="identifier">b</span><span>.</span><span class="identifier">qty</span><span>))
   .</span><span class="identifier">compile</span><span>
 </span><span class="comment">// MERGE INTO &quot;stock&quot; USING unnest($1, $2) AS &quot;batch&quot;(&quot;sku&quot;, &quot;qty&quot;) ON …
-// syncStock.run(session)((List(&quot;a&quot;, &quot;b&quot;), List(1, 2)))</span></code></pre>
-        <p>The arrays should have the same length — Postgres pads shorter ones with NULL. The example app&#39;s
-        <code>PUT /api/v1/buildings/{id}/rooms</code> endpoint uses this shape to sync a building&#39;s rooms in one statement.</p>
+// syncStock.run(session)(List(StockLine(&quot;a&quot;, 1), StockLine(&quot;b&quot;, 2)))</span></code></pre>
+        <p>If you already hold one list per column, <code>Pg.unnestAsRelation((sku = Param[List[String]], qty = Param[List[Int]]))</code>
+        takes them as separate parameters. The lists must be the same length (checked when the statement is encoded). The
+        example app&#39;s <code>PUT /api/v1/buildings/{id}/rooms</code> endpoint syncs a building&#39;s rooms this way in one statement.</p>
         
         <h2 id="returning-pg-17" class="section"><a class="anchor-link left" href="#returning-pg-17"><i class="icofont-laika link">&#xef71;</i></a>RETURNING (PG 17+)</h2>
         <p><code>.returning</code> / <code>.returningTuple</code> can use columns from both sides, plus <code>Pg.mergeAction</code>, which is <code>&#39;INSERT&#39;</code>,
