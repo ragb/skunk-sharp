@@ -578,6 +578,18 @@ extension [T, Null <: Boolean, N <: String & Singleton](col: GeneratedColumn[T, 
 
 }
 
+extension [T, Null <: Boolean, N <: String & Singleton](col: SourceColumn[T, Null, N]) {
+
+  /** MERGE source columns can't be assigned — always a compile error naming the column. */
+  @scala.annotation.targetName("assignSource")
+  inline def :=[A](expr: TypedExpr[T, A]): SetAssignment[T, A] =
+    scala.compiletime.error(
+      "skunk-sharp: column \"" + scala.compiletime.constValue[N] +
+        "\" belongs to the MERGE source — only target columns can be assigned in UPDATE SET."
+    )
+
+}
+
 /**
  * The view UPDATE … FROM SET lambdas receive: [[JoinedView]] with every source's generated columns typed as
  * [[skunk.sharp.GeneratedColumn]], so assigning to them is a compile error.

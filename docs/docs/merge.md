@@ -59,7 +59,8 @@ val sync = stock
 
 `.insert` gets the same compile-time checks as `table.insert`: every name must be a target column, every required
 column must be present, generated columns (`.withGenerated`) can't be written, and each expression's type must fit
-its column. `.update` uses the same `:=` assignments as UPDATE, including the ban on assigning generated columns.
+its column. `.update` uses the same `:=` assignments as UPDATE, including the ban on assigning generated columns; in a
+`whenMatched` branch the source columns are readable but not assignable (`r.incoming.qty := …` doesn't compile).
 
 ```scala mdoc:fail
 // Does not compile: insert is missing required column "qty".

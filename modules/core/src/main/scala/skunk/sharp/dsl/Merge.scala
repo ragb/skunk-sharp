@@ -187,22 +187,33 @@ final class MergeMatched[
   private[sharp] val cond: Fragment[CondA]
 ) {
 
-  /** `THEN UPDATE SET <col := expr>` — both relations are visible; generated target columns can't be assigned. */
-  inline def update[A](f: SetJoinedView[Ss] => SetAssignment[?, A])
+  /**
+   * `THEN UPDATE SET <col := expr>` — both relations are readable, but only target columns can be assigned (and not
+   * generated ones); assigning a source column is a compile error.
+   */
+  inline def update[A](f: MergeSetView[Ss] => SetAssignment[?, A])
     : MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[CArgs, Where.Concat[CondA, A]], true] = {
-    val sa = f(buildJoinedView(cmd.sources).asInstanceOf[SetJoinedView[Ss]])
+    val sa = f(buildJoinedView(cmd.sources).asInstanceOf[MergeSetView[Ss]])
     cmd.addClause(TypedExpr.combineSepInl[CondA, A](cond, " THEN UPDATE SET ", sa.fragment))
   }
 
-  /** `THEN UPDATE SET a = …, b = …` — tuple form; the assignments' Args collapse to `Void` (use `&` to keep them). */
+  /** `THEN UPDATE SET a = …, b = …` — tuple form; Args are the flat fold of every assignment's Args. */
   @scala.annotation.targetName("updateTuple")
-  inline def update(f: SetJoinedView[Ss] => Tuple)
-    : MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[CArgs, Where.Concat[CondA, Void]], true] = {
-    val raw = f(buildJoinedView(cmd.sources).asInstanceOf[SetJoinedView[Ss]]).toList
-      .asInstanceOf[List[SetAssignment[?, ?]]]
-    val set = SetAssignment.combineAll(raw).asInstanceOf[Fragment[Void]]
-    cmd.addClause(TypedExpr.combineSepInl[CondA, Void](cond, " THEN UPDATE SET ", set))
-  }
+  inline def update[T <: Tuple](f: MergeSetView[Ss] => T)
+    : MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[
+      CArgs,
+      Where.Concat[CondA, Where.FoldConcat[SetArgsOf[T]]]
+    ], true] =
+    cmd.addClause(
+      TypedExpr.combineSepInl[CondA, Where.FoldConcat[SetArgsOf[T]]](
+        cond,
+        " THEN UPDATE SET ",
+        SetAssignment.combineTyped[Where.FoldConcat[SetArgsOf[T]]](
+          f(buildJoinedView(cmd.sources).asInstanceOf[MergeSetView[Ss]]),
+          c => Where.projectFoldConcat[SetArgsOf[T]](c)
+        )
+      )
+    )
 
   /** `THEN DELETE` — delete the matched target row. */
   inline def delete: MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[CArgs, CondA], true] =
@@ -274,14 +285,23 @@ final class MergeBySource[
     cmd.addClause(TypedExpr.combineSepInl[CondA, A](cond, " THEN UPDATE SET ", sa.fragment))
   }
 
-  /** `THEN UPDATE SET a = …, b = …` — tuple form; the assignments' Args collapse to `Void` (use `&` to keep them). */
+  /** `THEN UPDATE SET a = …, b = …` — tuple form; Args are the flat fold of every assignment's Args. */
   @scala.annotation.targetName("updateTuple")
-  inline def update(f: SetView[Cols] => Tuple)
-    : MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[CArgs, Where.Concat[CondA, Void]], true] = {
-    val raw = f(Merge.targetView(cmd.table).asInstanceOf[SetView[Cols]]).toList.asInstanceOf[List[SetAssignment[?, ?]]]
-    val set = SetAssignment.combineAll(raw).asInstanceOf[Fragment[Void]]
-    cmd.addClause(TypedExpr.combineSepInl[CondA, Void](cond, " THEN UPDATE SET ", set))
-  }
+  inline def update[T <: Tuple](f: SetView[Cols] => T)
+    : MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[
+      CArgs,
+      Where.Concat[CondA, Where.FoldConcat[SetArgsOf[T]]]
+    ], true] =
+    cmd.addClause(
+      TypedExpr.combineSepInl[CondA, Where.FoldConcat[SetArgsOf[T]]](
+        cond,
+        " THEN UPDATE SET ",
+        SetAssignment.combineTyped[Where.FoldConcat[SetArgsOf[T]]](
+          f(Merge.targetView(cmd.table).asInstanceOf[SetView[Cols]]),
+          c => Where.projectFoldConcat[SetArgsOf[T]](c)
+        )
+      )
+    )
 
   /** `THEN DELETE` — delete the target row that has no source row. */
   inline def delete: MergeCommand[Cols, Name, CR, Ss, OnArgs, Where.Concat[CArgs, CondA], true] =
@@ -296,6 +316,15 @@ final class MergeBySource[
 /** The value type of a `TypedExpr` (a column, `Param`, function call, …). */
 type ExprValue[X] = X match {
   case TypedExpr[t, ?] => t
+}
+
+/**
+ * The view a `whenMatched` SET lambda receives: the target as a [[skunk.sharp.SetView]] (assignable, generated columns
+ * excepted), the source as a read-only [[skunk.sharp.SourceView]].
+ */
+type MergeSetView[Ss <: Tuple] = Ss match {
+  case SourceEntry[?, ?, ct, at, ?] *: SourceEntry[?, ?, cs, as, ?] *: EmptyTuple =>
+    NamedTuple.NamedTuple[at *: as *: EmptyTuple, SetView[ct] *: SourceView[cs] *: EmptyTuple]
 }
 
 object Merge {

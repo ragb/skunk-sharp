@@ -243,4 +243,30 @@ class MergeSuite extends munit.FunSuite {
         """ WHEN NOT MATCHED THEN INSERT ("sku", "qty") VALUES ("batch"."sku", "batch"."qty")"""
     )
   }
+
+  test("tuple .update folds Params into the MERGE Args (matched and by-source)") {
+    val q: CommandTemplate[(Int, Int)] = stock
+      .merge(incoming)
+      .on(r => r.stock.sku === r.incoming.sku)
+      .whenMatched
+      .update(r => (r.stock.qty := Param[Int], r.stock.note := Pg.nullOf[String]))
+      .whenNotMatchedBySource
+      .update(t => (t.qty := Param[Int], t.note := Pg.nullOf[String]))
+      .compile
+    assertEquals(
+      q.fragment.sql,
+      head + """ WHEN MATCHED THEN UPDATE SET "qty" = $1, "note" = NULL""" +
+        """ WHEN NOT MATCHED BY SOURCE THEN UPDATE SET "qty" = $2, "note" = NULL"""
+    )
+    assertEquals(q.fragment.encoder.encode((5, 6)).flatten.map(_.value), List("5", "6"))
+  }
+
+  test("WHEN MATCHED UPDATE can't assign a source column") {
+    val msg = errorsOf("""
+      import skunk.sharp.dsl.*
+      import MergeSuite.*
+      stock.merge(incoming).on(r => r.stock.sku === r.incoming.sku).whenMatched.update(r => r.incoming.qty := r.stock.qty)
+    """)
+    assert(msg.contains("\"qty\" belongs to the MERGE source"), msg)
+  }
 }

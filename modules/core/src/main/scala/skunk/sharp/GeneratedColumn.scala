@@ -27,3 +27,18 @@ type SetColumnsOf[Cols <: Tuple] <: Tuple = Cols match {
  * [[GeneratedColumn]] so assigning to them is a compile error.
  */
 type SetView[Cols <: Tuple] = scala.NamedTuple.NamedTuple[NamesOf[Cols], SetColumnsOf[Cols]]
+
+/**
+ * How a MERGE *source* column appears in a `whenMatched` SET lambda: readable (`r.stock.qty := r.incoming.qty`), but
+ * not a [[TypedColumn]], so it can't be assigned — only target columns can. The `:=` shipped for it in
+ * `skunk.sharp.dsl` fails compilation with an explanation. At runtime it is the plain `TypedColumn`.
+ */
+opaque type SourceColumn[T, Null <: Boolean, N <: String & Singleton] <: TypedExpr[T, Void] = TypedColumn[T, Null, N]
+
+type SourceColumnsOf[Cols <: Tuple] <: Tuple = Cols match {
+  case Column[t, n, nu, attrs] *: tail => SourceColumn[t, nu, n] *: SourceColumnsOf[tail]
+  case EmptyTuple                      => EmptyTuple
+}
+
+/** A relation's columns as read-only [[SourceColumn]]s — the MERGE source side of a SET lambda. */
+type SourceView[Cols <: Tuple] = scala.NamedTuple.NamedTuple[NamesOf[Cols], SourceColumnsOf[Cols]]
