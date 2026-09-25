@@ -28,6 +28,7 @@ object Pg
     with PgString
     with PgTime
     with PgUuid
+    with PgMerge
     with PgSession
     with PgAggregate
     with PgNull

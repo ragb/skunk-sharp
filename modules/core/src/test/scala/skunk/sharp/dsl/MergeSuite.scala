@@ -1,0 +1,229 @@
+package skunk.sharp.dsl
+
+import skunk.Void
+import skunk.sharp.dsl.*
+
+import scala.compiletime.testing.*
+
+object MergeSuite {
+  case class Stock(sku: String, qty: Int, note: Option[String], qty_x2: Int)
+  case class Incoming(sku: String, qty: Int)
+
+  val stock    = Table.of[Stock]("stock").withPrimary("sku").withDefault("note").withGenerated("qty_x2")
+  val incoming = Table.of[Incoming]("incoming")
+}
+
+class MergeSuite extends munit.FunSuite {
+  import MergeSuite.*
+
+  private inline def errorsOf(inline code: String): String = {
+    val errs = typeCheckErrors(code)
+    assert(errs.nonEmpty, "expected a compile error")
+    errs.map(_.message).mkString("\n")
+  }
+
+  private val head = """MERGE INTO "stock" USING "incoming" ON "stock"."sku" = "incoming"."sku""""
+
+  test("upsert: WHEN MATCHED UPDATE + WHEN NOT MATCHED INSERT") {
+    val q: CommandTemplate[Void] = stock
+      .merge(incoming)
+      .on(r => r.stock.sku === r.incoming.sku)
+      .whenMatched
+      .update(r => r.stock.qty := r.incoming.qty)
+      .whenNotMatched
+      .insert(s => (sku = s.sku, qty = s.qty))
+      .compile
+    assertEquals(
+      q.fragment.sql,
+      head + """ WHEN MATCHED THEN UPDATE SET "qty" = "incoming"."qty"""" +
+        """ WHEN NOT MATCHED THEN INSERT ("sku", "qty") VALUES ("incoming"."sku", "incoming"."qty")"""
+    )
+  }
+
+  test("conditional branches, DELETE and DO NOTHING; branch order is kept") {
+    val q = stock
+      .merge(incoming)
+      .on(r => r.stock.sku === r.incoming.sku)
+      .whenMatched(r => r.incoming.qty === 0)
+      .delete
+      .whenMatched(r => r.stock.qty === r.incoming.qty)
+      .doNothing
+      .whenMatched
+      .update(r => (r.stock.qty := r.incoming.qty, r.stock.note := Pg.nullOf[String]))
+      .whenNotMatched(s => s.qty > 0)
+      .insert(s => (sku = s.sku, qty = s.qty))
+      .whenNotMatched
+      .doNothing
+      .compile
+    assertEquals(
+      q.fragment.sql,
+      head +
+        """ WHEN MATCHED AND "incoming"."qty" = 0 THEN DELETE""" +
+        """ WHEN MATCHED AND "stock"."qty" = "incoming"."qty" THEN DO NOTHING""" +
+        """ WHEN MATCHED THEN UPDATE SET "qty" = "incoming"."qty", "note" = NULL""" +
+        """ WHEN NOT MATCHED AND "incoming"."qty" > 0 THEN INSERT ("sku", "qty") VALUES ("incoming"."sku", "incoming"."qty")""" +
+        """ WHEN NOT MATCHED THEN DO NOTHING"""
+    )
+  }
+
+  test("WHEN NOT MATCHED BY SOURCE sees only the target") {
+    val q = stock
+      .merge(incoming)
+      .on(r => r.stock.sku === r.incoming.sku)
+      .whenNotMatchedBySource(t => t.qty === 0)
+      .delete
+      .whenNotMatchedBySource
+      .update(t => t.qty := 0)
+      .compile
+    assertEquals(
+      q.fragment.sql,
+      head +
+        """ WHEN NOT MATCHED BY SOURCE AND "stock"."qty" = 0 THEN DELETE""" +
+        """ WHEN NOT MATCHED BY SOURCE THEN UPDATE SET "qty" = 0"""
+    )
+  }
+
+  test("typed Params thread through ON, conditions and actions in SQL order") {
+    val q: CommandTemplate[(String, Int, Int)] = stock
+      .merge(incoming)
+      .on(r => r.stock.sku === r.incoming.sku && (r.stock.sku !== Param[String]))
+      .whenMatched(r => r.incoming.qty > Param[Int])
+      .update(r => r.stock.qty := r.incoming.qty)
+      .whenNotMatched
+      .insert(s => (sku = s.sku, qty = Param[Int]))
+      .compile
+    assertEquals(
+      q.fragment.sql,
+      """MERGE INTO "stock" USING "incoming" ON ("stock"."sku" = "incoming"."sku" AND "stock"."sku" <> $1)""" +
+        """ WHEN MATCHED AND "incoming"."qty" > $2 THEN UPDATE SET "qty" = "incoming"."qty"""" +
+        """ WHEN NOT MATCHED THEN INSERT ("sku", "qty") VALUES ("incoming"."sku", $3)"""
+    )
+  }
+
+  test("a typed subquery source threads its Params first") {
+    val q: CommandTemplate[(Int, Int)] = stock
+      .merge(incoming.select.where(i => i.qty > Param[Int]).alias("src"))
+      .on(r => r.stock.sku === r.src.sku)
+      .whenMatched
+      .update(r => r.stock.qty := r.src.qty)
+      .whenNotMatched(s => s.qty < Param[Int])
+      .doNothing
+      .compile
+    assertEquals(
+      q.fragment.sql,
+      """MERGE INTO "stock" USING (SELECT "sku", "qty" FROM "incoming" WHERE "qty" > $1) AS "src"""" +
+        """ ON "stock"."sku" = "src"."sku"""" +
+        """ WHEN MATCHED THEN UPDATE SET "qty" = "src"."qty"""" +
+        """ WHEN NOT MATCHED AND "src"."qty" < $2 THEN DO NOTHING"""
+    )
+  }
+
+  test("an aliased source table uses its alias") {
+    val q = stock
+      .merge(incoming.alias("i"))
+      .on(r => r.stock.sku === r.i.sku)
+      .whenMatched
+      .delete
+      .compile
+    assertEquals(
+      q.fragment.sql,
+      """MERGE INTO "stock" USING "incoming" AS "i" ON "stock"."sku" = "i"."sku" WHEN MATCHED THEN DELETE"""
+    )
+  }
+
+  test("RETURNING merge_action() and columns from both sides") {
+    val q = stock
+      .merge(incoming)
+      .on(r => r.stock.sku === r.incoming.sku)
+      .whenMatched
+      .update(r => r.stock.qty := r.incoming.qty)
+      .whenNotMatched
+      .insert(s => (sku = s.sku, qty = s.qty))
+      .returningTuple(r => (Pg.mergeAction, r.stock.sku, r.stock.qty))
+    val _: QueryTemplate[Void, (String, String, Int)] = q
+    assert(q.fragment.sql.endsWith(""" RETURNING merge_action(), "stock"."sku", "stock"."qty""""), q.fragment.sql)
+  }
+
+  // ---- Compile-time rejections ----
+
+  test(".compile without any WHEN branch does not compile") {
+    val msg = errorsOf("""
+      import skunk.sharp.dsl.*
+      import MergeSuite.*
+      stock.merge(incoming).on(r => r.stock.sku === r.incoming.sku).compile
+    """)
+    assert(msg.contains("at least one WHEN branch"), msg)
+  }
+
+  test("WHEN NOT MATCHED can't see the target") {
+    errorsOf("""
+      import skunk.sharp.dsl.*
+      import MergeSuite.*
+      stock.merge(incoming).on(r => r.stock.sku === r.incoming.sku).whenNotMatched(s => s.note.isNull)
+    """)
+  }
+
+  test("WHEN NOT MATCHED BY SOURCE can't see the source") {
+    errorsOf("""
+      import skunk.sharp.dsl.*
+      import MergeSuite.*
+      stock.merge(incoming).on(r => r.stock.sku === r.incoming.sku).whenNotMatchedBySource(t => t.sku === t.sku).delete
+        .whenNotMatchedBySource(r => r.incoming.qty === 0)
+    """)
+  }
+
+  test("INSERT must cover required target columns") {
+    val msg = errorsOf("""
+      import skunk.sharp.dsl.*
+      import MergeSuite.*
+      stock.merge(incoming).on(r => r.stock.sku === r.incoming.sku).whenNotMatched.insert(s => (sku = s.sku))
+    """)
+    assert(msg.contains("missing required column \"qty\""), msg)
+  }
+
+  test("INSERT rejects unknown columns, generated columns and mistyped values") {
+    val unknown = errorsOf("""
+      import skunk.sharp.dsl.*
+      import MergeSuite.*
+      stock.merge(incoming).on(r => r.stock.sku === r.incoming.sku).whenNotMatched
+        .insert(s => (sku = s.sku, qty = s.qty, nope = s.qty))
+    """)
+    assert(unknown.contains("\"nope\""), unknown)
+    val generated = errorsOf("""
+      import skunk.sharp.dsl.*
+      import MergeSuite.*
+      stock.merge(incoming).on(r => r.stock.sku === r.incoming.sku).whenNotMatched
+        .insert(s => (sku = s.sku, qty = s.qty, qty_x2 = s.qty))
+    """)
+    assert(generated.contains("\"qty_x2\" is generated"), generated)
+    val mistyped = errorsOf("""
+      import skunk.sharp.dsl.*
+      import MergeSuite.*
+      stock.merge(incoming).on(r => r.stock.sku === r.incoming.sku).whenNotMatched
+        .insert(s => (sku = s.qty, qty = s.qty))
+    """)
+    assert(mistyped.contains("Int <:< String"), mistyped)
+  }
+
+  test("WHEN MATCHED UPDATE can't assign a generated column") {
+    val msg = errorsOf("""
+      import skunk.sharp.dsl.*
+      import MergeSuite.*
+      stock.merge(incoming).on(r => r.stock.sku === r.incoming.sku).whenMatched.update(r => r.stock.qty_x2 := r.incoming.qty)
+    """)
+    assert(msg.contains("\"qty_x2\" is generated"), msg)
+  }
+
+  test("MERGE is not available on a view, and a source alias can't clash with the target") {
+    errorsOf("""
+      import skunk.sharp.dsl.*
+      import MergeSuite.*
+      View.of[Incoming]("v").merge(incoming)
+    """)
+    errorsOf("""
+      import skunk.sharp.dsl.*
+      import MergeSuite.*
+      stock.merge(incoming.alias("stock"))
+    """)
+  }
+}

@@ -47,6 +47,15 @@ object CompileBench {
       .select(r => (r.users.email, r.posts.title))
       .compile.af
 
+  val staging = users.renamed("users_staging")
+
+  def mergeUpsert(age: Int): skunk.AppliedFragment =
+    users.merge(staging).on(r => r.users.id === r.users_staging.id)
+      .whenMatched.update(r => r.users.email := r.users_staging.email)
+      .whenNotMatched(s => s.age >= Param.bind(age))
+      .insert(s => (id = s.id, email = s.email, age = s.age, createdAt = s.createdAt))
+      .compile.af
+
   // ---- Driver --------------------------------------------------------------------------------------
 
   def runScenario(name: String, n: Int, body: Int => skunk.AppliedFragment): Unit = {
@@ -125,6 +134,11 @@ object CompileBench {
       n,
       i =>
         deleteWhere(new UUID(0L, i.toLong))
+    )
+    runScenario(
+      "MERGE INTO users USING users_staging …",
+      n,
+      i => mergeUpsert(18 + (i & 31))
     )
     runScenario(
       "SELECT … FROM users INNER JOIN posts ON …",
