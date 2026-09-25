@@ -196,6 +196,18 @@ Use the built-in `empty` relation for queries with no FROM clause:
 val now = empty.select(_ => Pg.now).compile
 ```
 
+## UUIDs
+
+`Pg.uuidv7` generates time-ordered (version 7) UUIDs, which suit primary keys because they sort by creation time.
+`Pg.uuidExtractTimestamp` / `Pg.uuidExtractVersion` read a UUID back apart. Both return `Option`: Postgres yields NULL
+when there's nothing to extract, e.g. the timestamp of a random v4 UUID. `Pg.genRandomUuid` / `Pg.uuidv4` generate
+random UUIDs. Everything except `genRandomUuid` needs Postgres 18+.
+
+```scala mdoc:silent
+// SELECT uuidv7(), uuid_extract_timestamp(uuidv7())
+val fresh = empty.select(_ => (Pg.uuidv7, Pg.uuidExtractTimestamp(Pg.uuidv7))).compile
+```
+
 ## Primitive literals as direct RHS
 
 Every binary operator that expects a `TypedExpr` accepts a primitive literal directly —
