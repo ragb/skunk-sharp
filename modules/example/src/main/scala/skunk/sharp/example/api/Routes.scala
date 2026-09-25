@@ -16,9 +16,10 @@ import Transformers.*
 object Routes {
 
   private type Err = (StatusCode, ApiError)
-  private def notFound(msg: String): Err = (StatusCode.NotFound, ApiError(msg))
-  private def internal(msg: String): Err = (StatusCode.InternalServerError, ApiError(msg))
-  private def conflict(msg: String): Err = (StatusCode.Conflict, ApiError(msg))
+  private def notFound(msg: String): Err   = (StatusCode.NotFound, ApiError(msg))
+  private def internal(msg: String): Err   = (StatusCode.InternalServerError, ApiError(msg))
+  private def conflict(msg: String): Err   = (StatusCode.Conflict, ApiError(msg))
+  private def badRequest(msg: String): Err = (StatusCode.BadRequest, ApiError(msg))
 
   def apply(
     pool: cats.effect.Resource[IO, Session[IO]],
@@ -124,6 +125,25 @@ object Routes {
             .void
             .value
         ).handleErrorWith(e => internal(e.getMessage).asLeft.pure)
+      },
+      Endpoints.rooms.sync.serverLogic[IO] { case (buildingId, req) =>
+        // MERGE can't touch the same target row twice, so duplicate names are a client error, not a 500.
+        val dupes = req.groupBy(_.name).collect { case (n, rs) if rs.size > 1 => n }.toList.sorted
+        if (dupes.nonEmpty) IO.pure(badRequest(s"Duplicate room names: ${dupes.mkString(", ")}").asLeft)
+        else
+          pool.useKleisli(
+            (for {
+              _ <- EitherT.fromOptionF(
+                buildings.findById(buildingId),
+                notFound(s"Building $buildingId not found")
+              )
+              actions <- EitherT.liftF[Cats.K, Err, List[String]](rooms.sync(buildingId, req.map(_.toRow)))
+            } yield SyncRoomsResponse(
+              inserted = actions.count(_ == "INSERT"),
+              updated = actions.count(_ == "UPDATE"),
+              deleted = actions.count(_ == "DELETE")
+            )).value
+          ).handleErrorWith(e => internal(e.getMessage).asLeft.pure)
       }
     )
 

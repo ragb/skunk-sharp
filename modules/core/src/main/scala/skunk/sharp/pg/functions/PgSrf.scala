@@ -3,9 +3,12 @@ package skunk.sharp.pg.functions
 import skunk.{AppliedFragment, Codec, Fragment}
 import skunk.codec.all as pg
 import skunk.sharp.*
-import skunk.sharp.dsl.IsSrf
+import skunk.sharp.dsl.{IsSrf, ProjArgsOf}
+import skunk.sharp.internal.DeriveColumns
 import skunk.sharp.pg.{IsArray, PgTypeFor}
 import skunk.sharp.where.Where
+
+import scala.NamedTuple
 
 /**
  * Set-returning functions (`generate_series`, `unnest`, …) as joinable [[Relation]]s. The single-column shape below
@@ -79,6 +82,52 @@ private[sharp] def srfRelation1[T, N <: String & Singleton, BA](
   }
 }
 
+/** Element type of an array-ish parameter type — `Arr[E]` or a stdlib collection routed through it. */
+type ArrayElem[A] = A match {
+  case skunk.data.Arr[e] => e
+  case List[e]           => e
+  case Vector[e]         => e
+  case Seq[e]            => e
+}
+
+/** Per-field element types of a tuple of array-typed expressions. */
+type ArrayElems[T <: Tuple] <: Tuple = T match {
+  case EmptyTuple              => EmptyTuple
+  case TypedExpr[a, ?] *: tail => ArrayElem[a] *: ArrayElems[tail]
+}
+
+/**
+ * Multi-column SRF relation: `func(args) AS "alias"("c1", "c2", …)`. Columns come pre-built (codec per column); the
+ * typed `argsFrag` threads into the outer query's Args like any typed-subquery body.
+ */
+private[sharp] def srfRelationN[Cols <: Tuple, BA](
+  funcName: String,
+  argsFrag: Fragment[BA],
+  cols: Cols
+): TypedBodyRelation[Cols, BA] { type Alias = "unnest"; type Mode = AliasMode.Explicit } = {
+  val colNames = cols.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(_.name)
+  new TypedBodyRelation[Cols, BA] with IsSrf {
+    type Alias = "unnest"
+    type Mode  = AliasMode.Explicit
+    val currentAlias: "unnest"         = "unnest"
+    val name: String                   = "unnest"
+    val schema: Option[String]         = None
+    val columns: Cols                  = cols
+    val expectedTableType: String      = ""
+    val srfFuncName: String            = funcName
+    val srfArgsFragment: Fragment[?]   = argsFrag
+    val srfColumnName: String          = colNames.head
+    override val srfColumnsSql: String = colNames.map(n => s""""$n"""").mkString(", ")
+
+    override def fromFragmentWith(x: String): AppliedFragment =
+      throw new UnsupportedOperationException(
+        s"skunk-sharp: multi-column '$funcName' can only be rendered in a FROM / JOIN / USING source position"
+      )
+
+    override lazy val starProjFromAfOpt: Option[AppliedFragment] = None
+  }
+}
+
 /**
  * `Pg.generateSeries` / `Pg.unnestAsRelation` — set-returning functions exposed as [[Relation]]s. Drop them into any
  * FROM / JOIN / LATERAL position:
@@ -140,5 +189,27 @@ trait PgSrf {
     type Mode  = AliasMode.Explicit
   } =
     srfRelation1[E, "v", BA]("unnest", a.fragment, "v", pf.codec)
+
+  /**
+   * `unnest(a1, a2, …) AS "unnest"("n1", "n2", …)` — zip several arrays into rows, one column per named-tuple field.
+   * The standard way to feed a whole batch of rows through **one** prepared statement: pass `Param[List[T]]` per column
+   * and bind the lists at execute time.
+   *
+   * {{{
+   *   Pg.unnestAsRelation((name = Param[List[String]], qty = Param[List[Int]])).alias("incoming")
+   *   // → unnest($1, $2) AS "incoming"("name", "qty"), Args = (List[String], List[Int])
+   * }}}
+   *
+   * Arrays should have the same length: Postgres pads shorter ones with NULL, which the non-`Option` columns here don't
+   * expect.
+   */
+  inline def unnestAsRelation[R <: NamedTuple.AnyNamedTuple, TOut](arrays: R)(using
+    dc: DeriveColumns[NamedTuple.Names[R], ArrayElems[NamedTuple.DropNames[R]]],
+    pa: ProjArgsOf.Aux[NamedTuple.DropNames[R], TOut]
+  ): TypedBodyRelation[dc.Out, TOut] { type Alias = "unnest"; type Mode = AliasMode.Explicit } = {
+    val exprs = arrays.asInstanceOf[Tuple].toList.asInstanceOf[List[TypedExpr[?, ?]]]
+    val args  = TypedExpr.combineList[TOut](exprs.map(_.fragment), ", ", (a: TOut) => pa.project(a))
+    srfRelationN[dc.Out, TOut]("unnest", args, dc.value.asInstanceOf[dc.Out])
+  }
 
 }

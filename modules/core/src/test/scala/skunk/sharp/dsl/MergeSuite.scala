@@ -226,4 +226,21 @@ class MergeSuite extends munit.FunSuite {
       stock.merge(incoming.alias("stock"))
     """)
   }
+
+  test("a multi-array unnest source: the whole batch is typed Args of one statement") {
+    val q: CommandTemplate[(List[String], List[Int])] = stock
+      .merge(Pg.unnestAsRelation((sku = Param[List[String]], qty = Param[List[Int]])).alias("batch"))
+      .on(r => r.stock.sku === r.batch.sku)
+      .whenMatched
+      .update(r => r.stock.qty := r.batch.qty)
+      .whenNotMatched
+      .insert(b => (sku = b.sku, qty = b.qty))
+      .compile
+    assertEquals(
+      q.fragment.sql,
+      """MERGE INTO "stock" USING unnest($1, $2) AS "batch"("sku", "qty") ON "stock"."sku" = "batch"."sku"""" +
+        """ WHEN MATCHED THEN UPDATE SET "qty" = "batch"."qty"""" +
+        """ WHEN NOT MATCHED THEN INSERT ("sku", "qty") VALUES ("batch"."sku", "batch"."qty")"""
+    )
+  }
 }

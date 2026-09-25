@@ -30,7 +30,11 @@ object RoomRow {
     .withDefault("id")
     .withDefault("location")
     .withDefault("amenities")
+    .withUniqueIndex["rooms_building_name_uk", ("building_id", "name")]
 
   case class Create(building_id: UUID, name: String, capacity: Int, location: LTree, amenities: Hstore)
   case class Patch(name: Option[String], capacity: Option[Int])
+
+  /** One entry of a building's desired room list — matched against existing rooms by name. */
+  case class Sync(name: String, capacity: Int)
 }

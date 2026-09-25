@@ -48,6 +48,9 @@ object RawConstants {
   private[sharp] val rawDynamicCount: java.util.concurrent.atomic.AtomicLong =
     new java.util.concurrent.atomic.AtomicLong(0L)
 
+  /** Per-thread twin of [[rawDynamicCount]] — lets a test measure its own builds while other suites run in parallel. */
+  private[sharp] val rawDynamicThreadCount: ThreadLocal[Long] = ThreadLocal.withInitial(() => 0L)
+
   /**
    * When set to a non-null map, every `rawDynamic` call records the calling stack frame as a key and increments its
    * counter. Used by benchmarks to attribute the per-compile dynamic-AF count to specific call sites. Off by default
@@ -94,6 +97,7 @@ object RawConstants {
   /** Build a fresh `AppliedFragment` for a runtime-built string — no caching. */
   private[sharp] def rawDynamic(s: String): AppliedFragment = {
     rawDynamicCount.incrementAndGet()
+    rawDynamicThreadCount.set(rawDynamicThreadCount.get + 1L)
     val cs = rawDynamicByCallSite
     if (cs ne null) {
       val frames = Thread.currentThread.getStackTrace

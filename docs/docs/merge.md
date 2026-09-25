@@ -84,6 +84,30 @@ val filtered: CommandTemplate[(Int, Int)] = stock
 
 A common pattern is a staging table with the target's shape: `stock.merge(stock.renamed("stock_staging"))`.
 
+## Batches as typed parameters
+
+To merge a batch of rows that lives in your application, don't build a `VALUES` list per call: that bakes the values
+into the SQL, so every batch is a different statement. Pass one array per column instead, through
+`Pg.unnestAsRelation`, and the whole batch becomes typed arguments of **one** statement you compile once:
+
+`List[T]` parameters map to Postgres arrays through the collection codecs, which need `import skunk.sharp.dsl.given`:
+
+```scala mdoc:silent
+import skunk.sharp.dsl.given
+
+val syncStock: CommandTemplate[(List[String], List[Int])] = stock
+  .merge(Pg.unnestAsRelation((sku = Param[List[String]], qty = Param[List[Int]])).alias("batch"))
+  .on(r => r.stock.sku === r.batch.sku)
+  .whenMatched.update(r => r.stock.qty := r.batch.qty)
+  .whenNotMatched.insert(b => (sku = b.sku, qty = b.qty))
+  .compile
+// MERGE INTO "stock" USING unnest($1, $2) AS "batch"("sku", "qty") ON …
+// syncStock.run(session)((List("a", "b"), List(1, 2)))
+```
+
+The arrays should have the same length — Postgres pads shorter ones with NULL. The example app's
+`PUT /api/v1/buildings/{id}/rooms` endpoint uses this shape to sync a building's rooms in one statement.
+
 ## RETURNING (PG 17+)
 
 `.returning` / `.returningTuple` can use columns from both sides, plus `Pg.mergeAction`, which is `'INSERT'`,

@@ -183,7 +183,7 @@ Shipped:
 - `INSERT … VALUES`, `INSERT … FROM SELECT`, `ON CONFLICT … DO NOTHING/UPDATE/UPDATE FROM EXCLUDED`.
 - `MERGE` (PG 15+), incl. `WHEN NOT MATCHED BY SOURCE` and `RETURNING` with `merge_action()` (PG 17+).
 - `UPDATE … FROM` / `DELETE … USING` (with typed-args FROM/USING tail sources).
-- Set-returning functions (`Pg.generateSeries`, `Pg.unnestAsRelation`) with typed args.
+- Set-returning functions (`Pg.generateSeries`, `Pg.unnestAsRelation`) with typed args, incl. multi-array `Pg.unnestAsRelation((a = Param[List[A]], b = Param[List[B]]))` — the way to pass a batch of rows as typed Args of one statement (vs. `Values.of`, which bakes values via `AppliedFragment`s). `.alias` on a `TypedBodyRelation` keeps its `BA` / SRF rendering (a separate `aliasTyped` extension); SRF / subquery source SQL is interned in `aliasedFromEntryParts`.
 - Iron + refined refinement bridges; Circe-backed `json` / `jsonb`.
 - Docs site (Typelevel-site / mdoc) under [docs/docs/](docs/docs/) — every snippet type-checks against the live library at compile.
 

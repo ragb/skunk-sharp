@@ -73,6 +73,9 @@ object Transformers {
           Field.computed(_.amenities, r => amenitiesToWire(r.amenities))
         )
 
+  extension (req: SyncRoomRequest)
+    def toRow: RoomRow.Sync = RoomRow.Sync(req.name, req.capacity)
+
   extension (req: CreateRoomRequest)
 
     /** The buildingId comes from the URL path, not the request body — pass it explicitly. */
