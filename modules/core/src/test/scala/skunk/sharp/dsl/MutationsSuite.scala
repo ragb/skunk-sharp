@@ -210,4 +210,46 @@ class MutationsSuite extends munit.FunSuite {
       .compile.af
     assert(af.fragment.sql.endsWith(""" RETURNING "email""""), af.fragment.sql)
   }
+
+  // ---- Tuple-form SET carries typed Args ----
+
+  test("tuple SET folds each assignment's Args: Params reach .compile, baked values stay out") {
+    val q: CommandTemplate[(String, Int)] = users.update
+      .set(u => (u.email := Param[String], u.age := Param[Int], u.deleted_at := Pg.nullOf[OffsetDateTime]))
+      .where(u => u.id === Param.bind(UUID.fromString("00000000-0000-0000-0000-000000000001")))
+      .compile
+    assertEquals(q.fragment.sql, """UPDATE "users" SET "email" = $1, "age" = $2, "deleted_at" = NULL WHERE "id" = $3""")
+    // Previously this typed as Void and threw ClassCastException here.
+    assertEquals(
+      q.fragment.encoder.encode(("x@y", 30)).flatten.map(_.value),
+      List("x@y", "30", "00000000-0000-0000-0000-000000000001")
+    )
+  }
+
+  test("all-baked tuple SET stays Void") {
+    val q: CommandTemplate[skunk.Void] =
+      users.update.set(u => (u.email := "a", u.age := 1)).updateAll.compile
+    assertEquals(q.fragment.sql, """UPDATE "users" SET "email" = 'a', "age" = 1""")
+  }
+
+  test("tuple ON CONFLICT DO UPDATE and doUpdateFromExcluded thread Params too") {
+    val users2 = Table.of[User]("users").withPrimary("id")
+    val row    = (
+      id = UUID.fromString("00000000-0000-0000-0000-000000000002"),
+      email = "e",
+      age = 1,
+      created_at = OffsetDateTime.parse("2026-01-01T00:00:00Z"),
+      deleted_at = Option.empty[OffsetDateTime]
+    )
+    val a = users2.insert(row).onConflict(u => u.id).doUpdate(u => (u.email := Param[String], u.age := 2)).compile
+    val b = users2.insert(row).onConflict(u => u.id)
+      .doUpdateFromExcluded((u, ex) => (u.email := ex.email, u.age := Param[Int])).compile
+    val _: CommandTemplate[String] = a
+    val _: CommandTemplate[Int]    = b
+    assert(a.fragment.sql.endsWith("""ON CONFLICT ("id") DO UPDATE SET "email" = $6, "age" = 2"""), a.fragment.sql)
+    assert(
+      b.fragment.sql.endsWith("""ON CONFLICT ("id") DO UPDATE SET "email" = excluded."email", "age" = $6"""),
+      b.fragment.sql
+    )
+  }
 }

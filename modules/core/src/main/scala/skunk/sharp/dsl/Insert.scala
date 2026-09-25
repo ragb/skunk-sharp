@@ -355,17 +355,17 @@ object InsertCommand {
  * `InsertCommand[Cols, Args, CA]` with the correct CA type.
  */
 final class OnConflictBuilder[Cols <: Tuple, Args] private[sharp] (
-  private val cmd: InsertCommand[Cols, Args, Void],
+  private[sharp] val cmd: InsertCommand[Cols, Args, Void],
   private val cols: List[String]
 ) {
 
   private def quotedCols: String = cols.map(c => s""""$c"""").mkString(", ")
 
-  private def doNothingHeader: AppliedFragment =
-    TypedExpr.raw(s" ON CONFLICT ($quotedCols) DO NOTHING")
+  private lazy val doNothingHeader: AppliedFragment =
+    RawConstants.intern(s" ON CONFLICT ($quotedCols) DO NOTHING")
 
-  private def doUpdateHeader: AppliedFragment =
-    TypedExpr.raw(s" ON CONFLICT ($quotedCols) DO UPDATE SET ")
+  private lazy val doUpdateHeader: AppliedFragment =
+    RawConstants.intern(s" ON CONFLICT ($quotedCols) DO UPDATE SET ")
 
   def doNothing: InsertCommand[Cols, Args, Void] =
     InsertCommand.mk(cmd.table, cmd.projected, cmd.source, doNothingHeader, SelectBuilder.emptyVoidSlot)
@@ -375,9 +375,7 @@ final class OnConflictBuilder[Cols <: Tuple, Args] private[sharp] (
    * `InsertCommand` and surfaces in `.compile`'s `CommandTemplate[Concat[Args, CA]]`. Use [[Param]] in the RHS to defer
    * values to execute time; baked RHS values (`:= "x"`) yield `CA = Void`.
    *
-   * For multiple baked-value assignments, the Tuple overload (`.doUpdate(c => (c.a := "x", c.b := 1))`) is safer: it
-   * pre-applies all values into `Left(AF)` to avoid a product-encoder issue that would arise when two baked encoders
-   * are combined via `&`.
+   * For several assignments, the tuple overload (`.doUpdate(c => (c.a := …, c.b := …))`) folds their Args the same way.
    */
   def doUpdate[CA](f: SetView[Cols] => SetAssignment[?, CA]): InsertCommand[Cols, Args, CA] = {
     val sa = f(ColumnsView(cmd.tableColumns).asInstanceOf[SetView[Cols]])
@@ -391,23 +389,21 @@ final class OnConflictBuilder[Cols <: Tuple, Args] private[sharp] (
   }
 
   /**
-   * Tuple SET — multiple baked-value assignments. All SET RHS values are pre-applied into `Left(AF)`, so `CA = Void`
-   * and the conflict contributes no runtime parameters. The baked clause (header + pre-applied SET values) is stored as
-   * a single `Left(AppliedFragment)`.
+   * Tuple SET — `CA` is the flat fold of every assignment's Args, so `Param`s in any item reach `.compile`'s Args;
+   * all-baked tuples stay `CA = Void`.
    */
   @targetName("doUpdateTuple")
-  def doUpdate(f: SetView[Cols] => Tuple): InsertCommand[Cols, Args, Void] = {
-    val view   = ColumnsView(cmd.tableColumns).asInstanceOf[SetView[Cols]]
-    val raw    = f(view).toList.asInstanceOf[List[SetAssignment[?, ?]]]
-    val setsAF = TypedExpr.joined(raw.map(sa => sa.fragment.asInstanceOf[Fragment[Void]].apply(Void)), ", ")
-    InsertCommand.mk(
-      cmd.table,
-      cmd.projected,
-      cmd.source,
-      doUpdateHeader |+| setsAF,
-      SelectBuilder.emptyVoidSlot
+  inline def doUpdate[T <: Tuple](f: SetView[Cols] => T): InsertCommand[Cols, Args, Where.FoldConcat[SetArgsOf[T]]] =
+    doUpdateWith[Where.FoldConcat[SetArgsOf[T]]](
+      SetAssignment.combineTyped[Where.FoldConcat[SetArgsOf[T]]](
+        f(ColumnsView(cmd.tableColumns).asInstanceOf[SetView[Cols]]),
+        c => Where.projectFoldConcat[SetArgsOf[T]](c)
+      )
     )
-  }
+
+  @scala.annotation.publicInBinary
+  private[sharp] def doUpdateWith[CA](set: Fragment[CA]): InsertCommand[Cols, Args, CA] =
+    InsertCommand.mk(cmd.table, cmd.projected, cmd.source, doUpdateHeader, set)
 
   /**
    * Typed SET with access to the `excluded` pseudo-table. `CA` propagates from the assignment's Args.
@@ -427,25 +423,20 @@ final class OnConflictBuilder[Cols <: Tuple, Args] private[sharp] (
     )
   }
 
-  /**
-   * Tuple SET with `excluded` pseudo-table. All values pre-applied; `CA = Void`.
-   */
+  /** Tuple SET with the `excluded` pseudo-table — `CA` is the flat fold of every assignment's Args. */
   @targetName("doUpdateFromExcludedTuple")
-  def doUpdateFromExcluded(
-    f: (SetView[Cols], ColumnsView[Cols]) => Tuple
-  ): InsertCommand[Cols, Args, Void] = {
-    val target   = ColumnsView(cmd.tableColumns).asInstanceOf[SetView[Cols]]
-    val excluded = ColumnsView.qualifiedRaw(cmd.tableColumns, "excluded")
-    val raw      = f(target, excluded).toList.asInstanceOf[List[SetAssignment[?, ?]]]
-    val setsAF   = TypedExpr.joined(raw.map(sa => sa.fragment.asInstanceOf[Fragment[Void]].apply(Void)), ", ")
-    InsertCommand.mk(
-      cmd.table,
-      cmd.projected,
-      cmd.source,
-      doUpdateHeader |+| setsAF,
-      SelectBuilder.emptyVoidSlot
+  inline def doUpdateFromExcluded[T <: Tuple](
+    f: (SetView[Cols], ColumnsView[Cols]) => T
+  ): InsertCommand[Cols, Args, Where.FoldConcat[SetArgsOf[T]]] =
+    doUpdateWith[Where.FoldConcat[SetArgsOf[T]]](
+      SetAssignment.combineTyped[Where.FoldConcat[SetArgsOf[T]]](
+        f(
+          ColumnsView(cmd.tableColumns).asInstanceOf[SetView[Cols]],
+          ColumnsView.qualifiedRaw(cmd.tableColumns, "excluded")
+        ),
+        c => Where.projectFoldConcat[SetArgsOf[T]](c)
+      )
     )
-  }
 
 }
 

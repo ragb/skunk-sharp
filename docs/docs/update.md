@@ -40,6 +40,13 @@ val updateBoth = users.update
   .set(u => (u.email := lit("x@example.com"), u.age := lit(31)))
   .where(u => u.age < lit(18))
   .compile
+
+// Params anywhere in the tuple become typed arguments, in order: CommandTemplate[(String, Int, UUID)]
+val rename: CommandTemplate[(String, Int, UUID)] = users.update
+  .set(u => (u.email := Param[String], u.age := Param[Int]))
+  .where(u => u.id === Param[UUID])
+  .compile
+// rename.run(session)(("new@example.com", 31, id))
 ```
 
 ## Bulk UPDATE
