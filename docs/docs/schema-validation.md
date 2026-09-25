@@ -46,6 +46,7 @@ SchemaValidator.validateOrRaise[IO](session, users, posts)
 | `ExtraColumn` | A column exists in the database but is not in the declaration |
 | `TypeMismatch` | Declared type differs from DB — including parametric drift (`varchar(256)` vs `varchar(1024)`) |
 | `NullabilityMismatch` | Declared `NOT NULL` but DB column is nullable (or vice versa) |
+| `GeneratedMismatch` | DB column is `GENERATED ALWAYS AS (…)` but not declared `.withGenerated` (or vice versa) |
 | `PrimaryKeyMissing` / `PrimaryKeyColumnsDiffer` / `ExtraPrimaryKey` | Declared PK set differs from `information_schema.table_constraints` |
 | `UniqueConstraintMissing` / `ExtraUniqueConstraint` | Declared UNIQUE constraint not present in the DB (or vice versa) |
 | `ExtensionMissing` | A Postgres extension required by a column tag (or supplied via `extraExtensions`) is not in `pg_extension` |

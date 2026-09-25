@@ -87,18 +87,30 @@ type AllNamesInCols[Ns <: Tuple, Cols <: Tuple] <: Boolean = Ns match {
 }
 
 /**
- * Reduces to `true` iff every *required* column in `Cols` (no `ColumnAttr.Default` marker) has its name in `Ns`.
- * Required columns cannot be omitted from an INSERT; defaulted ones can.
+ * Reduces to `true` iff every *required* column in `Cols` (no `ColumnAttr.Default` / `ColumnAttr.Generated` marker) has
+ * its name in `Ns`. Required columns cannot be omitted from an INSERT; defaulted and generated ones can.
  */
 type CoversRequired[Cols <: Tuple, Ns <: Tuple] <: Boolean = Cols match {
   case EmptyTuple                      => true
-  case Column[t, n, nu, attrs] *: tail => Contains[ColumnAttr.Default, attrs] match {
+  case Column[t, n, nu, attrs] *: tail => Omittable[attrs] match {
       case true  => CoversRequired[tail, Ns]
       case false => Contains[n, Ns] match {
           case true  => CoversRequired[tail, Ns]
           case false => false
         }
     }
+}
+
+/** `true` iff a column with these `Attrs` may be left out of an INSERT — it has a default or is generated. */
+type Omittable[Attrs <: Tuple] <: Boolean = Contains[ColumnAttr.Default, Attrs] match {
+  case true  => true
+  case false => Contains[ColumnAttr.Generated, Attrs]
+}
+
+/** Type-level extraction: whether the column named `N` in `Cols` is declared generated (read-only). */
+type ColumnGenerated[Cols <: Tuple, N <: String & Singleton] <: Boolean = Cols match {
+  case Column[t, N, nu, attrs] *: tail => Contains[ColumnAttr.Generated, attrs]
+  case h *: tail                       => ColumnGenerated[tail, N]
 }
 
 /**

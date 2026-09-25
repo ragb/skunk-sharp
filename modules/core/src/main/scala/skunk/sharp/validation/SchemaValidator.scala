@@ -33,7 +33,8 @@ object SchemaValidator {
     isNullable: Boolean,
     charMaxLength: Option[Int],
     numericPrecision: Option[Int],
-    numericScale: Option[Int]
+    numericScale: Option[Int],
+    isGenerated: Boolean
   )
 
   private val relationKindQuery: Query[(String, String), String] =
@@ -52,14 +53,24 @@ object SchemaValidator {
              is_nullable::text,
              character_maximum_length,
              numeric_precision,
-             numeric_scale
+             numeric_scale,
+             is_generated::text
       FROM information_schema.columns
       WHERE table_schema = $varchar
         AND table_name = $varchar
       ORDER BY ordinal_position
-    """.query(text *: text *: text *: text *: int4.opt *: int4.opt *: int4.opt).map {
-      case (n, dt, udt, nullableStr, cml, np, ns) =>
-        ColumnInfo(n, dt, udt, nullableStr.equalsIgnoreCase("YES"), cml, np, ns)
+    """.query(text *: text *: text *: text *: int4.opt *: int4.opt *: int4.opt *: text).map {
+      case (n, dt, udt, nullableStr, cml, np, ns, generatedStr) =>
+        ColumnInfo(
+          n,
+          dt,
+          udt,
+          nullableStr.equalsIgnoreCase("YES"),
+          cml,
+          np,
+          ns,
+          generatedStr.equalsIgnoreCase("ALWAYS")
+        )
     }
 
   /**
@@ -273,7 +284,12 @@ object SchemaValidator {
             Option.when(!skipNullability && info.isNullable != col.isNullable)(
               Mismatch.NullabilityMismatch(label, col.name, col.isNullable, info.isNullable)
             )
-          typeIssue.toList ++ nullIssue.toList
+          // Views can't declare `.withGenerated`, and their columns always report `NEVER`; only tables are checked.
+          val generatedIssue =
+            Option.when(!skipNullability && info.isGenerated != col.isGenerated)(
+              Mismatch.GeneratedMismatch(label, col.name, col.isGenerated, info.isGenerated)
+            )
+          typeIssue.toList ++ nullIssue.toList ++ generatedIssue.toList
       }
     }
 

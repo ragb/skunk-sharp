@@ -45,7 +45,8 @@ The [schema validator](modules/core/src/main/scala/skunk/sharp/validation/Schema
   - [`Table.of[T <: Product]("name")`](modules/core/src/main/scala/skunk/sharp/Table.scala): derive columns from a case class `Mirror.ProductOf`.
   - [`Table.builder("name").column[T]("n")…`](modules/core/src/main/scala/skunk/sharp/TableBuilder.scala): column-by-column, no case class needed. Two-step continuation pattern (`column[T](using pf)` returns a `ColumnCont` whose `.apply[N](n)` takes the literal name) works around Scala's all-or-nothing type inference.
 - `View` mirrors this with [`View.of`](modules/core/src/main/scala/skunk/sharp/View.scala) / `View.builder` and a `ViewBuilder`.
-- Constraint modifiers `.withPrimary("n")`, `.withUnique("n")` (term-level flags) and `.withDefault("n")` (flips the `Default` phantom) live on `Table`. All verify column existence at compile time via `HasColumn[Cols, N] =:= true`.
+- Constraint modifiers `.withPrimary("n")`, `.withUnique("n")` (term-level flags), `.withDefault("n")` (flips the `Default` phantom) and `.withGenerated("n")` (adds the `Generated` marker) live on `Table`. All verify column existence at compile time via `HasColumn[Cols, N] =:= true`.
+- **Generated columns are read-only.** INSERT entry points run `CompileChecks.requireNoneGenerated`; SET lambdas (`.set`, UPDATE … FROM `.set`, `doUpdate*`) receive a [`SetView[Cols]`](modules/core/src/main/scala/skunk/sharp/GeneratedColumn.scala) in which generated columns are an opaque `GeneratedColumn` (a readable `TypedExpr`, same runtime `TypedColumn`) whose `:=` is an `inline` compile `error`. `SchemaValidator` diffs `is_generated`.
 
 ## WHERE DSL
 

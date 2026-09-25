@@ -199,6 +199,23 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
   }
 
   /**
+   * Mark a column as generated (`GENERATED ALWAYS AS (…) STORED` / `VIRTUAL`). Adds the [[ColumnAttr.Generated]]
+   * marker: the column stays readable in every query, INSERTs must omit it, and assigning it in UPDATE `.set` /
+   * `.patch` or `ON CONFLICT DO UPDATE` is a compile error — Postgres would reject all of these at runtime.
+   */
+  inline def withGenerated[N <: String & Singleton](inline n: N)
+    : Table[Table.AddAttr[Cols, N, ColumnAttr.Generated], Name] = {
+    CompileChecks.requireColumn[Cols, N]
+    val updated = Table.updateCol[Cols, N](
+      columns,
+      n,
+      c => c.copy(attrs = c.attrs :+ ColumnAttrValue.Generated)
+    )
+    copy(columns = updated.asInstanceOf[Table.AddAttr[Cols, N, ColumnAttr.Generated]])
+      .asInstanceOf[Table[Table.AddAttr[Cols, N, ColumnAttr.Generated], Name]]
+  }
+
+  /**
    * PK columns — the full member list, in the declaration order stored on the `Pk` marker. Used by
    * [[skunk.sharp.validation]] to diff against `information_schema.table_constraints`. Returns `Nil` if no column has a
    * `Pk` marker.

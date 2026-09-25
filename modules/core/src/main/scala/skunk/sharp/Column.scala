@@ -8,8 +8,8 @@ import skunk.data.Type
  * only as a phantom — never instantiated. A column's `Attrs` tuple contains zero or more of these, in any order;
  * [[Contains]] is the only operation that inspects them.
  *
- * Third-party modules can ship their own markers (e.g. `Generated`, `Identity`) by defining a trait and an
- * `AddAttr`-style type function; the core doesn't need to know about them.
+ * Third-party modules can ship their own markers (e.g. `Identity`) by defining a trait and an `AddAttr`-style type
+ * function; the core doesn't need to know about them.
  */
 sealed trait ColumnAttr
 
@@ -17,6 +17,12 @@ object ColumnAttr {
 
   /** The column has a database-side default (sequence PK, `DEFAULT now()`, …) — may be omitted from INSERT. */
   sealed trait Default extends ColumnAttr
+
+  /**
+   * The column is `GENERATED ALWAYS AS (…)` (`STORED`, or PG 18 `VIRTUAL`): Postgres computes its value, so it is
+   * readable everywhere but may never be supplied in an INSERT row or assigned in an UPDATE / `ON CONFLICT DO UPDATE`.
+   */
+  sealed trait Generated extends ColumnAttr
 
   /**
    * Primary-key membership. `Members` is the tuple of all column-name singletons that make up the primary key; every
@@ -51,6 +57,8 @@ object ColumnAttrValue {
 
   case object Default extends ColumnAttrValue
 
+  case object Generated extends ColumnAttrValue
+
   /** Participation in the primary key — `members` is the full tuple of PK column names (a single-col PK has one). */
   final case class Pk(members: List[String]) extends ColumnAttrValue
 
@@ -66,9 +74,9 @@ object ColumnAttrValue {
  *   - `N` — a **singleton** string type carrying the column's name. Keeping the name in the type lets the DSL's match
  *     types (`HasColumn`, `ColumnAt`) look up columns by name at compile time.
  *   - `Null` — `true` iff the column is nullable.
- *   - `Attrs` — a tuple of [[ColumnAttr]] markers: `Default`, `Pk[Members]`, `Uq[Name, Members]` (and any third-party
- *     additions). Checked by [[Contains]] / [[HasUniqueness]] / [[HasCompositeUniqueness]] / [[ColumnDefault]] for
- *     compile-time evidence of insert defaulting and `.onConflict(...)` targeting.
+ *   - `Attrs` — a tuple of [[ColumnAttr]] markers: `Default`, `Generated`, `Pk[Members]`, `Uq[Name, Members]` (and any
+ *     third-party additions). Checked by [[Contains]] / [[HasUniqueness]] / [[HasCompositeUniqueness]] /
+ *     [[ColumnDefault]] for compile-time evidence of insert defaulting and `.onConflict(...)` targeting.
  *
  * `attrs` is the runtime mirror of the `Attrs` phantom — one list of [[ColumnAttrValue]]s carrying the same facts.
  * Schema validation and other runtime code reads this list directly; there's no separate set of boolean fields to keep
@@ -96,6 +104,9 @@ final case class Column[T, N <: String & Singleton, Null <: Boolean, Attrs <: Tu
 
   /** `true` iff the column has a declared database-side default. Derived from [[attrs]]. */
   def hasDefault: Boolean = attrs.contains(ColumnAttrValue.Default)
+
+  /** `true` iff the column is declared generated (read-only). Derived from [[attrs]]. */
+  def isGenerated: Boolean = attrs.contains(ColumnAttrValue.Generated)
 
   /** Names of the UNIQUE constraints this column participates in. Derived from [[attrs]]. */
   def uniqueGroups: Set[String] =

@@ -30,8 +30,8 @@ final class UpdateBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
    * `c.email := Param[String]` produces `UpdateWithSet[..., String]` and the value is supplied at execute time.
    * `c.email := "literal"` produces `UpdateWithSet[..., Void]` (value-baked).
    */
-  def set[A](f: ColumnsView[Cols] => SetAssignment[?, A]): UpdateWithSet[Cols, Name, A] = {
-    val sa = f(table.columnsView)
+  def set[A](f: SetView[Cols] => SetAssignment[?, A]): UpdateWithSet[Cols, Name, A] = {
+    val sa = f(table.columnsView.asInstanceOf[SetView[Cols]])
     new UpdateWithSet[Cols, Name, A](table, sa.fragment)
   }
 
@@ -42,14 +42,15 @@ final class UpdateBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
    * := Param[Int]`) which threads `Concat[A1, A2]`.
    */
   @scala.annotation.targetName("setTuple")
-  def set(f: ColumnsView[Cols] => Tuple): UpdateWithSet[Cols, Name, Void] = {
-    val raw      = f(table.columnsView).toList.asInstanceOf[List[SetAssignment[?, ?]]]
+  def set(f: SetView[Cols] => Tuple): UpdateWithSet[Cols, Name, Void] = {
+    val raw      = f(table.columnsView.asInstanceOf[SetView[Cols]]).toList.asInstanceOf[List[SetAssignment[?, ?]]]
     val combined = SetAssignment.combineAll(raw)
     new UpdateWithSet[Cols, Name, Void](table, combined)
   }
 
   inline def patch[R <: NamedTuple.AnyNamedTuple](p: R): UpdateWithSet[Cols, Name, Void] = {
     CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[R]]
+    CompileChecks.requireNoneGenerated[Cols, NamedTuple.Names[R]]
     CompileChecks.requirePatchValueTypes[Cols, NamedTuple.Names[R], NamedTuple.DropNames[R]]
     val names  = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
     val values = p.asInstanceOf[Tuple].toList
@@ -58,6 +59,7 @@ final class UpdateBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
 
   inline def patch[T <: Product](p: T)(using m: Mirror.ProductOf[T]): UpdateWithSet[Cols, Name, Void] = {
     CompileChecks.requireAllNamesInCols[Cols, m.MirroredElemLabels]
+    CompileChecks.requireNoneGenerated[Cols, m.MirroredElemLabels]
     CompileChecks.requirePatchValueTypes[Cols, m.MirroredElemLabels, m.MirroredElemTypes]
     val names  = constValueTuple[m.MirroredElemLabels].toList.asInstanceOf[List[String]]
     val values = p.productIterator.toList
@@ -250,15 +252,15 @@ final class UpdateFromBuilder[Cols <: Tuple, Name <: String & Singleton, Ss <: T
   }
 
   /** Single SET assignment — `SetArgs` propagates from the RHS expression's `Args`. */
-  def set[A](f: JoinedView[Ss] => SetAssignment[?, A]): UpdateFromWithSet[Cols, Name, Ss, A] = {
-    val sa = f(buildJoinedView(sources))
+  def set[A](f: SetJoinedView[Ss] => SetAssignment[?, A]): UpdateFromWithSet[Cols, Name, Ss, A] = {
+    val sa = f(buildJoinedView(sources).asInstanceOf[SetJoinedView[Ss]])
     new UpdateFromWithSet[Cols, Name, Ss, A](table, sources, sa.fragment)
   }
 
   /** Tuple-form SET — `SetArgs` widens to `Void`. Use `&` for typed-Args across multiple items. */
   @scala.annotation.targetName("setTuple")
-  def set(f: JoinedView[Ss] => Tuple): UpdateFromWithSet[Cols, Name, Ss, Void] = {
-    val raw      = f(buildJoinedView(sources)).toList.asInstanceOf[List[SetAssignment[?, ?]]]
+  def set(f: SetJoinedView[Ss] => Tuple): UpdateFromWithSet[Cols, Name, Ss, Void] = {
+    val raw = f(buildJoinedView(sources).asInstanceOf[SetJoinedView[Ss]]).toList.asInstanceOf[List[SetAssignment[?, ?]]]
     val combined = SetAssignment.combineAll(raw)
     new UpdateFromWithSet[Cols, Name, Ss, Void](table, sources, combined)
   }
@@ -535,6 +537,29 @@ extension [T, Null <: Boolean, N <: String & Singleton](col: TypedColumn[T, Null
   def :=[A](expr: TypedExpr[T, A]): SetAssignment[T, A] =
     SetAssignment.fromExpr(col, expr)
 
+}
+
+extension [T, Null <: Boolean, N <: String & Singleton](col: GeneratedColumn[T, Null, N]) {
+
+  /** Generated columns can't be assigned — always a compile error naming the column. */
+  @scala.annotation.targetName("assignGenerated")
+  inline def :=[A](expr: TypedExpr[T, A]): SetAssignment[T, A] =
+    scala.compiletime.error(
+      "skunk-sharp: column \"" + scala.compiletime.constValue[N] +
+        "\" is generated (.withGenerated) — Postgres computes its value, so it can't be assigned in UPDATE or ON CONFLICT DO UPDATE."
+    )
+
+}
+
+/**
+ * The view UPDATE … FROM SET lambdas receive: [[JoinedView]] with every source's generated columns typed as
+ * [[skunk.sharp.GeneratedColumn]], so assigning to them is a compile error.
+ */
+type SetJoinedView[Ss <: Tuple] = NamedTuple.NamedTuple[AliasesOf[Ss], SetViewsOf[Ss]]
+
+type SetViewsOf[Ss <: Tuple] <: Tuple = Ss match {
+  case EmptyTuple                      => EmptyTuple
+  case SourceEntry[?, ?, c, ?, ?] *: t => SetView[c] *: SetViewsOf[t]
 }
 
 // ---- Entry point ----------------------------------------------------------------------------------

@@ -32,6 +32,7 @@ final class InsertBuilder[Cols <: Tuple] private[sharp] (private[sharp] val tabl
   inline def apply[R <: NamedTuple.AnyNamedTuple](row: R): InsertCommand[Cols, Void, Void] = {
     CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[R]]
     CompileChecks.requireCoversRequired[Cols, NamedTuple.Names[R]]
+    CompileChecks.requireNoneGenerated[Cols, NamedTuple.Names[R]]
     CompileChecks.requireValueTypesMatch[Cols, NamedTuple.Names[R], NamedTuple.DropNames[R]]
     val names = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
     val vs    = row.asInstanceOf[Tuple].toList
@@ -42,6 +43,7 @@ final class InsertBuilder[Cols <: Tuple] private[sharp] (private[sharp] val tabl
   inline def apply[T <: Product](row: T)(using m: Mirror.ProductOf[T]): InsertCommand[Cols, Void, Void] = {
     CompileChecks.requireAllNamesInCols[Cols, m.MirroredElemLabels]
     CompileChecks.requireCoversRequired[Cols, m.MirroredElemLabels]
+    CompileChecks.requireNoneGenerated[Cols, m.MirroredElemLabels]
     CompileChecks.requireValueTypesMatch[Cols, m.MirroredElemLabels, m.MirroredElemTypes]
     val names = constValueTuple[m.MirroredElemLabels].toList.asInstanceOf[List[String]]
     val vs    = row.productIterator.toList
@@ -52,6 +54,7 @@ final class InsertBuilder[Cols <: Tuple] private[sharp] (private[sharp] val tabl
   inline def values[R <: NamedTuple.AnyNamedTuple](row: R, more: R*): InsertCommand[Cols, Void, Void] = {
     CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[R]]
     CompileChecks.requireCoversRequired[Cols, NamedTuple.Names[R]]
+    CompileChecks.requireNoneGenerated[Cols, NamedTuple.Names[R]]
     CompileChecks.requireValueTypesMatch[Cols, NamedTuple.Names[R], NamedTuple.DropNames[R]]
     val names = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
     val rows  = (row :: more.toList).map(_.asInstanceOf[Tuple].toList)
@@ -62,6 +65,7 @@ final class InsertBuilder[Cols <: Tuple] private[sharp] (private[sharp] val tabl
   inline def values[F[_]: Reducible, R <: NamedTuple.AnyNamedTuple](rows: F[R]): InsertCommand[Cols, Void, Void] = {
     CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[R]]
     CompileChecks.requireCoversRequired[Cols, NamedTuple.Names[R]]
+    CompileChecks.requireNoneGenerated[Cols, NamedTuple.Names[R]]
     CompileChecks.requireValueTypesMatch[Cols, NamedTuple.Names[R], NamedTuple.DropNames[R]]
     val names = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
     val rs    = Reducible[F].toNonEmptyList(rows).toList.map(_.asInstanceOf[Tuple].toList)
@@ -73,6 +77,7 @@ final class InsertBuilder[Cols <: Tuple] private[sharp] (private[sharp] val tabl
   ): InsertCommand[Cols, Void, Void] = {
     CompileChecks.requireAllNamesInCols[Cols, m.MirroredElemLabels]
     CompileChecks.requireCoversRequired[Cols, m.MirroredElemLabels]
+    CompileChecks.requireNoneGenerated[Cols, m.MirroredElemLabels]
     CompileChecks.requireValueTypesMatch[Cols, m.MirroredElemLabels, m.MirroredElemTypes]
     val names = constValueTuple[m.MirroredElemLabels].toList.asInstanceOf[List[String]]
     val rs    = Reducible[F].toNonEmptyList(rows).toList.map(_.productIterator.toList)
@@ -85,6 +90,7 @@ final class InsertBuilder[Cols <: Tuple] private[sharp] (private[sharp] val tabl
   ): InsertCommand[Cols, Args, Void] = {
     CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[Row]]
     CompileChecks.requireCoversRequired[Cols, NamedTuple.Names[Row]]
+    CompileChecks.requireNoneGenerated[Cols, NamedTuple.Names[Row]]
     CompileChecks.requireValueTypesMatch[Cols, NamedTuple.Names[Row], NamedTuple.DropNames[Row]]
     val names = constValueTuple[NamedTuple.Names[Row]].toList.asInstanceOf[List[String]]
     InsertCommand.buildFromQuery[Cols, Args](table, names, ev.fragment(src), AppliedFragment.empty)
@@ -373,8 +379,8 @@ final class OnConflictBuilder[Cols <: Tuple, Args] private[sharp] (
    * pre-applies all values into `Left(AF)` to avoid a product-encoder issue that would arise when two baked encoders
    * are combined via `&`.
    */
-  def doUpdate[CA](f: ColumnsView[Cols] => SetAssignment[?, CA]): InsertCommand[Cols, Args, CA] = {
-    val sa = f(ColumnsView(cmd.tableColumns))
+  def doUpdate[CA](f: SetView[Cols] => SetAssignment[?, CA]): InsertCommand[Cols, Args, CA] = {
+    val sa = f(ColumnsView(cmd.tableColumns).asInstanceOf[SetView[Cols]])
     InsertCommand.mk(
       cmd.table,
       cmd.projected,
@@ -390,8 +396,8 @@ final class OnConflictBuilder[Cols <: Tuple, Args] private[sharp] (
    * a single `Left(AppliedFragment)`.
    */
   @targetName("doUpdateTuple")
-  def doUpdate(f: ColumnsView[Cols] => Tuple): InsertCommand[Cols, Args, Void] = {
-    val view   = ColumnsView(cmd.tableColumns)
+  def doUpdate(f: SetView[Cols] => Tuple): InsertCommand[Cols, Args, Void] = {
+    val view   = ColumnsView(cmd.tableColumns).asInstanceOf[SetView[Cols]]
     val raw    = f(view).toList.asInstanceOf[List[SetAssignment[?, ?]]]
     val setsAF = TypedExpr.joined(raw.map(sa => sa.fragment.asInstanceOf[Fragment[Void]].apply(Void)), ", ")
     InsertCommand.mk(
@@ -407,9 +413,9 @@ final class OnConflictBuilder[Cols <: Tuple, Args] private[sharp] (
    * Typed SET with access to the `excluded` pseudo-table. `CA` propagates from the assignment's Args.
    */
   def doUpdateFromExcluded[CA](
-    f: (ColumnsView[Cols], ColumnsView[Cols]) => SetAssignment[?, CA]
+    f: (SetView[Cols], ColumnsView[Cols]) => SetAssignment[?, CA]
   ): InsertCommand[Cols, Args, CA] = {
-    val target   = ColumnsView(cmd.tableColumns)
+    val target   = ColumnsView(cmd.tableColumns).asInstanceOf[SetView[Cols]]
     val excluded = ColumnsView.qualifiedRaw(cmd.tableColumns, "excluded")
     val sa       = f(target, excluded)
     InsertCommand.mk(
@@ -426,9 +432,9 @@ final class OnConflictBuilder[Cols <: Tuple, Args] private[sharp] (
    */
   @targetName("doUpdateFromExcludedTuple")
   def doUpdateFromExcluded(
-    f: (ColumnsView[Cols], ColumnsView[Cols]) => Tuple
+    f: (SetView[Cols], ColumnsView[Cols]) => Tuple
   ): InsertCommand[Cols, Args, Void] = {
-    val target   = ColumnsView(cmd.tableColumns)
+    val target   = ColumnsView(cmd.tableColumns).asInstanceOf[SetView[Cols]]
     val excluded = ColumnsView.qualifiedRaw(cmd.tableColumns, "excluded")
     val raw      = f(target, excluded).toList.asInstanceOf[List[SetAssignment[?, ?]]]
     val setsAF   = TypedExpr.joined(raw.map(sa => sa.fragment.asInstanceOf[Fragment[Void]].apply(Void)), ", ")
@@ -475,6 +481,7 @@ extension [Cols <: Tuple](b: InsertBuilder[Cols]) {
   ): InsertCommand[Cols, StripParams[NamedTuple.DropNames[R]], Void] = {
     CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[R]]
     CompileChecks.requireCoversRequired[Cols, NamedTuple.Names[R]]
+    CompileChecks.requireNoneGenerated[Cols, NamedTuple.Names[R]]
     val names  = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
     val params = row.asInstanceOf[Tuple].toList.map {
       case p: Param[?] => p

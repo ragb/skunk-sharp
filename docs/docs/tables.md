@@ -126,5 +126,39 @@ would reject it at runtime anyway.
 | `.withPrimary("col")` | Marks the column as the primary key (compile-time name check) |
 | `.withUnique("col")` | Marks the column as unique (used in `ON CONFLICT` clauses) |
 | `.withDefault("col")` | Marks the column as having a Postgres default (INSERT may omit it) |
+| `.withGenerated("col")` | Marks a `GENERATED ALWAYS AS (…)` column as read-only (see below) |
 
 Multiple constraints can be chained: `.withPrimary("id").withDefault("id").withUnique("email")`.
+
+### Generated columns
+
+Postgres computes a generated column (`GENERATED ALWAYS AS (…) STORED`, or `VIRTUAL` on Postgres 18+) from
+other columns, and rejects any INSERT or UPDATE that supplies a value for one. Declare it with `.withGenerated`
+so the DSL catches that at compile time. The column stays readable everywhere (SELECT, WHERE, ORDER BY, RETURNING, the
+right-hand side of a SET), but it:
+
+- may be left out of an INSERT, and **must** be: putting it in the row, or inserting a case class that contains it,
+  is a compile error;
+- can't be assigned in `.update.set(…)`, `.update.patch(…)`, `UPDATE … FROM`, or `ON CONFLICT DO UPDATE`.
+
+```scala mdoc:silent
+case class Item(id: Int, name: String, price_net: BigDecimal, price_gross: BigDecimal)
+
+val itemsTable = Table.of[Item]("items")
+  .withPrimary("id")
+  .withDefault("id")
+  .withGenerated("price_gross")
+
+// INSERT INTO "items" ("name", "price_net") VALUES ($1, $2)
+val addItem = itemsTable.insert((name = "lamp", price_net = BigDecimal(100))).compile
+
+// Reading a generated column on the right-hand side of a SET is fine.
+val copyGross = itemsTable.update.set(i => i.price_net := i.price_gross).updateAll
+```
+
+```scala mdoc:fail
+// Does not compile: column "price_gross" is generated (.withGenerated) …
+itemsTable.update.set(i => i.price_gross := i.price_net).updateAll
+```
+
+`SchemaValidator` checks this in both directions against `information_schema.columns.is_generated`.
