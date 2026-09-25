@@ -56,6 +56,13 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
   def inSchema(s: String): Table[Cols, Name] = copy(schema = Some(s))
 
   /**
+   * The same declaration — columns, constraints, schema — under another table name. For relations that share a shape: a
+   * partition queried directly (`events.renamed("events_2026_01")`), an archive table, per-tenant copies. The new name
+   * is also the default JOIN alias, as for any table. Like `Table.of`, it needs a literal or a stable `val`.
+   */
+  def renamed[N <: String & Singleton](newName: N): Table[Cols, N] = Table(newName, schema, columns)
+
+  /**
    * Primitive: rewrite one column's metadata with `f`. The lambda receives the column at its runtime erasure
    * (`Column[Any, N, Boolean, Tuple]`) and must return a column of the same shape.
    *

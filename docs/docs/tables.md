@@ -162,3 +162,45 @@ itemsTable.update.set(i => i.price_gross := i.price_net).updateAll
 ```
 
 `SchemaValidator` checks this in both directions against `information_schema.columns.is_generated`.
+
+## Partitioned tables
+
+A partitioned table needs no special declaration: declare the parent as an ordinary `Table`, and Postgres routes
+every INSERT, UPDATE and DELETE to the right partition. Changing the partition key in an UPDATE moves the row.
+The partitioning itself (`PARTITION BY`, `ATTACH` / `DETACH`) lives in your migrations like the rest of the schema.
+
+- **Primary and unique keys must include the partition key.** That's a Postgres rule, so a table partitioned on `day`
+  typically declares `.withCompositePrimary[("id", "day")]`. `ON CONFLICT` then targets that composite key.
+- **Partition pruning needs a WHERE on the partition key.** A literal or a `Param` both work: with a prepared
+  statement, Postgres prunes when the query executes.
+- **To query one partition directly**, reuse the declaration under the partition's name with `.renamed`. It keeps the
+  columns, constraints and schema; the new name is also the default JOIN alias.
+
+```scala mdoc:silent
+import java.time.LocalDate
+
+case class Event(id: Long, day: LocalDate, kind: String)
+
+val events = Table.of[Event]("events")
+  .withCompositePrimary[("id", "day")]
+  .withDefault("id")
+
+// Through the parent: Postgres picks the partition.
+val onDay = events.select.where(e => e.day === Param[LocalDate]).compile
+
+// One partition directly: SELECT "id", "day", "kind" FROM "events_2026_01"
+val january = events.renamed("events_2026_01").select.compile
+```
+
+Table names are part of the table's type, so `.renamed` (like `Table.of`) takes a literal or a stable `val`. For a
+name computed at runtime, bind it to a `val` first:
+
+```scala mdoc:silent
+def partitionFor(month: Int): String = f"events_2026_$month%02d"
+
+val name = partitionFor(2)
+val february = events.renamed(name)
+```
+
+`SchemaValidator` validates the parent and any partition you declare. `information_schema` reports both as
+`BASE TABLE`.
