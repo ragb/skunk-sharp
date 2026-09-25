@@ -97,6 +97,7 @@
     <li class="level1 nav-leaf"><a href="#subqueries">Subqueries</a></li>
     <li class="level1 nav-leaf"><a href="#row-locking-tables-only">Row locking (tables only)</a></li>
     <li class="level1 nav-leaf"><a href="#from-less-queries">FROM-less queries</a></li>
+    <li class="level1 nav-leaf"><a href="#uuids">UUIDs</a></li>
     <li class="level1 nav-leaf"><a href="#primitive-literals-as-direct-rhs">Primitive literals as direct RHS</a></li>
     <li class="level1 nav-leaf"><a href="#in-list-parameters-with-param-list-t-n">IN-list parameters with <code>Param.list[T](n)</code></a></li>
     <li class="level1 nav-leaf"><a href="#dynamic-predicates-with-allof-anyof">Dynamic predicates with <code>allOf</code> / <code>anyOf</code></a></li>
@@ -254,6 +255,14 @@
         <p>Use the built-in <code>empty</code> relation for queries with no FROM clause:</p>
         <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// SELECT now()
 </span><span class="keyword">val</span><span> </span><span class="identifier">now</span><span> = </span><span class="identifier">empty</span><span>.</span><span class="identifier">select</span><span>(</span><span class="identifier">_</span><span> =&gt; </span><span class="type-name">Pg</span><span>.</span><span class="identifier">now</span><span>).</span><span class="identifier">compile</span></code></pre>
+        
+        <h2 id="uuids" class="section"><a class="anchor-link left" href="#uuids"><i class="icofont-laika link">&#xef71;</i></a>UUIDs</h2>
+        <p><code>Pg.uuidv7</code> generates time-ordered (version 7) UUIDs, which suit primary keys because they sort by creation time.
+        <code>Pg.uuidExtractTimestamp</code> / <code>Pg.uuidExtractVersion</code> read a UUID back apart. Both return <code>Option</code>: Postgres yields NULL
+        when there&#39;s nothing to extract, e.g. the timestamp of a random v4 UUID. <code>Pg.genRandomUuid</code> / <code>Pg.uuidv4</code> generate
+        random UUIDs. Everything except <code>genRandomUuid</code> needs Postgres 18+.</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// SELECT uuidv7(), uuid_extract_timestamp(uuidv7())
+</span><span class="keyword">val</span><span> </span><span class="identifier">fresh</span><span> = </span><span class="identifier">empty</span><span>.</span><span class="identifier">select</span><span>(</span><span class="identifier">_</span><span> =&gt; (</span><span class="type-name">Pg</span><span>.</span><span class="identifier">uuidv7</span><span>, </span><span class="type-name">Pg</span><span>.</span><span class="identifier">uuidExtractTimestamp</span><span>(</span><span class="type-name">Pg</span><span>.</span><span class="identifier">uuidv7</span><span>))).</span><span class="identifier">compile</span></code></pre>
         
         <h2 id="primitive-literals-as-direct-rhs" class="section"><a class="anchor-link left" href="#primitive-literals-as-direct-rhs"><i class="icofont-laika link">&#xef71;</i></a>Primitive literals as direct RHS</h2>
         <p>Every binary operator that expects a <code>TypedExpr</code> accepts a primitive literal directly —
