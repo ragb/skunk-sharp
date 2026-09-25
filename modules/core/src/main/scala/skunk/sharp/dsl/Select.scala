@@ -389,10 +389,16 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
     }
   }
 
-  /** Same as [[select]]; supports `users.select(u => …)` syntax via apply. */
-  transparent inline def apply[X](
-    @scala.annotation.unused inline f: SelectView[Ss] => X
-  ) = select[X](f)
+  /**
+   * Same as [[select]]; supports `users.select(u => …)` syntax via apply.
+   *
+   * `f` is deliberately a plain (non-`inline`) parameter, unlike [[select]]'s. As a pure forwarder this method only
+   * passes `f` to `select`; with an `inline` `f` here, Scala 3.8.4 spuriously reports it as an "unused local
+   * definition" (at this definition site `X` is abstract, so `select`'s `erasedValue[X]` dispatch can't reduce and the
+   * inlined `f(v)` uses elaborate away). A concrete `f` is a use the unused-checker sees; `select` still inlines and
+   * the `transparent` result type is unaffected.
+   */
+  transparent inline def apply[X](f: SelectView[Ss] => X) = select[X](f)
 
   /**
    * Whole-row `.compile` — only on single-source builders. Threads `CArgs` (CTE preamble), `SArgs` (from any inner
@@ -1583,9 +1589,15 @@ final case class Locking(mode: LockMode, waitPolicy: WaitPolicy = WaitPolicy.Wai
   def sql: String = mode.sql + waitPolicy.sql
 }
 
+// The trailing `case _ => EmptyTuple` is only reachable for the effectively-uninhabited `<single-expr> & Tuple`
+// intersections that the `transparent inline` projection dispatch (see `select`) forms in its *dead* branches: a
+// single-`TypedExpr` projection elaborated against the plain-tuple branch yields `TypedExpr[…] & Tuple`, which is
+// disjoint from both real cases. Without the catch-all, Scala 3.8.4 emits a fatal `[E184]` "matches none of the
+// cases" warning for those dead elaborations. Real projections are genuine tuples and never reach it.
 type ExprOutputs[T <: Tuple] <: Tuple = T match {
   case EmptyTuple              => EmptyTuple
   case TypedExpr[t, ?] *: tail => t *: ExprOutputs[tail]
+  case _                       => EmptyTuple
 }
 
 /**
@@ -1596,6 +1608,7 @@ type ExprOutputs[T <: Tuple] <: Tuple = T match {
 type CollectArgs[T <: Tuple] <: Tuple = T match {
   case EmptyTuple              => EmptyTuple
   case TypedExpr[?, a] *: tail => a *: CollectArgs[tail]
+  case _                       => EmptyTuple // dead-branch `<single-expr> & Tuple` intersections — see [[ExprOutputs]]
 }
 
 type ProjResult[X] = X match {

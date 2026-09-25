@@ -3,7 +3,7 @@ package skunk.sharp.example.api
 import cats.effect.IO
 import skunk.sharp.example.ExampleAppFixture
 import sttp.capabilities.fs2.Fs2Streams
-import sttp.client3.SttpBackend
+import sttp.client4.StreamBackend
 
 import java.time.LocalDate
 import java.util.UUID
@@ -20,11 +20,11 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
   private val createBookingReq  = interpreter.toRequestThrowDecodeFailures(Endpoints.bookings.create, Some(baseUri))
   private val listBookingsReq   = interpreter.toRequestThrowDecodeFailures(Endpoints.bookings.list, Some(baseUri))
 
-  private def createBuilding(using SttpBackend[IO, Fs2Streams[IO]]): IO[BuildingResponse] =
+  private def createBuilding(using StreamBackend[IO, Fs2Streams[IO]]): IO[BuildingResponse] =
     createBuildingReq(CreateBuildingRequest("HQ", "HQ address", LatLon(53.34, -6.26))).sendOk
 
   private def createRoom(buildingId: UUID, name: String, capacity: Int)(using
-    SttpBackend[IO, Fs2Streams[IO]]
+    StreamBackend[IO, Fs2Streams[IO]]
   )
     : IO[RoomResponse] =
     createRoomReq((buildingId, CreateRoomRequest(name, capacity, location = "unsorted", amenities = Map.empty))).sendOk
@@ -35,15 +35,15 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
     title: String,
     from: LocalDate,
     to: LocalDate
-  )(using SttpBackend[IO, Fs2Streams[IO]]): IO[BookingResponse] =
+  )(using StreamBackend[IO, Fs2Streams[IO]]): IO[BookingResponse] =
     createBookingReq(CreateBookingRequest(roomId, booker, title, from, to)).sendOk
 
-  private def listBookings(q: BookingFilterQuery)(using SttpBackend[IO, Fs2Streams[IO]]): IO[List[BookingResponse]] =
+  private def listBookings(q: BookingFilterQuery)(using StreamBackend[IO, Fs2Streams[IO]]): IO[List[BookingResponse]] =
     listBookingsReq(q).sendOk
 
   test("filter bookings by `roomIds` (IN)") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             b  <- createBuilding
@@ -62,7 +62,7 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
 
   test("filter bookings by bookerNameContains and titleContains (case-insensitive)") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             b <- createBuilding
@@ -94,7 +94,7 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
 
   test("filter bookings by overlapsPeriod (paired bounds — `period && [from, to)`)") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             b <- createBuilding
@@ -115,7 +115,7 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
 
   test("filter bookings by startsOnOrAfter (half-bounded — `period <@ [date, +∞)`)") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             b  <- createBuilding
@@ -134,7 +134,7 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
 
   test("AND-combination — roomIds + overlapsPeriod + bookerNameContains") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             b <- createBuilding
@@ -163,7 +163,7 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
 
   test("filter bookings by `bookerNameSimilar` — trigram match catches typos a substring would miss") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             b <- createBuilding
@@ -194,7 +194,7 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
 
   test("citext: bookerNameContains matches across casing without an explicit lower(...) call") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             b    <- createBuilding
@@ -209,7 +209,7 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
 
   test("empty filter set returns the static `findAllQ` path — all bookings") {
     withContainers { containers =>
-      appBackend(containers).use { case given SttpBackend[IO, Fs2Streams[IO]] =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
         truncateAll(containers) *>
           (for {
             b   <- createBuilding
