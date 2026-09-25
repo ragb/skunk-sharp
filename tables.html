@@ -96,6 +96,7 @@
     <li class="level1 nav-leaf"><a href="#views">Views</a></li>
     <li class="level1 nav-node"><a href="#constraints">Constraints</a></li>
     <li class="level2 nav-leaf"><a href="#generated-columns">Generated columns</a></li>
+    <li class="level1 nav-leaf"><a href="#partitioned-tables">Partitioned tables</a></li>
   </ul>
 
   <p class="footer"></p>
@@ -283,6 +284,40 @@
 </span><span class="comment">// error: 
 // skunk-sharp: column &quot;price_gross&quot; is generated (.withGenerated) — Postgres computes its value, so it can&#39;t be assigned in UPDATE or ON CONFLICT DO UPDATE.</span></code></pre>
         <p><code>SchemaValidator</code> checks this in both directions against <code>information_schema.columns.is_generated</code>.</p>
+        
+        <h2 id="partitioned-tables" class="section"><a class="anchor-link left" href="#partitioned-tables"><i class="icofont-laika link">&#xef71;</i></a>Partitioned tables</h2>
+        <p>A partitioned table needs no special declaration: declare the parent as an ordinary <code>Table</code>, and Postgres routes
+        every INSERT, UPDATE and DELETE to the right partition. Changing the partition key in an UPDATE moves the row.
+        The partitioning itself (<code>PARTITION BY</code>, <code>ATTACH</code> / <code>DETACH</code>) lives in your migrations like the rest of the schema.</p>
+        <ul>
+          <li><strong>Primary and unique keys must include the partition key.</strong> That&#39;s a Postgres rule, so a table partitioned on <code>day</code>
+          typically declares <code>.withCompositePrimary[(&quot;id&quot;, &quot;day&quot;)]</code>. <code>ON CONFLICT</code> then targets that composite key.</li>
+          <li><strong>Partition pruning needs a WHERE on the partition key.</strong> A literal or a <code>Param</code> both work: with a prepared
+          statement, Postgres prunes when the query executes.</li>
+          <li><strong>To query one partition directly</strong>, reuse the declaration under the partition&#39;s name with <code>.renamed</code>. It keeps the
+          columns, constraints and schema; the new name is also the default JOIN alias.</li>
+        </ul>
+        <pre><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">java</span><span>.</span><span class="identifier">time</span><span>.</span><span class="type-name">LocalDate</span><span>
+
+</span><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">Event</span><span>(</span><span class="identifier">id</span><span>: </span><span class="type-name">Long</span><span>, </span><span class="identifier">day</span><span>: </span><span class="type-name">LocalDate</span><span>, </span><span class="identifier">kind</span><span>: </span><span class="type-name">String</span><span>)
+
+</span><span class="keyword">val</span><span> </span><span class="identifier">events</span><span> = </span><span class="type-name">Table</span><span>.</span><span class="identifier">of</span><span>[</span><span class="type-name">Event</span><span>](</span><span class="string-literal">&quot;events&quot;</span><span>)
+  .</span><span class="identifier">withCompositePrimary</span><span>[(</span><span class="string-literal">&quot;id&quot;</span><span>, </span><span class="string-literal">&quot;day&quot;</span><span>)]
+  .</span><span class="identifier">withDefault</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>)
+
+</span><span class="comment">// Through the parent: Postgres picks the partition.
+</span><span class="keyword">val</span><span> </span><span class="identifier">onDay</span><span> = </span><span class="identifier">events</span><span>.</span><span class="identifier">select</span><span>.</span><span class="identifier">where</span><span>(</span><span class="identifier">e</span><span> =&gt; </span><span class="identifier">e</span><span>.</span><span class="identifier">day</span><span> === </span><span class="type-name">Param</span><span>[</span><span class="type-name">LocalDate</span><span>]).</span><span class="identifier">compile</span><span>
+
+</span><span class="comment">// One partition directly: SELECT &quot;id&quot;, &quot;day&quot;, &quot;kind&quot; FROM &quot;events_2026_01&quot;
+</span><span class="keyword">val</span><span> </span><span class="identifier">january</span><span> = </span><span class="identifier">events</span><span>.</span><span class="identifier">renamed</span><span>(</span><span class="string-literal">&quot;events_2026_01&quot;</span><span>).</span><span class="identifier">select</span><span>.</span><span class="identifier">compile</span></code></pre>
+        <p>Table names are part of the table&#39;s type, so <code>.renamed</code> (like <code>Table.of</code>) takes a literal or a stable <code>val</code>. For a
+        name computed at runtime, bind it to a <code>val</code> first:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">def</span><span> </span><span class="declaration-name">partitionFor</span><span>(</span><span class="identifier">month</span><span>: </span><span class="type-name">Int</span><span>): </span><span class="type-name">String</span><span> = </span><span class="string-literal">f&quot;events_2026_</span><span class="substitution">$month</span><span class="string-literal">%02d&quot;</span><span>
+
+</span><span class="keyword">val</span><span> </span><span class="identifier">name</span><span> = </span><span class="identifier">partitionFor</span><span>(</span><span class="number-literal">2</span><span>)
+</span><span class="keyword">val</span><span> </span><span class="identifier">february</span><span> = </span><span class="identifier">events</span><span>.</span><span class="identifier">renamed</span><span>(</span><span class="identifier">name</span><span>)</span></code></pre>
+        <p><code>SchemaValidator</code> validates the parent and any partition you declare. <code>information_schema</code> reports both as
+        <code>BASE TABLE</code>.</p>
 
         
 <hr class="footer-rule"/>
