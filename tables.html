@@ -94,7 +94,8 @@
     <li class="level1 nav-node"><a href="#type-tags-unambiguous-codec-selection">Type tags — unambiguous codec selection</a></li>
     <li class="level2 nav-leaf"><a href="#iron-integration">Iron integration</a></li>
     <li class="level1 nav-leaf"><a href="#views">Views</a></li>
-    <li class="level1 nav-leaf"><a href="#constraints">Constraints</a></li>
+    <li class="level1 nav-node"><a href="#constraints">Constraints</a></li>
+    <li class="level2 nav-leaf"><a href="#generated-columns">Generated columns</a></li>
   </ul>
 
   <p class="footer"></p>
@@ -247,9 +248,41 @@
               <td><code>.withDefault(&quot;col&quot;)</code></td>
               <td>Marks the column as having a Postgres default (INSERT may omit it)</td>
             </tr>
+            <tr>
+              <td><code>.withGenerated(&quot;col&quot;)</code></td>
+              <td>Marks a <code>GENERATED ALWAYS AS (…)</code> column as read-only (see below)</td>
+            </tr>
           </tbody>
         </table>
         <p>Multiple constraints can be chained: <code>.withPrimary(&quot;id&quot;).withDefault(&quot;id&quot;).withUnique(&quot;email&quot;)</code>.</p>
+        
+        <h3 id="generated-columns" class="section"><a class="anchor-link left" href="#generated-columns"><i class="icofont-laika link">&#xef71;</i></a>Generated columns</h3>
+        <p>Postgres computes a generated column (<code>GENERATED ALWAYS AS (…) STORED</code>, or <code>VIRTUAL</code> on Postgres 18+) from
+        other columns, and rejects any INSERT or UPDATE that supplies a value for one. Declare it with <code>.withGenerated</code>
+        so the DSL catches that at compile time. The column stays readable everywhere (SELECT, WHERE, ORDER BY, RETURNING, the
+        right-hand side of a SET), but it:</p>
+        <ul>
+          <li>may be left out of an INSERT, and <strong>must</strong> be: putting it in the row, or inserting a case class that contains it,
+          is a compile error;</li>
+          <li>can&#39;t be assigned in <code>.update.set(…)</code>, <code>.update.patch(…)</code>, <code>UPDATE … FROM</code>, or <code>ON CONFLICT DO UPDATE</code>.</li>
+        </ul>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">Item</span><span>(</span><span class="identifier">id</span><span>: </span><span class="type-name">Int</span><span>, </span><span class="identifier">name</span><span>: </span><span class="type-name">String</span><span>, </span><span class="identifier">price_net</span><span>: </span><span class="type-name">BigDecimal</span><span>, </span><span class="identifier">price_gross</span><span>: </span><span class="type-name">BigDecimal</span><span>)
+
+</span><span class="keyword">val</span><span> </span><span class="identifier">itemsTable</span><span> = </span><span class="type-name">Table</span><span>.</span><span class="identifier">of</span><span>[</span><span class="type-name">Item</span><span>](</span><span class="string-literal">&quot;items&quot;</span><span>)
+  .</span><span class="identifier">withPrimary</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>)
+  .</span><span class="identifier">withDefault</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>)
+  .</span><span class="identifier">withGenerated</span><span>(</span><span class="string-literal">&quot;price_gross&quot;</span><span>)
+
+</span><span class="comment">// INSERT INTO &quot;items&quot; (&quot;name&quot;, &quot;price_net&quot;) VALUES ($1, $2)
+</span><span class="keyword">val</span><span> </span><span class="identifier">addItem</span><span> = </span><span class="identifier">itemsTable</span><span>.</span><span class="identifier">insert</span><span>((</span><span class="identifier">name</span><span> = </span><span class="string-literal">&quot;lamp&quot;</span><span>, </span><span class="identifier">price_net</span><span> = </span><span class="type-name">BigDecimal</span><span>(</span><span class="number-literal">100</span><span>))).</span><span class="identifier">compile</span><span>
+
+</span><span class="comment">// Reading a generated column on the right-hand side of a SET is fine.
+</span><span class="keyword">val</span><span> </span><span class="identifier">copyGross</span><span> = </span><span class="identifier">itemsTable</span><span>.</span><span class="identifier">update</span><span>.</span><span class="identifier">set</span><span>(</span><span class="identifier">i</span><span> =&gt; </span><span class="identifier">i</span><span>.</span><span class="identifier">price_net</span><span> := </span><span class="identifier">i</span><span>.</span><span class="identifier">price_gross</span><span>).</span><span class="identifier">updateAll</span></code></pre>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// Does not compile: column &quot;price_gross&quot; is generated (.withGenerated) …
+</span><span class="identifier">itemsTable</span><span>.</span><span class="identifier">update</span><span>.</span><span class="identifier">set</span><span>(</span><span class="identifier">i</span><span> =&gt; </span><span class="identifier">i</span><span>.</span><span class="identifier">price_gross</span><span> := </span><span class="identifier">i</span><span>.</span><span class="identifier">price_net</span><span>).</span><span class="identifier">updateAll</span><span>
+</span><span class="comment">// error: 
+// skunk-sharp: column &quot;price_gross&quot; is generated (.withGenerated) — Postgres computes its value, so it can&#39;t be assigned in UPDATE or ON CONFLICT DO UPDATE.</span></code></pre>
+        <p><code>SchemaValidator</code> checks this in both directions against <code>information_schema.columns.is_generated</code>.</p>
 
         
 <hr class="footer-rule"/>

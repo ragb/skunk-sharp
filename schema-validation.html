@@ -166,6 +166,10 @@
               <td>Declared <code>NOT NULL</code> but DB column is nullable (or vice versa)</td>
             </tr>
             <tr>
+              <td><code>GeneratedMismatch</code></td>
+              <td>DB column is <code>GENERATED ALWAYS AS (…)</code> but not declared <code>.withGenerated</code> (or vice versa)</td>
+            </tr>
+            <tr>
               <td><code>PrimaryKeyMissing</code> / <code>PrimaryKeyColumnsDiffer</code> / <code>ExtraPrimaryKey</code></td>
               <td>Declared PK set differs from <code>information_schema.table_constraints</code></td>
             </tr>
