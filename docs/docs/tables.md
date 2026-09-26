@@ -96,12 +96,11 @@ With `skunk-sharp-iron`, Iron constraints route to the matching tag automaticall
 does the checking: string literals are checked at compile time, runtime values with
 `refineEither`.
 
-| Iron type | Column |
-| --- | --- |
-| `String :| MaxLength[N]` | `varchar(n)` |
-| `String :| FixedLength[N]` | `bpchar(n)` |
-| `BigDecimal :| Precision[P, S]` | `numeric(p, s)` — at most `P − S` integer digits and `S` decimals; extra decimals are rejected, not rounded |
-| any other `A :| C` | `A`'s own column type |
+- `String :| MaxLength[N]` → `varchar(n)`
+- `String :| FixedLength[N]` → `bpchar(n)`
+- `BigDecimal :| Precision[P, S]` → `numeric(p, s)`: at most `P − S` integer digits and `S` decimals; extra decimals
+  are rejected, not rounded
+- any other `A :| C` → `A`'s own column type
 
 ```scala
 import skunk.sharp.dsl.*
