@@ -40,6 +40,16 @@ object PgFunction {
     TypedExpr(frag, codec)
   }
 
+  /**
+   * `name(a, b)` with an explicit result codec. Args = `Concat[X, Y]`, split back per side by `projectConcat` at the
+   * (inline) call site — correct whatever shape each side's Args has (Void, scalar, or a multi-Param tuple).
+   */
+  inline def call2[R, X, Y](inline name: String, a: TypedExpr[?, X], b: TypedExpr[?, Y], codec: Codec[R])
+    : TypedExpr[R, where.Where.Concat[X, Y]] = {
+    val inner = TypedExpr.combineSepInl[X, Y](a.fragment, ", ", b.fragment)
+    TypedExpr[R, where.Where.Concat[X, Y]](TypedExpr.wrap(name + "(", inner, ")"), codec)
+  }
+
   /** A zero-argument function. Args = Void. */
   def nullary[R](name: String)(using pfr: PgTypeFor[R]): TypedExpr[R, Void] = {
     val frag: Fragment[Void] = TypedExpr.voidFragment(s"$name()")

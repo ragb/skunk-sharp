@@ -170,6 +170,8 @@ The pieces that hold the invariant:
 - **Never** regenerate DDL from our types. The database schema is owned by migrations (dumbo). We only *read* it for validation.
 - Every DSL feature must render to `AppliedFragment` via `TypedExpr.render` — no side channels. Extensions hook in through the same interface.
 - Tests that render SQL compare against `.fragment.sql` exact strings; whitespace is load-bearing, keep it consistent.
+- Tests for Args threading must also **encode** the bound args (`af.fragment.encoder.encode(af.argument)`): slot-projection bugs render correct SQL and only crash at encode time.
+- Two-argument functions: use `PgFunction.call2` (inline, `projectConcat`) — never `_.asInstanceOf[(X, Y)]` as a Concat projector (breaks when a side carries 2+ Params). Variadic helpers that can't thread Args (`Pg.format`, `rollup`/`cube`/`grouping`/`groupingSets`, whole-row `.distinctOn`) take Void-args items only.
 - Prefer `extension` methods on `TypedExpr[T]` over adding methods to `TypedExpr` itself — that's what keeps the surface extensible.
 - Adding a new extension module (refined, jsonb, ltree, …): ship a `PgTypeFor[MyType]` instance, codec, and extension methods. Don't touch core.
 - Do not regress the 0-dynamic-AFs invariant. CompileBench is the canary; run it after substrate changes.
