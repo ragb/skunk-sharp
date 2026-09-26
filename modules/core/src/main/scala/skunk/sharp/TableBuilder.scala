@@ -54,7 +54,8 @@ final class TableBuilder[Cols <: Tuple, Name <: String & Singleton](
       pf.codec,
       isNullable = false,
       hasDefault = false,
-      requiredExtension = pf.requiredExtension
+      requiredExtension = pf.requiredExtension,
+      declaredType = pf.declaredType
     )
 
   /** Non-nullable column with a database-side default, explicit codec. */
@@ -73,7 +74,8 @@ final class TableBuilder[Cols <: Tuple, Name <: String & Singleton](
       pf.codec,
       isNullable = false,
       hasDefault = true,
-      requiredExtension = pf.requiredExtension
+      requiredExtension = pf.requiredExtension,
+      declaredType = pf.declaredType
     )
 
   /**
@@ -91,7 +93,8 @@ final class TableBuilder[Cols <: Tuple, Name <: String & Singleton](
       this,
       pf.codec,
       hasDefault = false,
-      requiredExtension = pf.requiredExtension
+      requiredExtension = pf.requiredExtension,
+      declaredType = pf.declaredType
     )
 
   /** Nullable column with a database-side default, explicit codec. */
@@ -109,7 +112,8 @@ final class TableBuilder[Cols <: Tuple, Name <: String & Singleton](
       this,
       pf.codec,
       hasDefault = true,
-      requiredExtension = pf.requiredExtension
+      requiredExtension = pf.requiredExtension,
+      declaredType = pf.declaredType
     )
 
   /** Place the table in a non-default schema. */
@@ -175,7 +179,8 @@ object TableBuilder {
     codec: Codec[T],
     isNullable: Null,
     hasDefault: Boolean,
-    requiredExtension: Option[String]
+    requiredExtension: Option[String],
+    declaredType: Option[skunk.data.Type] = None
   ) {
 
     inline def apply[N <: String & Singleton](
@@ -184,7 +189,7 @@ object TableBuilder {
       CompileChecks.requireColumnAbsent[Cols, N]
       val col = Column[T, N, Null, Attrs](
         name = n,
-        tpe = PgTypes.typeOf(codec),
+        tpe = declaredType.getOrElse(PgTypes.typeOf(codec)),
         codec = codec,
         isNullable = isNullable,
         attrs = if (hasDefault) List(ColumnAttrValue.Default) else Nil,
@@ -204,7 +209,8 @@ object TableBuilder {
     b: TableBuilder[Cols, Name],
     codec: Codec[T],
     hasDefault: Boolean,
-    requiredExtension: Option[String]
+    requiredExtension: Option[String],
+    declaredType: Option[skunk.data.Type] = None
   ) {
 
     inline def apply[N <: String & Singleton](
@@ -213,7 +219,7 @@ object TableBuilder {
       CompileChecks.requireColumnAbsent[Cols, N]
       val col = Column[Option[T], N, true, Attrs](
         name = n,
-        tpe = PgTypes.typeOf(codec),
+        tpe = declaredType.getOrElse(PgTypes.typeOf(codec)),
         codec = codec.opt,
         isNullable = true,
         attrs = if (hasDefault) List(ColumnAttrValue.Default) else Nil,

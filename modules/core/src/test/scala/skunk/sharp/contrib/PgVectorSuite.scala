@@ -28,10 +28,18 @@ class PgVectorSuite extends munit.FunSuite {
     assert(c.decode(0, List(Some("[1,2]"))).isLeft)
   }
 
-  test("Table.of derives vector(3) and records the extension for the validator") {
+  test("Table.of declares vector(3) for the validator; the codec's wire type is plain vector") {
     val col = chunks.columns.toList.asInstanceOf[List[skunk.sharp.Column[?, ?, ?, ?]]].find(_.name == "embedding").get
     assertEquals(col.tpe.name, "vector(3)")
     assertEquals(col.requiredExtension, Some("vector"))
+    // Postgres reports result columns without the dimension; asserting vector(3) on decode would fail skunk's check.
+    assertEquals(PgVector.codec[3].types.map(_.name), List("vector"))
+  }
+
+  test("TableBuilder.column[PgVector[N]] declares vector(N) too, nullable or not") {
+    val t    = Table.builder("chunks").column[PgVector[3]]("embedding").columnOpt[PgVector[3]]("draft").build
+    val cols = t.columns.toList.asInstanceOf[List[skunk.sharp.Column[?, ?, ?, ?]]]
+    assertEquals(cols.map(_.tpe.name), List("vector(3)", "vector(3)"))
   }
 
   test("distance operators render pgvector's symbols") {

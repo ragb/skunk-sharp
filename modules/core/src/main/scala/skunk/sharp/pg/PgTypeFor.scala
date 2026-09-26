@@ -26,6 +26,13 @@ trait PgTypeFor[T] {
    * (see `skunk.sharp.contrib.*`) override this so the schema validator can flag missing extensions.
    */
   def requiredExtension: Option[String] = None
+
+  /**
+   * The Postgres type the schema validator should expect for a column of this type, when it differs from the codec's
+   * wire type. Needed where the column type carries a modifier Postgres doesn't report on result columns — pgvector's
+   * codec is plain `vector` (result columns come back as `vector`), but the column is declared `vector(1536)`.
+   */
+  def declaredType: Option[skunk.data.Type] = None
 }
 
 object PgTypeFor {

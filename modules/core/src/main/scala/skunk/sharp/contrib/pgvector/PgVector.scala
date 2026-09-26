@@ -63,12 +63,20 @@ object PgVector {
       .flatMap(either[N])
   }
 
-  /** `vector(N)` codec on pgvector's text form. */
+  /**
+   * Codec on pgvector's text form. Its wire type is plain `vector` — Postgres reports result columns without the
+   * dimension, so skunk's column-alignment check would reject `vector(N)` — while [[pgTypeFor]] declares `vector(N)`
+   * for the schema validator.
+   */
   def codec[N <: Int](using n: ValueOf[N]): Codec[PgVector[N]] =
-    Codec.simple[PgVector[N]](v => render(v), s => parse[N](s), Type(s"vector(${n.value})"))
+    Codec.simple[PgVector[N]](v => render(v), s => parse[N](s), Type("vector"))
 
-  given pgTypeFor[N <: Int](using ValueOf[N]): PgTypeFor[PgVector[N]] =
-    PgTypeFor.instanceWithExtension(codec[N], RequiredExtension)
+  given pgTypeFor[N <: Int](using n: ValueOf[N]): PgTypeFor[PgVector[N]] =
+    new PgTypeFor[PgVector[N]] {
+      val codec: Codec[PgVector[N]]                      = PgVector.codec[N]
+      override val requiredExtension: Option[String]     = Some(RequiredExtension)
+      override val declaredType: Option[skunk.data.Type] = Some(Type(s"vector(${n.value})"))
+    }
 
   /** `vector[]` — lets a batch of embeddings travel as one array parameter (`Pg.unnestRows` / `unnestAsRelation`). */
   given arrPgTypeFor[N <: Int](using ValueOf[N]): PgTypeFor[Arr[PgVector[N]]] =

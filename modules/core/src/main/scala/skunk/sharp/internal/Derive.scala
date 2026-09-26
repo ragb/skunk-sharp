@@ -48,7 +48,7 @@ object DeriveColumns {
       def value: Out = {
         val col = Column[Option[T], L, true, EmptyTuple](
           name = label.value,
-          tpe = PgTypes.typeOf(pf.codec),
+          tpe = pf.declaredType.getOrElse(PgTypes.typeOf(pf.codec)),
           codec = pf.codec.opt,
           isNullable = true,
           attrs = Nil,
@@ -75,7 +75,7 @@ object DeriveColumns {
       def value: Out = {
         val col = Column[T, L, false, EmptyTuple](
           name = label.value,
-          tpe = PgTypes.typeOf(pf.codec),
+          tpe = pf.declaredType.getOrElse(PgTypes.typeOf(pf.codec)),
           codec = pf.codec,
           isNullable = false,
           attrs = Nil,
