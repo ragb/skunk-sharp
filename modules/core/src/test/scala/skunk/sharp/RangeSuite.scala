@@ -144,4 +144,13 @@ class RangeSuite extends munit.FunSuite {
     assertEquals(af.fragment.sql, """SELECT "id", "period" FROM "bookings"""")
   }
 
+  test("PgRange.from checks lower <= upper; half-bounded ranges always pass; unsafeFrom throws") {
+    val d1 = LocalDate.of(2026, 1, 1)
+    val d2 = LocalDate.of(2026, 2, 1)
+    assertEquals(PgRange.from(lower = Some(d1), upper = Some(d2)), Right(PgRange(lower = Some(d1), upper = Some(d2))))
+    assert(PgRange.from(lower = Some(d2), upper = Some(d1)).left.exists(_.contains("is after upper bound")))
+    assert(PgRange.from(lower = Some(d2)).isRight)
+    assert(PgRange.from[Int](lower = Some(5), upper = Some(5)).isRight)
+    intercept[IllegalArgumentException](PgRange.unsafeFrom(lower = Some(10L), upper = Some(1L)))
+  }
 }

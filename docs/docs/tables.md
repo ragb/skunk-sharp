@@ -83,22 +83,42 @@ plus range tags: `PgRange[A]`.
 Tags are **opaque subtypes of their base type** (`Varchar[N] <: String`), so values flow
 as plain `String` / `Int` at runtime with no boxing.
 
+Tags are **unchecked**: they choose the codec, they don't validate. `Varchar[3]("toolong")`
+compiles, and Postgres rejects it at INSERT. When values need checking, use the iron
+refined types below (they map onto the same tags), or a checked constructor. The library-wide
+convention: `apply` never throws; checked construction is `from` (returns `Either`) or
+`unsafeFrom` (throws) — e.g. `PgRange.from(lower = Some(start), upper = Some(end))` rejects a
+`start` after `end`, and `LTree.from(path)` rejects an invalid path.
+
 ### Iron integration
 
-With `skunk-sharp-iron`, Iron constraints route to the matching tag automatically:
+With `skunk-sharp-iron`, Iron constraints route to the matching tag automatically — and iron
+does the checking: string literals are checked at compile time, runtime values with
+`refineEither`.
+
+| Iron type | Column |
+| --- | --- |
+| `String :| MaxLength[N]` | `varchar(n)` |
+| `String :| FixedLength[N]` | `bpchar(n)` |
+| `BigDecimal :| Precision[P, S]` | `numeric(p, s)` — at most `P − S` integer digits and `S` decimals; extra decimals are rejected, not rounded |
+| any other `A :| C` | `A`'s own column type |
 
 ```scala
 import skunk.sharp.dsl.*
-import skunk.sharp.iron.given
+import skunk.sharp.iron.{*, given}
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.string.*
 import io.github.iltotore.iron.constraint.numeric.*
 
 case class Profile(
   id:       UUID,
-  username: String :| MaxLength[64],   // → varchar(64)
-  score:    Int    :| Positive          // → int4, enforced at the Scala level
+  username: String     :| MaxLength[64],   // → varchar(64)
+  balance:  BigDecimal :| Precision[10, 2], // → numeric(10, 2)
+  score:    Int        :| Positive          // → int4, enforced at the Scala level
 )
+
+val ok: Either[String, BigDecimal :| Precision[10, 2]] = BigDecimal("19.99").refineEither
+// BigDecimal("19.999").refineEither[Precision[10, 2]] == Left("Should fit numeric(10, 2)")
 ```
 
 ## Views

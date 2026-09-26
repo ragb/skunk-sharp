@@ -20,7 +20,7 @@ trait BookingRepository {
   def findFiltered(filters: List[BookingFilter]): Kleisli[Stream[IO, *], Session[IO], BookingRow]
   def findById(id: UUID): Kleisli[IO, Session[IO], Option[BookingRow]]
   def findByRoom(roomId: UUID): Kleisli[Stream[IO, *], Session[IO], BookingRow]
-  def findOverlapping(roomId: UUID, start: LocalDate, end: LocalDate): Kleisli[IO, Session[IO], List[BookingRow]]
+  def findOverlapping(roomId: UUID, period: PgRange[LocalDate]): Kleisli[IO, Session[IO], List[BookingRow]]
   def create(data: BookingRow.Create): Kleisli[IO, Session[IO], UUID]
   def delete(id: UUID): Kleisli[IO, Session[IO], Unit]
 }
@@ -94,8 +94,8 @@ object BookingRepository {
       case BookingFilter.TitleContains(s) =>
         cv.title.ilike(Param.bind(s"%$s%"))
 
-      case BookingFilter.OverlapsPeriod(from, to) =>
-        cv.period.overlaps(Param.bind(PgRange[LocalDate](lower = Some(from), upper = Some(to))))
+      case BookingFilter.OverlapsPeriod(period) =>
+        cv.period.overlaps(Param.bind(period))
 
       case BookingFilter.StartsOnOrAfter(date) =>
         cv.period.containedBy(Param.bind(PgRange[LocalDate](lower = Some(date))))
@@ -116,8 +116,8 @@ object BookingRepository {
     def findByRoom(roomId: UUID): Kleisli[Stream[IO, *], Session[IO], BookingRow] =
       findByRoomQ.streamKF[IO](roomId, 64)
 
-    def findOverlapping(roomId: UUID, start: LocalDate, end: LocalDate): Kleisli[IO, Session[IO], List[BookingRow]] =
-      findOverlappingQ.runK[IO]((roomId, PgRange[LocalDate](lower = Some(start), upper = Some(end))))
+    def findOverlapping(roomId: UUID, period: PgRange[LocalDate]): Kleisli[IO, Session[IO], List[BookingRow]] =
+      findOverlappingQ.runK[IO]((roomId, period))
 
     def create(data: BookingRow.Create): Kleisli[IO, Session[IO], UUID] =
       createQ.uniqueK[IO]((

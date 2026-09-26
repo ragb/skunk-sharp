@@ -128,30 +128,34 @@ object Transformers {
 
   extension (req: CreateBookingRequest)
 
-    def toRow: BookingRow.Create =
-      req.into[BookingRow.Create]
-        .transform(
-          Field.renamed(_.room_id, _.roomId),
-          Field.computed(_.booker_name, r => Citext(r.bookerName)),
-          Field.computed(_.period, r => PgRange[LocalDate](lower = Some(r.startDate), upper = Some(r.endDate)))
-        )
+    /** `Left` when `startDate` is after `endDate` (client input → 400, instead of a Postgres range error). */
+    def toRow: Either[String, BookingRow.Create] =
+      PgRange.from(lower = Some(req.startDate), upper = Some(req.endDate)).map(period =>
+        req.into[BookingRow.Create]
+          .transform(
+            Field.renamed(_.room_id, _.roomId),
+            Field.computed(_.booker_name, r => Citext(r.bookerName)),
+            Field.const(_.period, period)
+          )
+      )
 
   extension (q: BookingFilterQuery)
 
-    def toFilters: List[BookingFilter] = {
-      val overlap = (q.overlapsFrom, q.overlapsTo).tupled.map { case (f, t) =>
-        BookingFilter.OverlapsPeriod(f, t)
-      }
-      List(
-        NonEmptyList.fromList(q.roomIds).map(BookingFilter.RoomsIn(_)),
-        q.bookerNameContains.map(BookingFilter.BookerNameContains(_)),
-        q.bookerNameSimilar.map(BookingFilter.BookerNameSimilar(_)),
-        q.titleContains.map(BookingFilter.TitleContains(_)),
-        overlap,
-        q.startsOnOrAfter.map(BookingFilter.StartsOnOrAfter(_)),
-        q.endsOnOrBefore.map(BookingFilter.EndsOnOrBefore(_))
-      ).flatten
-    }
+    /** `Left` when `overlapsFrom` is after `overlapsTo` (client input → 400). */
+    def toFilters: Either[String, List[BookingFilter]] =
+      (q.overlapsFrom, q.overlapsTo).tupled
+        .traverse((f, t) => PgRange.from(lower = Some(f), upper = Some(t)))
+        .map(overlap =>
+          List(
+            NonEmptyList.fromList(q.roomIds).map(BookingFilter.RoomsIn(_)),
+            q.bookerNameContains.map(BookingFilter.BookerNameContains(_)),
+            q.bookerNameSimilar.map(BookingFilter.BookerNameSimilar(_)),
+            q.titleContains.map(BookingFilter.TitleContains(_)),
+            overlap.map(BookingFilter.OverlapsPeriod(_)),
+            q.startsOnOrAfter.map(BookingFilter.StartsOnOrAfter(_)),
+            q.endsOnOrBefore.map(BookingFilter.EndsOnOrBefore(_))
+          ).flatten
+        )
 
   // ---------- Search --------------------------------------------------------------------------
 
@@ -192,9 +196,14 @@ object Transformers {
         ).flatten
       )
 
-    /** Available-during pair — both bounds required, mirrors the OverlapsPeriod rule on booking filters. */
-    def availableDuring: Option[(java.time.LocalDate, java.time.LocalDate)] =
-      (q.availableFrom, q.availableTo).tupled
+    /** Available-during period — both bounds required (as for booking filters); `Left` if `from` is after `to`. */
+    def availableDuring: Either[String, Option[PgRange[LocalDate]]] =
+      (q.availableFrom, q.availableTo).tupled.traverse((f, t) => PgRange.from(lower = Some(f), upper = Some(t)))
+
+  extension (q: AvailabilityQuery)
+
+    /** The requested period; `Left` if `from` is after `to`. */
+    def period: Either[String, PgRange[LocalDate]] = PgRange.from(lower = Some(q.from), upper = Some(q.to))
 
   // ---------- Helpers -------------------------------------------------------------------------
 

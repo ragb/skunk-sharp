@@ -32,7 +32,9 @@ Not published:
 
 [`TableBuilder.column[T]`](modules/core/src/main/scala/skunk/sharp/TableBuilder.scala) (continuation pattern: `ColumnCont` / `OptColumnCont`) accepts a tag type and resolves the codec via `PgTypeFor[T]`. Explicit-codec `.column("name", codec)` stays — users pick per column.
 
-The iron module [bridges common constraints to core tags](modules/iron/src/main/scala/skunk/sharp/iron/package.scala): `String :| MaxLength[N]` routes to `Varchar[N]`, `String :| FixedLength[N]` to `Bpchar[N]`. Given-resolution prefers the specific bridge over the generic `refinedPgTypeFor[A, C]` fallback.
+**Construction convention:** `apply` never throws. Type tags (`Varchar[N]`, `Bpchar[N]`, `Numeric[P, S]`, `PgRange.apply`) are *unchecked* — they select the codec only. Checked construction is `from` (`Either`) / `unsafeFrom` (throws): `PgRange.from`, `LTree.from`, `PgVector.from` (plus the compile-time-counted `PgVector(…)` literal macro). Length / precision checks live in the iron module rather than being reimplemented in core (core can't depend on iron).
+
+The iron module [bridges common constraints to core tags](modules/iron/src/main/scala/skunk/sharp/iron/package.scala): `String :| MaxLength[N]` routes to `Varchar[N]`, `String :| FixedLength[N]` to `Bpchar[N]`, and the module's own `Precision[P, S]` constraint (`BigDecimal :| Precision[P, S]`) to `Numeric[P, S]`. Given-resolution prefers the specific bridge over the generic `refinedPgTypeFor[A, C]` fallback.
 
 The [schema validator](modules/core/src/main/scala/skunk/sharp/validation/SchemaValidator.scala) reconstructs the actual Postgres type from `data_type` + `character_maximum_length` + `numeric_precision` + `numeric_scale`, then compares to the declared `skunk.data.Type`'s `.name`. Parametric drift (declared `varchar(256)` vs DB `varchar(1024)`) is caught as a `TypeMismatch`.
 

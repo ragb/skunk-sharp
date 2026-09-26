@@ -2,6 +2,8 @@ package skunk.sharp.example.repository
 
 import cats.data.NonEmptyList
 
+import skunk.sharp.pg.tags.PgRange
+
 import java.time.LocalDate
 import java.util.UUID
 
@@ -34,7 +36,7 @@ object BookingFilter {
   final case class BookerNameSimilar(q: String) extends BookingFilter
 
   /** `period && [from, to)` — booking's period overlaps the requested window. */
-  final case class OverlapsPeriod(from: LocalDate, to: LocalDate) extends BookingFilter
+  final case class OverlapsPeriod(period: PgRange[LocalDate]) extends BookingFilter
 
   /** `lower(period) >= date` — bookings starting on or after the date. */
   final case class StartsOnOrAfter(date: LocalDate) extends BookingFilter

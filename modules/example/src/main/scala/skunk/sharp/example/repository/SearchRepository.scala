@@ -37,18 +37,17 @@ trait SearchRepository {
     near: (Double, Double),
     radius: Double,
     roomFilters: List[RoomFilter],
-    availableDuring: Option[(LocalDate, LocalDate)]
+    availableDuring: Option[PgRange[LocalDate]]
   ): Kleisli[Stream[IO, *], Session[IO], SearchRepository.RoomWithBuilding]
 
   /**
-   * Buildings within a radius of `(lat, lon)`, with the count of rooms that are NOT booked during `[from, to)`. Ordered
-   * by free-room count descending — perfect for a "find a meeting room" landing page.
+   * Buildings within a radius of `(lat, lon)`, with the count of rooms that are NOT booked during `period`. Ordered by
+   * free-room count descending — perfect for a "find a meeting room" landing page.
    */
   def buildingsWithAvailability(
     near: (Double, Double),
     radius: Double,
-    from: LocalDate,
-    to: LocalDate
+    period: PgRange[LocalDate]
   ): Kleisli[Stream[IO, *], Session[IO], SearchRepository.BuildingAvailability]
 
 }
@@ -106,7 +105,7 @@ object SearchRepository {
       near: (Double, Double),
       radius: Double,
       roomFilters: List[RoomFilter],
-      availableDuring: Option[(LocalDate, LocalDate)]
+      availableDuring: Option[PgRange[LocalDate]]
     ): Kleisli[Stream[IO, *], Session[IO], RoomWithBuilding] = {
       val (lat, lon) = near
 
@@ -130,8 +129,7 @@ object SearchRepository {
           val probe       = probeAt(lat, lon)
           val spatial     = j.buildings.geom.dWithin(probe, Param.bind(radius))
           val roomScoped  = roomFilters.map(roomWhere)
-          val availFilter = availableDuring.map { case (from, to) =>
-            val period = PgRange[LocalDate](lower = Some(from), upper = Some(to))
+          val availFilter = availableDuring.map { period =>
             Pg.notExists(
               bookings.select(_ => lit(1)).where(bk =>
                 bk.room_id === j.rooms.id && bk.period.overlaps(Param.bind(period))
@@ -187,11 +185,9 @@ object SearchRepository {
     def buildingsWithAvailability(
       near: (Double, Double),
       radius: Double,
-      from: LocalDate,
-      to: LocalDate
+      period: PgRange[LocalDate]
     ): Kleisli[Stream[IO, *], Session[IO], BuildingAvailability] = {
       val (lat, lon) = near
-      val period     = PgRange[LocalDate](lower = Some(from), upper = Some(to))
       buildingsWithAvailabilityQ.streamKF[IO]((period = period, lon = lon, lat = lat, radius = radius), 64)
     }
   }

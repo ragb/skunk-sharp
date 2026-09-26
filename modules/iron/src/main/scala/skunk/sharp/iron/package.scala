@@ -4,7 +4,7 @@ import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.collection.{FixedLength, MaxLength}
 import skunk.Codec
 import skunk.sharp.pg.PgTypeFor
-import skunk.sharp.pg.tags.{Bpchar, Varchar}
+import skunk.sharp.pg.tags.{Bpchar, Numeric, Varchar}
 
 /**
  * Integration with [Iron](https://iltotore.github.io/iron/).
@@ -33,6 +33,12 @@ given varcharFromMaxLength[N <: Int](using pf: PgTypeFor[Varchar[N]]): PgTypeFor
 /** `String :| FixedLength[N]` ⇒ `bpchar(n)`. */
 given bpcharFromFixedLength[N <: Int](using pf: PgTypeFor[Bpchar[N]]): PgTypeFor[String :| FixedLength[N]] =
   PgTypeFor.instance(pf.codec.asInstanceOf[Codec[String :| FixedLength[N]]])
+
+/** `BigDecimal :| Precision[P, S]` ⇒ `numeric(p, s)`. */
+given numericFromPrecision[P <: Int, S <: Int](using
+  pf: PgTypeFor[Numeric[P, S]]
+): PgTypeFor[BigDecimal :| Precision[P, S]] =
+  PgTypeFor.instance(pf.codec.asInstanceOf[Codec[BigDecimal :| Precision[P, S]]])
 
 object syntax {
 

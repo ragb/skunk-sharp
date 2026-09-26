@@ -19,6 +19,7 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
   private val createRoomReq     = interpreter.toRequestThrowDecodeFailures(Endpoints.rooms.create, Some(baseUri))
   private val createBookingReq  = interpreter.toRequestThrowDecodeFailures(Endpoints.bookings.create, Some(baseUri))
   private val listBookingsReq   = interpreter.toRequestThrowDecodeFailures(Endpoints.bookings.list, Some(baseUri))
+  private val createBookingRaw  = interpreter.toRequest(Endpoints.bookings.create, Some(baseUri))
 
   private def createBuilding(using StreamBackend[IO, Fs2Streams[IO]]): IO[BuildingResponse] =
     createBuildingReq(CreateBuildingRequest("HQ", "HQ address", LatLon(53.34, -6.26))).sendOk
@@ -218,6 +219,22 @@ class BookingsFilterEndpointSuite extends ExampleAppFixture {
             _   <- createBooking(r.id, "x", "b2", LocalDate.parse("2024-02-01"), LocalDate.parse("2024-02-02"))
             all <- listBookings(BookingFilterQuery.empty)
             _ = assertEquals(all.size, 2)
+          } yield ())
+      }
+    }
+  }
+
+  test("a booking whose start date is after its end date is a 400, not a 500") {
+    withContainers { containers =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
+        truncateAll(containers) *>
+          (for {
+            b    <- createBuilding
+            r    <- createRoom(b.id, "backwards", 1)
+            resp <- createBookingRaw(
+              CreateBookingRequest(r.id, "alice", "oops", LocalDate.parse("2030-02-01"), LocalDate.parse("2030-01-01"))
+            ).sendResp
+            _ = assertEquals(resp.code, sttp.model.StatusCode.BadRequest)
           } yield ())
       }
     }
