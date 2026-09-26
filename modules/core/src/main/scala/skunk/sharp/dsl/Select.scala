@@ -63,6 +63,17 @@ final class SelectBuilder[
 
   private def view: SelectView[Ss] = buildSelectView[Ss](sources)
 
+  /**
+   * The outer view handed to a LATERAL subquery: always alias-qualified. A single source's everyday view renders bare
+   * column names, which inside the subquery would bind to the inner relation's same-named columns.
+   */
+  private def lateralView: SelectView[Ss] =
+    sources.toList match {
+      case (e: SourceEntry[?, ?, ?, ?, ?]) :: Nil =>
+        ColumnsView.qualified(e.effectiveCols, e.alias).asInstanceOf[SelectView[Ss]]
+      case _ => view
+    }
+
   /** AND in a typed predicate — `WArgs` extends via `Where.Concat`. */
   inline def where[A](f: SelectView[Ss] => Where[A])
     : SelectBuilder[Ss, Groups, Where.Concat[WArgs, A], HArgs, OArgs] = {
@@ -197,10 +208,10 @@ final class SelectBuilder[
   )(using
     a: AsRelation.Aux[T, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
-  ): IncompleteJoin[Ss, RR, CR, CR, AR, Ss] = {
+  ): IncompleteJoin[Ss, RR, CR, CR, AR, Ss, Groups, WArgs, HArgs, OArgs] = {
     val rel  = a(next)
     val cols = rel.columns.asInstanceOf[CR]
-    new IncompleteJoin(sources, rel, a.aliasValue(next), cols, cols, JoinKind.Inner)
+    new IncompleteJoin(sources, rel, a.aliasValue(next), cols, cols, JoinKind.Inner, carried = Some(this))
   }
 
   def leftJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](
@@ -208,11 +219,11 @@ final class SelectBuilder[
   )(using
     a: AsRelation.Aux[T, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
-  ): IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR, Ss] = {
+  ): IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR, Ss, Groups, WArgs, HArgs, OArgs] = {
     val rel          = a(next)
     val origCols     = rel.columns.asInstanceOf[CR]
     val effectiveCls = nullabilifyCols(origCols).asInstanceOf[NullableCols[CR]]
-    new IncompleteJoin(sources, rel, a.aliasValue(next), origCols, effectiveCls, JoinKind.Left)
+    new IncompleteJoin(sources, rel, a.aliasValue(next), origCols, effectiveCls, JoinKind.Left, carried = Some(this))
   }
 
   def rightJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](
@@ -220,10 +231,10 @@ final class SelectBuilder[
   )(using
     a: AsRelation.Aux[T, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
-  ): IncompleteJoin[Ss, RR, CR, CR, AR, NullabilifySources[Ss]] = {
+  ): IncompleteJoin[Ss, RR, CR, CR, AR, NullabilifySources[Ss], Groups, WArgs, HArgs, OArgs] = {
     val rel  = a(next)
     val cols = rel.columns.asInstanceOf[CR]
-    new IncompleteJoin(sources, rel, a.aliasValue(next), cols, cols, JoinKind.Right)
+    new IncompleteJoin(sources, rel, a.aliasValue(next), cols, cols, JoinKind.Right, carried = Some(this))
   }
 
   def fullJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](
@@ -231,11 +242,11 @@ final class SelectBuilder[
   )(using
     a: AsRelation.Aux[T, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
-  ): IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR, NullabilifySources[Ss]] = {
+  ): IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR, NullabilifySources[Ss], Groups, WArgs, HArgs, OArgs] = {
     val rel          = a(next)
     val origCols     = rel.columns.asInstanceOf[CR]
     val effectiveCls = nullabilifyCols(origCols).asInstanceOf[NullableCols[CR]]
-    new IncompleteJoin(sources, rel, a.aliasValue(next), origCols, effectiveCls, JoinKind.Full)
+    new IncompleteJoin(sources, rel, a.aliasValue(next), origCols, effectiveCls, JoinKind.Full, carried = Some(this))
   }
 
   def crossJoin[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](
@@ -257,7 +268,8 @@ final class SelectBuilder[
       orderOpt,
       limitOpt,
       offsetOpt,
-      lockingOpt
+      lockingOpt,
+      distinctOnOpt
     )
   }
 
@@ -268,11 +280,20 @@ final class SelectBuilder[
   )(using
     a: AsRelation.Aux[T, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
-  ): IncompleteJoin[Ss, RR, CR, CR, AR, Ss] = {
-    val t    = fn(view)
+  ): IncompleteJoin[Ss, RR, CR, CR, AR, Ss, Groups, WArgs, HArgs, OArgs] = {
+    val t    = fn(lateralView)
     val rel  = a(t)
     val cols = rel.columns.asInstanceOf[CR]
-    new IncompleteJoin(sources, rel, a.aliasValue(t), cols, cols, JoinKind.Inner, isLateral = true)
+    new IncompleteJoin(
+      sources,
+      rel,
+      a.aliasValue(t),
+      cols,
+      cols,
+      JoinKind.Inner,
+      isLateral = true,
+      carried = Some(this)
+    )
   }
 
   def leftJoinLateral[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](
@@ -280,12 +301,21 @@ final class SelectBuilder[
   )(using
     a: AsRelation.Aux[T, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
-  ): IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR, Ss] = {
-    val t            = fn(view)
+  ): IncompleteJoin[Ss, RR, CR, NullableCols[CR], AR, Ss, Groups, WArgs, HArgs, OArgs] = {
+    val t            = fn(lateralView)
     val rel          = a(t)
     val origCols     = rel.columns.asInstanceOf[CR]
     val effectiveCls = nullabilifyCols(origCols).asInstanceOf[NullableCols[CR]]
-    new IncompleteJoin(sources, rel, a.aliasValue(t), origCols, effectiveCls, JoinKind.Left, isLateral = true)
+    new IncompleteJoin(
+      sources,
+      rel,
+      a.aliasValue(t),
+      origCols,
+      effectiveCls,
+      JoinKind.Left,
+      isLateral = true,
+      carried = Some(this)
+    )
   }
 
   def crossJoinLateral[T, RR <: Relation[CR], CR <: Tuple, AR <: String & Singleton, MR <: AliasMode](
@@ -294,7 +324,7 @@ final class SelectBuilder[
     a: AsRelation.Aux[T, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
   ): SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR, Void]], Groups, WArgs, HArgs, OArgs] = {
-    val t     = fn(view)
+    val t     = fn(lateralView)
     val rel   = a(t)
     val cols  = rel.columns.asInstanceOf[CR]
     val entry = new SourceEntry[RR, CR, CR, AR, Void](
@@ -316,7 +346,8 @@ final class SelectBuilder[
       orderOpt,
       limitOpt,
       offsetOpt,
-      lockingOpt
+      lockingOpt,
+      distinctOnOpt
     )
   }
 

@@ -446,6 +446,15 @@ extension [Cols <: Tuple, Name <: String & Singleton](table: Table[Cols, Name]) 
 }
 
 /** Strip the `Param[_]` wrapper from each tuple element: `(Param[A], Param[B]) → (A, B)`. */
+/**
+ * The value type each `Param[T]` / `Param.named[L, T]` of a `.withParams` row supplies — checked against its column.
+ */
+type ParamValueTypes[T <: Tuple] <: Tuple = T match {
+  case EmptyTuple               => EmptyTuple
+  case Param[t] *: tail         => t *: ParamValueTypes[tail]
+  case NamedParam[l, t] *: tail => t *: ParamValueTypes[tail]
+}
+
 type StripParams[T <: Tuple] <: Tuple = T match {
   case EmptyTuple               => EmptyTuple
   case Param[t] *: tail         => t *: StripParams[tail]
@@ -474,6 +483,7 @@ extension [Cols <: Tuple](b: InsertBuilder[Cols]) {
     CompileChecks.requireAllNamesInCols[Cols, NamedTuple.Names[R]]
     CompileChecks.requireCoversRequired[Cols, NamedTuple.Names[R]]
     CompileChecks.requireNoneGenerated[Cols, NamedTuple.Names[R]]
+    CompileChecks.requireValueTypesMatch[Cols, NamedTuple.Names[R], ParamValueTypes[NamedTuple.DropNames[R]]]
     val names                  = constValueTuple[NamedTuple.Names[R]].toList.asInstanceOf[List[String]]
     val params: List[Codec[?]] = row.asInstanceOf[Tuple].toList.map {
       case p: Param[?]                    => p.codec
