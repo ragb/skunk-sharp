@@ -3,7 +3,7 @@ package skunk.sharp.dsl
 import skunk.{AppliedFragment, Codec, Encoder, Fragment, Void}
 import skunk.sharp.*
 import skunk.sharp.internal.{RawConstants, RowCodecs}, RowCodecs.{rowCodec, tupleCodec}
-import skunk.sharp.where.Where
+import skunk.sharp.where.{SlotSplit, Where}
 import skunk.util.Origin
 
 /**
@@ -370,94 +370,51 @@ final class SelectBuilder[
    */
   transparent inline def select[X](inline f: SelectView[Ss] => X) = {
     val v = view
+    // Each branch only fixes the static `Proj` / `Row`; construction is the shared non-inline `handOff`.
     inline scala.compiletime.erasedValue[X] match {
       case _: TypedExpr[?, ?] =>
-        val expr = f(v).asInstanceOf[TypedExpr[?, ?]]
-        new ProjectedSelect[
-          Ss,
-          X *: EmptyTuple,
-          Groups,
-          EmptyTuple,
-          SelectBuilder.HandOffOrders[OArgs],
-          WArgs,
-          HArgs,
-          ProjResult[X]
-        ](
-          sources,
-          distinct,
-          List(expr),
-          expr.codec.asInstanceOf[Codec[ProjResult[X]]],
-          whereOpt,
-          groupBys,
-          havingOpt,
-          orderOpt.map(f => OrderBy(f.asInstanceOf[Fragment[OArgs]])).toList,
-          limitOpt,
-          offsetOpt,
-          lockingOpt,
-          distinctOnOpt
-        )
+        handOff[X *: EmptyTuple, ProjResult[X]](f(v), single = true)
       case _: scala.NamedTuple.AnyNamedTuple =>
-        val tup   = f(v).asInstanceOf[Product]
-        val exprs = tup.productIterator.toList.asInstanceOf[List[TypedExpr[?, ?]]]
-        val codec = tupleCodec(exprs.map(_.codec))
-          .asInstanceOf[Codec[scala.NamedTuple.NamedTuple[
-            scala.NamedTuple.Names[X & scala.NamedTuple.AnyNamedTuple],
-            ExprOutputs[scala.NamedTuple.DropNames[X & scala.NamedTuple.AnyNamedTuple]]
-          ]]]
-        new ProjectedSelect[
-          Ss,
+        handOff[
           scala.NamedTuple.DropNames[X & scala.NamedTuple.AnyNamedTuple],
-          Groups,
-          EmptyTuple,
-          SelectBuilder.HandOffOrders[OArgs],
-          WArgs,
-          HArgs,
           scala.NamedTuple.NamedTuple[
             scala.NamedTuple.Names[X & scala.NamedTuple.AnyNamedTuple],
             ExprOutputs[scala.NamedTuple.DropNames[X & scala.NamedTuple.AnyNamedTuple]]
           ]
-        ](
-          sources,
-          distinct,
-          exprs,
-          codec,
-          whereOpt,
-          groupBys,
-          havingOpt,
-          orderOpt.map(f => OrderBy(f.asInstanceOf[Fragment[OArgs]])).toList,
-          limitOpt,
-          offsetOpt,
-          lockingOpt,
-          distinctOnOpt
-        )
+        ](f(v), single = false)
       case _: NonEmptyTuple =>
-        val tup   = f(v).asInstanceOf[NonEmptyTuple]
-        val exprs = tup.toList.asInstanceOf[List[TypedExpr[?, ?]]]
-        val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[X & Tuple]]]
-        new ProjectedSelect[
-          Ss,
-          X & Tuple,
-          Groups,
-          EmptyTuple,
-          SelectBuilder.HandOffOrders[OArgs],
-          WArgs,
-          HArgs,
-          ExprOutputs[X & Tuple]
-        ](
-          sources,
-          distinct,
-          exprs,
-          codec,
-          whereOpt,
-          groupBys,
-          havingOpt,
-          orderOpt.map(f => OrderBy(f.asInstanceOf[Fragment[OArgs]])).toList,
-          limitOpt,
-          offsetOpt,
-          lockingOpt,
-          distinctOnOpt
-        )
+        handOff[X & Tuple, ExprOutputs[X & Tuple]](f(v), single = false)
     }
+  }
+
+  /**
+   * Build the [[ProjectedSelect]] for [[select]]: `projection` is one `TypedExpr` (`single`) or a (named) tuple of
+   * them. Carries this builder's state; the whole-row ORDER BY becomes one `OrderBy[OArgs]` item.
+   */
+  @scala.annotation.publicInBinary
+  private[sharp] def handOff[Proj <: Tuple, Row](
+    projection: Any,
+    single: Boolean
+  ): ProjectedSelect[Ss, Proj, Groups, EmptyTuple, SelectBuilder.HandOffOrders[OArgs], WArgs, HArgs, Row] = {
+    val exprs =
+      if (single) List(projection.asInstanceOf[TypedExpr[?, ?]])
+      else projection.asInstanceOf[Product].productIterator.toList.asInstanceOf[List[TypedExpr[?, ?]]]
+    val codec =
+      (if (single) exprs.head.codec else tupleCodec(exprs.map(_.codec))).asInstanceOf[Codec[Row]]
+    new ProjectedSelect[Ss, Proj, Groups, EmptyTuple, SelectBuilder.HandOffOrders[OArgs], WArgs, HArgs, Row](
+      sources,
+      distinct,
+      exprs,
+      codec,
+      whereOpt,
+      groupBys,
+      havingOpt,
+      orderOpt.map(f => OrderBy(f.asInstanceOf[Fragment[OArgs]])).toList,
+      limitOpt,
+      offsetOpt,
+      lockingOpt,
+      distinctOnOpt
+    )
   }
 
   /**
@@ -516,10 +473,14 @@ final class SelectBuilder[
       val xs = rawGroupProjector(a)
       if (xs.size == groupBys.size) xs else List.fill(groupBys.size)(Void)
     }
+    val split                          = new SlotSplit(codes)
     val slotValues: Out => IArray[Any] = args => {
-      val v     = Where.splitFlat(args, codes)
-      val slots = IArray[Any](v(1), v(2), v(3), v(4), v(5))
-      cteProj.fold(slots)(cp => buildCteAndSlotIArrayWithEntries(entries, cp, v(0), ctes, slots))
+      val slots = split.from(args, 1) // slot 0 (CTE args) is only needed when there are CTEs
+      cteProj match {
+        case Some(cp) if ctes.nonEmpty =>
+          buildCteAndSlotIArrayWithEntries(entries, cp, split.at(args, 0), ctes, slots)
+        case _ => slots
+      }
     }
     SelectBuilder.assembleN[Out, Row](
       bodyParts = compileBodyParts(head, groupProjector),
@@ -745,9 +706,7 @@ object SelectBuilder {
         TypedExpr.combineList[OrderArgs[O]](
           o.asInstanceOf[Tuple].toList.asInstanceOf[List[OrderBy[?]]].map(_.fragment),
           ", ",
-          c =>
-            Where.projectFoldConcat[OrderArgsTuple[O & Tuple]](c.asInstanceOf[Where.FoldConcat[OrderArgsTuple[O &
-              Tuple]]])
+          Where.foldOf[OrderArgs[O]](Where.slotCodes[OrderArgsTuple[O & Tuple]])
         )
     }
 
@@ -1225,8 +1184,9 @@ final class ProjectedSelect[
         if (xs.size >= orderBys.size) xs else List.fill(orderBys.size - xs.size)(Void) ++ xs
       }
     val srcSlotCount                   = sourceSlotCount(entries)
+    val split                          = new SlotSplit(codes)
     val slotValues: Out => IArray[Any] = args => {
-      val v         = Where.splitFlat(args, codes)
+      val v         = split(args)
       val baseSlots = buildSlotIArray(v(1), v(2), v(3), v(4), srcSlotCount, bff, onProj, v(5), v(6), v(7), v(8))
       cteProj.fold(baseSlots)(cp => buildCteAndSlotIArrayWithEntries(entries, cp, v(0), ctes, baseSlots))
     }

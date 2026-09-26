@@ -32,11 +32,8 @@ trait PgNull {
   inline def coalesce[T, A1, A2, A3](a: TypedExpr[T, A1], b: TypedExpr[T, A2], c: TypedExpr[T, A3])(using
     pf: PgTypeFor[T]
   ): TypedExpr[T, Where.Concat[Where.Concat[A1, A2], A3]] = {
-    val projector: Where.Concat[Where.Concat[A1, A2], A3] => List[Any] = combined => {
-      val (a12, a3v) = Where.projectConcat[Where.Concat[A1, A2], A3](combined)
-      val (a1v, a2v) = Where.projectConcat[A1, A2](a12.asInstanceOf[Where.Concat[A1, A2]])
-      List(a1v, a2v, a3v)
-    }
+    val projector: Where.Concat[Where.Concat[A1, A2], A3] => List[Any] =
+      Where.foldOf[Where.Concat[Where.Concat[A1, A2], A3]](Where.slotCodes[(A1, A2, A3)])
     val combined = TypedExpr.combineList[Where.Concat[Where.Concat[A1, A2], A3]](
       List(a.fragment, b.fragment, c.fragment),
       ", ",

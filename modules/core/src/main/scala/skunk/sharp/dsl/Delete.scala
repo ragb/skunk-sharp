@@ -160,7 +160,8 @@ private[dsl] object MutationAssembly {
     commandImpl[Where.Concat[A1, A2]](parts, Where.slotCodes[(A1, A2)])
 
   def commandImpl[Out](parts: List[BodyPart], codes: Tuple): CommandTemplate[Out] = {
-    val tpl = SelectBuilder.assembleN[Out, Void](parts, Nil, Void.codec, args => Where.splitFlat(args, codes))
+    val split = new skunk.sharp.where.SlotSplit(codes)
+    val tpl   = SelectBuilder.assembleN[Out, Void](parts, Nil, Void.codec, split)
     CommandTemplate.mk[Out](tpl.fragment)
   }
 
@@ -180,6 +181,41 @@ private[dsl] object MutationAssembly {
   ): QueryTemplate[Where.Concat[A1, RetArgs], R] =
     returningImpl[Where.Concat[A1, RetArgs], R](base, ret, codec, Where.slotCodes[(A1, RetArgs)])
 
+  /**
+   * Assembly for statements with extra sources (UPDATE … FROM, DELETE … USING, MERGE): slot `srcIdx` holds the sources'
+   * combined body Args, expanded per source via `bff` (dropping the target at the head, always Void).
+   */
+  def withSourcesImpl[Out, R](
+    parts: List[BodyPart],
+    codec: Codec[R],
+    codes: Tuple,
+    bff: SourceBodyArgsProj[? <: Tuple],
+    srcIdx: Int
+  ): QueryTemplate[Out, R] = {
+    val sp = new skunk.sharp.where.SlotSplit(codes)
+    SelectBuilder.assembleN[Out, R](
+      parts,
+      Nil,
+      codec,
+      args => {
+        val v    = sp(args)
+        val tail = bff.project(v(srcIdx)) match {
+          case _ :: rest => rest
+          case _         => Nil
+        }
+        IArray.from(v.take(srcIdx) ++ tail ++ v.drop(srcIdx + 1))
+      }
+    )
+  }
+
+  def commandWithSourcesImpl[Out](
+    parts: List[BodyPart],
+    codes: Tuple,
+    bff: SourceBodyArgsProj[? <: Tuple],
+    srcIdx: Int
+  ): CommandTemplate[Out] =
+    CommandTemplate.mk[Out](withSourcesImpl[Out, Void](parts, Void.codec, codes, bff, srcIdx).fragment)
+
   def returningImpl[Out, R](
     base: List[BodyPart],
     ret: Fragment[?],
@@ -187,7 +223,7 @@ private[dsl] object MutationAssembly {
     codes: Tuple
   ): QueryTemplate[Out, R] = {
     val parts: List[BodyPart] = base ++ List[BodyPart](SelectBuilder.bake(RawConstants.RETURNING), Right(ret))
-    SelectBuilder.assembleN[Out, R](parts, Nil, codec, args => Where.splitFlat(args, codes))
+    SelectBuilder.assembleN[Out, R](parts, Nil, codec, new skunk.sharp.where.SlotSplit(codes))
   }
 
 }
@@ -281,50 +317,31 @@ final class DeleteUsingReady[
     buf.toList
   }
 
-  private def usingTailBodyArgs(bff: SourceBodyArgsProj[? <: Tuple], sArgs: Any): List[Any] =
-    bff.project(sArgs) match {
-      case _ :: rest => rest // drop head (target table — always Void)
-      case _         => Nil
-    }
-
-  // Concat-chain: SArgs ⊕ Args (WHERE).
+  // Slots: SArgs (per USING source) ⊕ Args (WHERE).
   inline def compile[SArgs](using
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
     bff: SourceBodyArgsProj[Ss]
-  ): CommandTemplate[Where.Concat[SArgs, Args]] = {
-    type Out = Where.Concat[SArgs, Args]
-    val slotValues: Out => IArray[Any] = args => {
-      val (sArgs, wArgs) = Where.projectConcat[SArgs, Args](args)
-      val perTailBody    = usingTailBodyArgs(bff, sArgs)
-      val out            = scala.collection.mutable.ArrayBuffer.empty[Any]
-      perTailBody.foreach(out += _)
-      out += wArgs
-      IArray.from(out)
-    }
-    val tpl = SelectBuilder.assembleN[Out, Void](bodyParts, Nil, Void.codec, slotValues)
-    CommandTemplate.mk[Out](tpl.fragment)
-  }
+  ): CommandTemplate[Where.Concat[SArgs, Args]] =
+    MutationAssembly.commandWithSourcesImpl[Where.Concat[SArgs, Args]](
+      bodyParts,
+      Where.slotCodes[(SArgs, Args)],
+      bff,
+      0
+    )
 
-  // Concat-chain: SArgs ⊕ Args (WHERE) ⊕ A (RETURNING).
+  // Slots: SArgs ⊕ Args (WHERE) ⊕ A (RETURNING).
   inline def returning[T, A, SArgs](f: JoinedView[Ss] => TypedExpr[T, A])(using
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
     bff: SourceBodyArgsProj[Ss]
   ): QueryTemplate[Where.Concat[Where.Concat[SArgs, Args], A], T] = {
-    val expr                  = f(buildJoinedView(sources))
-    val parts: List[BodyPart] = bodyParts ++
-      List[BodyPart](SelectBuilder.bake(RawConstants.RETURNING), Right(expr.fragment))
-    type Out = Where.Concat[Where.Concat[SArgs, Args], A]
-    val slotValues: Out => IArray[Any] = args => {
-      val (swAcc, retArgs) = Where.projectConcat[Where.Concat[SArgs, Args], A](args)
-      val (sArgs, wArgs)   = Where.projectConcat[SArgs, Args](swAcc)
-      val perTailBody      = usingTailBodyArgs(bff, sArgs)
-      val out              = scala.collection.mutable.ArrayBuffer.empty[Any]
-      perTailBody.foreach(out += _)
-      out += wArgs
-      out += retArgs
-      IArray.from(out)
-    }
-    SelectBuilder.assembleN[Out, T](parts, Nil, expr.codec, slotValues)
+    val expr = f(buildJoinedView(sources))
+    MutationAssembly.withSourcesImpl[Where.Concat[Where.Concat[SArgs, Args], A], T](
+      bodyParts ++ List[BodyPart](Left(TypedExpr.liftAfToVoid(RawConstants.RETURNING)), Right(expr.fragment)),
+      expr.codec,
+      Where.slotCodes[(SArgs, Args, A)],
+      bff,
+      0
+    )
   }
 
   inline def returningTuple[T <: NonEmptyTuple, SArgs, TOut](f: JoinedView[Ss] => T)(using

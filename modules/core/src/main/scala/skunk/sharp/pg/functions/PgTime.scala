@@ -51,11 +51,9 @@ trait PgTime {
         List(sep) ++ bEnd.fragment.parts ++
         List(closeParen)
 
+    val split: Out => List[Any]                           = Where.foldOf[Out](Where.slotCodes[(A1, A2, A3, A4)])
     val encodeFn: Out => List[Option[skunk.data.Encoded]] = args => {
-      val (a123, a4v)       = Where.projectConcat[Where.Concat[Where.Concat[A1, A2], A3], A4](args)
-      val (a12, a3v)        = Where.projectConcat[Where.Concat[A1, A2], A3](a123)
-      val (a1v, a2v)        = Where.projectConcat[A1, A2](a12)
-      val values: List[Any] = List(a1v, a2v, a3v, a4v)
+      val values: List[Any] = split(args)
       items.zip(values).flatMap { case (f, v) =>
         val e = f.encoder.asInstanceOf[skunk.Encoder[Any]]
         if (e eq Void.codec) Nil else e.encode(v)
@@ -116,11 +114,8 @@ trait PgTime {
     month: TypedExpr[Int, M],
     day: TypedExpr[Int, D]
   ): TypedExpr[LocalDate, Where.Concat[Where.Concat[Y, M], D]] = {
-    val projector: Where.Concat[Where.Concat[Y, M], D] => List[Any] = combined => {
-      val (a12, a3v) = Where.projectConcat[Where.Concat[Y, M], D](combined)
-      val (a1v, a2v) = Where.projectConcat[Y, M](a12.asInstanceOf[Where.Concat[Y, M]])
-      List(a1v, a2v, a3v)
-    }
+    val projector: Where.Concat[Where.Concat[Y, M], D] => List[Any] =
+      Where.foldOf[Where.Concat[Where.Concat[Y, M], D]](Where.slotCodes[(Y, M, D)])
     val combined = TypedExpr.combineList[Where.Concat[Where.Concat[Y, M], D]](
       List(year.fragment, month.fragment, day.fragment),
       ", ",
@@ -136,11 +131,8 @@ trait PgTime {
     m: TypedExpr[Int, MM],
     s: TypedExpr[Double, S]
   ): TypedExpr[LocalTime, Where.Concat[Where.Concat[H, MM], S]] = {
-    val projector: Where.Concat[Where.Concat[H, MM], S] => List[Any] = combined => {
-      val (a12, a3v) = Where.projectConcat[Where.Concat[H, MM], S](combined)
-      val (a1v, a2v) = Where.projectConcat[H, MM](a12.asInstanceOf[Where.Concat[H, MM]])
-      List(a1v, a2v, a3v)
-    }
+    val projector: Where.Concat[Where.Concat[H, MM], S] => List[Any] =
+      Where.foldOf[Where.Concat[Where.Concat[H, MM], S]](Where.slotCodes[(H, MM, S)])
     val combined = TypedExpr.combineList[Where.Concat[Where.Concat[H, MM], S]](
       List(h.fragment, m.fragment, s.fragment),
       ", ",
@@ -166,23 +158,8 @@ trait PgTime {
     Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI], S]
   ] = {
     type Out = Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI], S]
-    val projector: Out => List[Any] = combined => {
-      val (a12345, a6v) =
-        Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI], S](combined)
-      val (a1234, a5v) = Where.projectConcat[Where.Concat[
-        Where.Concat[Where.Concat[Y, MO], D],
-        H
-      ], MI](a12345.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H], MI]])
-      val (a123, a4v) = Where.projectConcat[Where.Concat[
-        Where.Concat[Y, MO],
-        D
-      ], H](a1234.asInstanceOf[Where.Concat[Where.Concat[Where.Concat[Y, MO], D], H]])
-      val (a12, a3v) =
-        Where.projectConcat[Where.Concat[Y, MO], D](a123.asInstanceOf[Where.Concat[Where.Concat[Y, MO], D]])
-      val (a1v, a2v) = Where.projectConcat[Y, MO](a12.asInstanceOf[Where.Concat[Y, MO]])
-      List(a1v, a2v, a3v, a4v, a5v, a6v)
-    }
-    val combined = TypedExpr.combineList[Out](
+    val projector: Out => List[Any] = Where.foldOf[Out](Where.slotCodes[(Y, MO, D, H, MI, S)])
+    val combined                    = TypedExpr.combineList[Out](
       List(year.fragment, month.fragment, day.fragment, h.fragment, m.fragment, s.fragment),
       ", ",
       projector

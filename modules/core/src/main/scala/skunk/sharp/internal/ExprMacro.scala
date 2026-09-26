@@ -139,6 +139,13 @@ object ExprMacroRuntime {
   inline def assemble[Tup <: Tuple, Args](
     literals: List[String],
     argFrags: List[Fragment[?]]
+  ): Fragment[Args] = assembleImpl[Args](literals, argFrags, Where.slotCodes[Tup])
+
+  /** Non-inline body of [[assemble]]: only the slots' shape codes are computed per interpolation site. */
+  def assembleImpl[Args](
+    literals: List[String],
+    argFrags: List[Fragment[?]],
+    codes: Tuple
   ): Fragment[Args] = {
     val parts: List[Either[String, cats.data.State[Int, String]]] = {
       val buf  = scala.collection.mutable.ListBuffer.empty[Either[String, cats.data.State[Int, String]]]
@@ -150,9 +157,8 @@ object ExprMacroRuntime {
       }
       buf.toList
     }
-    val projector: Args => List[Any] = c =>
-      Where.projectFoldConcat[Tup](c.asInstanceOf[Where.FoldConcat[Tup]])
-    val enc = buildEncoder[Args](argFrags, projector)
+    val projector: Args => List[Any] = Where.foldOf[Args](codes)
+    val enc                          = buildEncoder[Args](argFrags, projector)
     Fragment(parts, enc, Origin.unknown)
   }
 
