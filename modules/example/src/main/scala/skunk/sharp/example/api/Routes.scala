@@ -82,9 +82,13 @@ object Routes {
         ).handleErrorWith(e => internal(e.getMessage).asLeft.pure).flatMap {
           case Left(err) => IO.pure(err.asLeft)
           case Right(()) =>
-            Stream.resource(pool).flatMap(rooms.findFiltered(buildingId, q.toFilters).run).map(_.toResponse)
-              .compile.toList.map(_.asRight[Err])
-              .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
+            q.toFilters match {
+              case Left(invalid)  => IO.pure(badRequest(invalid).asLeft)
+              case Right(filters) =>
+                Stream.resource(pool).flatMap(rooms.findFiltered(buildingId, filters).run).map(_.toResponse)
+                  .compile.toList.map(_.asRight[Err])
+                  .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
+            }
         }
       },
       Endpoints.rooms.getById.serverLogic[IO] { case (buildingId, id) =>
@@ -101,7 +105,8 @@ object Routes {
               buildings.findById(buildingId),
               notFound(s"Building $buildingId not found")
             )
-            id   <- EitherT.liftF[Cats.K, Err, java.util.UUID](rooms.create(req.toRow(buildingId)))
+            row  <- EitherT.fromEither[Cats.K](req.toRow(buildingId).leftMap(badRequest))
+            id   <- EitherT.liftF[Cats.K, Err, java.util.UUID](rooms.create(row))
             room <- EitherT.fromOptionF(
               rooms.findById(buildingId, id),
               internal("room disappeared after create")
@@ -189,12 +194,16 @@ object Routes {
 
     val searchEndpoints: List[ServerEndpoint[Any, IO]] = List(
       Endpoints.search.rooms.serverLogic[IO] { q =>
-        Stream.resource(pool)
-          .flatMap(search.findRoomsNear((q.nearLat, q.nearLon), q.radiusMeters, q.toRoomFilters, q.availableDuring).run)
-          .map(_.toResponse)
-          .compile.toList
-          .map(_.asRight[Err])
-          .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
+        q.toRoomFilters match {
+          case Left(invalid)  => IO.pure(badRequest(invalid).asLeft)
+          case Right(filters) =>
+            Stream.resource(pool)
+              .flatMap(search.findRoomsNear((q.nearLat, q.nearLon), q.radiusMeters, filters, q.availableDuring).run)
+              .map(_.toResponse)
+              .compile.toList
+              .map(_.asRight[Err])
+              .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
+        }
       },
       Endpoints.search.availability.serverLogic[IO] { q =>
         Stream.resource(pool)

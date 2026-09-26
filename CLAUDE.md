@@ -187,6 +187,8 @@ Shipped:
 - `UPDATE … FROM` / `DELETE … USING` (with typed-args FROM/USING tail sources).
 - Set-returning functions (`Pg.generateSeries`, `Pg.unnestAsRelation`) with typed args, incl. `Pg.unnestRows[Row]` (a batch as ONE typed `List[Row]` param, split into per-field arrays at encode time via `ArrayCodecs` — the recommended way to pass a batch of rows as typed Args of one statement) and multi-array `Pg.unnestAsRelation((a = Param[List[A]], b = Param[List[B]]))` (lengths checked at encode time) (vs. `Values.of`, which bakes values via `AppliedFragment`s). `.alias` on a `TypedBodyRelation` keeps its `BA` / SRF rendering (a separate `aliasTyped` extension); SRF / subquery source SQL is interned in `aliasedFromEntryParts`.
 - Iron + refined refinement bridges; Circe-backed `json` / `jsonb`.
+- pgvector contrib (`skunk.sharp.contrib.pgvector`): `PgVector[N]` (dimension in the type; a final class, not an opaque alias — Args match types must prove it disjoint from `Void`), distance operators, `vector[]` codec for `Pg.unnestRows` batches, validator compares `vector(N)` via `format_type`. Integration suite uses the `pgvector/pgvector:pg18` image.
+- Whole-row `SelectBuilder.orderBy` rejects deferred Params at compile time (`requireVoidOrders`) — it doesn't thread ORDER BY Args yet (#109); projected `.select(…).orderBy(…)` does.
 - Docs site (Typelevel-site / mdoc) under [docs/docs/](docs/docs/) — every snippet type-checks against the live library at compile.
 
 Open extension points (no scheduled date — pick one when motivation arrives):

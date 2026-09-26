@@ -48,7 +48,7 @@ class TransformersFilterSuite extends munit.FunSuite {
   // ---------- RoomFilterQuery -------------------------------------------------------------------
 
   test("RoomFilterQuery.empty.toFilters is empty") {
-    assertEquals(RoomFilterQuery.empty.toFilters, Nil)
+    assertEquals(RoomFilterQuery.empty.toFilters, Right(Nil))
   }
 
   test("RoomFilterQuery — every field translates to its filter case") {
@@ -64,21 +64,26 @@ class TransformersFilterSuite extends munit.FunSuite {
     )
     assertEquals(
       q.toFilters,
-      List(
+      Right(List(
         RoomFilter.CapacityAtLeast(10),
         RoomFilter.CapacityAtMost(50),
         RoomFilter.NameContains("hub"),
         RoomFilter.NamesIn(NonEmptyList.of("alpha", "beta")),
         RoomFilter.IdsIn(NonEmptyList.fromListUnsafe(ids)),
-        RoomFilter.LocationUnder(LTree("acme.dublin")),
+        RoomFilter.LocationUnder(LTree.unsafeFrom("acme.dublin")),
         RoomFilter.HasAmenity("projector")
-      )
+      ))
     )
+  }
+
+  test("RoomFilterQuery — an invalid locationUnder is a Left, not an exception") {
+    val q = RoomFilterQuery.empty.copy(locationUnder = Some("not a valid path!"))
+    assert(q.toFilters.left.exists(_.contains("invalid ltree")), q.toFilters.toString)
   }
 
   test("RoomFilterQuery — empty multi-value lists drop out (no IN clause)") {
     val q = RoomFilterQuery.empty.copy(minCapacity = Some(1))
-    assertEquals(q.toFilters, List(RoomFilter.CapacityAtLeast(1)))
+    assertEquals(q.toFilters, Right(List(RoomFilter.CapacityAtLeast(1))))
   }
 
   // ---------- BookingFilterQuery ----------------------------------------------------------------
