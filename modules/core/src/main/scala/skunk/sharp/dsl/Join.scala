@@ -799,7 +799,7 @@ object SourceBodyArgsProj {
     rest: SourceBodyArgsProj[T]
   ): SourceBodyArgsProj[SourceEntry[R, C0, C, A, OA] *: T] = {
     val proj: Where.Concat[GetBodyArgs[R], SourceBodyArgs[T]] => (GetBodyArgs[R], SourceBodyArgs[T]) =
-      c => Where.projectConcat[GetBodyArgs[R], SourceBodyArgs[T]](c)
+      Where.projPair[GetBodyArgs[R], SourceBodyArgs[T]]
     new SourceBodyArgsConsProj[R, C0, C, A, OA, T](rest, proj)
   }
 
@@ -867,7 +867,7 @@ object SourceOnArgsProj {
     rest: SourceOnArgsProj[T]
   ): SourceOnArgsProj[SourceEntry[R, C0, C, A, OA] *: T] = {
     val proj: Where.Concat[OA, SourceOnArgs[T]] => (OA, SourceOnArgs[T]) =
-      c => Where.projectConcat[OA, SourceOnArgs[T]](c)
+      Where.projPair[OA, SourceOnArgs[T]]
     new SourceOnArgsConsProj[R, C0, C, A, OA, T](rest, proj)
   }
 

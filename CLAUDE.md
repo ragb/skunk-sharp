@@ -152,6 +152,14 @@ The pieces that hold the invariant:
 - **Fully-static fast path in `assembleN`** — when every part contributes no typed parameters (`encoder.types.isEmpty`), the assembled `Fragment` reuses `Void.codec` directly instead of constructing a custom `Encoder`. Saves the per-execute parts-walk for fully-static queries.
 - **Typed `Args` end-to-end** — every builder threads its captured-parameter tuple type as a type parameter; `Where.Concat` collapses the chain to a flat user-facing tuple at the boundary (see *Args threading* above).
 
+## Compiler memory — keep inline expansions thin
+
+Every DSL call site is expanded inline, and the compiler holds all of a module's trees at once, so compile heap scales with (call sites × expansion size). Measured: the core tests needed ~1 GB live heap before the thinning below, ~680 MB after; `.jvmopts` sets a 4 GB heap for the build.
+
+- **Inline only what needs the concrete types.** For Args splitting that's just the slots' shape: `Where.slotCodes[(A1, A2, …)]` is a compile-time constant tuple; the split itself is the shared non-inline `SlotSplit` / `Where.splitFlat`. Builders' `.compile` / `compileBodyFragment` pass codes to a non-inline `compileImpl`; mutations go through `MutationAssembly.commandImpl` / `returningImpl`.
+- **Use `Where.projPair[A, B]` / `Where.projFold[T]`, not `c => Where.projectConcat[A, B](c)` / `c => Where.projectFoldConcat[T](c)`**, when a combinator needs a projector closure. `projectConcat` stays for code that genuinely needs the typed pair inline.
+- Measure with a probe: N copies of one call shape in a file compiled alone; bytecode per site tracks tree size deterministically (live-heap sampling is noisy).
+
 ## Schema validation
 
 [`SchemaValidator.validate(session, rels…)`](modules/core/src/main/scala/skunk/sharp/validation/SchemaValidator.scala) returns a [`ValidationReport`](modules/core/src/main/scala/skunk/sharp/validation/ValidationReport.scala) of `Mismatch` cases (`RelationMissing`, `RelationKindMismatch`, `ColumnMissing`, `ExtraColumn`, `TypeMismatch`, `NullabilityMismatch`). Queries `information_schema.tables` + `information_schema.columns`. `validateOrRaise(…)` fails with `SchemaValidationException` carrying the report.

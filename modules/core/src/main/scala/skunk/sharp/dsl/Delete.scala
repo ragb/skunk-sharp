@@ -26,7 +26,7 @@ final class DeleteBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
   }
 
   inline def whereRaw(af: AppliedFragment): DeleteReady[Cols, Name, ?] = {
-    val combined = SelectBuilder.andRawInto[Void](None, af, c => Where.projectConcat[Void, Void](c))
+    val combined = SelectBuilder.andRawInto[Void](None, af, Where.projPair[Void, Void])
     new DeleteReady[Cols, Name, Any](table, Some(combined))
   }
 
@@ -77,7 +77,7 @@ final class DeleteReady[
     val combined = SelectBuilder.andInto[Args, A](
       whereOpt.asInstanceOf[Option[Fragment[Args]]],
       pred,
-      c => Where.projectConcat[Args, A](c)
+      Where.projPair[Args, A]
     )
     new DeleteReady[Cols, Name, Where.Concat[Args, A]](table, Some(combined))
   }
@@ -86,7 +86,7 @@ final class DeleteReady[
     val combined = SelectBuilder.andRawInto[Args](
       whereOpt.asInstanceOf[Option[Fragment[Args]]],
       af,
-      c => Where.projectConcat[Args, Void](c)
+      Where.projPair[Args, Void]
     )
     new DeleteReady[Cols, Name, Any](table, Some(combined))
   }
@@ -153,49 +153,41 @@ final class DeleteReady[
  */
 private[dsl] object MutationAssembly {
 
-  inline def command[A1, A2](parts: List[BodyPart]): CommandTemplate[Where.Concat[A1, A2]] = {
-    type Out = Where.Concat[A1, A2]
-    val slotValues: Out => IArray[Any] = args => {
-      val (a1, a2) = Where.projectConcat[A1, A2](args)
-      IArray[Any](a1, a2)
-    }
-    val tpl = SelectBuilder.assembleN[Out, Void](parts, Nil, Void.codec, slotValues)
+  // The inline entry points only compute the slots' shape codes (the one thing that needs the concrete Args types);
+  // the split and assembly are shared non-inline bodies, not a copy per call site.
+
+  inline def command[A1, A2](parts: List[BodyPart]): CommandTemplate[Where.Concat[A1, A2]] =
+    commandImpl[Where.Concat[A1, A2]](parts, Where.slotCodes[(A1, A2)])
+
+  def commandImpl[Out](parts: List[BodyPart], codes: Tuple): CommandTemplate[Out] = {
+    val tpl = SelectBuilder.assembleN[Out, Void](parts, Nil, Void.codec, args => Where.splitFlat(args, codes))
     CommandTemplate.mk[Out](tpl.fragment)
   }
 
-  /**
-   * Three-slot RETURNING that threads typed Args — used by UPDATE (SET + WHERE + RETURNING).
-   */
+  /** Three-slot RETURNING that threads typed Args — used by UPDATE (SET + WHERE + RETURNING) and INSERT. */
   inline def withReturningTyped[A1, A2, RetArgs, R](
     base: List[BodyPart],
     ret: Fragment[RetArgs],
     codec: Codec[R]
-  ): QueryTemplate[Where.Concat[Where.Concat[A1, A2], RetArgs], R] = {
-    type Out = Where.Concat[Where.Concat[A1, A2], RetArgs]
-    val parts: List[BodyPart]          = base ++ List[BodyPart](SelectBuilder.bake(RawConstants.RETURNING), Right(ret))
-    val slotValues: Out => IArray[Any] = args => {
-      val (a12, retArgs) = Where.projectConcat[Where.Concat[A1, A2], RetArgs](args)
-      val (a1, a2)       = Where.projectConcat[A1, A2](a12)
-      IArray[Any](a1, a2, retArgs)
-    }
-    SelectBuilder.assembleN[Out, R](parts, Nil, codec, slotValues)
-  }
+  ): QueryTemplate[Where.Concat[Where.Concat[A1, A2], RetArgs], R] =
+    returningImpl[Where.Concat[Where.Concat[A1, A2], RetArgs], R](base, ret, codec, Where.slotCodes[(A1, A2, RetArgs)])
 
-  /**
-   * Two-slot RETURNING — used by DELETE (WHERE + RETURNING) and INSERT (VALUES + RETURNING).
-   */
+  /** Two-slot RETURNING — used by DELETE (WHERE + RETURNING). */
   inline def withReturningTyped2[A1, RetArgs, R](
     base: List[BodyPart],
     ret: Fragment[RetArgs],
     codec: Codec[R]
-  ): QueryTemplate[Where.Concat[A1, RetArgs], R] = {
-    type Out = Where.Concat[A1, RetArgs]
-    val parts: List[BodyPart]          = base ++ List[BodyPart](SelectBuilder.bake(RawConstants.RETURNING), Right(ret))
-    val slotValues: Out => IArray[Any] = args => {
-      val (a1, retArgs) = Where.projectConcat[A1, RetArgs](args)
-      IArray[Any](a1, retArgs)
-    }
-    SelectBuilder.assembleN[Out, R](parts, Nil, codec, slotValues)
+  ): QueryTemplate[Where.Concat[A1, RetArgs], R] =
+    returningImpl[Where.Concat[A1, RetArgs], R](base, ret, codec, Where.slotCodes[(A1, RetArgs)])
+
+  def returningImpl[Out, R](
+    base: List[BodyPart],
+    ret: Fragment[?],
+    codec: Codec[R],
+    codes: Tuple
+  ): QueryTemplate[Out, R] = {
+    val parts: List[BodyPart] = base ++ List[BodyPart](SelectBuilder.bake(RawConstants.RETURNING), Right(ret))
+    SelectBuilder.assembleN[Out, R](parts, Nil, codec, args => Where.splitFlat(args, codes))
   }
 
 }
@@ -227,7 +219,7 @@ final class DeleteUsingBuilder[Cols <: Tuple, Name <: String & Singleton, Ss <: 
   }
 
   inline def whereRaw(af: AppliedFragment): DeleteUsingReady[Cols, Name, Ss, ?] = {
-    val combined = SelectBuilder.andRawInto[Void](None, af, c => Where.projectConcat[Void, Void](c))
+    val combined = SelectBuilder.andRawInto[Void](None, af, Where.projPair[Void, Void])
     new DeleteUsingReady[Cols, Name, Ss, Any](table, sources, Some(combined))
   }
 
@@ -253,7 +245,7 @@ final class DeleteUsingReady[
     val combined = SelectBuilder.andInto[Args, A](
       whereOpt.asInstanceOf[Option[Fragment[Args]]],
       pred,
-      c => Where.projectConcat[Args, A](c)
+      Where.projPair[Args, A]
     )
     new DeleteUsingReady[Cols, Name, Ss, Where.Concat[Args, A]](table, sources, Some(combined))
   }
@@ -262,7 +254,7 @@ final class DeleteUsingReady[
     val combined = SelectBuilder.andRawInto[Args](
       whereOpt.asInstanceOf[Option[Fragment[Args]]],
       af,
-      c => Where.projectConcat[Args, Void](c)
+      Where.projPair[Args, Void]
     )
     new DeleteUsingReady[Cols, Name, Ss, Any](table, sources, Some(combined))
   }
