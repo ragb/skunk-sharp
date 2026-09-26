@@ -173,20 +173,39 @@
         plus range tags: <code>PgRange[A]</code>.</p>
         <p>Tags are <strong>opaque subtypes of their base type</strong> (<code>Varchar[N] &lt;: String</code>), so values flow
         as plain <code>String</code> / <code>Int</code> at runtime with no boxing.</p>
+        <p>Tags are <strong>unchecked</strong>: they choose the codec, they don&#39;t validate. <code>Varchar[3](&quot;toolong&quot;)</code>
+        compiles, and Postgres rejects it at INSERT. When values need checking, use the iron
+        refined types below (they map onto the same tags), or a checked constructor. The library-wide
+        convention: <code>apply</code> never throws; checked construction is <code>from</code> (returns <code>Either</code>) or
+        <code>unsafeFrom</code> (throws) — e.g. <code>PgRange.from(lower = Some(start), upper = Some(end))</code> rejects a
+        <code>start</code> after <code>end</code>, and <code>LTree.from(path)</code> rejects an invalid path.</p>
         
         <h3 id="iron-integration" class="section"><a class="anchor-link left" href="#iron-integration"><i class="icofont-laika link">&#xef71;</i></a>Iron integration</h3>
-        <p>With <code>skunk-sharp-iron</code>, Iron constraints route to the matching tag automatically:</p>
-        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">dsl</span><span>.*
-</span><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">iron</span><span>.</span><span class="keyword">given</span><span>
+        <p>With <code>skunk-sharp-iron</code>, Iron constraints route to the matching tag automatically — and iron
+        does the checking: string literals are checked at compile time, runtime values with
+        <code>refineEither</code>.</p>
+        <ul>
+          <li><code>String :| MaxLength[N]</code> → <code>varchar(n)</code></li>
+          <li><code>String :| FixedLength[N]</code> → <code>bpchar(n)</code></li>
+          <li><code>BigDecimal :| Precision[P, S]</code> → <code>numeric(p, s)</code>: at most <code>P − S</code> integer digits and <code>S</code> decimals; extra decimals
+          are rejected, not rounded</li>
+          <li>any other <code>A :| C</code> → <code>A</code>&#39;s own column type</li>
+        </ul>
+        <pre><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">dsl</span><span>.*
+</span><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">iron</span><span>.{*, </span><span class="keyword">given</span><span>}
 </span><span class="keyword">import</span><span> </span><span class="identifier">io</span><span>.</span><span class="identifier">github</span><span>.</span><span class="identifier">iltotore</span><span>.</span><span class="identifier">iron</span><span>.*
 </span><span class="keyword">import</span><span> </span><span class="identifier">io</span><span>.</span><span class="identifier">github</span><span>.</span><span class="identifier">iltotore</span><span>.</span><span class="identifier">iron</span><span>.</span><span class="identifier">constraint</span><span>.</span><span class="identifier">string</span><span>.*
 </span><span class="keyword">import</span><span> </span><span class="identifier">io</span><span>.</span><span class="identifier">github</span><span>.</span><span class="identifier">iltotore</span><span>.</span><span class="identifier">iron</span><span>.</span><span class="identifier">constraint</span><span>.</span><span class="identifier">numeric</span><span>.*
 
 </span><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">Profile</span><span>(
   </span><span class="identifier">id</span><span>:       </span><span class="type-name">UUID</span><span>,
-  </span><span class="identifier">username</span><span>: </span><span class="type-name">String</span><span> :| </span><span class="type-name">MaxLength</span><span>[</span><span class="number-literal">64</span><span>],   </span><span class="comment">// → varchar(64)
-</span><span>  </span><span class="identifier">score</span><span>:    </span><span class="type-name">Int</span><span>    :| </span><span class="type-name">Positive</span><span>          </span><span class="comment">// → int4, enforced at the Scala level
-</span><span>)</span></code></pre>
+  </span><span class="identifier">username</span><span>: </span><span class="type-name">String</span><span>     :| </span><span class="type-name">MaxLength</span><span>[</span><span class="number-literal">64</span><span>],   </span><span class="comment">// → varchar(64)
+</span><span>  </span><span class="identifier">balance</span><span>:  </span><span class="type-name">BigDecimal</span><span> :| </span><span class="type-name">Precision</span><span>[</span><span class="number-literal">10</span><span>, </span><span class="number-literal">2</span><span>], </span><span class="comment">// → numeric(10, 2)
+</span><span>  </span><span class="identifier">score</span><span>:    </span><span class="type-name">Int</span><span>        :| </span><span class="type-name">Positive</span><span>          </span><span class="comment">// → int4, enforced at the Scala level
+</span><span>)
+
+</span><span class="keyword">val</span><span> </span><span class="identifier">ok</span><span>: </span><span class="type-name">Either</span><span>[</span><span class="type-name">String</span><span>, </span><span class="type-name">BigDecimal</span><span> :| </span><span class="type-name">Precision</span><span>[</span><span class="number-literal">10</span><span>, </span><span class="number-literal">2</span><span>]] = </span><span class="type-name">BigDecimal</span><span>(</span><span class="string-literal">&quot;19.99&quot;</span><span>).</span><span class="identifier">refineEither</span><span>
+</span><span class="comment">// BigDecimal(&quot;19.999&quot;).refineEither[Precision[10, 2]] == Left(&quot;Should fit numeric(10, 2)&quot;)</span></code></pre>
         
         <h2 id="views" class="section"><a class="anchor-link left" href="#views"><i class="icofont-laika link">&#xef71;</i></a>Views</h2>
         <p><code>View.of[T](&quot;view_name&quot;)</code> works exactly like <code>Table.of</code> but the resulting relation is
