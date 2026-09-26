@@ -81,7 +81,7 @@ final class SelectBuilder[
     val combined = SelectBuilder.andInto[WArgs, A](
       whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
       pred,
-      c => Where.projectConcat[WArgs, A](c)
+      Where.projPair[WArgs, A]
     )
     cp[Where.Concat[WArgs, A], HArgs, OArgs](whereOpt = Some(combined))
   }
@@ -91,7 +91,7 @@ final class SelectBuilder[
     val combined = SelectBuilder.andRawInto[WArgs](
       whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
       af,
-      c => Where.projectConcat[WArgs, Void](c)
+      Where.projPair[WArgs, Void]
     )
     cp[Any, HArgs, OArgs](whereOpt = Some(combined))
   }
@@ -107,7 +107,7 @@ final class SelectBuilder[
     val combined = SelectBuilder.appendOrder[OArgs, SelectBuilder.OrderArgs[O]](
       orderOpt.asInstanceOf[Option[Fragment[OArgs]]],
       fresh,
-      c => Where.projectConcat[OArgs, SelectBuilder.OrderArgs[O]](c)
+      Where.projPair[OArgs, SelectBuilder.OrderArgs[O]]
     )
     cp[WArgs, HArgs, Where.Concat[OArgs, SelectBuilder.OrderArgs[O]]](orderOpt = Some(combined))
   }
@@ -145,7 +145,7 @@ final class SelectBuilder[
     val combined = SelectBuilder.andInto[HArgs, H](
       havingOpt.asInstanceOf[Option[Fragment[HArgs]]],
       pred,
-      c => Where.projectConcat[HArgs, H](c)
+      Where.projPair[HArgs, H]
     )
     cp[WArgs, Where.Concat[HArgs, H], OArgs](havingOpt = Some(combined))
   }
@@ -155,7 +155,7 @@ final class SelectBuilder[
     val combined = SelectBuilder.andRawInto[HArgs](
       havingOpt.asInstanceOf[Option[Fragment[HArgs]]],
       af,
-      c => Where.projectConcat[HArgs, Void](c)
+      Where.projPair[HArgs, Void]
     )
     cp[WArgs, Any, OArgs](havingOpt = Some(combined))
   }
@@ -492,29 +492,39 @@ final class SelectBuilder[
     Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs], HArgs], OArgs],
     NamedRowOf[ev.Cols]
   ] = {
+    type CSWGH = Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs], HArgs]
+    type Out   = Where.Concat[CSWGH, OArgs]
+    // Only the slot shapes need the concrete types; the split and the assembly are one shared body (`compileImpl`).
+    compileImpl[Out, NamedRowOf[ev.Cols]](Some(cteProj), g, Where.slotCodes[(CArgs, SArgs, WArgs, GArgs, HArgs, OArgs)])
+  }
+
+  /**
+   * Non-inline body of [[compile]] / [[compileBodyFragment]]. `codes`: the [[Where.SlotCode]]s of the 6 slots (CTE,
+   * source, WHERE, GROUP BY, HAVING, ORDER BY). `cteProj = None` renders the body alone, without a WITH preamble.
+   */
+  @scala.annotation.publicInBinary
+  private[sharp] def compileImpl[Out, Row](
+    cteProj: Option[CteArgsProj[Ss]],
+    g: ProjArgsOf[?],
+    codes: Tuple
+  ): QueryTemplate[Out, Row] = {
     val entries                          = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
     val head                             = entries.head
-    val ctes                             = collectCtesInOrder(entries)
+    val ctes                             = if (cteProj.isDefined) collectCtesInOrder(entries) else Nil
     val rawGroupProjector                = g.project.asInstanceOf[Any => List[Any]]
     val groupProjector: Any => List[Any] = a => {
       val xs = rawGroupProjector(a)
       if (xs.size == groupBys.size) xs else List.fill(groupBys.size)(Void)
     }
-    type CSWGH = Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs], HArgs]
-    type Out   = Where.Concat[CSWGH, OArgs]
     val slotValues: Out => IArray[Any] = args => {
-      val (cswghAcc, oArgs) = Where.projectConcat[CSWGH, OArgs](args)
-      val (cswgAcc, hArgs)  =
-        Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs], HArgs](cswghAcc)
-      val (cswAcc, gArgs) = Where.projectConcat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs](cswgAcc)
-      val (csAcc, wArgs)  = Where.projectConcat[Where.Concat[CArgs, SArgs], WArgs](cswAcc)
-      val (cArgs, sArgs)  = Where.projectConcat[CArgs, SArgs](csAcc)
-      buildCteAndSlotIArrayWithEntries(entries, cteProj, cArgs, ctes, IArray[Any](sArgs, wArgs, gArgs, hArgs, oArgs))
+      val v     = Where.splitFlat(args, codes)
+      val slots = IArray[Any](v(1), v(2), v(3), v(4), v(5))
+      cteProj.fold(slots)(cp => buildCteAndSlotIArrayWithEntries(entries, cp, v(0), ctes, slots))
     }
-    SelectBuilder.assembleN[Out, NamedRowOf[ev.Cols]](
+    SelectBuilder.assembleN[Out, Row](
       bodyParts = compileBodyParts(head, groupProjector),
       ctes = ctes,
-      codec = rowCodec(head.effectiveCols).asInstanceOf[Codec[NamedRowOf[ev.Cols]]],
+      codec = rowCodec(head.effectiveCols).asInstanceOf[Codec[Row]],
       slotValues = slotValues
     )
   }
@@ -535,28 +545,9 @@ final class SelectBuilder[
     // (CTE body) to capture the SELECT body alone. CTEs collected at this nesting level surface in the outer
     // query's preamble. Direct CteRelation refs in this body still bind at FROM-site as Void (their args
     // belong to the outer query's WITH preamble slot, not this body's args).
-    val entries                          = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
-    val head                             = entries.head
-    val rawGroupProjector                = g.project.asInstanceOf[Any => List[Any]]
-    val groupProjector: Any => List[Any] = a => {
-      val xs = rawGroupProjector(a)
-      if (xs.size == groupBys.size) xs else List.fill(groupBys.size)(Void)
-    }
     type SWGH = Where.Concat[Where.Concat[Where.Concat[SArgs, WArgs], GArgs], HArgs]
     type Out  = Where.Concat[SWGH, OArgs]
-    val slotValues: Out => IArray[Any] = args => {
-      val (swghAcc, oArgs) = Where.projectConcat[SWGH, OArgs](args)
-      val (swgAcc, hArgs)  = Where.projectConcat[Where.Concat[Where.Concat[SArgs, WArgs], GArgs], HArgs](swghAcc)
-      val (swAcc, gArgs)   = Where.projectConcat[Where.Concat[SArgs, WArgs], GArgs](swgAcc)
-      val (sArgs, wArgs)   = Where.projectConcat[SArgs, WArgs](swAcc)
-      IArray[Any](sArgs, wArgs, gArgs, hArgs, oArgs)
-    }
-    SelectBuilder.assembleN[Out, NamedRowOf[ev.Cols]](
-      bodyParts = compileBodyParts(head, groupProjector),
-      ctes = Nil,
-      codec = rowCodec(head.effectiveCols).asInstanceOf[Codec[NamedRowOf[ev.Cols]]],
-      slotValues = slotValues
-    ).fragment
+    compileImpl[Out, NamedRowOf[ev.Cols]](None, g, Where.slotCodes[(Void, SArgs, WArgs, GArgs, HArgs, OArgs)]).fragment
   }
 
   /**
@@ -656,9 +647,9 @@ object SelectBuilder {
 
   /**
    * `proj` re-pairs the `Where.Concat[Slot, A]` runtime value back into `(Slot, A)` for the combined product encoder's
-   * contramap — call site materialises it as `c => Where.projectConcat[Slot, A](c)` where `Slot`/`A` are concrete (so
-   * the inline dispatch reduces). Passing as a parameter keeps `andInto` itself non-inline — otherwise every chained
-   * `.where(...)` would need to be inline too.
+   * contramap — call site materialises it as `Where.projPair[Slot, A]` where `Slot`/`A` are concrete (so the inline
+   * dispatch reduces). Passing as a parameter keeps `andInto` itself non-inline — otherwise every chained `.where(...)`
+   * would need to be inline too.
    */
   private[dsl] def andInto[Slot, A](
     slot: Option[Fragment[Slot]],
@@ -963,7 +954,7 @@ final class ProjectedSelect[
     val combined = SelectBuilder.andInto[WArgs, A](
       whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
       pred,
-      c => Where.projectConcat[WArgs, A](c)
+      Where.projPair[WArgs, A]
     )
     cp[Where.Concat[WArgs, A], HArgs](whereOpt = Some(combined))
   }
@@ -972,7 +963,7 @@ final class ProjectedSelect[
     val combined = SelectBuilder.andRawInto[WArgs](
       whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
       af,
-      c => Where.projectConcat[WArgs, Void](c)
+      Where.projPair[WArgs, Void]
     )
     cp[Any, HArgs](whereOpt = Some(combined))
   }
@@ -1034,7 +1025,7 @@ final class ProjectedSelect[
     val combined = SelectBuilder.andInto[HArgs, H](
       havingOpt.asInstanceOf[Option[Fragment[HArgs]]],
       pred,
-      c => Where.projectConcat[HArgs, H](c)
+      Where.projPair[HArgs, H]
     )
     cp[WArgs, Where.Concat[HArgs, H]](havingOpt = Some(combined))
   }
@@ -1043,7 +1034,7 @@ final class ProjectedSelect[
     val combined = SelectBuilder.andRawInto[HArgs](
       havingOpt.asInstanceOf[Option[Fragment[HArgs]]],
       af,
-      c => Where.projectConcat[HArgs, Void](c)
+      Where.projPair[HArgs, Void]
     )
     cp[WArgs, Any](havingOpt = Some(combined))
   }
@@ -1178,8 +1169,44 @@ final class ProjectedSelect[
     ],
     Row
   ] = {
+    type Out = Where.Concat[
+      Where.Concat[Where.Concat[
+        Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs],
+        GArgs
+      ], HArgs],
+      OArgs
+    ]
+    // Only the slot shapes need the concrete types — a constant tuple of codes; the Args split and the assembly are
+    // one shared non-inline body (`compileImpl`), not a copy per call site. See the compiler-memory notes in CLAUDE.md.
+    compileImpl[Out](
+      d,
+      pa,
+      g,
+      o,
+      bff,
+      onProj,
+      Some(cteProj),
+      Where.slotCodes[(CArgs, DArgs, ProjArgs, SArgs, OnA, WArgs, GArgs, HArgs, OArgs)]
+    )
+  }
+
+  /**
+   * Non-inline body of [[compile]] / [[compileBodyFragment]]. `codes`: the [[Where.SlotCode]]s of the 9 slots, in
+   * render order (CTE first). `cteProj = None` renders the body alone, without a WITH preamble.
+   */
+  @scala.annotation.publicInBinary
+  private[sharp] def compileImpl[Out](
+    d: ProjArgsOf[?],
+    pa: ProjArgsOf[?],
+    g: ProjArgsOf[?],
+    o: ProjArgsOf[?],
+    bff: SourceBodyArgsProj[Ss],
+    onProj: SourceOnArgsProj[Ss],
+    cteProj: Option[CteArgsProj[Ss]],
+    codes: Tuple
+  ): QueryTemplate[Out, Row] = {
     val entries                         = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
-    val ctes                            = collectCtesInOrder(entries)
+    val ctes                            = if (cteProj.isDefined) collectCtesInOrder(entries) else Nil
     val rawDistProjector                = d.project.asInstanceOf[Any => List[Any]]
     val rawProjProjector                = pa.project.asInstanceOf[Any => List[Any]]
     val rawGroupProjector               = g.project.asInstanceOf[Any => List[Any]]
@@ -1197,42 +1224,11 @@ final class ProjectedSelect[
         val xs = rawOrderProjector(a)
         if (xs.size >= orderBys.size) xs else List.fill(orderBys.size - xs.size)(Void) ++ xs
       }
-    type Out = Where.Concat[
-      Where.Concat[Where.Concat[
-        Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs],
-        GArgs
-      ], HArgs],
-      OArgs
-    ]
     val srcSlotCount                   = sourceSlotCount(entries)
     val slotValues: Out => IArray[Any] = args => {
-      val (cdpsowghAcc, oArgs) = Where.projectConcat[
-        Where.Concat[Where.Concat[Where.Concat[
-          Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA],
-          WArgs
-        ], GArgs], HArgs],
-        OArgs
-      ](args)
-      val (cdpsowgAcc, hArgs) = Where.projectConcat[Where.Concat[
-        Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs],
-        GArgs
-      ], HArgs](cdpsowghAcc)
-      val (cdpsowAcc, gArgs) = Where.projectConcat[Where.Concat[
-        Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA],
-        WArgs
-      ], GArgs](cdpsowgAcc)
-      val (cdpsoAcc, wArgs) = Where.projectConcat[Where.Concat[
-        Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs],
-        OnA
-      ], WArgs](cdpsowAcc)
-      val (cdpsAcc, onArgs) =
-        Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA](cdpsoAcc)
-      val (cdpAcc, sArgs) = Where.projectConcat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs](cdpsAcc)
-      val (cdAcc, pArgs)  = Where.projectConcat[Where.Concat[CArgs, DArgs], ProjArgs](cdpAcc)
-      val (cArgs, dArgs)  = Where.projectConcat[CArgs, DArgs](cdAcc)
-      val baseSlots       =
-        buildSlotIArray(dArgs, pArgs, sArgs, onArgs, srcSlotCount, bff, onProj, wArgs, gArgs, hArgs, oArgs)
-      buildCteAndSlotIArrayWithEntries(entries, cteProj, cArgs, ctes, baseSlots)
+      val v         = Where.splitFlat(args, codes)
+      val baseSlots = buildSlotIArray(v(1), v(2), v(3), v(4), srcSlotCount, bff, onProj, v(5), v(6), v(7), v(8))
+      cteProj.fold(baseSlots)(cp => buildCteAndSlotIArrayWithEntries(entries, cp, v(0), ctes, baseSlots))
     }
     SelectBuilder.assembleN[Out, Row](
       bodyParts = compileBodyParts(distProjector, projProjector, groupProjector, orderProjector),
@@ -1265,54 +1261,19 @@ final class ProjectedSelect[
     Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA],
     HArgs
   ], OA2]] = {
-    val entries                             = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
-    val rawDistProjector: Any => List[Any]  = d.project.asInstanceOf[Any => List[Any]]
-    val rawProjProjector: Any => List[Any]  = pa.project.asInstanceOf[Any => List[Any]]
-    val rawGroupProjector: Any => List[Any] = g.project.asInstanceOf[Any => List[Any]]
-    val rawOrderProjector: Any => List[Any] = o.project.asInstanceOf[Any => List[Any]]
-    val distinctSize                        = distinctOnOpt.fold(0)(_.size)
-    val distProjector: Any => List[Any]     =
-      a => { val xs = rawDistProjector(a); if (xs.size == distinctSize) xs else List.fill(distinctSize)(Void) }
-    val projProjector: Any => List[Any] =
-      a => { val xs = rawProjProjector(a); if (xs.size == projections.size) xs else List.fill(projections.size)(Void) }
-    val groupProjector: Any => List[Any] =
-      a => { val xs = rawGroupProjector(a); if (xs.size == groupBys.size) xs else List.fill(groupBys.size)(Void) }
-    val orderProjector: Any => List[Any] =
-      a => {
-        // Leading items handed off from a whole-row builder with Void Args aren't in `Orders`; pad them in front.
-        val xs = rawOrderProjector(a)
-        if (xs.size >= orderBys.size) xs else List.fill(orderBys.size - xs.size)(Void) ++ xs
-      }
     type Out = Where.Concat[Where.Concat[
       Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA],
       HArgs
     ], OA2]
-    val srcSlotCount                   = sourceSlotCount(entries)
-    val slotValues: Out => IArray[Any] = args => {
-      val (dpsowghAcc, oArgs) = Where.projectConcat[Where.Concat[
-        Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA],
-        HArgs
-      ], OA2](args)
-      val (dpsowgAcc, hArgs) = Where.projectConcat[Where.Concat[
-        Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs],
-        GA
-      ], HArgs](dpsowghAcc)
-      val (dpsowAcc, gArgs) = Where.projectConcat[Where.Concat[
-        Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA],
-        WArgs
-      ], GA](dpsowgAcc)
-      val (dpsoAcc, wArgs) =
-        Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs](dpsowAcc)
-      val (dpsAcc, onArgs) = Where.projectConcat[Where.Concat[Where.Concat[DA2, PA], SA], OnA](dpsoAcc)
-      val (dpAcc, sArgs)   = Where.projectConcat[Where.Concat[DA2, PA], SA](dpsAcc)
-      val (dArgs, pArgs)   = Where.projectConcat[DA2, PA](dpAcc)
-      buildSlotIArray(dArgs, pArgs, sArgs, onArgs, srcSlotCount, bff, onProj, wArgs, gArgs, hArgs, oArgs)
-    }
-    SelectBuilder.assembleN[Out, Row](
-      bodyParts = compileBodyParts(distProjector, projProjector, groupProjector, orderProjector),
-      ctes = Nil,
-      codec = codec,
-      slotValues = slotValues
+    compileImpl[Out](
+      d,
+      pa,
+      g,
+      o,
+      bff,
+      onProj,
+      None,
+      Where.slotCodes[(Void, DA2, PA, SA, OnA, WArgs, GA, HArgs, OA2)]
     ).fragment
   }
 

@@ -73,7 +73,7 @@ trait ProjArgsOfMedPrio extends ProjArgsOfLowPrio {
     h: ProjArgsOf[H] { type Out = HOut },
     t: ProjArgsOf[T] { type Out = TOut }
   ): (ProjArgsOf[H *: T] { type Out = Where.Concat[HOut, TOut] }) = {
-    val proj: Where.Concat[HOut, TOut] => (HOut, TOut) = c => Where.projectConcat[HOut, TOut](c)
+    val proj: Where.Concat[HOut, TOut] => (HOut, TOut) = Where.projPair[HOut, TOut]
     new ConsTupleProj[H, T, Where.Concat[HOut, TOut], HOut, TOut](h, t, proj)
   }
 

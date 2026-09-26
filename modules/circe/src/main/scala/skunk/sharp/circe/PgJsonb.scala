@@ -111,7 +111,7 @@ trait PgJsonb {
       TypedExpr.combineEnc[X, Y](
         targetWithPath.asInstanceOf[skunk.Encoder[X]],
         value.fragment.encoder,
-        c => Where.projectConcat[X, Y](c)
+        Where.projPair[X, Y]
       )
     val frag = Fragment(parts, combined, skunk.util.Origin.unknown)
     TypedExpr[Jsonb[CirceJson], Where.Concat[X, Y]](frag, rawJsonbCodec)

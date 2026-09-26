@@ -45,7 +45,7 @@ final class UpdateBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
       table,
       SetAssignment.combineTyped[Where.FoldConcat[SetArgsOf[T]]](
         f(table.columnsView.asInstanceOf[SetView[Cols]]),
-        c => Where.projectFoldConcat[SetArgsOf[T]](c)
+        Where.projFold[SetArgsOf[T]]
       )
     )
 
@@ -135,7 +135,7 @@ final class UpdateWithSet[
   }
 
   inline def whereRaw(af: AppliedFragment): UpdateReady[Cols, Name, SetArgs, ?] = {
-    val combined = SelectBuilder.andRawInto[Void](None, af, c => Where.projectConcat[Void, Void](c))
+    val combined = SelectBuilder.andRawInto[Void](None, af, Where.projPair[Void, Void])
     new UpdateReady[Cols, Name, SetArgs, Any](table, setFragment, Some(combined))
   }
 
@@ -160,7 +160,7 @@ final class UpdateReady[
     val combined = SelectBuilder.andInto[WArgs, A](
       whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
       pred,
-      c => Where.projectConcat[WArgs, A](c)
+      Where.projPair[WArgs, A]
     )
     new UpdateReady[Cols, Name, SetArgs, Where.Concat[WArgs, A]](table, setFragment, Some(combined))
   }
@@ -169,7 +169,7 @@ final class UpdateReady[
     val combined = SelectBuilder.andRawInto[WArgs](
       whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
       af,
-      c => Where.projectConcat[WArgs, Void](c)
+      Where.projPair[WArgs, Void]
     )
     new UpdateReady[Cols, Name, SetArgs, Any](table, setFragment, Some(combined))
   }
@@ -271,7 +271,7 @@ final class UpdateFromBuilder[Cols <: Tuple, Name <: String & Singleton, Ss <: T
       sources,
       SetAssignment.combineTyped[Where.FoldConcat[SetArgsOf[T]]](
         f(buildJoinedView(sources).asInstanceOf[SetJoinedView[Ss]]),
-        c => Where.projectFoldConcat[SetArgsOf[T]](c)
+        Where.projFold[SetArgsOf[T]]
       )
     )
 
@@ -295,7 +295,7 @@ final class UpdateFromWithSet[
   }
 
   inline def whereRaw(af: AppliedFragment): UpdateFromReady[Cols, Name, Ss, SetArgs, ?] = {
-    val combined = SelectBuilder.andRawInto[Void](None, af, c => Where.projectConcat[Void, Void](c))
+    val combined = SelectBuilder.andRawInto[Void](None, af, Where.projPair[Void, Void])
     new UpdateFromReady[Cols, Name, Ss, SetArgs, Any](table, sources, setFragment, Some(combined))
   }
 
@@ -324,7 +324,7 @@ final class UpdateFromReady[
     val combined = SelectBuilder.andInto[WArgs, A](
       whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
       pred,
-      c => Where.projectConcat[WArgs, A](c)
+      Where.projPair[WArgs, A]
     )
     new UpdateFromReady[Cols, Name, Ss, SetArgs, Where.Concat[WArgs, A]](table, sources, setFragment, Some(combined))
   }
@@ -333,7 +333,7 @@ final class UpdateFromReady[
     val combined = SelectBuilder.andRawInto[WArgs](
       whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
       af,
-      c => Where.projectConcat[WArgs, Void](c)
+      Where.projPair[WArgs, Void]
     )
     new UpdateFromReady[Cols, Name, Ss, SetArgs, Any](table, sources, setFragment, Some(combined))
   }
@@ -527,8 +527,8 @@ object SetAssignment {
 
   /**
    * Infix `&` combinator — comma-style joining for tuple shapes. `proj` re-pairs `Concat[A1, A2]` → `(A1, A2)` for the
-   * combined product encoder's contramap; materialised at the call site as `c => Where.projectConcat[A1, A2](c)` so the
-   * inline dispatch reduces with concrete `A1`/`A2`.
+   * combined product encoder's contramap; materialised at the call site as `Where.projPair[A1, A2]` so the inline
+   * dispatch reduces with concrete `A1`/`A2`.
    */
   extension [T1, A1](lhs: SetAssignment[T1, A1])
 
@@ -537,7 +537,7 @@ object SetAssignment {
       val enc   = TypedExpr.combineEnc[A1, A2](
         lhs.fragment.encoder,
         rhs.fragment.encoder,
-        c => Where.projectConcat[A1, A2](c)
+        Where.projPair[A1, A2]
       )
       val frag: Fragment[Where.Concat[A1, A2]] = Fragment(parts, enc, Origin.unknown)
       new SetAssignment[Unit, Where.Concat[A1, A2]](

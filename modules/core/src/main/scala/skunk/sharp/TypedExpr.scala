@@ -228,9 +228,8 @@ object TypedExpr {
    * Pair two typed Fragments into a single one whose Args is `Where.Concat[A, B]`. The combined encoder always products
    * both sub-encoders (so any baked values riding on either side flow through), then contramaps the user's
    * `Concat[A, B]` input back into the `(A, B)` tuple the product consumes — via the caller-supplied `proj` (typically
-   * `c => Where.projectConcat[A, B](c)` materialised at the caller's inline site so dispatch reduces). The
-   * `eq Void.codec` shortcuts skip the product when one side is the literal Void encoder (no params at all on that
-   * side).
+   * `Where.projPair[A, B]` materialised at the caller's inline site so dispatch reduces). The `eq Void.codec` shortcuts
+   * skip the product when one side is the literal Void encoder (no params at all on that side).
    */
   private[sharp] def combine[A, B](
     a: Fragment[A],
@@ -264,14 +263,14 @@ object TypedExpr {
     sepSql: String,
     b: Fragment[B]
   ): Fragment[Where.Concat[A, B]] =
-    combineSep[A, B](a, sepSql, b, c => Where.projectConcat[A, B](c))
+    combineSep[A, B](a, sepSql, b, Where.projPair[A, B])
 
   /** Inline sugar: `combine(a, b)` with `Where.projectConcat[A, B]` as the projection. */
   private[sharp] inline def combineInl[A, B](
     a: Fragment[A],
     b: Fragment[B]
   ): Fragment[Where.Concat[A, B]] =
-    combine[A, B](a, b, c => Where.projectConcat[A, B](c))
+    combine[A, B](a, b, Where.projPair[A, B])
 
   /**
    * Combine N typed `Fragment`s into one whose `Args` is the caller-claimed `Combined`. The encoder walks `items` in
@@ -280,8 +279,8 @@ object TypedExpr {
    *
    * Used by variadic builders, RETURNING tuples, SELECT projections, GROUP BY / ORDER BY / DISTINCT ON lists — anywhere
    * N typed slots need to fold into one. The caller supplies a `projector` matching `Combined` to the per-item values
-   * list; typically `c => Where.projectFoldConcat[Tup](c)` materialised at the caller's inline expansion site so the
-   * per-slot dispatch reduces.
+   * list; typically `Where.projFold[Tup]` materialised at the caller's inline expansion site so the per-slot dispatch
+   * reduces.
    */
   def combineList[Combined](
     items: List[Fragment[?]],
@@ -345,7 +344,7 @@ object TypedExpr {
 
   /**
    * Pair two encoders, contramapping `Concat[A, B]` → `(A, B)` via the caller-supplied `proj` (typically
-   * `c => Where.projectConcat[A, B](c)`).
+   * `Where.projPair[A, B]`).
    */
   private[sharp] def combineEnc[A, B](
     a: Encoder[A],

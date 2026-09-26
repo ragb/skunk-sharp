@@ -232,7 +232,7 @@ final class MergeMatched[
         " THEN UPDATE SET ",
         SetAssignment.combineTyped[Where.FoldConcat[SetArgsOf[T]]](
           f(buildJoinedView(cmd.sources).asInstanceOf[MergeSetView[Ss]]),
-          c => Where.projectFoldConcat[SetArgsOf[T]](c)
+          Where.projFold[SetArgsOf[T]]
         )
       )
     )
@@ -339,7 +339,7 @@ final class MergeBySource[
         " THEN UPDATE SET ",
         SetAssignment.combineTyped[Where.FoldConcat[SetArgsOf[T]]](
           f(Merge.targetView(cmd.table).asInstanceOf[SetView[Cols]]),
-          c => Where.projectFoldConcat[SetArgsOf[T]](c)
+          Where.projFold[SetArgsOf[T]]
         )
       )
     )

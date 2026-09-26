@@ -397,7 +397,7 @@ final class OnConflictBuilder[Cols <: Tuple, Args] private[sharp] (
     doUpdateWith[Where.FoldConcat[SetArgsOf[T]]](
       SetAssignment.combineTyped[Where.FoldConcat[SetArgsOf[T]]](
         f(ColumnsView(cmd.tableColumns).asInstanceOf[SetView[Cols]]),
-        c => Where.projectFoldConcat[SetArgsOf[T]](c)
+        Where.projFold[SetArgsOf[T]]
       )
     )
 
@@ -434,7 +434,7 @@ final class OnConflictBuilder[Cols <: Tuple, Args] private[sharp] (
           ColumnsView(cmd.tableColumns).asInstanceOf[SetView[Cols]],
           ColumnsView.qualifiedRaw(cmd.tableColumns, "excluded")
         ),
-        c => Where.projectFoldConcat[SetArgsOf[T]](c)
+        Where.projFold[SetArgsOf[T]]
       )
     )
 

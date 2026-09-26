@@ -264,7 +264,7 @@ object CteArgsProj {
     rest: CteArgsProj[T]
   ): CteArgsProj[SourceEntry[R, C0, C, A, OA] *: T] = {
     val proj: Where.Concat[GetCteBody[R], CteArgs[T]] => (GetCteBody[R], CteArgs[T]) =
-      c => Where.projectConcat[GetCteBody[R], CteArgs[T]](c)
+      Where.projPair[GetCteBody[R], CteArgs[T]]
     new CteArgsConsProj[R, C0, C, A, OA, T](rest, proj)
   }
 

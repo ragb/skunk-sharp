@@ -14,7 +14,7 @@ extension [A, X](e: TypedExpr[Jsonb[A], X]) {
   inline def get(key: String)(using pfs: skunk.sharp.pg.PgTypeFor[String]): TypedExpr[Jsonb[CirceJson], X] = {
     val keyFrag = Param.bind[String](key).fragment
     val frag    =
-      TypedExpr.combineSep(e.fragment, " -> ", keyFrag, c => Where.projectConcat[X, Void](c)).asInstanceOf[Fragment[X]]
+      TypedExpr.combineSep(e.fragment, " -> ", keyFrag, Where.projPair[X, Void]).asInstanceOf[Fragment[X]]
     TypedExpr[Jsonb[CirceJson], X](frag, summon[skunk.sharp.pg.PgTypeFor[Jsonb[CirceJson]]].codec)
   }
 
@@ -29,7 +29,7 @@ extension [A, X](e: TypedExpr[Jsonb[A], X]) {
   inline def getText(key: String)(using pfs: skunk.sharp.pg.PgTypeFor[String]): TypedExpr[String, X] = {
     val keyFrag = Param.bind[String](key).fragment
     val frag    =
-      TypedExpr.combineSep(e.fragment, " ->> ", keyFrag, c => Where.projectConcat[X, Void](c)).asInstanceOf[Fragment[X]]
+      TypedExpr.combineSep(e.fragment, " ->> ", keyFrag, Where.projPair[X, Void]).asInstanceOf[Fragment[X]]
     TypedExpr[String, X](frag, skunk.codec.all.text)
   }
 
@@ -49,7 +49,7 @@ extension [A, X](e: TypedExpr[Jsonb[A], X]) {
       Fragment(parts, arrFrag.encoder, skunk.util.Origin.unknown)
     }
     val frag =
-      TypedExpr.combineSep(e.fragment, " #> ", withCast, c => Where.projectConcat[X, Void](c)).asInstanceOf[Fragment[X]]
+      TypedExpr.combineSep(e.fragment, " #> ", withCast, Where.projPair[X, Void]).asInstanceOf[Fragment[X]]
     TypedExpr[Jsonb[CirceJson], X](frag, summon[skunk.sharp.pg.PgTypeFor[Jsonb[CirceJson]]].codec)
   }
 
@@ -65,20 +65,20 @@ extension [A, X](e: TypedExpr[Jsonb[A], X]) {
       e.fragment,
       " #>> ",
       withCast,
-      c => Where.projectConcat[X, Void](c)
+      Where.projPair[X, Void]
     ).asInstanceOf[Fragment[X]]
     TypedExpr[String, X](frag, skunk.codec.all.text)
   }
 
   /** `jsonb @> jsonb` — left contains right. Args propagate from both sides. */
   inline def contains[B, Y](other: TypedExpr[Jsonb[B], Y]): Where[Where.Concat[X, Y]] = {
-    val frag = TypedExpr.combineSep(e.fragment, " @> ", other.fragment, c => Where.projectConcat[X, Y](c))
+    val frag = TypedExpr.combineSep(e.fragment, " @> ", other.fragment, Where.projPair[X, Y])
     Where(frag)
   }
 
   /** `jsonb <@ jsonb`. */
   inline def containedBy[B, Y](other: TypedExpr[Jsonb[B], Y]): Where[Where.Concat[X, Y]] = {
-    val frag = TypedExpr.combineSep(e.fragment, " <@ ", other.fragment, c => Where.projectConcat[X, Y](c))
+    val frag = TypedExpr.combineSep(e.fragment, " <@ ", other.fragment, Where.projPair[X, Y])
     Where(frag)
   }
 
@@ -86,7 +86,7 @@ extension [A, X](e: TypedExpr[Jsonb[A], X]) {
   inline def hasKey(key: String)(using pfs: skunk.sharp.pg.PgTypeFor[String]): Where[X] = {
     val keyFrag = Param.bind[String](key).fragment
     val frag    =
-      TypedExpr.combineSep(e.fragment, " ? ", keyFrag, c => Where.projectConcat[X, Void](c)).asInstanceOf[Fragment[X]]
+      TypedExpr.combineSep(e.fragment, " ? ", keyFrag, Where.projPair[X, Void]).asInstanceOf[Fragment[X]]
     Where(frag)
   }
 

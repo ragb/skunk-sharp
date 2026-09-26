@@ -34,7 +34,7 @@ object PgFunction {
     val combined = TypedExpr.combineList[Where.FoldConcat[Tup]](
       items,
       ", ",
-      c => Where.projectFoldConcat[Tup](c)
+      Where.projFold[Tup]
     )
     val frag = TypedExpr.wrap(s"$name(", combined, ")")
     TypedExpr(frag, codec)

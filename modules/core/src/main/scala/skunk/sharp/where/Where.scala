@@ -14,6 +14,43 @@ type Where[A] = TypedExpr[Boolean, A]
 /**
  * Combinator + helper namespace for `Where`.
  */
+/**
+ * Precomputed splitter for a flat Args value over slots with the given [[Where.SlotCode]]s (see [[Where.splitFlat]]).
+ * Built once per `.compile` / combinator; `apply` runs at encode time.
+ */
+final class SlotSplit(codes: Tuple) extends (Any => IArray[Any]) {
+  private val cs: Array[Int]       = codes.productIterator.map(_.asInstanceOf[Int]).toArray
+  private val total: Int           = cs.foldLeft(0)((n, c) => n + (if (c == -1) 0 else if (c == -2) 1 else c))
+  private val allVoid: IArray[Any] = IArray.unsafeFromArray(Array.fill[Any](cs.length)(Void))
+
+  def apply(args: Any): IArray[Any] =
+    if (total == 0) allVoid
+    else {
+      val out = new Array[Any](cs.length)
+      var pos = 0
+      var i   = 0
+      while (i < cs.length) {
+        val c = cs(i)
+        if (c == -1) out(i) = Void
+        else if (c == -2) { out(i) = elem(args, pos); pos += 1 }
+        else {
+          val arr = new Array[Object](c)
+          var k   = 0
+          while (k < c) { arr(k) = elem(args, pos + k).asInstanceOf[Object]; k += 1 }
+          out(i) = Tuple.fromArray(arr)
+          pos += c
+        }
+        i += 1
+      }
+      IArray.unsafeFromArray(out)
+    }
+
+  // Concat unwraps a single-element result, so the flat value is the element itself when `total == 1`.
+  private def elem(args: Any, i: Int): Any =
+    if (total == 1) args else args.asInstanceOf[Product].productElement(i)
+
+}
+
 object Where {
 
   private[sharp] val OR_KW: String       = " OR "
@@ -119,6 +156,47 @@ object Where {
               case true  => bTup
               case false => bTup.productElement(0)
             (aOut, bOut).asInstanceOf[(A, B)]
+
+  /**
+   * Shape code of one Args slot, for [[splitFlat]]: `-1` = `Void` (contributes nothing), `-2` = a scalar (one element,
+   * unwrapped), `n >= 0` = an `n`-tuple (n elements, kept as a tuple).
+   */
+  type SlotCode[X] <: Int = X match {
+    case Void  => -1
+    case Tuple => Tuple.Size[X & Tuple]
+    case _     => -2
+  }
+
+  type SlotCodes[T <: Tuple] <: Tuple = T match {
+    case EmptyTuple => EmptyTuple
+    case h *: t     => SlotCode[h] *: SlotCodes[t]
+  }
+
+  /** The [[SlotCode]]s of a tuple of slot Args types, as a compile-time constant. */
+  inline def slotCodes[T <: Tuple]: Tuple = scala.compiletime.constValueTuple[SlotCodes[T]]
+
+  /**
+   * Split a flat `FoldConcat`-shaped Args value back into one value per slot, given the slots' [[SlotCode]]s. The
+   * runtime equivalent of a chain of [[projectConcat]]s — `Concat` is associative over the slots' flattened shapes —
+   * but one shared non-inline body instead of a nested inline expansion at every call site.
+   */
+  def splitFlat(args: Any, codes: Tuple): IArray[Any] = new SlotSplit(codes)(args)
+
+  /** A splitter for Concat[A, B] values — the thin, shared counterpart of `c => projectConcat[A, B](c)`. */
+  inline def projPair[A, B]: Concat[A, B] => (A, B) = pairOf[A, B](slotCodes[(A, B)])
+
+  /** A splitter for FoldConcat[T] values — the thin, shared counterpart of `c => projectFoldConcat[T](c)`. */
+  inline def projFold[T <: Tuple]: FoldConcat[T] => List[Any] = foldOf[FoldConcat[T]](slotCodes[T])
+
+  def foldOf[C](codes: Tuple): C => List[Any] = {
+    val sp = new SlotSplit(codes)
+    c => sp(c).toList
+  }
+
+  def pairOf[A, B](codes: Tuple): Concat[A, B] => (A, B) = {
+    val sp = new SlotSplit(codes)
+    c => { val v = sp(c); (v(0), v(1)).asInstanceOf[(A, B)] }
+  }
 
   /**
    * Right-fold of [[Concat]] over a tuple of Args types. Drops `Void` slots cleanly so
@@ -249,19 +327,19 @@ extension [A](self: TypedExpr[Boolean, A]) {
 
   /** AND two predicates — combined `Args = Concat[A, B]`. */
   inline def and[B](that: TypedExpr[Boolean, B]): TypedExpr[Boolean, Where.Concat[A, B]] =
-    Where.binop(self, that, Where.AND_KW, c => Where.projectConcat[A, B](c))
+    Where.binop(self, that, Where.AND_KW, Where.projPair[A, B])
 
   /** Infix AND. */
   inline def &&[B](that: TypedExpr[Boolean, B]): TypedExpr[Boolean, Where.Concat[A, B]] =
-    Where.binop(self, that, Where.AND_KW, c => Where.projectConcat[A, B](c))
+    Where.binop(self, that, Where.AND_KW, Where.projPair[A, B])
 
   /** OR two predicates — combined `Args = Concat[A, B]`. */
   inline def or[B](that: TypedExpr[Boolean, B]): TypedExpr[Boolean, Where.Concat[A, B]] =
-    Where.binop(self, that, Where.OR_KW, c => Where.projectConcat[A, B](c))
+    Where.binop(self, that, Where.OR_KW, Where.projPair[A, B])
 
   /** Infix OR. */
   inline def ||[B](that: TypedExpr[Boolean, B]): TypedExpr[Boolean, Where.Concat[A, B]] =
-    Where.binop(self, that, Where.OR_KW, c => Where.projectConcat[A, B](c))
+    Where.binop(self, that, Where.OR_KW, Where.projPair[A, B])
 
   /** NOT a predicate. */
   def not: TypedExpr[Boolean, A] = Where.notOf(self)
