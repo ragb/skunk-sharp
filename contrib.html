@@ -376,8 +376,8 @@
         <p>Indexes (<code>CREATE INDEX … USING hnsw (embedding vector_cosine_ops)</code>) belong in migrations, like the rest of the
         schema. The <a href="schema-validation.html">schema validator</a> compares the declared dimension with the column&#39;s, so a
         <code>PgVector[1536]</code> declared against a <code>vector(3072)</code> column is reported as a <code>TypeMismatch</code>.</p>
-        <p>Ordering the <strong>whole row</strong> (<code>chunks.select.orderBy(…)</code>) by a parameterised distance is a compile error for now — the
-        whole-row builder doesn&#39;t carry ORDER BY parameters yet (<a href="https://github.com/ragb/skunk-sharp/issues/109">#109</a>) — so use a projection as above.</p>
+        <p>Ordering the whole row works the same way — <code>chunks.select.orderBy(c =&gt; c.embedding.cosineDistance(Param[PgVector[3]]).asc)</code>
+        takes the query vector as a typed parameter — but it fetches the embeddings back too.</p>
 
         
 <hr class="footer-rule"/>
