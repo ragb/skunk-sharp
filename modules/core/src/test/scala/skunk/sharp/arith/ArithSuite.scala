@@ -98,4 +98,62 @@ class ArithSuite extends munit.FunSuite {
       items.select(i => i.due + i.due)
     """).nonEmpty)
   }
+
+  test("an instance for one operator doesn't satisfy another") {
+    // pgvector ships + - * only: / and unary - must be clean "no instance" errors, not ambiguity or a pass.
+    val div = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import skunk.sharp.contrib.pgvector.*
+      import skunk.sharp.contrib.PgVectorSuite.chunks
+      chunks.select(c => c.embedding / c.embedding)
+    """).map(_.message).mkString("\n")
+    assert(div.nonEmpty && !div.contains("mbiguous"), div)
+    val neg = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import skunk.sharp.contrib.pgvector.*
+      import skunk.sharp.contrib.PgVectorSuite.chunks
+      chunks.select(c => -c.embedding)
+    """)
+    assert(neg.nonEmpty)
+    // A user type with only `Plus` gets `+` and nothing else.
+    val times = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import skunk.sharp.arith.ArithSuiteMoney.*
+      wallets.select(w => w.balance * w.balance)
+    """)
+    assert(times.nonEmpty)
+    val userDiv = typeCheckErrors("""
+      import skunk.sharp.dsl.*
+      import skunk.sharp.arith.ArithSuiteMoney.*
+      wallets.select(w => w.balance / w.balance)
+    """)
+    assert(userDiv.nonEmpty)
+    val plus = ArithSuiteMoney.wallets.select(w => w.balance + w.balance).compile
+    assertEquals(plus.fragment.sql, """SELECT ("balance" + "balance") FROM "wallets"""")
+  }
+
+  test("unary minus on numbers and intervals; Short in modulo") {
+    val q = items.select(i => (-i.price, -i.span, i.small % i.qty, i.big % i.small)).compile
+    val _: QueryTemplate[skunk.Void, (BigDecimal, Duration, Int, Long)] = q
+    assertEquals(
+      q.fragment.sql,
+      """SELECT (- "price"), (- "span"), ("small" % "qty"), ("big" % "small") FROM "items""""
+    )
+  }
+}
+
+/** A user-defined type with only an addition instance. */
+object ArithSuiteMoney {
+  final case class Money(cents: Long)
+
+  object Money {
+
+    given skunk.sharp.pg.PgTypeFor[Money] =
+      skunk.sharp.pg.PgTypeFor.instance(skunk.codec.all.int8.imap(Money(_))(_.cents))
+
+    given skunk.sharp.ops.Plus.Aux[Money, Money, Money] = skunk.sharp.ops.Plus.of
+  }
+
+  case class Wallet(id: Int, balance: Money)
+  val wallets = Table.of[Wallet]("wallets")
 }

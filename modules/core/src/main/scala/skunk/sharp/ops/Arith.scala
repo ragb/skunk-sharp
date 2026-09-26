@@ -24,129 +24,171 @@ import java.time.{Duration, LocalDate, LocalDateTime, OffsetDateTime}
  * instances in their companion via `Plus.of` / `Minus.of` / … (pgvector's `vector ± vector` does).
  */
 
-/** Result of `L op R` on the operands' non-`Option` types. */
-sealed trait ArithOut[L, R] { type Out }
+/*
+ * Each operator is its own sealed typeclass with its own instances — no shared supertrait, so an instance for one
+ * operator (e.g. pgvector's `vector + vector`) never counts as evidence for another (`vector / vector` stays a clean
+ * "no instance" error). The shared tables below (`NumericPromotion`, `AdditiveTime`) are separate typeclasses that the
+ * operators *derive* from, never extend.
+ */
 
-object ArithOut {
-  type Aux[L, R, O] = ArithOut[L, R] { type Out = O }
-  private val instance: ArithOut[Any, Any] = new ArithOut[Any, Any] {}
-  def of[L, R, O]: Aux[L, R, O]            = instance.asInstanceOf[Aux[L, R, O]]
+/** Postgres's result type for `L op R` over numbers, shared by `+ - * /`. */
+sealed trait NumericPromotion[L, R] { type Out }
+
+object NumericPromotion {
+  type Aux[L, R, O] = NumericPromotion[L, R] { type Out = O }
+  private val instance: NumericPromotion[Any, Any] = new NumericPromotion[Any, Any] {}
+  private def of[L, R, O]: Aux[L, R, O]            = instance.asInstanceOf[Aux[L, R, O]]
 
   // ---- Numeric promotion, shared by + - * / ----
   // same type
-  given short: ArithOut.Aux[Short, Short, Short]                  = ArithOut.of
-  given int: ArithOut.Aux[Int, Int, Int]                          = ArithOut.of
-  given long: ArithOut.Aux[Long, Long, Long]                      = ArithOut.of
-  given numeric: ArithOut.Aux[BigDecimal, BigDecimal, BigDecimal] = ArithOut.of
-  given float: ArithOut.Aux[Float, Float, Float]                  = ArithOut.of
-  given double: ArithOut.Aux[Double, Double, Double]              = ArithOut.of
+  given short: Aux[Short, Short, Short]                  = of
+  given int: Aux[Int, Int, Int]                          = of
+  given long: Aux[Long, Long, Long]                      = of
+  given numeric: Aux[BigDecimal, BigDecimal, BigDecimal] = of
+  given float: Aux[Float, Float, Float]                  = of
+  given double: Aux[Double, Double, Double]              = of
   // integer widening
-  given shortInt: ArithOut.Aux[Short, Int, Int]    = ArithOut.of
-  given intShort: ArithOut.Aux[Int, Short, Int]    = ArithOut.of
-  given shortLong: ArithOut.Aux[Short, Long, Long] = ArithOut.of
-  given longShort: ArithOut.Aux[Long, Short, Long] = ArithOut.of
-  given intLong: ArithOut.Aux[Int, Long, Long]     = ArithOut.of
-  given longInt: ArithOut.Aux[Long, Int, Long]     = ArithOut.of
+  given shortInt: Aux[Short, Int, Int]    = of
+  given intShort: Aux[Int, Short, Int]    = of
+  given shortLong: Aux[Short, Long, Long] = of
+  given longShort: Aux[Long, Short, Long] = of
+  given intLong: Aux[Int, Long, Long]     = of
+  given longInt: Aux[Long, Int, Long]     = of
   // integer ↔ numeric → numeric
-  given shortNum: ArithOut.Aux[Short, BigDecimal, BigDecimal] = ArithOut.of
-  given numShort: ArithOut.Aux[BigDecimal, Short, BigDecimal] = ArithOut.of
-  given intNum: ArithOut.Aux[Int, BigDecimal, BigDecimal]     = ArithOut.of
-  given numInt: ArithOut.Aux[BigDecimal, Int, BigDecimal]     = ArithOut.of
-  given longNum: ArithOut.Aux[Long, BigDecimal, BigDecimal]   = ArithOut.of
-  given numLong: ArithOut.Aux[BigDecimal, Long, BigDecimal]   = ArithOut.of
+  given shortNum: Aux[Short, BigDecimal, BigDecimal] = of
+  given numShort: Aux[BigDecimal, Short, BigDecimal] = of
+  given intNum: Aux[Int, BigDecimal, BigDecimal]     = of
+  given numInt: Aux[BigDecimal, Int, BigDecimal]     = of
+  given longNum: Aux[Long, BigDecimal, BigDecimal]   = of
+  given numLong: Aux[BigDecimal, Long, BigDecimal]   = of
   // anything ↔ float8 → float8
-  given shortDouble: ArithOut.Aux[Short, Double, Double]    = ArithOut.of
-  given doubleShort: ArithOut.Aux[Double, Short, Double]    = ArithOut.of
-  given intDouble: ArithOut.Aux[Int, Double, Double]        = ArithOut.of
-  given doubleInt: ArithOut.Aux[Double, Int, Double]        = ArithOut.of
-  given longDouble: ArithOut.Aux[Long, Double, Double]      = ArithOut.of
-  given doubleLong: ArithOut.Aux[Double, Long, Double]      = ArithOut.of
-  given numDouble: ArithOut.Aux[BigDecimal, Double, Double] = ArithOut.of
-  given doubleNum: ArithOut.Aux[Double, BigDecimal, Double] = ArithOut.of
-  given floatDouble: ArithOut.Aux[Float, Double, Double]    = ArithOut.of
-  given doubleFloat: ArithOut.Aux[Double, Float, Double]    = ArithOut.of
+  given shortDouble: Aux[Short, Double, Double]    = of
+  given doubleShort: Aux[Double, Short, Double]    = of
+  given intDouble: Aux[Int, Double, Double]        = of
+  given doubleInt: Aux[Double, Int, Double]        = of
+  given longDouble: Aux[Long, Double, Double]      = of
+  given doubleLong: Aux[Double, Long, Double]      = of
+  given numDouble: Aux[BigDecimal, Double, Double] = of
+  given doubleNum: Aux[Double, BigDecimal, Double] = of
+  given floatDouble: Aux[Float, Double, Double]    = of
+  given doubleFloat: Aux[Double, Float, Double]    = of
+}
+
+/**
+ * Date / time shifts shared by `+` and `-`: `timestamptz`/`timestamp` ± interval, `date` ± days / interval, interval ±
+ * interval.
+ */
+sealed trait AdditiveTime[L, R] { type Out }
+
+object AdditiveTime {
+  type Aux[L, R, O] = AdditiveTime[L, R] { type Out = O }
+  private val instance: AdditiveTime[Any, Any] = new AdditiveTime[Any, Any] {}
+  private def of[L, R, O]: Aux[L, R, O]        = instance.asInstanceOf[Aux[L, R, O]]
+
+  given tstzInterval: Aux[OffsetDateTime, Duration, OffsetDateTime] = of
+  given tsInterval: Aux[LocalDateTime, Duration, LocalDateTime]     = of
+  given dateDays: Aux[LocalDate, Int, LocalDate]                    = of
+  given dateInterval: Aux[LocalDate, Duration, LocalDateTime]       = of
+  given intervals: Aux[Duration, Duration, Duration]                = of
 }
 
 /** `L + R`. */
-sealed trait Plus[L, R] extends ArithOut[L, R]
+sealed trait Plus[L, R] { type Out }
 
 object Plus {
   type Aux[L, R, O] = Plus[L, R] { type Out = O }
   private val instance: Plus[Any, Any] = new Plus[Any, Any] {}
 
   /** Build an instance — the extension point for types outside core (e.g. pgvector's `vector + vector`). */
-  def of[L, R, O]: Aux[L, R, O]                                         = instance.asInstanceOf[Aux[L, R, O]]
-  given fromNumeric[L, R, O](using ArithOut.Aux[L, R, O]): Aux[L, R, O] = instance.asInstanceOf[Aux[L, R, O]]
-  given tstzInterval: Aux[OffsetDateTime, Duration, OffsetDateTime]     = instance.asInstanceOf
-  given tsInterval: Aux[LocalDateTime, Duration, LocalDateTime]         = instance.asInstanceOf
-  given dateDays: Aux[LocalDate, Int, LocalDate]                        = instance.asInstanceOf
-  given dateInterval: Aux[LocalDate, Duration, LocalDateTime]           = instance.asInstanceOf
-  given intervals: Aux[Duration, Duration, Duration]                    = instance.asInstanceOf
+  def of[L, R, O]: Aux[L, R, O]                                                 = instance.asInstanceOf[Aux[L, R, O]]
+  given fromNumeric[L, R, O](using NumericPromotion.Aux[L, R, O]): Aux[L, R, O] = of
+  given fromTime[L, R, O](using AdditiveTime.Aux[L, R, O]): Aux[L, R, O]        = of
 }
 
 /** `L - R`. */
-sealed trait Minus[L, R] extends ArithOut[L, R]
+sealed trait Minus[L, R] { type Out }
 
 object Minus {
   type Aux[L, R, O] = Minus[L, R] { type Out = O }
   private val instance: Minus[Any, Any] = new Minus[Any, Any] {}
 
   /** Build an instance — the extension point for types outside core (e.g. pgvector's `vector - vector`). */
-  def of[L, R, O]: Aux[L, R, O]                                         = instance.asInstanceOf[Aux[L, R, O]]
-  given fromNumeric[L, R, O](using ArithOut.Aux[L, R, O]): Aux[L, R, O] = instance.asInstanceOf[Aux[L, R, O]]
-  given tstzInterval: Aux[OffsetDateTime, Duration, OffsetDateTime]     = instance.asInstanceOf
-  given tsInterval: Aux[LocalDateTime, Duration, LocalDateTime]         = instance.asInstanceOf
-  given dateDays: Aux[LocalDate, Int, LocalDate]                        = instance.asInstanceOf
-  given dateInterval: Aux[LocalDate, Duration, LocalDateTime]           = instance.asInstanceOf
-  given dates: Aux[LocalDate, LocalDate, Int]                           = instance.asInstanceOf
-  given tstzs: Aux[OffsetDateTime, OffsetDateTime, Duration]            = instance.asInstanceOf
-  given tss: Aux[LocalDateTime, LocalDateTime, Duration]                = instance.asInstanceOf
-  given intervals: Aux[Duration, Duration, Duration]                    = instance.asInstanceOf
+  def of[L, R, O]: Aux[L, R, O]                                                 = instance.asInstanceOf[Aux[L, R, O]]
+  given fromNumeric[L, R, O](using NumericPromotion.Aux[L, R, O]): Aux[L, R, O] = of
+  given fromTime[L, R, O](using AdditiveTime.Aux[L, R, O]): Aux[L, R, O]        = of
+  given dates: Aux[LocalDate, LocalDate, Int]                                   = of
+  given tstzs: Aux[OffsetDateTime, OffsetDateTime, Duration]                    = of
+  given tss: Aux[LocalDateTime, LocalDateTime, Duration]                        = of
 }
 
 /** `L * R`. */
-sealed trait Times[L, R] extends ArithOut[L, R]
+sealed trait Times[L, R] { type Out }
 
 object Times {
   type Aux[L, R, O] = Times[L, R] { type Out = O }
   private val instance: Times[Any, Any] = new Times[Any, Any] {}
 
   /** Build an instance — the extension point for types outside core (e.g. pgvector's `vector * vector`). */
-  def of[L, R, O]: Aux[L, R, O]                                         = instance.asInstanceOf[Aux[L, R, O]]
-  given fromNumeric[L, R, O](using ArithOut.Aux[L, R, O]): Aux[L, R, O] = instance.asInstanceOf[Aux[L, R, O]]
-  given intervalScale: Aux[Duration, Double, Duration]                  = instance.asInstanceOf
+  def of[L, R, O]: Aux[L, R, O]                                                 = instance.asInstanceOf[Aux[L, R, O]]
+  given fromNumeric[L, R, O](using NumericPromotion.Aux[L, R, O]): Aux[L, R, O] = of
+  given intervalScale: Aux[Duration, Double, Duration]                          = of
 }
 
 /** `L / R` — integer division truncates, as in Postgres. */
-sealed trait Div[L, R] extends ArithOut[L, R]
+sealed trait Div[L, R] { type Out }
 
 object Div {
   type Aux[L, R, O] = Div[L, R] { type Out = O }
   private val instance: Div[Any, Any] = new Div[Any, Any] {}
 
-  /** Build an instance — the extension point for types outside core (e.g. pgvector's `vector / vector`). */
-  def of[L, R, O]: Aux[L, R, O]                                         = instance.asInstanceOf[Aux[L, R, O]]
-  given fromNumeric[L, R, O](using ArithOut.Aux[L, R, O]): Aux[L, R, O] = instance.asInstanceOf[Aux[L, R, O]]
-  given intervalScale: Aux[Duration, Double, Duration]                  = instance.asInstanceOf
+  /** Build an instance — the extension point for types outside core. */
+  def of[L, R, O]: Aux[L, R, O]                                                 = instance.asInstanceOf[Aux[L, R, O]]
+  given fromNumeric[L, R, O](using NumericPromotion.Aux[L, R, O]): Aux[L, R, O] = of
+  given intervalScale: Aux[Duration, Double, Duration]                          = of
 }
 
 /** `L % R` — integers and `numeric` only (Postgres has no float modulo). */
-sealed trait Mod[L, R] extends ArithOut[L, R]
+sealed trait Mod[L, R] { type Out }
 
 object Mod {
   type Aux[L, R, O] = Mod[L, R] { type Out = O }
   private val instance: Mod[Any, Any] = new Mod[Any, Any] {}
 
-  /** Build an instance — the extension point for types outside core (e.g. pgvector's `vector % vector`). */
+  /** Build an instance — the extension point for types outside core. */
   def of[L, R, O]: Aux[L, R, O]                          = instance.asInstanceOf[Aux[L, R, O]]
-  given short: Aux[Short, Short, Short]                  = instance.asInstanceOf
-  given int: Aux[Int, Int, Int]                          = instance.asInstanceOf
-  given long: Aux[Long, Long, Long]                      = instance.asInstanceOf
-  given numeric: Aux[BigDecimal, BigDecimal, BigDecimal] = instance.asInstanceOf
-  given intLong: Aux[Int, Long, Long]                    = instance.asInstanceOf
-  given longInt: Aux[Long, Int, Long]                    = instance.asInstanceOf
-  given intNum: Aux[Int, BigDecimal, BigDecimal]         = instance.asInstanceOf
-  given numInt: Aux[BigDecimal, Int, BigDecimal]         = instance.asInstanceOf
+  given short: Aux[Short, Short, Short]                  = of
+  given int: Aux[Int, Int, Int]                          = of
+  given long: Aux[Long, Long, Long]                      = of
+  given numeric: Aux[BigDecimal, BigDecimal, BigDecimal] = of
+  given shortInt: Aux[Short, Int, Int]                   = of
+  given intShort: Aux[Int, Short, Int]                   = of
+  given shortLong: Aux[Short, Long, Long]                = of
+  given longShort: Aux[Long, Short, Long]                = of
+  given intLong: Aux[Int, Long, Long]                    = of
+  given longInt: Aux[Long, Int, Long]                    = of
+  given shortNum: Aux[Short, BigDecimal, BigDecimal]     = of
+  given numShort: Aux[BigDecimal, Short, BigDecimal]     = of
+  given intNum: Aux[Int, BigDecimal, BigDecimal]         = of
+  given numInt: Aux[BigDecimal, Int, BigDecimal]         = of
+  given longNum: Aux[Long, BigDecimal, BigDecimal]       = of
+  given numLong: Aux[BigDecimal, Long, BigDecimal]       = of
+}
+
+/** Unary `-`: numbers and intervals. Extension types opt in with `Negate.of` (pgvector has no prefix `-`). */
+sealed trait Negate[T]
+
+object Negate {
+  private val instance: Negate[Any] = new Negate[Any] {}
+
+  /** Build an instance — the extension point for types outside core. */
+  def of[T]: Negate[T]              = instance.asInstanceOf[Negate[T]]
+  given short: Negate[Short]        = of
+  given int: Negate[Int]            = of
+  given long: Negate[Long]          = of
+  given numeric: Negate[BigDecimal] = of
+  given float: Negate[Float]        = of
+  given double: Negate[Double]      = of
+  given interval: Negate[Duration]  = of
 }
 
 /** `Option[O]` when either operand is nullable, else `O`. */
@@ -197,7 +239,7 @@ extension [L, A](lhs: TypedExpr[L, A]) {
     Arith.binary[L, R, ArithResult[L, R, O], A, B](" % ", lhs, rhs)
 
   /** `(- lhs)` — numbers and intervals. */
-  def unary_-(using @annotation.unused ev: Plus[Stripped[L], Stripped[L]]): TypedExpr[L, A] =
+  def unary_-(using @annotation.unused ev: Negate[Stripped[L]]): TypedExpr[L, A] =
     TypedExpr[L, A](TypedExpr.wrap("(- ", lhs.fragment, ")"), lhs.codec)
 
 }
