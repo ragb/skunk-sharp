@@ -272,6 +272,24 @@ val byIds = users.select
 For sizes that vary per call, rebuild the query per size, or use array equality
 (`col === ANY(Param[Arr[T]])`) instead.
 
+## Arithmetic
+
+`+ - * / %` and unary `-` work on expressions, and render parenthesised so any nesting is
+correct:
+
+```scala mdoc:silent
+// SELECT "email", ("age" + 1) FROM "users" WHERE ("age" * 2) > $1
+val older = users.select(u => (u.email, u.age + 1)).where(u => u.age * 2 > Param[Int]).compile
+```
+
+Result types follow Postgres: integers widen (`int2 < int4 < int8`), an integer with `numeric`
+gives `numeric`, anything with `float8` gives `float8`, and a nullable operand makes the result
+`Option`. `int / int` truncates, as in Postgres, and `%` is for integers and `numeric`. Dates
+and times work too: `timestamptz ± interval` (`OffsetDateTime` ± `Duration`), `date ± int`
+(days), `date - date` (days, as `Int`), `timestamp - timestamp` (a `Duration`), `interval * float8`.
+Anything else — `email + 1`, `date + date` — doesn't compile. Extension types add their own
+(pgvector: `vector + vector`).
+
 ## Named parameters
 
 `Param[T]` placeholders are positional: the compiled statement takes a tuple in the order the

@@ -137,4 +137,15 @@ class PgVectorSuite extends munit.FunSuite {
     """).map(_.message).mkString("\n")
     assert(msg.contains("deferred Param in a whole-row .orderBy isn't supported"), msg)
   }
+
+  test("vector arithmetic through the core operators: + - and element-wise *") {
+    val q = chunks.select(c =>
+      (c.embedding + c.embedding, c.embedding - Param[PgVector[3]], c.embedding * c.embedding)
+    ).compile
+    val _: QueryTemplate[PgVector[3], (PgVector[3], PgVector[3], PgVector[3])] = q
+    assertEquals(
+      q.fragment.sql,
+      """SELECT ("embedding" + "embedding"), ("embedding" - $1), ("embedding" * "embedding") FROM "chunks""""
+    )
+  }
 }
