@@ -13,11 +13,36 @@ object PgVectorSuite {
 class PgVectorSuite extends munit.FunSuite {
   import PgVectorSuite.*
 
-  private val v = PgVector[3](0.1f, 0.2f, 0.3f)
+  private val v = PgVector(0.1f, 0.2f, 0.3f)
 
-  test("PgVector[N] checks its dimension at construction") {
-    assertEquals(v.dimension, 3)
-    val e = intercept[IllegalArgumentException](PgVector[3](1f, 2f))
+  test("PgVector(…) with a spliced runtime collection, or no values, doesn't compile") {
+    val spliced = typeCheckErrors("""
+      import skunk.sharp.contrib.pgvector.*
+      val xs = List(1f, 2f, 3f)
+      PgVector(xs*)
+    """).map(_.message).mkString("\n")
+    assert(spliced.contains("PgVector.from[N]"), spliced)
+    val empty = typeCheckErrors("""
+      import skunk.sharp.contrib.pgvector.*
+      PgVector()
+    """).map(_.message).mkString("\n")
+    assert(empty.contains("at least one value"), empty)
+  }
+
+  test("PgVector(…) counts its values at compile time — a dimension mismatch doesn't compile") {
+    val three: PgVector[3] = v
+    assertEquals(three.dimension, 3)
+    val errs = typeCheckErrors("""
+      import skunk.sharp.contrib.pgvector.*
+      val four: PgVector[4] = PgVector(1f, 2f, 3f)
+    """)
+    assert(errs.nonEmpty)
+  }
+
+  test("from returns Either; unsafeFrom throws on the wrong length") {
+    assertEquals(PgVector.from[3](List(1f, 2f, 3f)).map(_.toArray.toList), Right(List(1f, 2f, 3f)))
+    assertEquals(PgVector.from[3](Array(1f, 2f)).left.map(_.contains("dimension 3, got 2")), Left(true))
+    val e = intercept[IllegalArgumentException](PgVector.unsafeFrom[3](List(1f, 2f)))
     assert(e.getMessage.contains("dimension 3, got 2"), e.getMessage)
   }
 

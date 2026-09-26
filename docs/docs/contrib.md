@@ -69,7 +69,7 @@ val pattern = categories.select
 
 // Ancestor / descendant
 val under = categories.select
-  .where(c => c.path.isDescendantOf(Param.bind(LTree("top.science"))))
+  .where(c => c.path.isDescendantOf(Param.bind(LTree.unsafeFrom("top.science"))))
   .compile
 
 // Functions: number of labels per path
@@ -202,7 +202,12 @@ case class Chunk(id: Long, doc: String, content: String, embedding: PgVector[3])
 
 val chunks = Table.of[Chunk]("chunks").withPrimary("id").withDefault("id")
 
-val query = PgVector[3](0.9f, 0.1f, 0f)   // in practice: the embedding of the user's question
+val literal = PgVector(0.9f, 0.1f, 0f)   // PgVector[3] — the values are counted at compile time
+
+// Embeddings from a model arrive as a runtime collection: check the dimension when you convert.
+val modelOutput: Array[Float] = Array(0.9f, 0.1f, 0f)
+val query: Either[String, PgVector[3]] = PgVector.from[3](modelOutput)
+// PgVector.unsafeFrom[3](modelOutput) throws instead of returning a Left
 ```
 
 The canonical query is top-k by distance, usually filtered by ordinary columns. Select only the columns you need —
@@ -216,7 +221,7 @@ val topK = chunks
   .orderBy(c => c.embedding.cosineDistance(Param.named["query", PgVector[3]]).asc)
   .limit(5)
   .compile
-// topK.run(session)((doc = "handbook", query = query))
+// topK.run(session)((doc = "handbook", query = literal))
 ```
 
 | Method | Operator | Use |

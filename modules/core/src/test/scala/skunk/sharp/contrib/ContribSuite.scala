@@ -68,9 +68,9 @@ class ContribSuite extends munit.FunSuite {
   test("ltree operators render correct SQL") {
     val t      = Table.of[LtreeRow]("tags")
     val cols   = ColumnsView(t.columns)
-    val ances  = cols.path.isAncestorOf(Param.bind(LTree("top.science")))
-    val descs  = cols.path.isDescendantOf(Param.bind(LTree("top.science")))
-    val concat = cols.path.concat(Param.bind(LTree("astronomy")))
+    val ances  = cols.path.isAncestorOf(Param.bind(LTree.unsafeFrom("top.science")))
+    val descs  = cols.path.isDescendantOf(Param.bind(LTree.unsafeFrom("top.science")))
+    val concat = cols.path.concat(Param.bind(LTree.unsafeFrom("astronomy")))
     val patt   = cols.path.matches(Param.bind(LQuery("top.*.astronomy")))
     assertEquals(ances.fragment.sql, """"path" @> $1""")
     assertEquals(descs.fragment.sql, """"path" <@ $1""")
@@ -83,7 +83,7 @@ class ContribSuite extends munit.FunSuite {
     val cols = ColumnsView(t.columns)
     assertEquals(PgLtree.nlevel(cols.path).fragment.sql, """nlevel("path")""")
     assertEquals(
-      PgLtree.lca(cols.path, Param.bind(LTree("top.science"))).fragment.sql,
+      PgLtree.lca(cols.path, Param.bind(LTree.unsafeFrom("top.science"))).fragment.sql,
       """lca("path", $1)"""
     )
   }

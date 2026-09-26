@@ -76,12 +76,12 @@ class ContribIntegrationSuite extends PgFixture {
       session(containers).use { s =>
         for {
           _ <- folders.insert.values(
-            (id = 10, path = LTree("top")),
-            (id = 11, path = LTree("top.science")),
-            (id = 12, path = LTree("top.science.astronomy"))
+            (id = 10, path = LTree.unsafeFrom("top")),
+            (id = 11, path = LTree.unsafeFrom("top.science")),
+            (id = 12, path = LTree.unsafeFrom("top.science.astronomy"))
           ).compile.run(s)
           desc <- folders.select(_.id)
-            .where(f => f.path.isDescendantOf(Param.bind(LTree("top.science"))))
+            .where(f => f.path.isDescendantOf(Param.bind(LTree.unsafeFrom("top.science"))))
             .orderBy(_.id.asc)
             .compile.run(s)
           _ = assertEquals(desc, List(11, 12))
@@ -90,7 +90,8 @@ class ContribIntegrationSuite extends PgFixture {
             .orderBy(_.id.asc)
             .compile.run(s)
           _ = assertEquals(patt, List(10, 11, 12))
-          lvl <- empty.select(_ => PgLtree.nlevel(Param.bind(LTree("top.science.astronomy")))).compile.unique(s)
+          lvl <-
+            empty.select(_ => PgLtree.nlevel(Param.bind(LTree.unsafeFrom("top.science.astronomy")))).compile.unique(s)
           _ = assertEquals(lvl, 3)
         } yield ()
       }

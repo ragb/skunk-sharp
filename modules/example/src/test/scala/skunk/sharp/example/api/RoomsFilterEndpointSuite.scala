@@ -24,6 +24,8 @@ class RoomsFilterEndpointSuite extends ExampleAppFixture {
   private val createRoomReq     = interpreter.toRequestThrowDecodeFailures(Endpoints.rooms.create, Some(baseUri))
   private val listReq           = interpreter.toRequestThrowDecodeFailures(Endpoints.rooms.list, Some(baseUri))
   private val getByIdReq        = interpreter.toRequest(Endpoints.rooms.getById, Some(baseUri))
+  private val createRoomRawReq  = interpreter.toRequest(Endpoints.rooms.create, Some(baseUri))
+  private val listRawReq        = interpreter.toRequest(Endpoints.rooms.list, Some(baseUri))
 
   private def createBuilding(name: String = "HQ", lat: Double = 53.34, lon: Double = -6.26)(using
     StreamBackend[IO, Fs2Streams[IO]]
@@ -157,6 +159,21 @@ class RoomsFilterEndpointSuite extends ExampleAppFixture {
           listReq((UUID.randomUUID, RoomFilterQuery.empty)).sendResp.map { resp =>
             assertEquals(resp.code, StatusCode.NotFound)
           }
+      }
+    }
+  }
+
+  test("an invalid ltree location is a 400 (create and filter), not a 500") {
+    withContainers { containers =>
+      appBackend(containers).use { case given StreamBackend[IO, Fs2Streams[IO]] =>
+        truncateAll(containers) *>
+          (for {
+            b      <- createBuilding()
+            create <- createRoomRawReq((b.id, CreateRoomRequest("r", 1, "not a valid path!", Map.empty))).sendResp
+            filter <- listRawReq((b.id, RoomFilterQuery.empty.copy(locationUnder = Some("not a valid path!")))).sendResp
+            _ = assertEquals(create.code, StatusCode.BadRequest)
+            _ = assertEquals(filter.code, StatusCode.BadRequest)
+          } yield ())
       }
     }
   }

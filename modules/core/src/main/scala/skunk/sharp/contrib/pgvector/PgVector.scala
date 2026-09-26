@@ -14,7 +14,8 @@ import skunk.sharp.where.Where
  *
  * {{{
  *   case class Chunk(id: Long, content: String, embedding: PgVector[1536])
- *   PgVector[3](0.1f, 0.2f, 0.3f)
+ *   PgVector((0.1f, 0.2f, 0.3f))            // PgVector[3] — a literal can't have the wrong length
+ *   PgVector.from[1536](modelOutput)        // Either[String, PgVector[1536]]
  * }}}
  *
  * Wire format is pgvector's text form `[x1,x2,…]`. Distances / functions: [[skunk.sharp.contrib.pgvector.ops]] and the
@@ -23,7 +24,7 @@ import skunk.sharp.where.Where
  * A final class rather than an opaque alias: the DSL's Args match types must be able to prove the value type disjoint
  * from `Void` / tuples, which an opaque alias over `IArray` doesn't allow.
  */
-final class PgVector[N <: Int] private (val values: IArray[Float]) {
+final class PgVector[N <: Int] @scala.annotation.publicInBinary private (val values: IArray[Float]) {
 
   def dimension: Int        = values.length
   def toArray: Array[Float] = IArray.genericWrapArray(values).toArray
@@ -41,17 +42,27 @@ object PgVector {
 
   val RequiredExtension: String = "vector"
 
-  /** Build from exactly `N` values; throws `IllegalArgumentException` on any other length. */
-  def apply[N <: Int](values: Float*)(using n: ValueOf[N]): PgVector[N] = fromArray[N](values.toArray)
+  /**
+   * A literal vector whose dimension is fixed at compile time: `PgVector(0.1f, 0.2f, 0.3f)` is a `PgVector[3]` — the
+   * values are counted when the code compiles, so assigning it to a `PgVector[4]` doesn't compile and nothing can
+   * throw. For values that only exist at runtime (an embedding model's output), use [[from]].
+   */
+  transparent inline def apply(inline values: Float*): PgVector[? <: Int] = ${ PgVectorMacro.literal('values) }
 
-  /** Build from exactly `N` values; throws `IllegalArgumentException` on any other length. */
-  def fromArray[N <: Int](values: Array[Float])(using n: ValueOf[N]): PgVector[N] =
-    either[N](IArray.unsafeFromArray(values.clone())).fold(e => throw new IllegalArgumentException(e), identity)
+  /** Used by the [[apply]] macro, which has already checked the count. */
+  @scala.annotation.publicInBinary
+  private[pgvector] def ofExactly[N <: Int](values: IArray[Float]): PgVector[N] = new PgVector[N](values)
 
-  /** Build from exactly `N` values, or explain why not. */
-  def either[N <: Int](values: IArray[Float])(using n: ValueOf[N]): Either[String, PgVector[N]] =
-    if (values.length == n.value) new PgVector[N](values).asRight
-    else s"expected a vector of dimension ${n.value}, got ${values.length}".asLeft
+  /** Exactly `N` values (e.g. an embedding model's output), or why not. */
+  def from[N <: Int](values: IterableOnce[Float])(using n: ValueOf[N]): Either[String, PgVector[N]] = {
+    val arr = IArray.from(values)
+    if (arr.length == n.value) new PgVector[N](arr).asRight
+    else s"expected a vector of dimension ${n.value}, got ${arr.length}".asLeft
+  }
+
+  /** Like [[from]], but throws `IllegalArgumentException` on the wrong length. */
+  def unsafeFrom[N <: Int](values: IterableOnce[Float])(using ValueOf[N]): PgVector[N] =
+    from[N](values).fold(e => throw new IllegalArgumentException(e), identity)
 
   private def render(v: PgVector[?]): String = v.values.mkString("[", ",", "]")
 
@@ -60,7 +71,7 @@ object PgVector {
     Either
       .catchNonFatal(if (body.isEmpty) IArray.empty[Float] else IArray.from(body.split(',').map(_.trim.toFloat)))
       .leftMap(e => s"invalid vector '$s': ${e.getMessage}")
-      .flatMap(either[N])
+      .flatMap(from[N](_))
   }
 
   /**

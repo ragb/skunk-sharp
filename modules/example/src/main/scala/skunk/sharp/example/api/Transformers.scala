@@ -78,14 +78,19 @@ object Transformers {
 
   extension (req: CreateRoomRequest)
 
-    /** The buildingId comes from the URL path, not the request body — pass it explicitly. */
-    def toRow(buildingId: UUID): RoomRow.Create =
-      RoomRow.Create(
-        building_id = buildingId,
-        name = req.name,
-        capacity = req.capacity,
-        location = LTree(req.location),
-        amenities = amenitiesFromWire(req.amenities)
+    /**
+     * The buildingId comes from the URL path, not the request body — pass it explicitly. `location` is client input, so
+     * an invalid ltree path is a `Left` (→ 400), not an exception.
+     */
+    def toRow(buildingId: UUID): Either[String, RoomRow.Create] =
+      LTree.from(req.location).map(location =>
+        RoomRow.Create(
+          building_id = buildingId,
+          name = req.name,
+          capacity = req.capacity,
+          location = location,
+          amenities = amenitiesFromWire(req.amenities)
+        )
       )
 
   extension (req: PatchRoomRequest)
@@ -93,15 +98,19 @@ object Transformers {
 
   extension (q: RoomFilterQuery)
 
-    def toFilters: List[RoomFilter] = List(
-      q.minCapacity.map(RoomFilter.CapacityAtLeast(_)),
-      q.maxCapacity.map(RoomFilter.CapacityAtMost(_)),
-      q.nameContains.map(RoomFilter.NameContains(_)),
-      NonEmptyList.fromList(q.names).map(RoomFilter.NamesIn(_)),
-      NonEmptyList.fromList(q.ids).map(RoomFilter.IdsIn(_)),
-      q.locationUnder.map(s => RoomFilter.LocationUnder(LTree(s))),
-      q.hasAmenity.map(RoomFilter.HasAmenity(_))
-    ).flatten
+    /** `Left` if `locationUnder` isn't a valid ltree path (client input → 400). */
+    def toFilters: Either[String, List[RoomFilter]] =
+      q.locationUnder.traverse(LTree.from).map(location =>
+        List(
+          q.minCapacity.map(RoomFilter.CapacityAtLeast(_)),
+          q.maxCapacity.map(RoomFilter.CapacityAtMost(_)),
+          q.nameContains.map(RoomFilter.NameContains(_)),
+          NonEmptyList.fromList(q.names).map(RoomFilter.NamesIn(_)),
+          NonEmptyList.fromList(q.ids).map(RoomFilter.IdsIn(_)),
+          location.map(RoomFilter.LocationUnder(_)),
+          q.hasAmenity.map(RoomFilter.HasAmenity(_))
+        ).flatten
+      )
 
   // ---------- Bookings ------------------------------------------------------------------------
 
@@ -172,13 +181,16 @@ object Transformers {
   extension (q: RoomSearchQuery)
 
     /** Project the room-search bundle onto the [[RoomFilter]] ADT — same shape as `RoomFilterQuery.toFilters`. */
-    def toRoomFilters: List[RoomFilter] = List(
-      q.minCapacity.map(RoomFilter.CapacityAtLeast(_)),
-      q.maxCapacity.map(RoomFilter.CapacityAtMost(_)),
-      q.nameContains.map(RoomFilter.NameContains(_)),
-      q.locationUnder.map(s => RoomFilter.LocationUnder(LTree(s))),
-      q.hasAmenity.map(RoomFilter.HasAmenity(_))
-    ).flatten
+    def toRoomFilters: Either[String, List[RoomFilter]] =
+      q.locationUnder.traverse(LTree.from).map(location =>
+        List(
+          q.minCapacity.map(RoomFilter.CapacityAtLeast(_)),
+          q.maxCapacity.map(RoomFilter.CapacityAtMost(_)),
+          q.nameContains.map(RoomFilter.NameContains(_)),
+          location.map(RoomFilter.LocationUnder(_)),
+          q.hasAmenity.map(RoomFilter.HasAmenity(_))
+        ).flatten
+      )
 
     /** Available-during pair — both bounds required, mirrors the OverlapsPeriod rule on booking filters. */
     def availableDuring: Option[(java.time.LocalDate, java.time.LocalDate)] =

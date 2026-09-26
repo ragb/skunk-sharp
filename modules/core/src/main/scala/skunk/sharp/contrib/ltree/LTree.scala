@@ -20,15 +20,16 @@ object LTree {
 
   val RequiredExtension: String = "ltree"
 
-  /**
-   * Validate via skunk's parser, then return the canonical text form as an `LTree`. Throws `IllegalArgumentException`
-   * on a bad path — matches the failure mode of [[skunk.data.LTree.fromString]] used as a total constructor.
-   */
-  def apply(s: String): LTree =
-    data.LTree.fromString(s).fold(
-      e => throw new IllegalArgumentException(s"invalid ltree '$s': $e"),
-      _.toString
-    )
+  /** Validate via skunk's parser and return the canonical text form, or why the path is invalid. */
+  def from(s: String): Either[String, LTree] =
+    data.LTree.fromString(s).fold(e => Left(s"invalid ltree '$s': $e"), l => Right(l.toString))
+
+  /** Like [[from]], but throws `IllegalArgumentException` on an invalid path — for literals you know are valid. */
+  def unsafeFrom(s: String): LTree =
+    from(s).fold(e => throw new IllegalArgumentException(e), identity)
+
+  @deprecated("throws on an invalid path — use LTree.from (Either) or LTree.unsafeFrom", "0.0.3")
+  def apply(s: String): LTree = unsafeFrom(s)
 
   /**
    * Skunk's `pg.ltree` codec (which decodes to `skunk.data.LTree`) re-mapped to our tag's canonical text form. We keep

@@ -61,10 +61,10 @@ class PgVectorIntegrationSuite extends PgFixture {
       .compile
 
   private val rows = List(
-    NewChunk("handbook", "east", PgVector[3](1f, 0f, 0f)),
-    NewChunk("handbook", "north", PgVector[3](0f, 1f, 0f)),
-    NewChunk("handbook", "north-east", PgVector[3](0.7f, 0.7f, 0f)),
-    NewChunk("other", "east again", PgVector[3](1f, 0.01f, 0f))
+    NewChunk("handbook", "east", PgVector(1f, 0f, 0f)),
+    NewChunk("handbook", "north", PgVector(0f, 1f, 0f)),
+    NewChunk("handbook", "north-east", PgVector(0.7f, 0.7f, 0f)),
+    NewChunk("other", "east again", PgVector(1f, 0.01f, 0f))
   )
 
   test("batch insert via unnestRows, then top-k cosine search with a named query vector") {
@@ -72,11 +72,11 @@ class PgVectorIntegrationSuite extends PgFixture {
       session(containers).use { s =>
         for {
           _   <- loadBatch.run(s)((rows = rows))
-          hit <- topK.run(s)((query = PgVector[3](0.9f, 0.1f, 0f), doc = "handbook"))
+          hit <- topK.run(s)((query = PgVector(0.9f, 0.1f, 0f), doc = "handbook"))
           _ = assertEquals(hit.map(_._1), List("east", "north-east"))
           _ = assert(hit.head._2 < hit(1)._2, hit.toString)
           round <- chunks.select(c => c.embedding).where(c => c.content === "north").compile.unique(s)
-          _ = assertEquals(round, PgVector[3](0f, 1f, 0f))
+          _ = assertEquals(round, PgVector(0f, 1f, 0f))
           stats <- chunks
             .select(c => (PgVector.dims(c.embedding), PgVector.norm(c.embedding)))
             .where(c => c.content === "east")
