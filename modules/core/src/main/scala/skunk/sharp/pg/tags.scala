@@ -23,15 +23,21 @@ import scala.compiletime.constValue
  * Extensibility: additional tags live in companion modules (`skunk-sharp-json`, `skunk-sharp-ltree`, …) — each ships
  * its own `opaque type` plus a `given PgTypeFor[…]`. No changes in core required.
  *
- * Construction: use the tag's `apply` — `Varchar[256]("hello@x.com")`, `Int2(42.toShort)`. We deliberately do not ship
- * `given Conversion[Base, Tag]` because Scala's implicit conversions require an opt-in language import
+ * Construction: use the tag's `apply` — `Varchar[256]("hello@x.com")`, `Int2(42.toShort)`. **Tags are unchecked**: they
+ * pick the codec, they don't validate — `Varchar[3]("toolong")` compiles and fails at INSERT. For checked values use
+ * the iron module's refined types, which map onto these tags (`String :| MaxLength[N]` → `varchar(n)`, `String :|
+ * FixedLength[N]` → `bpchar(n)`, `BigDecimal :| Precision[P, S]` → `numeric(p, s)`), or `PgRange.from` for ranges. By
+ * convention `apply` never throws; checked constructors are `from` (`Either`) / `unsafeFrom` (throws). We deliberately
+ * do not ship `given Conversion[Base, Tag]` because Scala's implicit conversions require an opt-in language import
  * (`scala.language.implicitConversions`) and can fire in unexpected places; users who want them can define their own.
  */
 object tags {
 
   // -------- String family --------
 
-  /** Variable-length string, `varchar(n)`. */
+  /**
+   * Variable-length string, `varchar(n)`. Unchecked — for a length-checked value use iron's `String :| MaxLength[N]`.
+   */
   opaque type Varchar[N <: Int] <: String = String
 
   object Varchar {
@@ -42,7 +48,7 @@ object tags {
 
   }
 
-  /** Fixed-length blank-padded char, `char(n)` / `bpchar(n)`. */
+  /** Fixed-length blank-padded char, `char(n)` / `bpchar(n)`. Unchecked — iron's `String :| FixedLength[N]` checks. */
   opaque type Bpchar[N <: Int] <: String = String
 
   object Bpchar {
@@ -93,7 +99,7 @@ object tags {
 
   // -------- Numeric with precision / scale --------
 
-  /** `numeric(precision, scale)`. */
+  /** `numeric(precision, scale)`. Unchecked — iron's `BigDecimal :| Precision[P, S]` checks the digits. */
   opaque type Numeric[P <: Int, S <: Int] <: BigDecimal = BigDecimal
 
   object Numeric {
@@ -141,10 +147,13 @@ object tags {
 
     // ---- Constructors ----
 
-    /** Wrap a `Range[A]` as a tagged `PgRange[A]`. */
+    /** Wrap a `Range[A]` as a tagged `PgRange[A]`. Unchecked — see [[from]]. */
     def apply[A](r: Range[A]): PgRange[A] = r
 
-    /** Convenience constructor for a `Bounds` range. Defaults: `[lower, upper)`. */
+    /**
+     * Convenience constructor for a `Bounds` range. Defaults: `[lower, upper)`. Unchecked: a `lower` after `upper` is
+     * rejected by Postgres when the value is written — use [[from]] when the bounds come from input.
+     */
     def apply[A](
       lower: Option[A] = None,
       upper: Option[A] = None,
@@ -154,6 +163,41 @@ object tags {
 
     /** The canonical empty range. */
     def empty[A]: PgRange[A] = Range.Empty
+
+    /** A `Bounds` range, or why not: `lower` must not be after `upper` (Postgres's own rule). */
+    def from[A](
+      lower: Option[A] = None,
+      upper: Option[A] = None,
+      lowerInclusive: Boolean = true,
+      upperInclusive: Boolean = false
+    )(using b: Bound[A]): Either[String, PgRange[A]] =
+      (lower, upper) match {
+        case (Some(l), Some(u)) if b.compare(l, u) > 0 => Left(s"range lower bound $l is after upper bound $u")
+        case _                                         => Right(apply(lower, upper, lowerInclusive, upperInclusive))
+      }
+
+    /** Like [[from]], but throws `IllegalArgumentException` when `lower` is after `upper`. */
+    def unsafeFrom[A](
+      lower: Option[A] = None,
+      upper: Option[A] = None,
+      lowerInclusive: Boolean = true,
+      upperInclusive: Boolean = false
+    )(using Bound[A]): PgRange[A] =
+      from(lower, upper, lowerInclusive, upperInclusive).fold(e => throw new IllegalArgumentException(e), identity)
+
+    /** Ordering of range bounds, for the element types Postgres ranges support. */
+    trait Bound[A] {
+      def compare(x: A, y: A): Int
+    }
+
+    object Bound {
+      given Bound[Int]            = (x, y) => Integer.compare(x, y)
+      given Bound[Long]           = (x, y) => java.lang.Long.compare(x, y)
+      given Bound[BigDecimal]     = (x, y) => x.compare(y)
+      given Bound[LocalDate]      = (x, y) => x.compareTo(y)
+      given Bound[LocalDateTime]  = (x, y) => x.compareTo(y)
+      given Bound[OffsetDateTime] = (x, y) => x.compareTo(y)
+    }
 
     // ---- PgTypeFor instances (explicit names avoid the auto-name clash that all `PgTypeFor[PgRange[?]]` would share) ----
 

@@ -156,9 +156,13 @@ object Routes {
 
     val bookingEndpoints: List[ServerEndpoint[Any, IO]] = List(
       Endpoints.bookings.list.serverLogic[IO] { q =>
-        Stream.resource(pool).flatMap(bookings.findFiltered(q.toFilters).run).map(_.toResponse).compile.toList
-          .map(_.asRight[Err])
-          .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
+        q.toFilters match {
+          case Left(invalid)  => IO.pure(badRequest(invalid).asLeft)
+          case Right(filters) =>
+            Stream.resource(pool).flatMap(bookings.findFiltered(filters).run).map(_.toResponse).compile.toList
+              .map(_.asRight[Err])
+              .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
+        }
       },
       Endpoints.bookings.getById.serverLogic[IO] { id =>
         pool.useKleisli(
@@ -170,11 +174,12 @@ object Routes {
       Endpoints.bookings.create.serverLogic[IO] { req =>
         pool.useKleisli(
           (for {
-            _ <- EitherT(
-              bookings.findOverlapping(req.roomId, req.startDate, req.endDate)
+            row <- EitherT.fromEither[Cats.K](req.toRow.leftMap(badRequest))
+            _   <- EitherT(
+              bookings.findOverlapping(row.room_id, row.period)
                 .map(xs => Either.cond(xs.isEmpty, (), conflict("Room already booked during this period")))
             )
-            id      <- EitherT.liftF(bookings.create(req.toRow))
+            id      <- EitherT.liftF(bookings.create(row))
             booking <- EitherT.fromOptionF(bookings.findById(id), internal("booking disappeared after create"))
           } yield booking.toResponse).value
         ).handleErrorWith(e => internal(e.getMessage).asLeft.pure)
@@ -194,11 +199,11 @@ object Routes {
 
     val searchEndpoints: List[ServerEndpoint[Any, IO]] = List(
       Endpoints.search.rooms.serverLogic[IO] { q =>
-        q.toRoomFilters match {
-          case Left(invalid)  => IO.pure(badRequest(invalid).asLeft)
-          case Right(filters) =>
+        (q.toRoomFilters, q.availableDuring).tupled match {
+          case Left(invalid)                     => IO.pure(badRequest(invalid).asLeft)
+          case Right((filters, availableDuring)) =>
             Stream.resource(pool)
-              .flatMap(search.findRoomsNear((q.nearLat, q.nearLon), q.radiusMeters, filters, q.availableDuring).run)
+              .flatMap(search.findRoomsNear((q.nearLat, q.nearLon), q.radiusMeters, filters, availableDuring).run)
               .map(_.toResponse)
               .compile.toList
               .map(_.asRight[Err])
@@ -206,12 +211,16 @@ object Routes {
         }
       },
       Endpoints.search.availability.serverLogic[IO] { q =>
-        Stream.resource(pool)
-          .flatMap(search.buildingsWithAvailability((q.nearLat, q.nearLon), q.radiusMeters, q.from, q.to).run)
-          .map(_.toResponse)
-          .compile.toList
-          .map(_.asRight[Err])
-          .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
+        q.period match {
+          case Left(invalid) => IO.pure(badRequest(invalid).asLeft)
+          case Right(period) =>
+            Stream.resource(pool)
+              .flatMap(search.buildingsWithAvailability((q.nearLat, q.nearLon), q.radiusMeters, period).run)
+              .map(_.toResponse)
+              .compile.toList
+              .map(_.asRight[Err])
+              .handleErrorWith(e => internal(e.getMessage).asLeft.pure)
+        }
       }
     )
 

@@ -3,6 +3,7 @@ package skunk.sharp.example.api
 import cats.data.NonEmptyList
 import skunk.sharp.contrib.ltree.LTree
 import skunk.sharp.example.repository.{BookingFilter, BuildingFilter, RoomFilter}
+import skunk.sharp.pg.tags.PgRange
 import Transformers.*
 
 import java.time.LocalDate
@@ -89,7 +90,7 @@ class TransformersFilterSuite extends munit.FunSuite {
   // ---------- BookingFilterQuery ----------------------------------------------------------------
 
   test("BookingFilterQuery.empty.toFilters is empty") {
-    assertEquals(BookingFilterQuery.empty.toFilters, Nil)
+    assertEquals(BookingFilterQuery.empty.toFilters, Right(Nil))
   }
 
   test("BookingFilterQuery — every field translates to its filter case") {
@@ -108,31 +109,39 @@ class TransformersFilterSuite extends munit.FunSuite {
     )
     assertEquals(
       q.toFilters,
-      List(
+      Right(List(
         BookingFilter.RoomsIn(NonEmptyList.fromListUnsafe(rids)),
         BookingFilter.BookerNameContains("alice"),
         BookingFilter.BookerNameSimilar("alyce"),
         BookingFilter.TitleContains("standup"),
-        BookingFilter.OverlapsPeriod(from, to),
+        BookingFilter.OverlapsPeriod(PgRange(lower = Some(from), upper = Some(to))),
         BookingFilter.StartsOnOrAfter(from),
         BookingFilter.EndsOnOrBefore(to)
-      )
+      ))
     )
+  }
+
+  test("BookingFilterQuery — overlapsFrom after overlapsTo is a Left, not a Postgres error") {
+    val q = BookingFilterQuery.empty.copy(
+      overlapsFrom = Some(LocalDate.parse("2024-12-31")),
+      overlapsTo = Some(LocalDate.parse("2024-01-01"))
+    )
+    assert(q.toFilters.left.exists(_.contains("is after upper bound")), q.toFilters.toString)
   }
 
   test("BookingFilterQuery — overlapsFrom alone drops the OverlapsPeriod filter") {
     val q = BookingFilterQuery.empty.copy(overlapsFrom = Some(LocalDate.parse("2024-01-01")))
-    assertEquals(q.toFilters, Nil)
+    assertEquals(q.toFilters, Right(Nil))
   }
 
   test("BookingFilterQuery — overlapsTo alone drops OverlapsPeriod too") {
     val q = BookingFilterQuery.empty.copy(overlapsTo = Some(LocalDate.parse("2024-12-31")))
-    assertEquals(q.toFilters, Nil)
+    assertEquals(q.toFilters, Right(Nil))
   }
 
   test("BookingFilterQuery — half-bounded startsOnOrAfter is independent of the OverlapsPeriod pair") {
     val date = LocalDate.parse("2024-06-15")
     val q    = BookingFilterQuery.empty.copy(startsOnOrAfter = Some(date))
-    assertEquals(q.toFilters, List(BookingFilter.StartsOnOrAfter(date)))
+    assertEquals(q.toFilters, Right(List(BookingFilter.StartsOnOrAfter(date))))
   }
 }
