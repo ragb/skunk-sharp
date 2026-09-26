@@ -113,6 +113,9 @@ object PgTypes {
   val shortFromInformationSchema: Map[String, String] =
     informationSchemaDataType.map { case (k, v) => v -> k }
 
+  /** User-defined types whose type modifier (e.g. a vector dimension) the validator should compare. */
+  private val typmodExtensionTypes: Set[String] = Set("vector", "halfvec", "sparsevec")
+
   /**
    * Reconstruct a skunk-style type name from the four columns `information_schema.columns` exposes. Used by the schema
    * validator so parametric drift (`varchar(256)` declared vs `varchar(1024)` in the DB) is caught alongside the
@@ -137,10 +140,14 @@ object PgTypes {
     udtName: String,
     charMaxLength: Option[Int],
     numericPrecision: Option[Int],
-    numericScale: Option[Int]
+    numericScale: Option[Int],
+    formattedType: Option[String] = None
   ): String = {
     val short =
-      if (dt == "USER-DEFINED") udtName
+      // Extension types whose modifier information_schema doesn't expose (pgvector's `vector(N)`): take Postgres's own
+      // `format_type`, so a dimension mismatch is visible. Other user-defined types keep the bare `udt_name`.
+      if (dt == "USER-DEFINED" && typmodExtensionTypes.contains(udtName)) formattedType.getOrElse(udtName)
+      else if (dt == "USER-DEFINED") udtName
       else shortFromInformationSchema.getOrElse(dt, dt)
     (short, charMaxLength, numericPrecision, numericScale) match {
       case ("varchar", Some(n), _, _)       => s"varchar($n)"

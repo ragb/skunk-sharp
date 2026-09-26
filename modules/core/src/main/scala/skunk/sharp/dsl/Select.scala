@@ -78,8 +78,14 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
     cp[Any, HArgs](whereOpt = Some(combined))
   }
 
-  /** `ORDER BY …` — typed exprs may carry their own Args; absorbed into the assembled fragment encoder. */
-  def orderBy(f: SelectView[Ss] => OrderBy[?] | Tuple): SelectBuilder[Ss, Groups, WArgs, HArgs] = {
+  /**
+   * `ORDER BY …` on the whole row. Items must be `Void`-args (columns, literals, `Param.bind`-baked values): the
+   * whole-row builder doesn't thread ORDER BY parameters, so a deferred `Param` here is a compile error rather than a
+   * statement that compiles as `Void` and fails when executed. Select the columns you need —
+   * `.select(c => …).orderBy(…)` — to order by a parameterised expression (e.g. a vector distance).
+   */
+  inline def orderBy[O](f: SelectView[Ss] => O): SelectBuilder[Ss, Groups, WArgs, HArgs] = {
+    SelectBuilder.requireVoidOrders[O]
     val fresh = (f(view): Any) match {
       case ob: OrderBy[?] => List(ob)
       case t: Tuple       => t.toList.asInstanceOf[List[OrderBy[?]]]
@@ -650,6 +656,25 @@ object SelectBuilder {
    * user-claimed `Args` correctly: the baked side is encoded with `Void` (its values flow via the fragment's own
    * contramap); the typed side receives the user's `Args` via `slotValues`.
    */
+  /** `true` iff every ORDER BY item (a single `OrderBy[A]` or a tuple of them) has `Void` Args. */
+  type VoidOrders[O] <: Boolean = O match {
+    case OrderBy[a]         => Where.IsVoidTag[a]
+    case EmptyTuple         => true
+    case OrderBy[a] *: tail =>
+      Where.IsVoidTag[a] match {
+        case true  => VoidOrders[tail]
+        case false => false
+      }
+  }
+
+  inline def requireVoidOrders[O]: Unit =
+    inline if scala.compiletime.constValue[VoidOrders[O]] then ()
+    else
+      scala.compiletime.error(
+        "skunk-sharp: a deferred Param in a whole-row .orderBy isn't supported — select the columns you need " +
+          "(.select(c => …).orderBy(…) threads ORDER BY Params), or bake the value with Param.bind(v)."
+      )
+
   private[dsl] type BodyPart = Either[Fragment[Void], Fragment[?]]
 
   /**

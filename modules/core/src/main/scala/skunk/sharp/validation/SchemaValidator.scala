@@ -34,7 +34,8 @@ object SchemaValidator {
     charMaxLength: Option[Int],
     numericPrecision: Option[Int],
     numericScale: Option[Int],
-    isGenerated: Boolean
+    isGenerated: Boolean,
+    formattedType: Option[String]
   )
 
   private val relationKindQuery: Query[(String, String), String] =
@@ -54,13 +55,17 @@ object SchemaValidator {
              character_maximum_length,
              numeric_precision,
              numeric_scale,
-             is_generated::text
+             is_generated::text,
+             (SELECT pg_catalog.format_type(a.atttypid, a.atttypmod)
+                FROM pg_catalog.pg_attribute a
+               WHERE a.attrelid = (quote_ident(table_schema) || '.' || quote_ident(table_name))::regclass
+                 AND a.attname = column_name)::text
       FROM information_schema.columns
       WHERE table_schema = $varchar
         AND table_name = $varchar
       ORDER BY ordinal_position
-    """.query(text *: text *: text *: text *: int4.opt *: int4.opt *: int4.opt *: text).map {
-      case (n, dt, udt, nullableStr, cml, np, ns, generatedStr) =>
+    """.query(text *: text *: text *: text *: int4.opt *: int4.opt *: int4.opt *: text *: text.opt).map {
+      case (n, dt, udt, nullableStr, cml, np, ns, generatedStr, formatted) =>
         ColumnInfo(
           n,
           dt,
@@ -69,7 +74,8 @@ object SchemaValidator {
           cml,
           np,
           ns,
-          generatedStr.equalsIgnoreCase("ALWAYS")
+          generatedStr.equalsIgnoreCase("ALWAYS"),
+          formatted
         )
     }
 
@@ -274,7 +280,8 @@ object SchemaValidator {
               info.udtName,
               info.charMaxLength,
               info.numericPrecision,
-              info.numericScale
+              info.numericScale,
+              info.formattedType
             )
           val typeIssue =
             Option.when(expected != actual)(
