@@ -113,7 +113,7 @@ All session-facing operations live as `inline` extensions on these two types, de
 
 Every builder threads typed captured-args parameters end-to-end. `Args` is the tuple of `Param[T]` types deferred to execute time; values baked via `Param.bind(v)` or `lit(v)` collapse their slot to `Void` and drop out of `Args`.
 
-- `SelectBuilder[Ss, GroupsT, WArgs, HArgs]` — `WArgs` from `.where`, `HArgs` from `.having`. `.groupBy` shifts into `GroupsT`. `.orderBy`, `.limit`, `.offset`, `.distinctRows`, locking are Args-neutral.
+- `SelectBuilder[Ss, GroupsT, WArgs, HArgs, OArgs]` — `WArgs` from `.where`, `HArgs` from `.having`, `OArgs` from `.orderBy` (one accumulated typed fragment; binds after HAVING, and hands off to `ProjectedSelect` as a single `OrderBy[OArgs]`). `.groupBy` shifts into `GroupsT`. `.limit`, `.offset`, `.distinctRows`, locking are Args-neutral.
 - `ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, HArgs, Row]` — same `WArgs` / `HArgs` story; projection / distinct / order args fold in at compile.
 - `DeleteReady[Cols, Name, Args]` — `Args` from `.where(_ => Where[A])`.
 - `UpdateReady[Cols, Name, SetArgs, WArgs]` — `SetArgs` from `.set(_ => col := expr)`. Tuple-form SET (`.set(u => (a := …, b := …))`, and likewise `doUpdate` / `doUpdateFromExcluded` / MERGE `.update`) folds each assignment's Args with `Where.FoldConcat[SetArgsOf[T]]` via `SetAssignment.combineTyped` — never widen a tuple of assignments to `Void` (a `Param` inside would then crash at encode time). `&` still works for pairwise chaining.
@@ -193,7 +193,6 @@ Shipped:
 - Full-text search in core (`skunk.sharp.fts`, built into Postgres so no module / extension): `TsVector` / `TsQuery`, `.matches` (`@@`), `.concat`, `.andQuery` / `.orQuery` / `.negate` / `.followedBy` (parenthesised — FTS operators share one precedence level), `Fts.toTsVector` / `websearchToTsQuery` / `tsRank` / `tsHeadline` / … (`config` cast to `regconfig`).
 - Iron + refined refinement bridges; Circe-backed `json` / `jsonb`.
 - pgvector contrib (`skunk.sharp.contrib.pgvector`): `PgVector[N]` (dimension in the type; a final class, not an opaque alias — Args match types must prove it disjoint from `Void`), distance operators, `vector[]` codec for `Pg.unnestRows` batches, validator compares `vector(N)` via `format_type`. Integration suite uses the `pgvector/pgvector:pg18` image.
-- Whole-row `SelectBuilder.orderBy` rejects deferred Params at compile time (`requireVoidOrders`) — it doesn't thread ORDER BY Args yet (#109); projected `.select(…).orderBy(…)` does.
 - Docs site (Typelevel-site / mdoc) under [docs/docs/](docs/docs/) — every snippet type-checks against the live library at compile.
 
 Open extension points (no scheduled date — pick one when motivation arrives):

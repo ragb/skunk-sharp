@@ -78,16 +78,16 @@ final class CteRelation[
  * in the same query are collected and deduplicated at compile time — each `WITH` entry appears only once, in dependency
  * order.
  */
-inline def cte[Ss <: Tuple, GroupsT <: Tuple, WA, HA, N <: String & Singleton, SArgs, GArgs](
+inline def cte[Ss <: Tuple, GroupsT <: Tuple, WA, HA, OA, N <: String & Singleton, SArgs, GArgs](
   name: N,
-  query: SelectBuilder[Ss, GroupsT, WA, HA]
+  query: SelectBuilder[Ss, GroupsT, WA, HA, OA]
 )(using
   ev: IsSingleSource[Ss],
   sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
   g: ProjArgsOf.Aux[GroupsT, GArgs],
   noTypedDeps: CteDepsAllVoid[Ss]
-): CteRelation[ev.Cols, N, N, Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA]] = {
-  type Combined = Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA]
+): CteRelation[ev.Cols, N, N, Where.Concat[Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA], OA]] = {
+  type Combined = Where.Concat[Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA], OA]
   val entries = query.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
   val deps    = directCtes(entries)
   val cols    = entries.head.effectiveCols.asInstanceOf[ev.Cols]

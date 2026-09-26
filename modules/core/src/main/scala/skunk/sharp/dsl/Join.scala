@@ -134,18 +134,18 @@ extension [Cols <: Tuple, BA](r: TypedBodyRelation[Cols, BA]) {
  *   byId.select.compile  // : QueryTemplate[UUID, NamedRow]
  * }}}
  */
-extension [Ss <: Tuple, GroupsT <: Tuple, WA, HA](sb: SelectBuilder[Ss, GroupsT, WA, HA]) {
+extension [Ss <: Tuple, GroupsT <: Tuple, WA, HA, OA](sb: SelectBuilder[Ss, GroupsT, WA, HA, OA]) {
 
   inline def alias[A <: String & Singleton, SArgs, GArgs](a: A)(using
     ev: IsSingleSource[Ss],
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
     g: ProjArgsOf.Aux[GroupsT, GArgs]
-  ): TypedBodyRelation[ev.Cols, Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA]] {
+  ): TypedBodyRelation[ev.Cols, Where.Concat[Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA], OA]] {
     type Alias    = A
     type Mode     = AliasMode.Explicit
-    type BodyArgs = Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA]
+    type BodyArgs = Where.Concat[Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA], OA]
   } = {
-    type CombinedArgs = Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA]
+    type CombinedArgs = Where.Concat[Where.Concat[Where.Concat[Where.Concat[SArgs, WA], GArgs], HA], OA]
     val newAlias = a
     val cols = sb.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]].head.effectiveCols.asInstanceOf[ev.Cols]
     val innerFrag: Fragment[CombinedArgs] =
@@ -649,7 +649,10 @@ final class IncompleteJoin[
    */
   def on[A](
     f: OnView[Ss, CR0, AR] => skunk.sharp.TypedExpr[Boolean, A]
-  ): SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR, A]], EmptyTuple, skunk.Void, skunk.Void] = {
+  ): SelectBuilder[Tuple.Append[
+    SsFinal,
+    SourceEntry[RR, CR0, CR, AR, A]
+  ], EmptyTuple, skunk.Void, skunk.Void, skunk.Void] = {
     val rawPred        = f(buildOnView[Ss, CR0, AR](sources, pendingOriginalCols, pendingAlias))
     val pred: Where[A] = rawPred
     val entry          = new SourceEntry[RR, CR0, CR, AR, A](
@@ -669,6 +672,7 @@ final class IncompleteJoin[
     new SelectBuilder[
       Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR, A]],
       EmptyTuple,
+      skunk.Void,
       skunk.Void,
       skunk.Void
     ](nextSources)
@@ -989,6 +993,7 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
     (SourceEntry[RL, CL, CL, AL, Void], SourceEntry[RR, CR, CR, AR, Void]),
     EmptyTuple,
     skunk.Void,
+    skunk.Void,
     skunk.Void
   ] = {
     val baseEntry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
@@ -999,6 +1004,7 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
     new SelectBuilder[
       (SourceEntry[RL, CL, CL, AL, Void], SourceEntry[RR, CR, CR, AR, Void]),
       EmptyTuple,
+      skunk.Void,
       skunk.Void,
       skunk.Void
     ]((baseEntry, rEntry))
@@ -1085,6 +1091,7 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
     (SourceEntry[RL, CL, CL, AL, Void], SourceEntry[RR, CR, CR, AR, Void]),
     EmptyTuple,
     skunk.Void,
+    skunk.Void,
     skunk.Void
   ] = {
     val baseEntry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
@@ -1105,6 +1112,7 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
     new SelectBuilder[
       (SourceEntry[RL, CL, CL, AL, Void], SourceEntry[RR, CR, CR, AR, Void]),
       EmptyTuple,
+      skunk.Void,
       skunk.Void,
       skunk.Void
     ]((baseEntry, rEntry))

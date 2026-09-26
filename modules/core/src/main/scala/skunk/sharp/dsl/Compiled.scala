@@ -329,7 +329,7 @@ object AsSubquery {
   /**
    * Whole-row SelectBuilder → subquery of NamedRow. Relies on the same `IsSingleSource` evidence `.compile` uses.
    */
-  inline given fromSelectBuilder[Ss <: Tuple, GroupsT <: Tuple, SA, GA, CArgs, WA, HA, C <: Tuple, R](using
+  inline given fromSelectBuilder[Ss <: Tuple, GroupsT <: Tuple, SA, GA, CArgs, WA, HA, OA, C <: Tuple, R](using
     ev: IsSingleSource.Aux[Ss, C],
     sbOf: skunk.sharp.dsl.SourceBodyArgsOf.Aux[Ss, SA],
     cteSum: skunk.sharp.dsl.CteArgsOf.Aux[Ss, CArgs],
@@ -337,14 +337,14 @@ object AsSubquery {
     g: skunk.sharp.dsl.ProjArgsOf.Aux[GroupsT, GA],
     eq: R =:= skunk.sharp.NamedRowOf[C]
   ): AsSubquery[
-    SelectBuilder[Ss, GroupsT, WA, HA],
+    SelectBuilder[Ss, GroupsT, WA, HA, OA],
     R,
-    Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SA], WA], GA], HA]
+    Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SA], WA], GA], HA], OA]
   ] = {
-    type Out = Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SA], WA], GA], HA]
-    val frag: SelectBuilder[Ss, GroupsT, WA, HA] => Fragment[Out] =
+    type Out = Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SA], WA], GA], HA], OA]
+    val frag: SelectBuilder[Ss, GroupsT, WA, HA, OA] => Fragment[Out] =
       b => b.compile[SA, GA, CArgs](using ev, sbOf, cteSum, cteProj, g).fragment
-    new SelectBuilderAsSubquery[Ss, GroupsT, WA, HA, R, Out](frag)
+    new SelectBuilderAsSubquery[Ss, GroupsT, WA, HA, OA, R, Out](frag)
   }
 
   /**
@@ -368,16 +368,16 @@ object AsSubquery {
     def fragment(q: ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WA, HA, T]): Fragment[Out] = frag(q)
   }
 
-  private[dsl] final class SelectBuilderAsSubquery[Ss <: Tuple, GroupsT <: Tuple, WA, HA, R, Out](
-    frag: SelectBuilder[Ss, GroupsT, WA, HA] => Fragment[Out]
-  ) extends AsSubquery[SelectBuilder[Ss, GroupsT, WA, HA], R, Out] {
+  private[dsl] final class SelectBuilderAsSubquery[Ss <: Tuple, GroupsT <: Tuple, WA, HA, OA, R, Out](
+    frag: SelectBuilder[Ss, GroupsT, WA, HA, OA] => Fragment[Out]
+  ) extends AsSubquery[SelectBuilder[Ss, GroupsT, WA, HA, OA], R, Out] {
 
-    def codec(b: SelectBuilder[Ss, GroupsT, WA, HA]): Codec[R] = {
+    def codec(b: SelectBuilder[Ss, GroupsT, WA, HA, OA]): Codec[R] = {
       val entries = b.sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
       skunk.sharp.internal.RowCodecs.rowCodec(entries.head.effectiveCols).asInstanceOf[Codec[R]]
     }
 
-    def fragment(b: SelectBuilder[Ss, GroupsT, WA, HA]): Fragment[Out] = frag(b)
+    def fragment(b: SelectBuilder[Ss, GroupsT, WA, HA, OA]): Fragment[Out] = frag(b)
   }
 
   given fromSetOp[A, T]: AsSubquery[SetOpQuery[A, T], T, A] =

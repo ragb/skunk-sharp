@@ -128,14 +128,13 @@ class PgVectorSuite extends munit.FunSuite {
     assert(errs.nonEmpty)
   }
 
-  test("a deferred Param in a whole-row orderBy is a compile error (it would otherwise type as Void)") {
-    val msg = typeCheckErrors("""
-      import skunk.sharp.contrib.pgvector.*
-      import skunk.sharp.dsl.*
-      import PgVectorSuite.chunks
-      chunks.select.orderBy(c => c.embedding.cosineDistance(Param[PgVector[3]]).asc)
-    """).map(_.message).mkString("\n")
-    assert(msg.contains("deferred Param in a whole-row .orderBy isn't supported"), msg)
+  test("whole-row top-k: a deferred query vector in orderBy is a typed Param") {
+    val q = chunks.select.orderBy(c => c.embedding.cosineDistance(Param[PgVector[3]]).asc).limit(5).compile
+    val _: QueryTemplate[PgVector[3], ?] = q
+    assertEquals(
+      q.fragment.sql.trim,
+      """SELECT "id", "doc", "content", "embedding" FROM "chunks" ORDER BY "embedding" <=> $1 ASC LIMIT 5"""
+    )
   }
 
   test("vector arithmetic through the core operators: + - and element-wise *") {
