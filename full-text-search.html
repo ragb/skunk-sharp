@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+  
+  <head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="generator" content="Typelevel Laika + Helium Theme" />
+  <title>Full-text search</title>
+  
+  <meta name="author" content="Rui Batista"/>
+  
+  
+  <meta name="description" content="skunk-sharp-docs"/>
+  
+  
+  
+  
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato:400,700">
+  
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Fira+Mono:500">
+  
+  <link rel="stylesheet" type="text/css" href="helium/site/icofont.min.css" />
+    <link rel="stylesheet" type="text/css" href="helium/site/laika-helium.css" />
+  <script src="helium/site/laika-helium.js"></script>
+  
+  
+  <script> /* for avoiding page load transitions */ </script>
+</head>
+
+  <body>
+
+    <header id="top-bar" class="light-default dark-default">
+
+  <div class="row">
+    <a id="nav-icon">
+      <i class="icofont-laika navigationMenu" title="Navigation">&#xefa2;</i>
+    </a>
+    
+    
+  </div>
+
+  <a class="icon-link glyph-link" href="index.html"><i class="icofont-laika home" title="Home">&#xef47;</i></a>
+
+  <div class="row links">
+    
+    <a class="icon-link svg-link" href="https://github.com/ragb/skunk-sharp"><span class="github" title="Source Code"><svg class="svg-icon" width="100%" height="100%" viewBox="0 0 100 100" version="1.1" xmlns="http://www.w3.org/2000/svg" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+  <g class="svg-shape">
+    <path d="M49.995,1c-27.609,-0 -49.995,22.386 -49.995,50.002c-0,22.09 14.325,40.83 34.194,47.444c2.501,0.458 3.413,-1.086 3.413,-2.412c0,-1.185 -0.043,-4.331 -0.067,-8.503c-13.908,3.021 -16.843,-6.704 -16.843,-6.704c-2.274,-5.773 -5.552,-7.311 -5.552,-7.311c-4.54,-3.103 0.344,-3.042 0.344,-3.042c5.018,0.356 7.658,5.154 7.658,5.154c4.46,7.64 11.704,5.433 14.552,4.156c0.454,-3.232 1.744,-5.436 3.174,-6.685c-11.102,-1.262 -22.775,-5.553 -22.775,-24.713c-0,-5.457 1.949,-9.92 5.147,-13.416c-0.516,-1.265 -2.231,-6.348 0.488,-13.233c0,0 4.199,-1.344 13.751,5.126c3.988,-1.108 8.266,-1.663 12.518,-1.682c4.245,0.019 8.523,0.574 12.517,1.682c9.546,-6.47 13.736,-5.126 13.736,-5.126c2.728,6.885 1.013,11.968 0.497,13.233c3.204,3.496 5.141,7.959 5.141,13.416c0,19.209 -11.691,23.436 -22.83,24.673c1.795,1.544 3.394,4.595 3.394,9.26c0,6.682 -0.061,12.076 -0.061,13.715c0,1.338 0.899,2.894 3.438,2.406c19.853,-6.627 34.166,-25.354 34.166,-47.438c-0,-27.616 -22.389,-50.002 -50.005,-50.002"/>
+  </g>
+</svg></span></a>
+    
+  </div>  
+
+</header>
+    
+    <nav id="sidebar">
+
+  <div class="row">
+    
+    <a class="icon-link svg-link" href="https://github.com/ragb/skunk-sharp"><span class="github" title="Source Code"><svg class="svg-icon" width="100%" height="100%" viewBox="0 0 100 100" version="1.1" xmlns="http://www.w3.org/2000/svg" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+  <g class="svg-shape">
+    <path d="M49.995,1c-27.609,-0 -49.995,22.386 -49.995,50.002c-0,22.09 14.325,40.83 34.194,47.444c2.501,0.458 3.413,-1.086 3.413,-2.412c0,-1.185 -0.043,-4.331 -0.067,-8.503c-13.908,3.021 -16.843,-6.704 -16.843,-6.704c-2.274,-5.773 -5.552,-7.311 -5.552,-7.311c-4.54,-3.103 0.344,-3.042 0.344,-3.042c5.018,0.356 7.658,5.154 7.658,5.154c4.46,7.64 11.704,5.433 14.552,4.156c0.454,-3.232 1.744,-5.436 3.174,-6.685c-11.102,-1.262 -22.775,-5.553 -22.775,-24.713c-0,-5.457 1.949,-9.92 5.147,-13.416c-0.516,-1.265 -2.231,-6.348 0.488,-13.233c0,0 4.199,-1.344 13.751,5.126c3.988,-1.108 8.266,-1.663 12.518,-1.682c4.245,0.019 8.523,0.574 12.517,1.682c9.546,-6.47 13.736,-5.126 13.736,-5.126c2.728,6.885 1.013,11.968 0.497,13.233c3.204,3.496 5.141,7.959 5.141,13.416c0,19.209 -11.691,23.436 -22.83,24.673c1.795,1.544 3.394,4.595 3.394,9.26c0,6.682 -0.061,12.076 -0.061,13.715c0,1.338 0.899,2.894 3.438,2.406c19.853,-6.627 34.166,-25.354 34.166,-47.438c-0,-27.616 -22.389,-50.002 -50.005,-50.002"/>
+  </g>
+</svg></span></a>
+    
+  </div>
+
+  <ul class="nav-list">
+    <li class="level1 nav-leaf"><a href="getting-started.html">Getting Started</a></li>
+    <li class="level1 nav-leaf"><a href="tables.html">Tables and Views</a></li>
+    <li class="level1 nav-leaf"><a href="select.html">SELECT</a></li>
+    <li class="level1 nav-leaf"><a href="insert.html">INSERT</a></li>
+    <li class="level1 nav-leaf"><a href="update.html">UPDATE</a></li>
+    <li class="level1 nav-leaf"><a href="delete.html">DELETE</a></li>
+    <li class="level1 nav-leaf"><a href="merge.html">MERGE</a></li>
+    <li class="level1 active nav-leaf"><a href="#">Full-text search</a></li>
+    <li class="level1 nav-leaf"><a href="schema-validation.html">Schema Validation</a></li>
+    <li class="level1 nav-leaf"><a href="contrib.html">Contrib modules</a></li>
+    <li class="level1 nav-leaf"><a href="postgis.html">PostGIS — <code>skunk-sharp-postgis</code></a></li>
+    <li class="level1 nav-leaf"><a href="extensibility.html">Extensibility</a></li>
+  </ul>
+
+</nav>
+
+    <div id="container">
+
+      
+<nav id="page-nav">
+  <p class="header"><a href="#">Full-text search</a></p>
+
+  <ul class="nav-list">
+    <li class="level1 nav-leaf"><a href="#storing-the-document-vector">Storing the document vector</a></li>
+    <li class="level1 nav-leaf"><a href="#searching">Searching</a></li>
+    <li class="level1 nav-leaf"><a href="#reference">Reference</a></li>
+  </ul>
+
+  <p class="footer"></p>
+</nav>
+
+
+      <main class="content">
+
+        <h1 id="full-text-search" class="title">Full-text search</h1>
+        <p>Postgres&#39;s built-in full-text search — no extension needed. A <code>tsvector</code> is a document
+        parsed into normalised words (lexemes, with positions); a <code>tsquery</code> is a query over them;
+        <code>@@</code> asks whether one matches the other. Everything lives in <code>skunk.sharp.fts</code>:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">dsl</span><span>.*
+</span><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">fts</span><span>.*</span></code></pre>
+        
+        <h2 id="storing-the-document-vector" class="section"><a class="anchor-link left" href="#storing-the-document-vector"><i class="icofont-laika link">&#xef71;</i></a>Storing the document vector</h2>
+        <p>The usual setup keeps the <code>tsvector</code> in a generated column with a GIN index, defined in a
+        migration (we don&#39;t generate DDL):</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">CREATE</span><span> </span><span class="keyword">TABLE</span><span> </span><span class="identifier">docs</span><span> (
+  </span><span class="identifier">id</span><span>    </span><span class="type-name">serial</span><span> </span><span class="keyword">PRIMARY</span><span> </span><span class="keyword">KEY</span><span>,
+  </span><span class="identifier">title</span><span> </span><span class="type-name">text</span><span> </span><span class="keyword">NOT</span><span> </span><span class="literal-value">NULL</span><span>,
+  </span><span class="identifier">body</span><span>  </span><span class="type-name">text</span><span> </span><span class="keyword">NOT</span><span> </span><span class="literal-value">NULL</span><span>,
+  </span><span class="identifier">tsv</span><span>   </span><span class="identifier">tsvector</span><span> </span><span class="identifier">GENERATED</span><span> </span><span class="identifier">ALWAYS</span><span> </span><span class="keyword">AS</span><span> (
+          </span><span class="identifier">setweight</span><span>(</span><span class="keyword">to</span><span>_</span><span class="identifier">tsvector</span><span>(</span><span class="string-literal">&#39;english&#39;</span><span>, </span><span class="identifier">title</span><span>), </span><span class="string-literal">&#39;A&#39;</span><span>) || </span><span class="identifier">setweight</span><span>(</span><span class="keyword">to</span><span>_</span><span class="identifier">tsvector</span><span>(</span><span class="string-literal">&#39;english&#39;</span><span>, </span><span class="identifier">body</span><span>), </span><span class="string-literal">&#39;B&#39;</span><span>)
+        ) </span><span class="identifier">STORED</span><span>
+);
+</span><span class="keyword">CREATE</span><span> </span><span class="identifier">INDEX</span><span> </span><span class="keyword">ON</span><span> </span><span class="identifier">docs</span><span> </span><span class="keyword">USING</span><span> </span><span class="identifier">gin</span><span> (</span><span class="identifier">tsv</span><span>);</span></code></pre>
+        <p>Declare the column as <code>TsVector</code> (it&#39;s nullable, like any generated column without
+        <code>NOT NULL</code>) and mark it <code>.withGenerated</code>, so inserts leave it to Postgres:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">Doc</span><span>(</span><span class="identifier">id</span><span>: </span><span class="type-name">Int</span><span>, </span><span class="identifier">title</span><span>: </span><span class="type-name">String</span><span>, </span><span class="identifier">body</span><span>: </span><span class="type-name">String</span><span>, </span><span class="identifier">tsv</span><span>: </span><span class="type-name">Option</span><span>[</span><span class="type-name">TsVector</span><span>])
+
+</span><span class="keyword">val</span><span> </span><span class="identifier">docs</span><span> = </span><span class="type-name">Table</span><span>.</span><span class="identifier">of</span><span>[</span><span class="type-name">Doc</span><span>](</span><span class="string-literal">&quot;docs&quot;</span><span>).</span><span class="identifier">withPrimary</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>).</span><span class="identifier">withDefault</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>).</span><span class="identifier">withGenerated</span><span>(</span><span class="string-literal">&quot;tsv&quot;</span><span>)</span></code></pre>
+        
+        <h2 id="searching" class="section"><a class="anchor-link left" href="#searching"><i class="icofont-laika link">&#xef71;</i></a>Searching</h2>
+        <p><code>websearch_to_tsquery</code> understands search-box syntax — <code>&quot;exact phrase&quot;</code>, <code>-excluded</code>,
+        <code>or</code> — and never errors on odd input, so it&#39;s the right parser for what users type. A
+        ranked search with highlighted snippets, compiled once with a named parameter:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">val</span><span> </span><span class="identifier">query</span><span> = </span><span class="type-name">Fts</span><span>.</span><span class="identifier">websearchToTsQuery</span><span>(</span><span class="string-literal">&quot;english&quot;</span><span>, </span><span class="type-name">Param</span><span>.</span><span class="identifier">named</span><span>[</span><span class="string-literal">&quot;q&quot;</span><span>, </span><span class="type-name">String</span><span>])
+
+</span><span class="comment">// SELECT &quot;title&quot;, ts_rank(&quot;tsv&quot;, …), ts_headline(&#39;english&#39;::regconfig, &quot;body&quot;, …)
+// FROM &quot;docs&quot; WHERE &quot;tsv&quot; @@ websearch_to_tsquery(&#39;english&#39;::regconfig, $3) ORDER BY ts_rank(…) DESC LIMIT 10
+</span><span class="keyword">val</span><span> </span><span class="identifier">search</span><span> = </span><span class="identifier">docs</span><span>
+  .</span><span class="identifier">select</span><span>(</span><span class="identifier">d</span><span> =&gt; (</span><span class="identifier">d</span><span>.</span><span class="identifier">title</span><span>, </span><span class="type-name">Fts</span><span>.</span><span class="identifier">tsRank</span><span>(</span><span class="identifier">d</span><span>.</span><span class="identifier">tsv</span><span>, </span><span class="identifier">query</span><span>), </span><span class="type-name">Fts</span><span>.</span><span class="identifier">tsHeadline</span><span>(</span><span class="string-literal">&quot;english&quot;</span><span>, </span><span class="identifier">d</span><span>.</span><span class="identifier">body</span><span>, </span><span class="identifier">query</span><span>)))
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">d</span><span> =&gt; </span><span class="identifier">d</span><span>.</span><span class="identifier">tsv</span><span>.</span><span class="identifier">matches</span><span>(</span><span class="identifier">query</span><span>))
+  .</span><span class="identifier">orderBy</span><span>(</span><span class="identifier">d</span><span> =&gt; </span><span class="type-name">Fts</span><span>.</span><span class="identifier">tsRank</span><span>(</span><span class="identifier">d</span><span>.</span><span class="identifier">tsv</span><span>, </span><span class="identifier">query</span><span>).</span><span class="identifier">desc</span><span>)
+  .</span><span class="identifier">limit</span><span>(</span><span class="number-literal">10</span><span>)
+  .</span><span class="identifier">compile</span><span>
+</span><span class="comment">// search.run(session)((q = &quot;fat rats -cat&quot;))</span></code></pre>
+        <p>The <code>setweight</code> labels in the generated column make title matches (<code>A</code>) rank above body
+        matches (<code>B</code>).</p>
+        
+        <h2 id="reference" class="section"><a class="anchor-link left" href="#reference"><i class="icofont-laika link">&#xef71;</i></a>Reference</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Scala</th>
+              <th>SQL</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>doc.matches(q)</code></td>
+              <td><code>doc @@ q</code></td>
+              <td>the search predicate (GIN-indexable)</td>
+            </tr>
+            <tr>
+              <td><code>a.concat(b)</code></td>
+              <td><code>(a || b)</code></td>
+              <td>concatenate documents</td>
+            </tr>
+            <tr>
+              <td><code>q1.andQuery(q2)</code>, <code>q1.orQuery(q2)</code>, <code>q.negate</code>, <code>q1.followedBy(q2)</code></td>
+              <td><code>&amp;&amp;</code>, <code>||</code>, <code>!!</code>, <code>&lt;-&gt;</code></td>
+              <td>combine queries</td>
+            </tr>
+            <tr>
+              <td><code>Fts.toTsVector(doc)</code> / <code>Fts.toTsVector(config, doc)</code></td>
+              <td><code>to_tsvector</code></td>
+              <td>parse a document</td>
+            </tr>
+            <tr>
+              <td><code>Fts.setWeight(doc, &quot;A&quot;)</code></td>
+              <td><code>setweight</code></td>
+              <td>weight <code>A</code>–<code>D</code>, for ranking</td>
+            </tr>
+            <tr>
+              <td><code>Fts.toTsQuery</code></td>
+              <td><code>to_tsquery</code></td>
+              <td>operator syntax (<code>fat &amp; (rat | cat)</code>); errors on bad input</td>
+            </tr>
+            <tr>
+              <td><code>Fts.plainToTsQuery</code></td>
+              <td><code>plainto_tsquery</code></td>
+              <td>all words ANDed</td>
+            </tr>
+            <tr>
+              <td><code>Fts.phraseToTsQuery</code></td>
+              <td><code>phraseto_tsquery</code></td>
+              <td>the words as a phrase</td>
+            </tr>
+            <tr>
+              <td><code>Fts.websearchToTsQuery</code></td>
+              <td><code>websearch_to_tsquery</code></td>
+              <td>search-box syntax; never errors</td>
+            </tr>
+            <tr>
+              <td><code>Fts.tsRank</code>, <code>Fts.tsRankCd</code></td>
+              <td><code>ts_rank</code>, <code>ts_rank_cd</code></td>
+              <td>relevance (<code>Float</code>); <code>_cd</code> also rewards proximity</td>
+            </tr>
+            <tr>
+              <td><code>Fts.tsHeadline</code></td>
+              <td><code>ts_headline</code></td>
+              <td>the text with matches marked, for snippets</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>Every function taking a <code>config</code> accepts a literal or a <code>Param[String]</code> — it&#39;s cast to
+        <code>regconfig</code>. Query combinators render parenthesised: <code>@@</code>, <code>&amp;&amp;</code>, <code>||</code>, <code>!!</code> and <code>&lt;-&gt;</code> share
+        one precedence level in Postgres, so <code>doc @@ q1 &amp;&amp; q2</code> would otherwise parse as
+        <code>(doc @@ q1) &amp;&amp; q2</code>. (They&#39;re named <code>andQuery</code> / <code>orQuery</code> because <code>and</code> / <code>or</code> are the
+        boolean <code>Where</code> combinators.)</p>
+        <p><code>TsVector(&quot;…&quot;)</code> / <code>TsQuery(&quot;…&quot;)</code> wrap text as-is (unchecked, like other type tags); in
+        practice values come from the functions above.</p>
+
+        
+<hr class="footer-rule"/>
+<footer>
+  Site generated by <a href="https://typelevel.org/Laika/">Laika</a> with the Helium theme.
+</footer>
+
+
+      </main>
+
+    </div>
+
+  </body>
+
+</html>
