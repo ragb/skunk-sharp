@@ -82,6 +82,8 @@ class PgVectorIntegrationSuite extends PgFixture {
             .where(c => c.content === "east")
             .compile
             .unique(s)
+          diff <- chunks.select(c => c.embedding - c.embedding).where(c => c.content === "east").compile.unique(s)
+          _ = assertEquals(diff, PgVector(0f, 0f, 0f))
           _ = assertEquals(stats._1, 3)
           _ = assertEqualsDouble(stats._2, 1.0, 1e-6)
         } yield ()

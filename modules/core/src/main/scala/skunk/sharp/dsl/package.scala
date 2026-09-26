@@ -72,6 +72,9 @@ package object dsl {
 
   // The expression-level operators ("WHERE operators" historically, but they produce a plain
   // `TypedExpr[Boolean]` and work anywhere an expression goes — projections, ORDER BY, HAVING, function args).
+  // Infix arithmetic (`+ - * / %`, unary `-`) — `*` must be backquoted, a bare `*` is the wildcard.
+  export skunk.sharp.ops.{%, +, -, /, `*`, unary_-}
+
   export skunk.sharp.ops.{
     !==,
     <,

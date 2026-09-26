@@ -96,6 +96,12 @@ object PgVector {
       RequiredExtension
     )
 
+  // ---- Arithmetic (`+`, `-`, element-wise `*`) via the core operators ------------------------------
+
+  given plus[N <: Int]: skunk.sharp.ops.Plus.Aux[PgVector[N], PgVector[N], PgVector[N]]   = skunk.sharp.ops.Plus.of
+  given minus[N <: Int]: skunk.sharp.ops.Minus.Aux[PgVector[N], PgVector[N], PgVector[N]] = skunk.sharp.ops.Minus.of
+  given times[N <: Int]: skunk.sharp.ops.Times.Aux[PgVector[N], PgVector[N], PgVector[N]] = skunk.sharp.ops.Times.of
+
   // ---- Functions -------------------------------------------------------------------------------
 
   /** `vector_dims(v)` — the dimension. */
