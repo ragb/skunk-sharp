@@ -95,6 +95,7 @@
     <li class="level1 nav-leaf"><a href="#pg_trgm">pg_trgm</a></li>
     <li class="level1 nav-leaf"><a href="#pgcrypto">pgcrypto</a></li>
     <li class="level1 nav-leaf"><a href="#fuzzystrmatch">fuzzystrmatch</a></li>
+    <li class="level1 nav-leaf"><a href="#pgvector">pgvector</a></li>
   </ul>
 
   <p class="footer"></p>
@@ -158,6 +159,12 @@
               <td>—</td>
               <td><code>PgFuzzy.levenshtein / soundex / metaphone / dmetaphone / dmetaphoneAlt</code></td>
             </tr>
+            <tr>
+              <td><code>pgvector</code></td>
+              <td><code>vector</code></td>
+              <td><code>PgVector[N]</code></td>
+              <td><code>cosineDistance</code>, <code>l2Distance</code>, <code>negativeInnerProduct</code>, <code>l1Distance</code>; <code>PgVector.dims / norm / normalize / innerProduct / avg</code></td>
+            </tr>
           </tbody>
         </table>
         <p>All examples below assume:</p>
@@ -198,7 +205,7 @@
 
 </span><span class="comment">// Ancestor / descendant
 </span><span class="keyword">val</span><span> </span><span class="identifier">under</span><span> = </span><span class="identifier">categories</span><span>.</span><span class="identifier">select</span><span>
-  .</span><span class="identifier">where</span><span>(</span><span class="identifier">c</span><span> =&gt; </span><span class="identifier">c</span><span>.</span><span class="identifier">path</span><span>.</span><span class="identifier">isDescendantOf</span><span>(</span><span class="type-name">Param</span><span>.</span><span class="identifier">bind</span><span>(</span><span class="type-name">LTree</span><span>(</span><span class="string-literal">&quot;top.science&quot;</span><span>))))
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">c</span><span> =&gt; </span><span class="identifier">c</span><span>.</span><span class="identifier">path</span><span>.</span><span class="identifier">isDescendantOf</span><span>(</span><span class="type-name">Param</span><span>.</span><span class="identifier">bind</span><span>(</span><span class="type-name">LTree</span><span>.</span><span class="identifier">unsafeFrom</span><span>(</span><span class="string-literal">&quot;top.science&quot;</span><span>))))
   .</span><span class="identifier">compile</span><span>
 
 </span><span class="comment">// Functions: number of labels per path
@@ -294,6 +301,82 @@
 </span><span class="keyword">val</span><span> </span><span class="identifier">sounds</span><span> = </span><span class="identifier">people</span><span>.</span><span class="identifier">select</span><span>
   .</span><span class="identifier">where</span><span>(</span><span class="identifier">p</span><span> =&gt; </span><span class="type-name">PgFuzzy</span><span>.</span><span class="identifier">soundex</span><span>(</span><span class="identifier">p</span><span>.</span><span class="identifier">name</span><span>) === </span><span class="type-name">PgFuzzy</span><span>.</span><span class="identifier">soundex</span><span>(</span><span class="identifier">lit</span><span>(</span><span class="string-literal">&quot;Catherine&quot;</span><span>)))
   .</span><span class="identifier">compile</span></code></pre>
+        
+        <h2 id="pgvector" class="section"><a class="anchor-link left" href="#pgvector"><i class="icofont-laika link">&#xef71;</i></a>pgvector</h2>
+        <p><a href="https://github.com/pgvector/pgvector">pgvector</a> stores embeddings — the fixed-length float vectors an embedding
+        model produces for a piece of text — and finds the nearest ones. It&#39;s the usual way to do semantic search and RAG
+        retrieval inside Postgres. <code>PgVector[N]</code> is a <code>vector(N)</code>: the dimension is part of the type, so a query vector
+        from a model with a different dimension doesn&#39;t compile against the column, and a value of the wrong length can&#39;t be
+        constructed.</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">contrib</span><span>.</span><span class="identifier">pgvector</span><span>.*
+
+</span><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">Chunk</span><span>(</span><span class="identifier">id</span><span>: </span><span class="type-name">Long</span><span>, </span><span class="identifier">doc</span><span>: </span><span class="type-name">String</span><span>, </span><span class="identifier">content</span><span>: </span><span class="type-name">String</span><span>, </span><span class="identifier">embedding</span><span>: </span><span class="type-name">PgVector</span><span>[</span><span class="number-literal">3</span><span>])
+
+</span><span class="keyword">val</span><span> </span><span class="identifier">chunks</span><span> = </span><span class="type-name">Table</span><span>.</span><span class="identifier">of</span><span>[</span><span class="type-name">Chunk</span><span>](</span><span class="string-literal">&quot;chunks&quot;</span><span>).</span><span class="identifier">withPrimary</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>).</span><span class="identifier">withDefault</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>)
+
+</span><span class="keyword">val</span><span> </span><span class="identifier">literal</span><span> = </span><span class="type-name">PgVector</span><span>(</span><span class="number-literal">0.9f</span><span>, </span><span class="number-literal">0.1f</span><span>, </span><span class="number-literal">0f</span><span>)   </span><span class="comment">// PgVector[3] — the values are counted at compile time
+</span><span>
+</span><span class="comment">// Embeddings from a model arrive as a runtime collection: check the dimension when you convert.
+</span><span class="keyword">val</span><span> </span><span class="identifier">modelOutput</span><span>: </span><span class="type-name">Array</span><span>[</span><span class="type-name">Float</span><span>] = </span><span class="type-name">Array</span><span>(</span><span class="number-literal">0.9f</span><span>, </span><span class="number-literal">0.1f</span><span>, </span><span class="number-literal">0f</span><span>)
+</span><span class="keyword">val</span><span> </span><span class="identifier">query</span><span>: </span><span class="type-name">Either</span><span>[</span><span class="type-name">String</span><span>, </span><span class="type-name">PgVector</span><span>[</span><span class="number-literal">3</span><span>]] = </span><span class="type-name">PgVector</span><span>.</span><span class="identifier">from</span><span>[</span><span class="number-literal">3</span><span>](</span><span class="identifier">modelOutput</span><span>)
+</span><span class="comment">// PgVector.unsafeFrom[3](modelOutput) throws instead of returning a Left</span></code></pre>
+        <p>The canonical query is top-k by distance, usually filtered by ordinary columns. Select only the columns you need —
+        there&#39;s no point fetching the embeddings back — and pass the query vector as a named parameter:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// SELECT &quot;id&quot;, &quot;content&quot; FROM &quot;chunks&quot; WHERE &quot;doc&quot; = $1 ORDER BY &quot;embedding&quot; &lt;=&gt; $2 ASC LIMIT 5
+</span><span class="keyword">val</span><span> </span><span class="identifier">topK</span><span> = </span><span class="identifier">chunks</span><span>
+  .</span><span class="identifier">select</span><span>(</span><span class="identifier">c</span><span> =&gt; (</span><span class="identifier">c</span><span>.</span><span class="identifier">id</span><span>, </span><span class="identifier">c</span><span>.</span><span class="identifier">content</span><span>))
+  .</span><span class="identifier">where</span><span>(</span><span class="identifier">c</span><span> =&gt; </span><span class="identifier">c</span><span>.</span><span class="identifier">doc</span><span> === </span><span class="type-name">Param</span><span>.</span><span class="identifier">named</span><span>[</span><span class="string-literal">&quot;doc&quot;</span><span>, </span><span class="type-name">String</span><span>])
+  .</span><span class="identifier">orderBy</span><span>(</span><span class="identifier">c</span><span> =&gt; </span><span class="identifier">c</span><span>.</span><span class="identifier">embedding</span><span>.</span><span class="identifier">cosineDistance</span><span>(</span><span class="type-name">Param</span><span>.</span><span class="identifier">named</span><span>[</span><span class="string-literal">&quot;query&quot;</span><span>, </span><span class="type-name">PgVector</span><span>[</span><span class="number-literal">3</span><span>]]).</span><span class="identifier">asc</span><span>)
+  .</span><span class="identifier">limit</span><span>(</span><span class="number-literal">5</span><span>)
+  .</span><span class="identifier">compile</span><span>
+</span><span class="comment">// topK.run(session)((doc = &quot;handbook&quot;, query = literal))</span></code></pre>
+        <table>
+          <thead>
+            <tr>
+              <th>Method</th>
+              <th>Operator</th>
+              <th>Use</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>a.cosineDistance(b)</code></td>
+              <td><code>&lt;=&gt;</code></td>
+              <td>the usual choice for text embeddings (<code>vector_cosine_ops</code> index)</td>
+            </tr>
+            <tr>
+              <td><code>a.l2Distance(b)</code></td>
+              <td><code>&lt;-&gt;</code></td>
+              <td>Euclidean (<code>vector_l2_ops</code>)</td>
+            </tr>
+            <tr>
+              <td><code>a.negativeInnerProduct(b)</code></td>
+              <td><code>&lt;#&gt;</code></td>
+              <td>for normalised vectors; ascending = most similar (<code>vector_ip_ops</code>)</td>
+            </tr>
+            <tr>
+              <td><code>a.l1Distance(b)</code></td>
+              <td><code>&lt;+&gt;</code></td>
+              <td>taxicab (pgvector 0.7+, <code>vector_l1_ops</code>)</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>Each returns a <code>Double</code>, so it can also be selected or filtered on. Functions live on the companion:
+        <code>PgVector.dims</code>, <code>PgVector.norm</code>, <code>PgVector.normalize</code> (<code>l2_normalize</code>), <code>PgVector.innerProduct</code> and the
+        aggregate <code>PgVector.avg</code> (a centroid).</p>
+        <p>To load a batch of embeddings in one statement, pass the rows as one typed parameter with <code>Pg.unnestRows</code>
+        (<code>vector[]</code> arrays are supported, so embedding columns work there too):</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">dsl</span><span>.</span><span class="keyword">given</span><span>
+
+</span><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">NewChunk</span><span>(</span><span class="identifier">doc</span><span>: </span><span class="type-name">String</span><span>, </span><span class="identifier">content</span><span>: </span><span class="type-name">String</span><span>, </span><span class="identifier">embedding</span><span>: </span><span class="type-name">PgVector</span><span>[</span><span class="number-literal">3</span><span>])
+
+</span><span class="keyword">val</span><span> </span><span class="identifier">load</span><span> = </span><span class="identifier">chunks</span><span>.</span><span class="identifier">insert</span><span>.</span><span class="identifier">from</span><span>(</span><span class="type-name">Pg</span><span>.</span><span class="identifier">unnestRows</span><span>[</span><span class="type-name">NewChunk</span><span>](</span><span class="string-literal">&quot;rows&quot;</span><span>).</span><span class="identifier">alias</span><span>(</span><span class="string-literal">&quot;r&quot;</span><span>).</span><span class="identifier">select</span><span>).</span><span class="identifier">compile</span><span>
+</span><span class="comment">// load.run(session)((rows = batch))</span></code></pre>
+        <p>Indexes (<code>CREATE INDEX … USING hnsw (embedding vector_cosine_ops)</code>) belong in migrations, like the rest of the
+        schema. The <a href="schema-validation.html">schema validator</a> compares the declared dimension with the column&#39;s, so a
+        <code>PgVector[1536]</code> declared against a <code>vector(3072)</code> column is reported as a <code>TypeMismatch</code>.</p>
+        <p>Ordering the <strong>whole row</strong> (<code>chunks.select.orderBy(…)</code>) by a parameterised distance is a compile error for now — the
+        whole-row builder doesn&#39;t carry ORDER BY parameters yet (<a href="https://github.com/ragb/skunk-sharp/issues/109">#109</a>) — so use a projection as above.</p>
 
         
 <hr class="footer-rule"/>
