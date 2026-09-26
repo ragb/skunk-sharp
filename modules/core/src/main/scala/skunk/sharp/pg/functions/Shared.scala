@@ -3,7 +3,6 @@ package skunk.sharp.pg.functions
 import skunk.sharp.TypedExpr
 import skunk.sharp.pg.PgTypeFor
 import skunk.sharp.ops.Stripped
-import skunk.sharp.where.Where
 
 // ---- Shared type-level helpers ------------------------------------------------------------------
 
@@ -51,15 +50,4 @@ private[functions] def stringToIntFn[T, A](name: String, e: TypedExpr[T, A])(usi
 ): TypedExpr[Lift[T, Int], A] = {
   val frag = TypedExpr.wrap(s"$name(", e.fragment, ")")
   TypedExpr[Lift[T, Int], A](frag, pf.codec)
-}
-
-private[functions] def twoArgDoubleFn[Y, X, AY, AX](
-  name: String,
-  y: TypedExpr[Y, AY],
-  x: TypedExpr[X, AX]
-): TypedExpr[Double, Where.Concat[AY, AX]] = {
-  // proj is only invoked when neither encoder is Void (runtime check in combineEnc), so the cast is safe.
-  val inner = TypedExpr.combineSep(y.fragment, ", ", x.fragment, _.asInstanceOf[(AY, AX)])
-  val frag  = TypedExpr.wrap(s"$name(", inner, ")")
-  TypedExpr[Double, Where.Concat[AY, AX]](frag, skunk.codec.all.float8)
 }

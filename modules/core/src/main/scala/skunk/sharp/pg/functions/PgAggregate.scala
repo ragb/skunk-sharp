@@ -1,7 +1,7 @@
 package skunk.sharp.pg.functions
 
 import skunk.{Fragment, Void}
-import skunk.sharp.TypedExpr
+import skunk.sharp.{PgFunction, TypedExpr}
 import skunk.sharp.pg.PgTypeFor
 import skunk.sharp.where.Where
 
@@ -40,13 +40,10 @@ trait PgAggregate {
   def max[T, A](expr: TypedExpr[T, A]): TypedExpr[T, A] = sameTypeFn("max", expr)
 
   /** `string_agg(expr, sep)` — Args propagate from both. */
-  def stringAgg[T, A, B](expr: TypedExpr[T, A], sep: TypedExpr[String, B])(using
+  inline def stringAgg[T, A, B](expr: TypedExpr[T, A], sep: TypedExpr[String, B])(using
     StrLike[T]
-  ): TypedExpr[String, Where.Concat[A, B]] = {
-    val inner = TypedExpr.combineSep(expr.fragment, ", ", sep.fragment, _.asInstanceOf[(A, B)])
-    val frag  = TypedExpr.wrap("string_agg(", inner, ")")
-    TypedExpr[String, Where.Concat[A, B]](frag, skunk.codec.all.text)
-  }
+  ): TypedExpr[String, Where.Concat[A, B]] =
+    PgFunction.call2("string_agg", expr, sep, skunk.codec.all.text)
 
   def boolAnd[A](expr: TypedExpr[Boolean, A]): TypedExpr[Boolean, A] = sameTypeFn("bool_and", expr)
   def boolOr[A](expr: TypedExpr[Boolean, A]): TypedExpr[Boolean, A]  = sameTypeFn("bool_or", expr)
@@ -85,45 +82,51 @@ trait PgAggregate {
 
   // -------- Two-arg statistical correlations -------------------------------------------------
 
-  def corr[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
-    twoArgDoubleFn("corr", y, x)
+  inline def corr[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
+    PgFunction.call2("corr", y, x, skunk.codec.all.float8)
 
-  def covarPop[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
-    twoArgDoubleFn("covar_pop", y, x)
+  inline def covarPop[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
+    PgFunction.call2("covar_pop", y, x, skunk.codec.all.float8)
 
-  def covarSamp[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
-    twoArgDoubleFn("covar_samp", y, x)
+  inline def covarSamp[Y, X, AY, AX](
+    y: TypedExpr[Y, AY],
+    x: TypedExpr[X, AX]
+  ): TypedExpr[Double, Where.Concat[AY, AX]] =
+    PgFunction.call2("covar_samp", y, x, skunk.codec.all.float8)
 
   // -------- Regression analysis --------------------------------------------------------------
 
-  def regrSlope[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
-    twoArgDoubleFn("regr_slope", y, x)
+  inline def regrSlope[Y, X, AY, AX](
+    y: TypedExpr[Y, AY],
+    x: TypedExpr[X, AX]
+  ): TypedExpr[Double, Where.Concat[AY, AX]] =
+    PgFunction.call2("regr_slope", y, x, skunk.codec.all.float8)
 
-  def regrIntercept[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
-    twoArgDoubleFn("regr_intercept", y, x)
+  inline def regrIntercept[Y, X, AY, AX](
+    y: TypedExpr[Y, AY],
+    x: TypedExpr[X, AX]
+  ): TypedExpr[Double, Where.Concat[AY, AX]] =
+    PgFunction.call2("regr_intercept", y, x, skunk.codec.all.float8)
 
-  def regrCount[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Long, Where.Concat[AY, AX]] = {
-    val inner = TypedExpr.combineSep(y.fragment, ", ", x.fragment, _.asInstanceOf[(AY, AX)])
-    val frag  = TypedExpr.wrap("regr_count(", inner, ")")
-    TypedExpr[Long, Where.Concat[AY, AX]](frag, skunk.codec.all.int8)
-  }
+  inline def regrCount[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Long, Where.Concat[AY, AX]] =
+    PgFunction.call2("regr_count", y, x, skunk.codec.all.int8)
 
-  def regrR2[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
-    twoArgDoubleFn("regr_r2", y, x)
+  inline def regrR2[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
+    PgFunction.call2("regr_r2", y, x, skunk.codec.all.float8)
 
-  def regrAvgX[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
-    twoArgDoubleFn("regr_avgx", y, x)
+  inline def regrAvgX[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
+    PgFunction.call2("regr_avgx", y, x, skunk.codec.all.float8)
 
-  def regrAvgY[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
-    twoArgDoubleFn("regr_avgy", y, x)
+  inline def regrAvgY[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
+    PgFunction.call2("regr_avgy", y, x, skunk.codec.all.float8)
 
-  def regrSxx[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
-    twoArgDoubleFn("regr_sxx", y, x)
+  inline def regrSxx[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
+    PgFunction.call2("regr_sxx", y, x, skunk.codec.all.float8)
 
-  def regrSyy[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
-    twoArgDoubleFn("regr_syy", y, x)
+  inline def regrSyy[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
+    PgFunction.call2("regr_syy", y, x, skunk.codec.all.float8)
 
-  def regrSxy[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
-    twoArgDoubleFn("regr_sxy", y, x)
+  inline def regrSxy[Y, X, AY, AX](y: TypedExpr[Y, AY], x: TypedExpr[X, AX]): TypedExpr[Double, Where.Concat[AY, AX]] =
+    PgFunction.call2("regr_sxy", y, x, skunk.codec.all.float8)
 
 }

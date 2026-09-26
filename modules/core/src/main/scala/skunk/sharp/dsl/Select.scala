@@ -154,8 +154,15 @@ final class SelectBuilder[
 
   def distinctRows: SelectBuilder[Ss, Groups, WArgs, HArgs, OArgs] = cp[WArgs, HArgs, OArgs](distinct = true)
 
-  /** `SELECT DISTINCT ON (e1, e2, …) …`. */
-  def distinctOn(f: SelectView[Ss] => TypedExpr[?, ?] | Tuple): SelectBuilder[Ss, Groups, WArgs, HArgs, OArgs] = {
+  /**
+   * `SELECT DISTINCT ON (e1, e2, …) …`. Items must be Void-args here — a deferred `Param` is a compile error; project
+   * first (`.select(…).distinctOn(…)`) to thread typed DISTINCT ON Args.
+   */
+  inline def distinctOn[D](f: SelectView[Ss] => D): SelectBuilder[Ss, Groups, WArgs, HArgs, OArgs] = {
+    inline if !scala.compiletime.constValue[SelectBuilder.DistinctOnVoid[D]] then
+      scala.compiletime.error(
+        "skunk-sharp: a deferred Param in a whole-row .distinctOn isn't supported — use Param.bind(v) / a literal, or project first: .select(…).distinctOn(…)"
+      )
     val exprs = (f(view): Any) match {
       case e: TypedExpr[?, ?] => List(e)
       case t: Tuple           => t.toList.asInstanceOf[List[TypedExpr[?, ?]]]
@@ -671,16 +678,6 @@ object SelectBuilder {
     }
   }
 
-  /** Legacy alias — still used by some sites that haven't been updated. Falls through to product. */
-  private[dsl] def combineEncoders(a: Encoder[?], b: Encoder[?]): Encoder[Any] = {
-    val voidLeft  = a eq Void.codec
-    val voidRight = b eq Void.codec
-    if (voidLeft && voidRight) Void.codec.asInstanceOf[Encoder[Any]]
-    else if (voidLeft) b.asInstanceOf[Encoder[Any]]
-    else if (voidRight) a.asInstanceOf[Encoder[Any]]
-    else a.asInstanceOf[Encoder[Any]].product(b.asInstanceOf[Encoder[Any]]).asInstanceOf[Encoder[Any]]
-  }
-
   /**
    * Body-part. `Left(f)` is a `Fragment[Void]` whose encoder is already-baked (its argument flows via contramap,
    * typically a structural piece like " WHERE ", a header, or a row of values applied via `Param.bind`). `Right(f)` is
@@ -698,6 +695,13 @@ object SelectBuilder {
   type HandOffOrders[OA] <: Tuple = OA match {
     case Void => EmptyTuple
     case _    => OrderBy[OA] *: EmptyTuple
+  }
+
+  /** `true` iff every DISTINCT ON item (a `TypedExpr` or a tuple of them) has Void Args. */
+  type DistinctOnVoid[D] <: Boolean = D match {
+    case TypedExpr[?, a] => Where.IsVoidTag[a]
+    case EmptyTuple      => true
+    case h *: t          => scala.compiletime.ops.boolean.&&[DistinctOnVoid[h], DistinctOnVoid[t]]
   }
 
   /** Args of an ORDER BY item (`OrderBy[A]`) or a tuple of them — the flat fold of each item's `A`. */

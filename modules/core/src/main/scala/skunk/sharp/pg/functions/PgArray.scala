@@ -2,7 +2,7 @@ package skunk.sharp.pg.functions
 
 import skunk.codec.all as pg
 import skunk.data.Arr
-import skunk.sharp.TypedExpr
+import skunk.sharp.{PgFunction, TypedExpr}
 import skunk.sharp.pg.{IsArray, PgTypeFor}
 import skunk.sharp.where.Where
 
@@ -26,61 +26,40 @@ trait PgArray {
     TypedExpr[Int, X](frag, pg.int4)
   }
 
-  def arrayAppend[A, E, X, Y](a: TypedExpr[A, X], elem: TypedExpr[E, Y])(using
+  inline def arrayAppend[A, E, X, Y](a: TypedExpr[A, X], elem: TypedExpr[E, Y])(using
     @annotation.unused ev: IsArray.Aux[A, E]
-  ): TypedExpr[A, Where.Concat[X, Y]] = {
-    val inner = TypedExpr.combineSep(a.fragment, ", ", elem.fragment, _.asInstanceOf[(X, Y)])
-    val frag  = TypedExpr.wrap("array_append(", inner, ")")
-    TypedExpr[A, Where.Concat[X, Y]](frag, a.codec)
-  }
+  ): TypedExpr[A, Where.Concat[X, Y]] =
+    PgFunction.call2("array_append", a, elem, a.codec)
 
-  def arrayPrepend[A, E, X, Y](elem: TypedExpr[E, X], a: TypedExpr[A, Y])(using
+  inline def arrayPrepend[A, E, X, Y](elem: TypedExpr[E, X], a: TypedExpr[A, Y])(using
     @annotation.unused ev: IsArray.Aux[A, E]
-  ): TypedExpr[A, Where.Concat[X, Y]] = {
-    val inner = TypedExpr.combineSep(elem.fragment, ", ", a.fragment, _.asInstanceOf[(X, Y)])
-    val frag  = TypedExpr.wrap("array_prepend(", inner, ")")
-    TypedExpr[A, Where.Concat[X, Y]](frag, a.codec)
-  }
+  ): TypedExpr[A, Where.Concat[X, Y]] =
+    PgFunction.call2("array_prepend", elem, a, a.codec)
 
-  def arrayCat[A, X, Y](a: TypedExpr[A, X], b: TypedExpr[A, Y])(using
+  inline def arrayCat[A, X, Y](a: TypedExpr[A, X], b: TypedExpr[A, Y])(using
     @annotation.unused ev: IsArray[A]
-  ): TypedExpr[A, Where.Concat[X, Y]] = {
-    val inner = TypedExpr.combineSep(a.fragment, ", ", b.fragment, _.asInstanceOf[(X, Y)])
-    val frag  = TypedExpr.wrap("array_cat(", inner, ")")
-    TypedExpr[A, Where.Concat[X, Y]](frag, a.codec)
-  }
+  ): TypedExpr[A, Where.Concat[X, Y]] =
+    PgFunction.call2("array_cat", a, b, a.codec)
 
-  def arrayPosition[A, E, X, Y](a: TypedExpr[A, X], elem: TypedExpr[E, Y])(using
+  inline def arrayPosition[A, E, X, Y](a: TypedExpr[A, X], elem: TypedExpr[E, Y])(using
     @annotation.unused ev: IsArray.Aux[A, E]
-  ): TypedExpr[Option[Int], Where.Concat[X, Y]] = {
-    val inner = TypedExpr.combineSep(a.fragment, ", ", elem.fragment, _.asInstanceOf[(X, Y)])
-    val frag  = TypedExpr.wrap("array_position(", inner, ")")
-    TypedExpr[Option[Int], Where.Concat[X, Y]](frag, pg.int4.opt)
-  }
+  ): TypedExpr[Option[Int], Where.Concat[X, Y]] =
+    PgFunction.call2("array_position", a, elem, pg.int4.opt)
 
-  def arrayPositions[A, E, X, Y](a: TypedExpr[A, X], elem: TypedExpr[E, Y])(using
+  inline def arrayPositions[A, E, X, Y](a: TypedExpr[A, X], elem: TypedExpr[E, Y])(using
     @annotation.unused ev: IsArray.Aux[A, E]
-  ): TypedExpr[Arr[Int], Where.Concat[X, Y]] = {
-    val inner = TypedExpr.combineSep(a.fragment, ", ", elem.fragment, _.asInstanceOf[(X, Y)])
-    val frag  = TypedExpr.wrap("array_positions(", inner, ")")
-    TypedExpr[Arr[Int], Where.Concat[X, Y]](frag, pg._int4)
-  }
+  ): TypedExpr[Arr[Int], Where.Concat[X, Y]] =
+    PgFunction.call2("array_positions", a, elem, pg._int4)
 
-  def arrayRemove[A, E, X, Y](a: TypedExpr[A, X], elem: TypedExpr[E, Y])(using
+  inline def arrayRemove[A, E, X, Y](a: TypedExpr[A, X], elem: TypedExpr[E, Y])(using
     @annotation.unused ev: IsArray.Aux[A, E]
-  ): TypedExpr[A, Where.Concat[X, Y]] = {
-    val inner = TypedExpr.combineSep(a.fragment, ", ", elem.fragment, _.asInstanceOf[(X, Y)])
-    val frag  = TypedExpr.wrap("array_remove(", inner, ")")
-    TypedExpr[A, Where.Concat[X, Y]](frag, a.codec)
-  }
+  ): TypedExpr[A, Where.Concat[X, Y]] =
+    PgFunction.call2("array_remove", a, elem, a.codec)
 
-  def arrayReplace[A, E](a: TypedExpr[A, ?], from: TypedExpr[E, ?], to: TypedExpr[E, ?])(using
+  inline def arrayReplace[A, E, X, Y, Z](a: TypedExpr[A, X], from: TypedExpr[E, Y], to: TypedExpr[E, Z])(using
     @annotation.unused ev: IsArray.Aux[A, E]
-  ): TypedExpr[A, skunk.Void] = {
-    val joined = TypedExpr.joinedVoid(", ", List(a.fragment, from.fragment, to.fragment))
-    val frag   = TypedExpr.wrap("array_replace(", joined, ")")
-    TypedExpr[A, skunk.Void](frag, a.codec)
-  }
+  ): TypedExpr[A, Where.FoldConcat[(X, Y, Z)]] =
+    PgFunction.naryTypedFold[A, (X, Y, Z)]("array_replace", List(a.fragment, from.fragment, to.fragment), a.codec)
 
   inline def arrayToString[A, X, Y](
     a: TypedExpr[A, X],

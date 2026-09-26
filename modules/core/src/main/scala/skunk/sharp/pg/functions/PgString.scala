@@ -357,11 +357,10 @@ trait PgString {
   }
 
   /**
-   * `format(fmt, args*)` — variadic. Result `Args = Void`: every input is treated as Void-args by
-   * [[TypedExpr.joinedVoid]], so any `Param[T]` baked into a spliced fragment must already be a `Param.bind`-style
-   * Void-args fragment. Threading typed `Args` through the variadic shape is a roadmap item.
+   * `format(fmt, args*)` — variadic, so every input must be Void-args (columns, literals, `Param.bind(v)`); a deferred
+   * `Param` is a compile error — the variadic shape can't thread typed Args.
    */
-  def format(fmt: TypedExpr[String, ?], args: TypedExpr[?, ?]*): TypedExpr[String, skunk.Void] = {
+  def format(fmt: TypedExpr[String, skunk.Void], args: TypedExpr[?, skunk.Void]*): TypedExpr[String, skunk.Void] = {
     val joined = TypedExpr.joinedVoid(", ", fmt.fragment :: args.toList.map(_.fragment))
     val frag   = TypedExpr.wrap("format(", joined, ")")
     TypedExpr[String, skunk.Void](frag, skunk.codec.all.text)

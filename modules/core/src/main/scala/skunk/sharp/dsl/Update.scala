@@ -504,19 +504,13 @@ object SetAssignment {
   }
 
   /**
-   * Combine a non-empty list of assignments into a single comma-joined `Fragment[?]`. Existential-typed
-   * (`SetAssignment[?, ?]`) — Args is erased here, so we use [[SelectBuilder.combineEncoders]]'s runtime Void-shortcut
-   * without a contramap. Safe for tuple-form `.set` where the OUTER `SetArgs` collapses to Void; would need a
-   * contramap+`projectConcat` if any side carries a non-singleton-Void typed-Args encoder (e.g. `Param.bind`). Use the
-   * `&` combinator instead for typed Args across multiple items.
+   * Comma-join `.patch` assignments. Every item is Void-args (values are baked via `Param.bind`), but their encoders
+   * aren't `Void.codec` — so each one is fed `Void` explicitly through `combineList`.
    */
-  private[dsl] def combineAll(items: List[SetAssignment[?, ?]]): Fragment[?] = {
+  private[dsl] def combineAll(items: List[SetAssignment[?, ?]]): Fragment[Void] = {
     require(items.nonEmpty, "skunk-sharp: cannot combine empty SET list")
-    items.tail.foldLeft[Fragment[?]](items.head.fragment) { (acc, sa) =>
-      val parts = acc.parts ++ RawConstants.COMMA_SEP.fragment.parts ++ sa.fragment.parts
-      val enc   = SelectBuilder.combineEncoders(acc.encoder, sa.fragment.encoder)
-      Fragment(parts, enc, Origin.unknown).asInstanceOf[Fragment[?]]
-    }
+    val voids = List.fill(items.size)(Void)
+    TypedExpr.combineList[Void](items.map(_.fragment), ", ", _ => voids)
   }
 
   /**
