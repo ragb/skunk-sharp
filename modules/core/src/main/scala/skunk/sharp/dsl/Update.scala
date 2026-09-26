@@ -585,14 +585,24 @@ extension [T, Null <: Boolean, N <: String & Singleton](col: SourceColumn[T, Nul
 }
 
 /**
- * The view UPDATE … FROM SET lambdas receive: [[JoinedView]] with every source's generated columns typed as
- * [[skunk.sharp.GeneratedColumn]], so assigning to them is a compile error.
+ * The view UPDATE … FROM SET lambdas receive: [[JoinedView]] with the target as a [[SetView]] (generated columns typed
+ * as [[skunk.sharp.GeneratedColumn]]) and every FROM source as a read-only [[skunk.sharp.SourceView]] — assigning to
+ * either is a compile error.
  */
 type SetJoinedView[Ss <: Tuple] = NamedTuple.NamedTuple[AliasesOf[Ss], SetViewsOf[Ss]]
 
 type SetViewsOf[Ss <: Tuple] <: Tuple = Ss match {
   case EmptyTuple                      => EmptyTuple
-  case SourceEntry[?, ?, c, ?, ?] *: t => SetView[c] *: SetViewsOf[t]
+  case SourceEntry[?, ?, c, ?, ?] *: t => SetView[c] *: FromSourceViewsOf[t]
+}
+
+/**
+ * The FROM sources of an UPDATE … FROM are read-only in its SET lambda: `SET` can only target the updated table (and
+ * renders an unqualified `"col" =`), so assigning to a FROM source's column is a compile error, as in MERGE.
+ */
+type FromSourceViewsOf[Ss <: Tuple] <: Tuple = Ss match {
+  case EmptyTuple                      => EmptyTuple
+  case SourceEntry[?, ?, c, ?, ?] *: t => SourceView[c] *: FromSourceViewsOf[t]
 }
 
 // ---- Entry point ----------------------------------------------------------------------------------

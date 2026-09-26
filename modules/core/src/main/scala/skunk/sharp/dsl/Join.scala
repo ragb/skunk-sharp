@@ -425,7 +425,8 @@ private[sharp] def nullabilifySources(sources: Tuple): Tuple = {
       s.originalCols,
       nullabilifyCols(s.effectiveCols),
       s.kind,
-      s.onPredOpt.asInstanceOf[Option[Where[Any]]]
+      s.onPredOpt.asInstanceOf[Option[Where[Any]]],
+      s.isLateral
     )
   }
   Tuple.fromArray(wrapped.toArray[Any])
@@ -626,7 +627,11 @@ final class IncompleteJoin[
   CR0 <: Tuple,
   CR <: Tuple, // = CR0 for INNER / RIGHT / CROSS, NullableCols[CR0] for LEFT / FULL
   AR <: String & Singleton,
-  SsFinal <: Tuple // = Ss for INNER / LEFT / CROSS, NullabilifySources[Ss] for RIGHT / FULL
+  SsFinal <: Tuple, // = Ss for INNER / LEFT / CROSS, NullabilifySources[Ss] for RIGHT / FULL
+  G <: Tuple,       // carried builder state (GROUP BY / WHERE / HAVING / ORDER BY Args) — see `carried`
+  W,
+  H,
+  O
 ] private[sharp] (
   sources: Ss,
   pendingRelation: RR,
@@ -634,7 +639,10 @@ final class IncompleteJoin[
   pendingOriginalCols: CR0,
   pendingEffectiveCols: CR,
   kind: JoinKind,
-  isLateral: Boolean = false
+  isLateral: Boolean = false,
+  // The builder a `.xJoin` was called on: its WHERE / GROUP BY / HAVING / ORDER BY / LIMIT / OFFSET / DISTINCT /
+  // locking carry over into the joined builder. `None` for joins started from a bare relation.
+  carried: Option[SelectBuilder[?, ?, ?, ?, ?]] = None
 ) {
 
   /**
@@ -652,7 +660,7 @@ final class IncompleteJoin[
   ): SelectBuilder[Tuple.Append[
     SsFinal,
     SourceEntry[RR, CR0, CR, AR, A]
-  ], EmptyTuple, skunk.Void, skunk.Void, skunk.Void] = {
+  ], G, W, H, O] = {
     val rawPred        = f(buildOnView[Ss, CR0, AR](sources, pendingOriginalCols, pendingAlias))
     val pred: Where[A] = rawPred
     val entry          = new SourceEntry[RR, CR0, CR, AR, A](
@@ -669,13 +677,23 @@ final class IncompleteJoin[
       case _                              => sources
     }
     val nextSources = (finalCommitted :* entry).asInstanceOf[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR, A]]]
-    new SelectBuilder[
-      Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR, A]],
-      EmptyTuple,
-      skunk.Void,
-      skunk.Void,
-      skunk.Void
-    ](nextSources)
+    carried match {
+      case Some(b) =>
+        new SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR, A]], G, W, H, O](
+          nextSources,
+          b.distinct,
+          b.whereOpt,
+          b.groupBys,
+          b.havingOpt,
+          b.orderOpt,
+          b.limitOpt,
+          b.offsetOpt,
+          b.lockingOpt,
+          b.distinctOnOpt
+        )
+      case None =>
+        new SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR, A]], G, W, H, O](nextSources)
+    }
   }
 
 }
@@ -917,7 +935,11 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
     CR,
     CR,
     AR,
-    SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple
+    SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple,
+    EmptyTuple,
+    Void,
+    Void,
+    Void
   ] = {
     val baseEntry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val rel       = aR(right)
@@ -935,7 +957,11 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
     CR,
     NullableCols[CR],
     AR,
-    SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple
+    SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple,
+    EmptyTuple,
+    Void,
+    Void,
+    Void
   ] = {
     val baseEntry    = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val rel          = aR(right)
@@ -958,7 +984,11 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
     CR,
     CR,
     AR,
-    NullabilifySources[SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple]
+    NullabilifySources[SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple],
+    EmptyTuple,
+    Void,
+    Void,
+    Void
   ] = {
     val baseEntry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val rel       = aR(right)
@@ -976,7 +1006,11 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
     CR,
     NullableCols[CR],
     AR,
-    NullabilifySources[SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple]
+    NullabilifySources[SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple],
+    EmptyTuple,
+    Void,
+    Void,
+    Void
   ] = {
     val baseEntry    = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val rel          = aR(right)
@@ -1032,7 +1066,11 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
     CR,
     CR,
     AR,
-    SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple
+    SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple,
+    EmptyTuple,
+    Void,
+    Void,
+    Void
   ] = {
     val baseEntry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val outer     = ColumnsView.qualified(baseEntry.effectiveCols, baseEntry.alias)
@@ -1058,7 +1096,11 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
     CR,
     NullableCols[CR],
     AR,
-    SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple
+    SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple,
+    EmptyTuple,
+    Void,
+    Void,
+    Void
   ] = {
     val baseEntry    = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
     val outer        = ColumnsView.qualified(baseEntry.effectiveCols, baseEntry.alias)
