@@ -133,27 +133,18 @@ final class MergeCommand[
   private def returningParts(ret: Fragment[?]): List[SelectBuilder.BodyPart] =
     mergeParts ++ List[SelectBuilder.BodyPart](Left(TypedExpr.liftAfToVoid(RawConstants.RETURNING)), Right(ret))
 
-  /** The source's body Args (a typed subquery source), skipping the target at index 0 — always `Void`. */
-  private def sourceBodyArgs(bff: SourceBodyArgsProj[? <: Tuple], sArgs: Any): Any =
-    bff.project(sArgs) match {
-      case _ :: body :: _ => body
-      case _              => Void
-    }
-
-  // Concat-chain: SArgs ⊕ OnArgs ⊕ CArgs.
+  // Slots: SArgs (the source's body) ⊕ OnArgs ⊕ CArgs.
   inline def compile[SArgs](using
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
     bff: SourceBodyArgsProj[Ss]
   ): CommandTemplate[Where.Concat[Where.Concat[SArgs, OnArgs], CArgs]] = {
     Merge.requireReady[Ready]
-    type Out = Where.Concat[Where.Concat[SArgs, OnArgs], CArgs]
-    val slotValues: Out => IArray[Any] = args => {
-      val (sOn, cArgs)    = Where.projectConcat[Where.Concat[SArgs, OnArgs], CArgs](args)
-      val (sArgs, onArgs) = Where.projectConcat[SArgs, OnArgs](sOn)
-      IArray(sourceBodyArgs(bff, sArgs), onArgs, cArgs)
-    }
-    val tpl = SelectBuilder.assembleN[Out, Void](mergeParts, Nil, Void.codec, slotValues)
-    CommandTemplate.mk[Out](tpl.fragment)
+    MutationAssembly.commandWithSourcesImpl[Where.Concat[Where.Concat[SArgs, OnArgs], CArgs]](
+      mergeParts,
+      Where.slotCodes[(SArgs, OnArgs, CArgs)],
+      bff,
+      0
+    )
   }
 
   /**
@@ -166,14 +157,13 @@ final class MergeCommand[
   ): QueryTemplate[Where.Concat[Where.Concat[Where.Concat[SArgs, OnArgs], CArgs], A], T] = {
     Merge.requireReady[Ready]
     val expr = f(buildJoinedView(sources))
-    type Out = Where.Concat[Where.Concat[Where.Concat[SArgs, OnArgs], CArgs], A]
-    val slotValues: Out => IArray[Any] = args => {
-      val (sOnC, retArgs) = Where.projectConcat[Where.Concat[Where.Concat[SArgs, OnArgs], CArgs], A](args)
-      val (sOn, cArgs)    = Where.projectConcat[Where.Concat[SArgs, OnArgs], CArgs](sOnC)
-      val (sArgs, onArgs) = Where.projectConcat[SArgs, OnArgs](sOn)
-      IArray(sourceBodyArgs(bff, sArgs), onArgs, cArgs, retArgs)
-    }
-    SelectBuilder.assembleN[Out, T](returningParts(expr.fragment), Nil, expr.codec, slotValues)
+    MutationAssembly.withSourcesImpl[Where.Concat[Where.Concat[Where.Concat[SArgs, OnArgs], CArgs], A], T](
+      returningParts(expr.fragment),
+      expr.codec,
+      Where.slotCodes[(SArgs, OnArgs, CArgs, A)],
+      bff,
+      0
+    )
   }
 
   /** `… RETURNING <e1>, <e2>, …` (PG 17+) — tuple form of [[returning]]. */

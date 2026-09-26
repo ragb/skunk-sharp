@@ -370,94 +370,51 @@ final class SelectBuilder[
    */
   transparent inline def select[X](inline f: SelectView[Ss] => X) = {
     val v = view
+    // Each branch only fixes the static `Proj` / `Row`; construction is the shared non-inline `handOff`.
     inline scala.compiletime.erasedValue[X] match {
       case _: TypedExpr[?, ?] =>
-        val expr = f(v).asInstanceOf[TypedExpr[?, ?]]
-        new ProjectedSelect[
-          Ss,
-          X *: EmptyTuple,
-          Groups,
-          EmptyTuple,
-          SelectBuilder.HandOffOrders[OArgs],
-          WArgs,
-          HArgs,
-          ProjResult[X]
-        ](
-          sources,
-          distinct,
-          List(expr),
-          expr.codec.asInstanceOf[Codec[ProjResult[X]]],
-          whereOpt,
-          groupBys,
-          havingOpt,
-          orderOpt.map(f => OrderBy(f.asInstanceOf[Fragment[OArgs]])).toList,
-          limitOpt,
-          offsetOpt,
-          lockingOpt,
-          distinctOnOpt
-        )
+        handOff[X *: EmptyTuple, ProjResult[X]](f(v), single = true)
       case _: scala.NamedTuple.AnyNamedTuple =>
-        val tup   = f(v).asInstanceOf[Product]
-        val exprs = tup.productIterator.toList.asInstanceOf[List[TypedExpr[?, ?]]]
-        val codec = tupleCodec(exprs.map(_.codec))
-          .asInstanceOf[Codec[scala.NamedTuple.NamedTuple[
-            scala.NamedTuple.Names[X & scala.NamedTuple.AnyNamedTuple],
-            ExprOutputs[scala.NamedTuple.DropNames[X & scala.NamedTuple.AnyNamedTuple]]
-          ]]]
-        new ProjectedSelect[
-          Ss,
+        handOff[
           scala.NamedTuple.DropNames[X & scala.NamedTuple.AnyNamedTuple],
-          Groups,
-          EmptyTuple,
-          SelectBuilder.HandOffOrders[OArgs],
-          WArgs,
-          HArgs,
           scala.NamedTuple.NamedTuple[
             scala.NamedTuple.Names[X & scala.NamedTuple.AnyNamedTuple],
             ExprOutputs[scala.NamedTuple.DropNames[X & scala.NamedTuple.AnyNamedTuple]]
           ]
-        ](
-          sources,
-          distinct,
-          exprs,
-          codec,
-          whereOpt,
-          groupBys,
-          havingOpt,
-          orderOpt.map(f => OrderBy(f.asInstanceOf[Fragment[OArgs]])).toList,
-          limitOpt,
-          offsetOpt,
-          lockingOpt,
-          distinctOnOpt
-        )
+        ](f(v), single = false)
       case _: NonEmptyTuple =>
-        val tup   = f(v).asInstanceOf[NonEmptyTuple]
-        val exprs = tup.toList.asInstanceOf[List[TypedExpr[?, ?]]]
-        val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[X & Tuple]]]
-        new ProjectedSelect[
-          Ss,
-          X & Tuple,
-          Groups,
-          EmptyTuple,
-          SelectBuilder.HandOffOrders[OArgs],
-          WArgs,
-          HArgs,
-          ExprOutputs[X & Tuple]
-        ](
-          sources,
-          distinct,
-          exprs,
-          codec,
-          whereOpt,
-          groupBys,
-          havingOpt,
-          orderOpt.map(f => OrderBy(f.asInstanceOf[Fragment[OArgs]])).toList,
-          limitOpt,
-          offsetOpt,
-          lockingOpt,
-          distinctOnOpt
-        )
+        handOff[X & Tuple, ExprOutputs[X & Tuple]](f(v), single = false)
     }
+  }
+
+  /**
+   * Build the [[ProjectedSelect]] for [[select]]: `projection` is one `TypedExpr` (`single`) or a (named) tuple of
+   * them. Carries this builder's state; the whole-row ORDER BY becomes one `OrderBy[OArgs]` item.
+   */
+  @scala.annotation.publicInBinary
+  private[sharp] def handOff[Proj <: Tuple, Row](
+    projection: Any,
+    single: Boolean
+  ): ProjectedSelect[Ss, Proj, Groups, EmptyTuple, SelectBuilder.HandOffOrders[OArgs], WArgs, HArgs, Row] = {
+    val exprs =
+      if (single) List(projection.asInstanceOf[TypedExpr[?, ?]])
+      else projection.asInstanceOf[Product].productIterator.toList.asInstanceOf[List[TypedExpr[?, ?]]]
+    val codec =
+      (if (single) exprs.head.codec else tupleCodec(exprs.map(_.codec))).asInstanceOf[Codec[Row]]
+    new ProjectedSelect[Ss, Proj, Groups, EmptyTuple, SelectBuilder.HandOffOrders[OArgs], WArgs, HArgs, Row](
+      sources,
+      distinct,
+      exprs,
+      codec,
+      whereOpt,
+      groupBys,
+      havingOpt,
+      orderOpt.map(f => OrderBy(f.asInstanceOf[Fragment[OArgs]])).toList,
+      limitOpt,
+      offsetOpt,
+      lockingOpt,
+      distinctOnOpt
+    )
   }
 
   /**
@@ -745,9 +702,7 @@ object SelectBuilder {
         TypedExpr.combineList[OrderArgs[O]](
           o.asInstanceOf[Tuple].toList.asInstanceOf[List[OrderBy[?]]].map(_.fragment),
           ", ",
-          c =>
-            Where.projectFoldConcat[OrderArgsTuple[O & Tuple]](c.asInstanceOf[Where.FoldConcat[OrderArgsTuple[O &
-              Tuple]]])
+          Where.foldOf[OrderArgs[O]](Where.slotCodes[OrderArgsTuple[O & Tuple]])
         )
     }
 

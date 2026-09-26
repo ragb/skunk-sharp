@@ -367,54 +367,31 @@ final class UpdateFromReady[
    * Number of FROM-tail body Right slots emitted by [[updateFromParts]] — one per tail source. Matches the count of
    * values produced by `bff.project(sArgs).tail` (skipping the target table at index 0).
    */
-  private def fromTailBodyArgs(bff: SourceBodyArgsProj[? <: Tuple], sArgs: Any): List[Any] =
-    bff.project(sArgs) match {
-      case _ :: rest => rest // drop head (target table — always Void)
-      case _         => Nil
-    }
-
-  // Concat-chain: SetArgs ⊕ SArgs ⊕ WArgs.
+  // Slots: SetArgs ⊕ SArgs (per FROM source) ⊕ WArgs.
   inline def compile[SArgs](using
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
     bff: SourceBodyArgsProj[Ss]
-  ): CommandTemplate[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs]] = {
-    type Out = Where.Concat[Where.Concat[SetArgs, SArgs], WArgs]
-    val slotValues: Out => IArray[Any] = args => {
-      val (setSAcc, wArgs) = Where.projectConcat[Where.Concat[SetArgs, SArgs], WArgs](args)
-      val (setArgs, sArgs) = Where.projectConcat[SetArgs, SArgs](setSAcc)
-      val perTailBody      = fromTailBodyArgs(bff, sArgs)
-      val out              = scala.collection.mutable.ArrayBuffer.empty[Any]
-      out += setArgs
-      perTailBody.foreach(out += _)
-      out += wArgs
-      IArray.from(out)
-    }
-    val tpl = SelectBuilder.assembleN[Out, Void](updateFromParts, Nil, Void.codec, slotValues)
-    CommandTemplate.mk[Out](tpl.fragment)
-  }
+  ): CommandTemplate[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs]] =
+    MutationAssembly.commandWithSourcesImpl[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs]](
+      updateFromParts,
+      Where.slotCodes[(SetArgs, SArgs, WArgs)],
+      bff,
+      1
+    )
 
-  // Concat-chain: SetArgs ⊕ SArgs ⊕ WArgs ⊕ A (RETURNING).
+  // Slots: SetArgs ⊕ SArgs ⊕ WArgs ⊕ A (RETURNING).
   inline def returning[T, A, SArgs](f: JoinedView[Ss] => TypedExpr[T, A])(using
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
     bff: SourceBodyArgsProj[Ss]
   ): QueryTemplate[Where.Concat[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs], A], T] = {
-    val expr                  = f(buildJoinedView(sources))
-    val parts: List[BodyPart] = updateFromParts ++
-      List[BodyPart](SelectBuilder.bake(RawConstants.RETURNING), Right(expr.fragment))
-    type Out = Where.Concat[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs], A]
-    val slotValues: Out => IArray[Any] = args => {
-      val (setSwAcc, retArgs) = Where.projectConcat[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs], A](args)
-      val (setSAcc, wArgs)    = Where.projectConcat[Where.Concat[SetArgs, SArgs], WArgs](setSwAcc)
-      val (setArgs, sArgs)    = Where.projectConcat[SetArgs, SArgs](setSAcc)
-      val perTailBody         = fromTailBodyArgs(bff, sArgs)
-      val out                 = scala.collection.mutable.ArrayBuffer.empty[Any]
-      out += setArgs
-      perTailBody.foreach(out += _)
-      out += wArgs
-      out += retArgs
-      IArray.from(out)
-    }
-    SelectBuilder.assembleN[Out, T](parts, Nil, expr.codec, slotValues)
+    val expr = f(buildJoinedView(sources))
+    MutationAssembly.withSourcesImpl[Where.Concat[Where.Concat[Where.Concat[SetArgs, SArgs], WArgs], A], T](
+      updateFromParts ++ List[BodyPart](Left(TypedExpr.liftAfToVoid(RawConstants.RETURNING)), Right(expr.fragment)),
+      expr.codec,
+      Where.slotCodes[(SetArgs, SArgs, WArgs, A)],
+      bff,
+      1
+    )
   }
 
   inline def returningTuple[T <: NonEmptyTuple, SArgs, TOut](f: JoinedView[Ss] => T)(using
