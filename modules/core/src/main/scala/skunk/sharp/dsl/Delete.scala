@@ -160,7 +160,8 @@ private[dsl] object MutationAssembly {
     commandImpl[Where.Concat[A1, A2]](parts, Where.slotCodes[(A1, A2)])
 
   def commandImpl[Out](parts: List[BodyPart], codes: Tuple): CommandTemplate[Out] = {
-    val tpl = SelectBuilder.assembleN[Out, Void](parts, Nil, Void.codec, args => Where.splitFlat(args, codes))
+    val split = new skunk.sharp.where.SlotSplit(codes)
+    val tpl   = SelectBuilder.assembleN[Out, Void](parts, Nil, Void.codec, split)
     CommandTemplate.mk[Out](tpl.fragment)
   }
 
@@ -222,7 +223,7 @@ private[dsl] object MutationAssembly {
     codes: Tuple
   ): QueryTemplate[Out, R] = {
     val parts: List[BodyPart] = base ++ List[BodyPart](SelectBuilder.bake(RawConstants.RETURNING), Right(ret))
-    SelectBuilder.assembleN[Out, R](parts, Nil, codec, args => Where.splitFlat(args, codes))
+    SelectBuilder.assembleN[Out, R](parts, Nil, codec, new skunk.sharp.where.SlotSplit(codes))
   }
 
 }

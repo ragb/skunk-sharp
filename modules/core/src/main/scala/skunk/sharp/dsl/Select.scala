@@ -3,7 +3,7 @@ package skunk.sharp.dsl
 import skunk.{AppliedFragment, Codec, Encoder, Fragment, Void}
 import skunk.sharp.*
 import skunk.sharp.internal.{RawConstants, RowCodecs}, RowCodecs.{rowCodec, tupleCodec}
-import skunk.sharp.where.Where
+import skunk.sharp.where.{SlotSplit, Where}
 import skunk.util.Origin
 
 /**
@@ -473,10 +473,14 @@ final class SelectBuilder[
       val xs = rawGroupProjector(a)
       if (xs.size == groupBys.size) xs else List.fill(groupBys.size)(Void)
     }
+    val split                          = new SlotSplit(codes)
     val slotValues: Out => IArray[Any] = args => {
-      val v     = Where.splitFlat(args, codes)
-      val slots = IArray[Any](v(1), v(2), v(3), v(4), v(5))
-      cteProj.fold(slots)(cp => buildCteAndSlotIArrayWithEntries(entries, cp, v(0), ctes, slots))
+      val slots = split.from(args, 1) // slot 0 (CTE args) is only needed when there are CTEs
+      cteProj match {
+        case Some(cp) if ctes.nonEmpty =>
+          buildCteAndSlotIArrayWithEntries(entries, cp, split.at(args, 0), ctes, slots)
+        case _ => slots
+      }
     }
     SelectBuilder.assembleN[Out, Row](
       bodyParts = compileBodyParts(head, groupProjector),
@@ -1180,8 +1184,9 @@ final class ProjectedSelect[
         if (xs.size >= orderBys.size) xs else List.fill(orderBys.size - xs.size)(Void) ++ xs
       }
     val srcSlotCount                   = sourceSlotCount(entries)
+    val split                          = new SlotSplit(codes)
     val slotValues: Out => IArray[Any] = args => {
-      val v         = Where.splitFlat(args, codes)
+      val v         = split(args)
       val baseSlots = buildSlotIArray(v(1), v(2), v(3), v(4), srcSlotCount, bff, onProj, v(5), v(6), v(7), v(8))
       cteProj.fold(baseSlots)(cp => buildCteAndSlotIArrayWithEntries(entries, cp, v(0), ctes, baseSlots))
     }

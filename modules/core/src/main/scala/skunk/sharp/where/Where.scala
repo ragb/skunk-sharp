@@ -20,29 +20,61 @@ type Where[A] = TypedExpr[Boolean, A]
  */
 final class SlotSplit(codes: Tuple) extends (Any => IArray[Any]) {
   private val cs: Array[Int]       = codes.productIterator.map(_.asInstanceOf[Int]).toArray
-  private val total: Int           = cs.foldLeft(0)((n, c) => n + (if (c == -1) 0 else if (c == -2) 1 else c))
+  private val total: Int           = cs.foldLeft(0)((n, c) => n + width(c))
   private val allVoid: IArray[Any] = IArray.unsafeFromArray(Array.fill[Any](cs.length)(Void))
 
-  def apply(args: Any): IArray[Any] =
-    if (total == 0) allVoid
+  private def width(c: Int): Int = if (c == -1) 0 else if (c == -2) 1 else c
+
+  /** Every slot's value. */
+  def apply(args: Any): IArray[Any] = from(args, 0)
+
+  /** The values of slots `start ..` (earlier slots are skipped, not materialised). */
+  def from(args: Any, start: Int): IArray[Any] =
+    if (total == 0 && start == 0) allVoid
     else {
-      val out = new Array[Any](cs.length)
+      val out = new Array[Any](cs.length - start)
       var pos = 0
       var i   = 0
       while (i < cs.length) {
         val c = cs(i)
-        if (c == -1) out(i) = Void
-        else if (c == -2) { out(i) = elem(args, pos); pos += 1 }
-        else {
-          val arr = new Array[Object](c)
-          var k   = 0
-          while (k < c) { arr(k) = elem(args, pos + k).asInstanceOf[Object]; k += 1 }
-          out(i) = Tuple.fromArray(arr)
-          pos += c
-        }
+        if (i >= start) out(i - start) = value(args, c, pos)
+        pos += width(c)
         i += 1
       }
       IArray.unsafeFromArray(out)
+    }
+
+  /** Slot `i`'s value alone. */
+  def at(args: Any, i: Int): Any = {
+    var pos = 0
+    var k   = 0
+    while (k < i) { pos += width(cs(k)); k += 1 }
+    value(args, cs(i), pos)
+  }
+
+  /** Every slot's value, as a List (for `combineList` projectors). */
+  def toList(args: Any): List[Any] = {
+    var acc = List.empty[Any]
+    var pos = total
+    var i   = cs.length - 1
+    while (i >= 0) {
+      val c = cs(i)
+      pos -= width(c)
+      acc = value(args, c, pos) :: acc
+      i -= 1
+    }
+    acc
+  }
+
+  private def value(args: Any, c: Int, pos: Int): Any =
+    if (c == -1) Void
+    else if (c == -2) elem(args, pos)
+    else if (c == total && c >= 2) args // the slot is the whole flat tuple: pass it through, no copy
+    else {
+      val arr = new Array[Object](c)
+      var k   = 0
+      while (k < c) { arr(k) = elem(args, pos + k).asInstanceOf[Object]; k += 1 }
+      Tuple.fromArray(arr)
     }
 
   // Concat unwraps a single-element result, so the flat value is the element itself when `total == 1`.
@@ -180,7 +212,8 @@ object Where {
    * runtime equivalent of a chain of [[projectConcat]]s — `Concat` is associative over the slots' flattened shapes —
    * but one shared non-inline body instead of a nested inline expansion at every call site.
    */
-  def splitFlat(args: Any, codes: Tuple): IArray[Any] = new SlotSplit(codes)(args)
+  def splitFlat(args: Any, codes: Tuple): IArray[Any] =
+    new SlotSplit(codes)(args) // one-off use; hot paths hold a SlotSplit
 
   /** A splitter for Concat[A, B] values — the thin, shared counterpart of `c => projectConcat[A, B](c)`. */
   inline def projPair[A, B]: Concat[A, B] => (A, B) = pairOf[A, B](slotCodes[(A, B)])
@@ -190,12 +223,20 @@ object Where {
 
   def foldOf[C](codes: Tuple): C => List[Any] = {
     val sp = new SlotSplit(codes)
-    c => sp(c).toList
+    c => sp.toList(c)
   }
 
+  /** Pair splitter, specialised by shape at construction so the common cases allocate only the result pair. */
   def pairOf[A, B](codes: Tuple): Concat[A, B] => (A, B) = {
-    val sp = new SlotSplit(codes)
-    c => { val v = sp(c); (v(0), v(1)).asInstanceOf[(A, B)] }
+    val a                    = codes.productElement(0).asInstanceOf[Int]
+    val b                    = codes.productElement(1).asInstanceOf[Int]
+    val f: Any => (Any, Any) =
+      if (a == -1 && b == -1) { val vv = (Void, Void); _ => vv }
+      else if (a == -1 && b == -2) c => (Void, c)
+      else if (a == -2 && b == -1) c => (c, Void)
+      else if (a == -2 && b == -2) c => { val t = c.asInstanceOf[Product]; (t.productElement(0), t.productElement(1)) }
+      else { val sp = new SlotSplit(codes); c => { val v = sp(c); (v(0), v(1)) } }
+    f.asInstanceOf[Concat[A, B] => (A, B)]
   }
 
   /**
