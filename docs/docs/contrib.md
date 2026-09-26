@@ -251,6 +251,6 @@ Indexes (`CREATE INDEX … USING hnsw (embedding vector_cosine_ops)`) belong in 
 schema. The [schema validator](schema-validation.md) compares the declared dimension with the column's, so a
 `PgVector[1536]` declared against a `vector(3072)` column is reported as a `TypeMismatch`.
 
-Ordering the **whole row** (`chunks.select.orderBy(…)`) by a parameterised distance is a compile error for now — the
-whole-row builder doesn't carry ORDER BY parameters yet ([#109](https://github.com/ragb/skunk-sharp/issues/109)) — so use a projection as above.
+Ordering the whole row works the same way — `chunks.select.orderBy(c => c.embedding.cosineDistance(Param[PgVector[3]]).asc)`
+takes the query vector as a typed parameter — but it fetches the embeddings back too.
 

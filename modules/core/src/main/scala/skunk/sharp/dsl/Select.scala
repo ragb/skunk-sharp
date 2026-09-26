@@ -18,37 +18,43 @@ import skunk.util.Origin
  * captured-parameter tuple in SQL render order (WHERE args first, HAVING args second), with `Void` placeholders
  * normalised away by the [[Where.Concat]] match type.
  */
-final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.annotation.publicInBinary private[sharp] (
+final class SelectBuilder[
+  Ss <: Tuple,
+  Groups <: Tuple,
+  WArgs,
+  HArgs,
+  OArgs
+] @scala.annotation.publicInBinary private[sharp] (
   private[sharp] val sources: Ss,
   private[sharp] val distinct: Boolean = false,
   private[sharp] val whereOpt: Option[Fragment[?]] = None,
   private[sharp] val groupBys: List[TypedExpr[?, ?]] = Nil,
   private[sharp] val havingOpt: Option[Fragment[?]] = None,
-  private[sharp] val orderBys: List[OrderBy[?]] = Nil,
+  private[sharp] val orderOpt: Option[Fragment[?]] = None,
   private[sharp] val limitOpt: Option[Int] = None,
   private[sharp] val offsetOpt: Option[Int] = None,
   private[sharp] val lockingOpt: Option[Locking] = None,
   private[sharp] val distinctOnOpt: Option[List[TypedExpr[?, ?]]] = None
 ) {
 
-  private def cp[W, H](
+  private def cp[W, H, O](
     distinct: Boolean = distinct,
     whereOpt: Option[Fragment[?]] = whereOpt,
     groupBys: List[TypedExpr[?, ?]] = groupBys,
     havingOpt: Option[Fragment[?]] = havingOpt,
-    orderBys: List[OrderBy[?]] = orderBys,
+    orderOpt: Option[Fragment[?]] = orderOpt,
     limitOpt: Option[Int] = limitOpt,
     offsetOpt: Option[Int] = offsetOpt,
     lockingOpt: Option[Locking] = lockingOpt,
     distinctOnOpt: Option[List[TypedExpr[?, ?]]] = distinctOnOpt
-  ): SelectBuilder[Ss, Groups, W, H] =
-    new SelectBuilder[Ss, Groups, W, H](
+  ): SelectBuilder[Ss, Groups, W, H, O] =
+    new SelectBuilder[Ss, Groups, W, H, O](
       sources,
       distinct,
       whereOpt,
       groupBys,
       havingOpt,
-      orderBys,
+      orderOpt,
       limitOpt,
       offsetOpt,
       lockingOpt,
@@ -58,39 +64,41 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
   private def view: SelectView[Ss] = buildSelectView[Ss](sources)
 
   /** AND in a typed predicate — `WArgs` extends via `Where.Concat`. */
-  inline def where[A](f: SelectView[Ss] => Where[A]): SelectBuilder[Ss, Groups, Where.Concat[WArgs, A], HArgs] = {
+  inline def where[A](f: SelectView[Ss] => Where[A])
+    : SelectBuilder[Ss, Groups, Where.Concat[WArgs, A], HArgs, OArgs] = {
     val pred     = f(view)
     val combined = SelectBuilder.andInto[WArgs, A](
       whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
       pred,
       c => Where.projectConcat[WArgs, A](c)
     )
-    cp[Where.Concat[WArgs, A], HArgs](whereOpt = Some(combined))
+    cp[Where.Concat[WArgs, A], HArgs, OArgs](whereOpt = Some(combined))
   }
 
   /** Escape hatch — widens `WArgs` to `?`. */
-  inline def whereRaw(af: AppliedFragment): SelectBuilder[Ss, Groups, ?, HArgs] = {
+  inline def whereRaw(af: AppliedFragment): SelectBuilder[Ss, Groups, ?, HArgs, OArgs] = {
     val combined = SelectBuilder.andRawInto[WArgs](
       whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
       af,
       c => Where.projectConcat[WArgs, Void](c)
     )
-    cp[Any, HArgs](whereOpt = Some(combined))
+    cp[Any, HArgs, OArgs](whereOpt = Some(combined))
   }
 
   /**
-   * `ORDER BY …` on the whole row. Items must be `Void`-args (columns, literals, `Param.bind`-baked values): the
-   * whole-row builder doesn't thread ORDER BY parameters, so a deferred `Param` here is a compile error rather than a
-   * statement that compiles as `Void` and fails when executed. Select the columns you need —
-   * `.select(c => …).orderBy(…)` — to order by a parameterised expression (e.g. a vector distance).
+   * `ORDER BY …` on the whole row. Items may carry typed Args (`Param`s in the ordering expression, e.g. a vector
+   * distance to a query embedding): they extend `OArgs` via `Where.Concat` and bind in SQL order, after HAVING.
+   * Successive `.orderBy` calls append.
    */
-  inline def orderBy[O](f: SelectView[Ss] => O): SelectBuilder[Ss, Groups, WArgs, HArgs] = {
-    SelectBuilder.requireVoidOrders[O]
-    val fresh = (f(view): Any) match {
-      case ob: OrderBy[?] => List(ob)
-      case t: Tuple       => t.toList.asInstanceOf[List[OrderBy[?]]]
-    }
-    cp[WArgs, HArgs](orderBys = orderBys ++ fresh)
+  inline def orderBy[O](f: SelectView[Ss] => O)
+    : SelectBuilder[Ss, Groups, WArgs, HArgs, Where.Concat[OArgs, SelectBuilder.OrderArgs[O]]] = {
+    val fresh    = SelectBuilder.orderFragment[O](f(view))
+    val combined = SelectBuilder.appendOrder[OArgs, SelectBuilder.OrderArgs[O]](
+      orderOpt.asInstanceOf[Option[Fragment[OArgs]]],
+      fresh,
+      c => Where.projectConcat[OArgs, SelectBuilder.OrderArgs[O]](c)
+    )
+    cp[WArgs, HArgs, Where.Concat[OArgs, SelectBuilder.OrderArgs[O]]](orderOpt = Some(combined))
   }
 
   /**
@@ -99,19 +107,19 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
    * `ProjectedSelect.compile`.
    */
   transparent inline def groupBy[G](inline f: SelectView[Ss] => G)
-    : SelectBuilder[Ss, Tuple.Concat[Groups, NormProj[G]], WArgs, HArgs] = {
+    : SelectBuilder[Ss, Tuple.Concat[Groups, NormProj[G]], WArgs, HArgs, OArgs] = {
     val v     = view
     val fresh = (f(v): Any) match {
       case e: TypedExpr[?, ?] => List(e)
       case t: Tuple           => t.toList.asInstanceOf[List[TypedExpr[?, ?]]]
     }
-    new SelectBuilder[Ss, Tuple.Concat[Groups, NormProj[G]], WArgs, HArgs](
+    new SelectBuilder[Ss, Tuple.Concat[Groups, NormProj[G]], WArgs, HArgs, OArgs](
       sources,
       distinct,
       whereOpt,
       groupBys ++ fresh,
       havingOpt,
-      orderBys,
+      orderOpt,
       limitOpt,
       offsetOpt,
       lockingOpt,
@@ -120,59 +128,60 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
   }
 
   /** `HAVING <typed-predicate>`. */
-  inline def having[H](f: SelectView[Ss] => Where[H]): SelectBuilder[Ss, Groups, WArgs, Where.Concat[HArgs, H]] = {
+  inline def having[H](f: SelectView[Ss] => Where[H])
+    : SelectBuilder[Ss, Groups, WArgs, Where.Concat[HArgs, H], OArgs] = {
     val pred     = f(view)
     val combined = SelectBuilder.andInto[HArgs, H](
       havingOpt.asInstanceOf[Option[Fragment[HArgs]]],
       pred,
       c => Where.projectConcat[HArgs, H](c)
     )
-    cp[WArgs, Where.Concat[HArgs, H]](havingOpt = Some(combined))
+    cp[WArgs, Where.Concat[HArgs, H], OArgs](havingOpt = Some(combined))
   }
 
   /** Escape hatch HAVING — widens `HArgs` to `?`. */
-  inline def havingRaw(af: AppliedFragment): SelectBuilder[Ss, Groups, WArgs, ?] = {
+  inline def havingRaw(af: AppliedFragment): SelectBuilder[Ss, Groups, WArgs, ?, OArgs] = {
     val combined = SelectBuilder.andRawInto[HArgs](
       havingOpt.asInstanceOf[Option[Fragment[HArgs]]],
       af,
       c => Where.projectConcat[HArgs, Void](c)
     )
-    cp[WArgs, Any](havingOpt = Some(combined))
+    cp[WArgs, Any, OArgs](havingOpt = Some(combined))
   }
 
-  def limit(n: Int): SelectBuilder[Ss, Groups, WArgs, HArgs]  = cp[WArgs, HArgs](limitOpt = Some(n))
-  def offset(n: Int): SelectBuilder[Ss, Groups, WArgs, HArgs] = cp[WArgs, HArgs](offsetOpt = Some(n))
+  def limit(n: Int): SelectBuilder[Ss, Groups, WArgs, HArgs, OArgs]  = cp[WArgs, HArgs, OArgs](limitOpt = Some(n))
+  def offset(n: Int): SelectBuilder[Ss, Groups, WArgs, HArgs, OArgs] = cp[WArgs, HArgs, OArgs](offsetOpt = Some(n))
 
-  def distinctRows: SelectBuilder[Ss, Groups, WArgs, HArgs] = cp[WArgs, HArgs](distinct = true)
+  def distinctRows: SelectBuilder[Ss, Groups, WArgs, HArgs, OArgs] = cp[WArgs, HArgs, OArgs](distinct = true)
 
   /** `SELECT DISTINCT ON (e1, e2, …) …`. */
-  def distinctOn(f: SelectView[Ss] => TypedExpr[?, ?] | Tuple): SelectBuilder[Ss, Groups, WArgs, HArgs] = {
+  def distinctOn(f: SelectView[Ss] => TypedExpr[?, ?] | Tuple): SelectBuilder[Ss, Groups, WArgs, HArgs, OArgs] = {
     val exprs = (f(view): Any) match {
       case e: TypedExpr[?, ?] => List(e)
       case t: Tuple           => t.toList.asInstanceOf[List[TypedExpr[?, ?]]]
     }
-    cp[WArgs, HArgs](distinctOnOpt = Some(exprs))
+    cp[WArgs, HArgs, OArgs](distinctOnOpt = Some(exprs))
   }
 
   // ---- Row-level locking (single-source Table only) ---------------------------------------------
 
-  def forUpdate(using ev: IsSingleTable[Ss]): SelectBuilder[Ss, Groups, WArgs, HArgs] =
-    cp[WArgs, HArgs](lockingOpt = Some(Locking(LockMode.ForUpdate)))
+  def forUpdate(using ev: IsSingleTable[Ss]): SelectBuilder[Ss, Groups, WArgs, HArgs, OArgs] =
+    cp[WArgs, HArgs, OArgs](lockingOpt = Some(Locking(LockMode.ForUpdate)))
 
-  def forNoKeyUpdate(using ev: IsSingleTable[Ss]): SelectBuilder[Ss, Groups, WArgs, HArgs] =
-    cp[WArgs, HArgs](lockingOpt = Some(Locking(LockMode.ForNoKeyUpdate)))
+  def forNoKeyUpdate(using ev: IsSingleTable[Ss]): SelectBuilder[Ss, Groups, WArgs, HArgs, OArgs] =
+    cp[WArgs, HArgs, OArgs](lockingOpt = Some(Locking(LockMode.ForNoKeyUpdate)))
 
-  def forShare(using ev: IsSingleTable[Ss]): SelectBuilder[Ss, Groups, WArgs, HArgs] =
-    cp[WArgs, HArgs](lockingOpt = Some(Locking(LockMode.ForShare)))
+  def forShare(using ev: IsSingleTable[Ss]): SelectBuilder[Ss, Groups, WArgs, HArgs, OArgs] =
+    cp[WArgs, HArgs, OArgs](lockingOpt = Some(Locking(LockMode.ForShare)))
 
-  def forKeyShare(using ev: IsSingleTable[Ss]): SelectBuilder[Ss, Groups, WArgs, HArgs] =
-    cp[WArgs, HArgs](lockingOpt = Some(Locking(LockMode.ForKeyShare)))
+  def forKeyShare(using ev: IsSingleTable[Ss]): SelectBuilder[Ss, Groups, WArgs, HArgs, OArgs] =
+    cp[WArgs, HArgs, OArgs](lockingOpt = Some(Locking(LockMode.ForKeyShare)))
 
-  def skipLocked(using ev: IsSingleTable[Ss]): SelectBuilder[Ss, Groups, WArgs, HArgs] =
-    cp[WArgs, HArgs](lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.SkipLocked)))
+  def skipLocked(using ev: IsSingleTable[Ss]): SelectBuilder[Ss, Groups, WArgs, HArgs, OArgs] =
+    cp[WArgs, HArgs, OArgs](lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.SkipLocked)))
 
-  def noWait(using ev: IsSingleTable[Ss]): SelectBuilder[Ss, Groups, WArgs, HArgs] =
-    cp[WArgs, HArgs](lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.NoWait)))
+  def noWait(using ev: IsSingleTable[Ss]): SelectBuilder[Ss, Groups, WArgs, HArgs, OArgs] =
+    cp[WArgs, HArgs, OArgs](lockingOpt = lockingOpt.map(_.copy(waitPolicy = WaitPolicy.NoWait)))
 
   // ---- Attach more sources (upgrade single-source → multi-source) -------------------------------
 
@@ -227,18 +236,18 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
   )(using
     a: AsRelation.Aux[T, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
-  ): SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR, Void]], Groups, WArgs, HArgs] = {
+  ): SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR, Void]], Groups, WArgs, HArgs, OArgs] = {
     val rel   = a(next)
     val cols  = rel.columns.asInstanceOf[CR]
     val entry = new SourceEntry[RR, CR, CR, AR, Void](rel, a.aliasValue(next), cols, cols, JoinKind.Cross, None)
     val next2 = (sources :* entry).asInstanceOf[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR, Void]]]
-    new SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR, Void]], Groups, WArgs, HArgs](
+    new SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR, Void]], Groups, WArgs, HArgs, OArgs](
       next2,
       distinct,
       whereOpt,
       groupBys,
       havingOpt,
-      orderBys,
+      orderOpt,
       limitOpt,
       offsetOpt,
       lockingOpt
@@ -277,7 +286,7 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
   )(using
     a: AsRelation.Aux[T, RR, CR, AR, MR],
     aliasCheck: AliasNotUsed[AR, AliasesOf[Ss]]
-  ): SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR, Void]], Groups, WArgs, HArgs] = {
+  ): SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR, Void]], Groups, WArgs, HArgs, OArgs] = {
     val t     = fn(view)
     val rel   = a(t)
     val cols  = rel.columns.asInstanceOf[CR]
@@ -291,13 +300,13 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
       isLateral = true
     )
     val next2 = (sources :* entry).asInstanceOf[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR, Void]]]
-    new SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR, Void]], Groups, WArgs, HArgs](
+    new SelectBuilder[Tuple.Append[Ss, SourceEntry[RR, CR, CR, AR, Void]], Groups, WArgs, HArgs, OArgs](
       next2,
       distinct,
       whereOpt,
       groupBys,
       havingOpt,
-      orderBys,
+      orderOpt,
       limitOpt,
       offsetOpt,
       lockingOpt
@@ -326,7 +335,16 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
     inline scala.compiletime.erasedValue[X] match {
       case _: TypedExpr[?, ?] =>
         val expr = f(v).asInstanceOf[TypedExpr[?, ?]]
-        new ProjectedSelect[Ss, X *: EmptyTuple, Groups, EmptyTuple, EmptyTuple, WArgs, HArgs, ProjResult[X]](
+        new ProjectedSelect[
+          Ss,
+          X *: EmptyTuple,
+          Groups,
+          EmptyTuple,
+          SelectBuilder.HandOffOrders[OArgs],
+          WArgs,
+          HArgs,
+          ProjResult[X]
+        ](
           sources,
           distinct,
           List(expr),
@@ -334,7 +352,7 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
           whereOpt,
           groupBys,
           havingOpt,
-          orderBys,
+          orderOpt.map(f => OrderBy(f.asInstanceOf[Fragment[OArgs]])).toList,
           limitOpt,
           offsetOpt,
           lockingOpt,
@@ -353,7 +371,7 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
           scala.NamedTuple.DropNames[X & scala.NamedTuple.AnyNamedTuple],
           Groups,
           EmptyTuple,
-          EmptyTuple,
+          SelectBuilder.HandOffOrders[OArgs],
           WArgs,
           HArgs,
           scala.NamedTuple.NamedTuple[
@@ -368,7 +386,7 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
           whereOpt,
           groupBys,
           havingOpt,
-          orderBys,
+          orderOpt.map(f => OrderBy(f.asInstanceOf[Fragment[OArgs]])).toList,
           limitOpt,
           offsetOpt,
           lockingOpt,
@@ -378,7 +396,16 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
         val tup   = f(v).asInstanceOf[NonEmptyTuple]
         val exprs = tup.toList.asInstanceOf[List[TypedExpr[?, ?]]]
         val codec = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[X & Tuple]]]
-        new ProjectedSelect[Ss, X & Tuple, Groups, EmptyTuple, EmptyTuple, WArgs, HArgs, ExprOutputs[X & Tuple]](
+        new ProjectedSelect[
+          Ss,
+          X & Tuple,
+          Groups,
+          EmptyTuple,
+          SelectBuilder.HandOffOrders[OArgs],
+          WArgs,
+          HArgs,
+          ExprOutputs[X & Tuple]
+        ](
           sources,
           distinct,
           exprs,
@@ -386,7 +413,7 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
           whereOpt,
           groupBys,
           havingOpt,
-          orderBys,
+          orderOpt.map(f => OrderBy(f.asInstanceOf[Fragment[OArgs]])).toList,
           limitOpt,
           offsetOpt,
           lockingOpt,
@@ -424,7 +451,7 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
     cteProj: CteArgsProj[Ss],
     g: ProjArgsOf.Aux[Groups, GArgs]
   ): QueryTemplate[
-    Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs], HArgs],
+    Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs], HArgs], OArgs],
     NamedRowOf[ev.Cols]
   ] = {
     val entries                          = sources.toList.asInstanceOf[List[SourceEntry[?, ?, ?, ?, ?]]]
@@ -435,14 +462,16 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
       val xs = rawGroupProjector(a)
       if (xs.size == groupBys.size) xs else List.fill(groupBys.size)(Void)
     }
-    type Out = Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs], HArgs]
+    type CSWGH = Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs], HArgs]
+    type Out   = Where.Concat[CSWGH, OArgs]
     val slotValues: Out => IArray[Any] = args => {
-      val (cswgAcc, hArgs) =
-        Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs], HArgs](args)
+      val (cswghAcc, oArgs) = Where.projectConcat[CSWGH, OArgs](args)
+      val (cswgAcc, hArgs)  =
+        Where.projectConcat[Where.Concat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs], HArgs](cswghAcc)
       val (cswAcc, gArgs) = Where.projectConcat[Where.Concat[Where.Concat[CArgs, SArgs], WArgs], GArgs](cswgAcc)
       val (csAcc, wArgs)  = Where.projectConcat[Where.Concat[CArgs, SArgs], WArgs](cswAcc)
       val (cArgs, sArgs)  = Where.projectConcat[CArgs, SArgs](csAcc)
-      buildCteAndSlotIArrayWithEntries(entries, cteProj, cArgs, ctes, IArray[Any](sArgs, wArgs, gArgs, hArgs))
+      buildCteAndSlotIArrayWithEntries(entries, cteProj, cArgs, ctes, IArray[Any](sArgs, wArgs, gArgs, hArgs, oArgs))
     }
     SelectBuilder.assembleN[Out, NamedRowOf[ev.Cols]](
       bodyParts = compileBodyParts(head, groupProjector),
@@ -457,13 +486,13 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
    * [[SelectBuilder.alias]] to capture the inner query fragment and surface its `Args` in the outer `BodyArgs` of the
    * resulting subquery relation.
    *
-   * Slot order: `[SArgs=0, WArgs=1, GArgs=2, HArgs=3]`.
+   * Slot order: `[SArgs=0, WArgs=1, GArgs=2, HArgs=3, OArgs=4]`.
    */
   private[dsl] inline def compileBodyFragment[SArgs, GArgs](using
     ev: IsSingleSource[Ss],
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
     g: ProjArgsOf.Aux[Groups, GArgs]
-  ): Fragment[Where.Concat[Where.Concat[Where.Concat[SArgs, WArgs], GArgs], HArgs]] = {
+  ): Fragment[Where.Concat[Where.Concat[Where.Concat[Where.Concat[SArgs, WArgs], GArgs], HArgs], OArgs]] = {
     // No CTE preamble emitted here — `compileBodyFragment` is used by `.alias` (subquery body) and `cte()`
     // (CTE body) to capture the SELECT body alone. CTEs collected at this nesting level surface in the outer
     // query's preamble. Direct CteRelation refs in this body still bind at FROM-site as Void (their args
@@ -475,12 +504,14 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
       val xs = rawGroupProjector(a)
       if (xs.size == groupBys.size) xs else List.fill(groupBys.size)(Void)
     }
-    type Out = Where.Concat[Where.Concat[Where.Concat[SArgs, WArgs], GArgs], HArgs]
+    type SWGH = Where.Concat[Where.Concat[Where.Concat[SArgs, WArgs], GArgs], HArgs]
+    type Out  = Where.Concat[SWGH, OArgs]
     val slotValues: Out => IArray[Any] = args => {
-      val (swgAcc, hArgs) = Where.projectConcat[Where.Concat[Where.Concat[SArgs, WArgs], GArgs], HArgs](args)
-      val (swAcc, gArgs)  = Where.projectConcat[Where.Concat[SArgs, WArgs], GArgs](swgAcc)
-      val (sArgs, wArgs)  = Where.projectConcat[SArgs, WArgs](swAcc)
-      IArray[Any](sArgs, wArgs, gArgs, hArgs)
+      val (swghAcc, oArgs) = Where.projectConcat[SWGH, OArgs](args)
+      val (swgAcc, hArgs)  = Where.projectConcat[Where.Concat[Where.Concat[SArgs, WArgs], GArgs], HArgs](swghAcc)
+      val (swAcc, gArgs)   = Where.projectConcat[Where.Concat[SArgs, WArgs], GArgs](swgAcc)
+      val (sArgs, wArgs)   = Where.projectConcat[SArgs, WArgs](swAcc)
+      IArray[Any](sArgs, wArgs, gArgs, hArgs, oArgs)
     }
     SelectBuilder.assembleN[Out, NamedRowOf[ev.Cols]](
       bodyParts = compileBodyParts(head, groupProjector),
@@ -565,9 +596,13 @@ final class SelectBuilder[Ss <: Tuple, Groups <: Tuple, WArgs, HArgs] @scala.ann
       case None =>
         buf += Right(SelectBuilder.emptyVoidSlot)
     }
-    if (orderBys.nonEmpty) {
-      buf += SelectBuilder.bake(RawConstants.ORDER_BY)
-      buf += SelectBuilder.bake(TypedExpr.joined(orderBys.map(o => SelectBuilder.bindVoid(o.fragment)), ", "))
+    // slot 4 = ORDER BY
+    orderOpt match {
+      case Some(f) =>
+        buf += SelectBuilder.bake(RawConstants.ORDER_BY)
+        buf += Right(f)
+      case None =>
+        buf += Right(SelectBuilder.emptyVoidSlot)
     }
     limitOpt.foreach(n => buf += SelectBuilder.bake(RawConstants.limitAf(n)))
     offsetOpt.foreach(n => buf += SelectBuilder.bake(RawConstants.offsetAf(n)))
@@ -656,24 +691,51 @@ object SelectBuilder {
    * user-claimed `Args` correctly: the baked side is encoded with `Void` (its values flow via the fragment's own
    * contramap); the typed side receives the user's `Args` via `slotValues`.
    */
-  /** `true` iff every ORDER BY item (a single `OrderBy[A]` or a tuple of them) has `Void` Args. */
-  type VoidOrders[O] <: Boolean = O match {
-    case OrderBy[a]         => Where.IsVoidTag[a]
-    case EmptyTuple         => true
-    case OrderBy[a] *: tail =>
-      Where.IsVoidTag[a] match {
-        case true  => VoidOrders[tail]
-        case false => false
-      }
+  /**
+   * `Orders` a whole-row builder hands to [[ProjectedSelect]]: its accumulated ORDER BY as one item when it carries
+   * Args, nothing otherwise (Void-args items are padded by the projected compile's order projector).
+   */
+  type HandOffOrders[OA] <: Tuple = OA match {
+    case Void => EmptyTuple
+    case _    => OrderBy[OA] *: EmptyTuple
   }
 
-  inline def requireVoidOrders[O]: Unit =
-    inline if scala.compiletime.constValue[VoidOrders[O]] then ()
-    else
-      scala.compiletime.error(
-        "skunk-sharp: a deferred Param in a whole-row .orderBy isn't supported — select the columns you need " +
-          "(.select(c => …).orderBy(…) threads ORDER BY Params), or bake the value with Param.bind(v)."
-      )
+  /** Args of an ORDER BY item (`OrderBy[A]`) or a tuple of them — the flat fold of each item's `A`. */
+  type OrderArgs[O] = O match {
+    case OrderBy[a] => a
+    case Tuple      => Where.FoldConcat[OrderArgsTuple[O & Tuple]]
+  }
+
+  type OrderArgsTuple[T <: Tuple] <: Tuple = T match {
+    case EmptyTuple         => EmptyTuple
+    case OrderBy[a] *: tail => a *: OrderArgsTuple[tail]
+  }
+
+  /** One typed fragment for an `.orderBy(…)` result — a single item, or a comma-joined tuple of items. */
+  inline def orderFragment[O](o: O): Fragment[OrderArgs[O]] =
+    inline scala.compiletime.erasedValue[O] match {
+      case _: OrderBy[?] => o.asInstanceOf[OrderBy[OrderArgs[O]]].fragment
+      case _: Tuple      =>
+        TypedExpr.combineList[OrderArgs[O]](
+          o.asInstanceOf[Tuple].toList.asInstanceOf[List[OrderBy[?]]].map(_.fragment),
+          ", ",
+          c =>
+            Where.projectFoldConcat[OrderArgsTuple[O & Tuple]](c.asInstanceOf[Where.FoldConcat[OrderArgsTuple[O &
+              Tuple]]])
+        )
+    }
+
+  /** Append ORDER BY items to the accumulated ones (comma-separated), keeping the Args chain typed. */
+  @scala.annotation.publicInBinary
+  private[dsl] def appendOrder[OA, X](
+    prev: Option[Fragment[OA]],
+    fresh: Fragment[X],
+    proj: Where.Concat[OA, X] => (OA, X)
+  ): Fragment[Where.Concat[OA, X]] =
+    prev match {
+      case None    => fresh.asInstanceOf[Fragment[Where.Concat[OA, X]]] // OA is Void when nothing came before
+      case Some(p) => TypedExpr.combineSep[OA, X](p, ", ", fresh, proj)
+    }
 
   private[dsl] type BodyPart = Either[Fragment[Void], Fragment[?]]
 
@@ -1095,7 +1157,11 @@ final class ProjectedSelect[
     val groupProjector: Any => List[Any] =
       a => { val xs = rawGroupProjector(a); if (xs.size == groupBys.size) xs else List.fill(groupBys.size)(Void) }
     val orderProjector: Any => List[Any] =
-      a => { val xs = rawOrderProjector(a); if (xs.size == orderBys.size) xs else List.fill(orderBys.size)(Void) }
+      a => {
+        // Leading items handed off from a whole-row builder with Void Args aren't in `Orders`; pad them in front.
+        val xs = rawOrderProjector(a)
+        if (xs.size >= orderBys.size) xs else List.fill(orderBys.size - xs.size)(Void) ++ xs
+      }
     type Out = Where.Concat[
       Where.Concat[Where.Concat[
         Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[CArgs, DArgs], ProjArgs], SArgs], OnA], WArgs],
@@ -1177,7 +1243,11 @@ final class ProjectedSelect[
     val groupProjector: Any => List[Any] =
       a => { val xs = rawGroupProjector(a); if (xs.size == groupBys.size) xs else List.fill(groupBys.size)(Void) }
     val orderProjector: Any => List[Any] =
-      a => { val xs = rawOrderProjector(a); if (xs.size == orderBys.size) xs else List.fill(orderBys.size)(Void) }
+      a => {
+        // Leading items handed off from a whole-row builder with Void Args aren't in `Orders`; pad them in front.
+        val xs = rawOrderProjector(a)
+        if (xs.size >= orderBys.size) xs else List.fill(orderBys.size - xs.size)(Void) ++ xs
+      }
     type Out = Where.Concat[Where.Concat[
       Where.Concat[Where.Concat[Where.Concat[Where.Concat[Where.Concat[DA2, PA], SA], OnA], WArgs], GA],
       HArgs
@@ -1430,9 +1500,10 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
   aL: AsRelation.Aux[L, RL, CL, AL, ML]
 ) {
 
-  def select: SelectBuilder[SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple, EmptyTuple, Void, Void] = {
+  def select: SelectBuilder[SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple, EmptyTuple, Void, Void, Void] = {
     val entry = makeBaseEntry[L, RL, CL, AL, ML](aL, left)
-    new SelectBuilder[SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple, EmptyTuple, Void, Void](entry *: EmptyTuple)
+    new SelectBuilder[SourceEntry[RL, CL, CL, AL, Void] *: EmptyTuple, EmptyTuple, Void, Void, Void](entry *:
+      EmptyTuple)
   }
 
 }
