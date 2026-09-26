@@ -102,6 +102,7 @@
     <li class="level1 nav-leaf"><a href="#uuids">UUIDs</a></li>
     <li class="level1 nav-leaf"><a href="#primitive-literals-as-direct-rhs">Primitive literals as direct RHS</a></li>
     <li class="level1 nav-leaf"><a href="#in-list-parameters-with-param-list-t-n">IN-list parameters with <code>Param.list[T](n)</code></a></li>
+    <li class="level1 nav-leaf"><a href="#arithmetic">Arithmetic</a></li>
     <li class="level1 nav-leaf"><a href="#named-parameters">Named parameters</a></li>
     <li class="level1 nav-leaf"><a href="#dynamic-predicates-with-allof-anyof">Dynamic predicates with <code>allOf</code> / <code>anyOf</code></a></li>
   </ul>
@@ -318,6 +319,19 @@
 </span><span class="comment">// byIds: CompiledQuery[List[UUID], …]</span></code></pre>
         <p>For sizes that vary per call, rebuild the query per size, or use array equality
         (<code>col === ANY(Param[Arr[T]])</code>) instead.</p>
+        
+        <h2 id="arithmetic" class="section"><a class="anchor-link left" href="#arithmetic"><i class="icofont-laika link">&#xef71;</i></a>Arithmetic</h2>
+        <p><code>+ - * / %</code> and unary <code>-</code> work on expressions, and render parenthesised so any nesting is
+        correct:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// SELECT &quot;email&quot;, (&quot;age&quot; + 1) FROM &quot;users&quot; WHERE (&quot;age&quot; * 2) &gt; $1
+</span><span class="keyword">val</span><span> </span><span class="identifier">older</span><span> = </span><span class="identifier">users</span><span>.</span><span class="identifier">select</span><span>(</span><span class="identifier">u</span><span> =&gt; (</span><span class="identifier">u</span><span>.</span><span class="identifier">email</span><span>, </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> + </span><span class="number-literal">1</span><span>)).</span><span class="identifier">where</span><span>(</span><span class="identifier">u</span><span> =&gt; </span><span class="identifier">u</span><span>.</span><span class="identifier">age</span><span> * </span><span class="number-literal">2</span><span> &gt; </span><span class="type-name">Param</span><span>[</span><span class="type-name">Int</span><span>]).</span><span class="identifier">compile</span></code></pre>
+        <p>Result types follow Postgres: integers widen (<code>int2 &lt; int4 &lt; int8</code>), an integer with <code>numeric</code>
+        gives <code>numeric</code>, anything with <code>float8</code> gives <code>float8</code>, and a nullable operand makes the result
+        <code>Option</code>. <code>int / int</code> truncates, as in Postgres, and <code>%</code> is for integers and <code>numeric</code>. Dates
+        and times work too: <code>timestamptz ± interval</code> (<code>OffsetDateTime</code> ± <code>Duration</code>), <code>date ± int</code>
+        (days), <code>date - date</code> (days, as <code>Int</code>), <code>timestamp - timestamp</code> (a <code>Duration</code>), <code>interval * float8</code>.
+        Anything else — <code>email + 1</code>, <code>date + date</code> — doesn&#39;t compile. Extension types add their own
+        (pgvector: <code>vector + vector</code>).</p>
         
         <h2 id="named-parameters" class="section"><a class="anchor-link left" href="#named-parameters"><i class="icofont-laika link">&#xef71;</i></a>Named parameters</h2>
         <p><code>Param[T]</code> placeholders are positional: the compiled statement takes a tuple in the order the
