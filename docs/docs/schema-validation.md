@@ -50,6 +50,7 @@ SchemaValidator.validateOrRaise[IO](session, users, posts)
 | `PrimaryKeyMissing` / `PrimaryKeyColumnsDiffer` / `ExtraPrimaryKey` | Declared PK set differs from `information_schema.table_constraints` |
 | `UniqueConstraintMissing` / `ExtraUniqueConstraint` | Declared UNIQUE constraint not present in the DB (or vice versa) |
 | `ExtensionMissing` | A Postgres extension required by a column tag (or supplied via `extraExtensions`) is not in `pg_extension` |
+| `IndexMissing` / `IndexDefinitionMismatch` / `ExtraIndex` | A declared non-unique index is absent or defined differently, or (for a table that declares indexes) an undeclared one exists — see [Non-unique indexes](#non-unique-indexes) |
 
 ## What it checks
 
@@ -71,8 +72,42 @@ It also checks:
 - **Postgres extensions** required by declared column tags (citext, ltree, hstore, …) or
   supplied explicitly via `extraExtensions` — looked up in `pg_extension`.
 
-It does **not** check non-unique indexes, foreign keys, check constraints, or default
-expressions — those are owned by migrations, not by the DSL.
+- **Non-unique indexes** declared via `.withIndex` / `.withSortedIndex` / `.withPartialIndex`
+  — see [below](#non-unique-indexes).
+
+It does **not** check foreign keys, check constraints, or default expressions — those are
+owned by migrations, not by the DSL.
+
+## Non-unique indexes
+
+Indexes a query plan depends on can be declared on the `Table`, so dropping or changing one in
+a migration is caught at boot. Declaring is opt-in per table: a table that declares no index
+isn't index-checked; once it declares one, every non-unique index on it must be declared.
+PK / UNIQUE indexes are covered by the constraint check. Names match the migration's
+`CREATE INDEX <name> …`.
+
+```scala mdoc:silent
+import skunk.sharp.IndexOrder
+
+case class Tx(id: Long, household_id: UUID, booking_date: java.time.LocalDate, account: Option[String])
+
+val transactions = Table.of[Tx]("transaction")
+  .withPrimary("id")
+  // CREATE INDEX tx_household_booking_idx ON transaction (household_id, booking_date DESC, id DESC)
+  .withSortedIndex["tx_household_booking_idx", ("household_id", "booking_date", "id")](
+    (IndexOrder.Asc, IndexOrder.Desc, IndexOrder.Desc)
+  )
+  // CREATE INDEX tx_account_idx ON transaction (account) WHERE account IS NOT NULL
+  .withPartialIndex["tx_account_idx", Tuple1["account"]]("account IS NOT NULL")
+  // CREATE INDEX tx_booking_idx ON transaction (booking_date)
+  .withIndex["tx_booking_idx", Tuple1["booking_date"]]
+```
+
+Column names are checked at compile time, and `withSortedIndex` takes one `IndexOrder` per key
+(`Asc`, `Desc`, `AscNullsFirst`, `DescNullsLast`) — a tuple of the wrong arity doesn't compile.
+Partial-index predicates are compared with Postgres's normalised form, ignoring parentheses,
+spacing and case. Only btree indexes are declarable; an index of another method under a
+declared name is reported as a definition mismatch.
 
 ## Extensions and contrib tags
 
