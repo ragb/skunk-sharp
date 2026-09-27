@@ -1,8 +1,8 @@
 package skunk.sharp.dsl
 
-import skunk.{Codec, Fragment, Void}
+import skunk.{Fragment, Void}
 import skunk.sharp.*
-import skunk.sharp.internal.{CompileChecks, RawConstants, RowCodecs}, RowCodecs.tupleCodec
+import skunk.sharp.internal.{CompileChecks, RawConstants}
 import skunk.sharp.where.Where
 
 import scala.NamedTuple
@@ -171,12 +171,36 @@ final class MergeCommand[
     pa: ProjArgsOf.Aux[T, TOut],
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
     bff: SourceBodyArgsProj[Ss]
-  ): QueryTemplate[Where.Concat[Where.Concat[Where.Concat[SArgs, OnArgs], CArgs], TOut], ExprOutputs[T]] = {
-    val exprs    = f(buildJoinedView(sources)).toList.asInstanceOf[List[TypedExpr[?, ?]]]
-    val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
-    val combined = TypedExpr.combineList[TOut](exprs.map(_.fragment), ", ", (a: TOut) => pa.project(a))
-    returning[ExprOutputs[T], TOut, SArgs](_ => TypedExpr[ExprOutputs[T], TOut](combined, codec))
-  }
+  ): QueryTemplate[Where.Concat[Where.Concat[Where.Concat[SArgs, OnArgs], CArgs], TOut], ExprOutputs[T]] =
+    returning[ExprOutputs[T], TOut, SArgs](v => Returning.tuple[TOut, ExprOutputs[T]](f(v), pa))
+
+  /** `… RETURNING <e1> AS …, …` (PG 17+) — named-tuple form of [[returning]]. */
+  inline def returningNamed[NT <: scala.NamedTuple.AnyNamedTuple, SArgs, TOut](f: JoinedView[Ss] => NT)(using
+    pa: ProjArgsOf.Aux[scala.NamedTuple.DropNames[NT], TOut],
+    sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
+    bff: SourceBodyArgsProj[Ss]
+  ): QueryTemplate[
+    Where.Concat[Where.Concat[Where.Concat[SArgs, OnArgs], CArgs], TOut],
+    scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]]
+  ] =
+    returning[
+      scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]],
+      TOut,
+      SArgs
+    ](v =>
+      Returning.tuple[
+        TOut,
+        scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]]
+      ](f(v).asInstanceOf[Product], pa)
+    )
+
+  /** `… RETURNING` every target column (PG 17+). Target columns reflect the row after the action. */
+  inline def returningAll[SArgs](using
+    sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
+    bff: SourceBodyArgsProj[Ss]
+  ): QueryTemplate[Where.Concat[Where.Concat[SArgs, OnArgs], CArgs], NamedRowOf[Cols]] =
+    returning[NamedRowOf[Cols], Void, SArgs](_ => table.returningAllExpr)
+      .asInstanceOf[QueryTemplate[Where.Concat[Where.Concat[SArgs, OnArgs], CArgs], NamedRowOf[Cols]]]
 
 }
 

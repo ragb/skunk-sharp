@@ -2,7 +2,7 @@ package skunk.sharp.dsl
 
 import skunk.{AppliedFragment, Codec, Fragment, Void}
 import skunk.sharp.*
-import skunk.sharp.internal.{RawConstants, RowCodecs}, RowCodecs.tupleCodec
+import skunk.sharp.internal.RawConstants
 import skunk.sharp.where.Where
 
 /**
@@ -26,7 +26,7 @@ final class DeleteBuilder[Cols <: Tuple, Name <: String & Singleton] private[sha
   }
 
   inline def whereRaw(af: AppliedFragment): DeleteReady[Cols, Name, ?] = {
-    val combined = SelectBuilder.andRawInto[Void](None, af, Where.projPair[Void, Void])
+    val combined = SelectBuilder.andRaw[Void](None, af)
     new DeleteReady[Cols, Name, Any](table, Some(combined))
   }
 
@@ -74,20 +74,12 @@ final class DeleteReady[
 
   inline def where[A](f: ColumnsView[Cols] => Where[A]): DeleteReady[Cols, Name, Where.Concat[Args, A]] = {
     val pred     = f(table.columnsView)
-    val combined = SelectBuilder.andInto[Args, A](
-      whereOpt.asInstanceOf[Option[Fragment[Args]]],
-      pred,
-      Where.projPair[Args, A]
-    )
+    val combined = SelectBuilder.and[Args, A](whereOpt, pred)
     new DeleteReady[Cols, Name, Where.Concat[Args, A]](table, Some(combined))
   }
 
   inline def whereRaw(af: AppliedFragment): DeleteReady[Cols, Name, ?] = {
-    val combined = SelectBuilder.andRawInto[Args](
-      whereOpt.asInstanceOf[Option[Fragment[Args]]],
-      af,
-      Where.projPair[Args, Void]
-    )
+    val combined = SelectBuilder.andRaw[Args](whereOpt, af)
     new DeleteReady[Cols, Name, Any](table, Some(combined))
   }
 
@@ -110,39 +102,28 @@ final class DeleteReady[
 
   inline def returningTuple[T <: NonEmptyTuple, TOut](f: ColumnsView[Cols] => T)(using
     pa: ProjArgsOf.Aux[T, TOut]
-  ): QueryTemplate[Where.Concat[Args, TOut], ExprOutputs[T]] = {
-    val exprs    = f(table.columnsView).toList.asInstanceOf[List[TypedExpr[?, ?]]]
-    val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
-    val combined = TypedExpr.combineList[TOut](exprs.map(_.fragment), ", ", (a: TOut) => pa.project(a))
-    MutationAssembly.withReturningTyped2[Args, TOut, ExprOutputs[T]](deleteParts, combined, codec)
-  }
+  ): QueryTemplate[Where.Concat[Args, TOut], ExprOutputs[T]] =
+    returning[ExprOutputs[T], TOut](v => Returning.tuple[TOut, ExprOutputs[T]](f(v), pa))
 
   inline def returningNamed[NT <: scala.NamedTuple.AnyNamedTuple, TOut](f: ColumnsView[Cols] => NT)(using
     pa: ProjArgsOf.Aux[scala.NamedTuple.DropNames[NT], TOut]
   ): QueryTemplate[
     Where.Concat[Args, TOut],
     scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]]
-  ] = {
-    type Vs = scala.NamedTuple.DropNames[NT]
-    type Ns = scala.NamedTuple.Names[NT]
-    type R  = scala.NamedTuple.NamedTuple[Ns, ExprOutputs[Vs]]
-    val tup      = f(table.columnsView).asInstanceOf[Product]
-    val exprs    = tup.productIterator.toList.asInstanceOf[List[TypedExpr[?, ?]]]
-    val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[R]]
-    val combined = TypedExpr.combineList[TOut](exprs.map(_.fragment), ", ", (a: TOut) => pa.project(a))
-    MutationAssembly.withReturningTyped2[Args, TOut, R](deleteParts, combined, codec)
-  }
+  ] =
+    returning[
+      scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]],
+      TOut
+    ](v =>
+      Returning.tuple[
+        TOut,
+        scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]]
+      ](f(v).asInstanceOf[Product], pa)
+    )
 
-  inline def returningAll: QueryTemplate[Args, NamedRowOf[Cols]] = {
-    val exprs =
-      table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
-        TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
-      )
-    val codec    = skunk.sharp.internal.RowCodecs.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
-    val combined = TypedExpr.combineList[Void](exprs.map(_.fragment), ", ", _ => List.fill(exprs.size)(Void))
-    MutationAssembly.withReturningTyped2[Args, Void, NamedRowOf[Cols]](deleteParts, combined, codec)
+  inline def returningAll: QueryTemplate[Args, NamedRowOf[Cols]] =
+    returning[NamedRowOf[Cols], Void](_ => table.returningAllExpr)
       .asInstanceOf[QueryTemplate[Args, NamedRowOf[Cols]]]
-  }
 
 }
 
@@ -255,7 +236,7 @@ final class DeleteUsingBuilder[Cols <: Tuple, Name <: String & Singleton, Ss <: 
   }
 
   inline def whereRaw(af: AppliedFragment): DeleteUsingReady[Cols, Name, Ss, ?] = {
-    val combined = SelectBuilder.andRawInto[Void](None, af, Where.projPair[Void, Void])
+    val combined = SelectBuilder.andRaw[Void](None, af)
     new DeleteUsingReady[Cols, Name, Ss, Any](table, sources, Some(combined))
   }
 
@@ -278,20 +259,12 @@ final class DeleteUsingReady[
   inline def where[A](f: JoinedView[Ss] => Where[A]): DeleteUsingReady[Cols, Name, Ss, Where.Concat[Args, A]] = {
     val view     = buildJoinedView(sources)
     val pred     = f(view)
-    val combined = SelectBuilder.andInto[Args, A](
-      whereOpt.asInstanceOf[Option[Fragment[Args]]],
-      pred,
-      Where.projPair[Args, A]
-    )
+    val combined = SelectBuilder.and[Args, A](whereOpt, pred)
     new DeleteUsingReady[Cols, Name, Ss, Where.Concat[Args, A]](table, sources, Some(combined))
   }
 
   inline def whereRaw(af: AppliedFragment): DeleteUsingReady[Cols, Name, Ss, ?] = {
-    val combined = SelectBuilder.andRawInto[Args](
-      whereOpt.asInstanceOf[Option[Fragment[Args]]],
-      af,
-      Where.projPair[Args, Void]
-    )
+    val combined = SelectBuilder.andRaw[Args](whereOpt, af)
     new DeleteUsingReady[Cols, Name, Ss, Any](table, sources, Some(combined))
   }
 
@@ -348,14 +321,8 @@ final class DeleteUsingReady[
     pa: ProjArgsOf.Aux[T, TOut],
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
     bff: SourceBodyArgsProj[Ss]
-  ): QueryTemplate[Where.Concat[Where.Concat[SArgs, Args], TOut], ExprOutputs[T]] = {
-    val exprs    = f(buildJoinedView(sources)).toList.asInstanceOf[List[TypedExpr[?, ?]]]
-    val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
-    val combined = TypedExpr.combineList[TOut](exprs.map(_.fragment), ", ", (a: TOut) => pa.project(a))
-    returning[ExprOutputs[T], TOut, SArgs](_ =>
-      TypedExpr[ExprOutputs[T], TOut](combined, codec)
-    )
-  }
+  ): QueryTemplate[Where.Concat[Where.Concat[SArgs, Args], TOut], ExprOutputs[T]] =
+    returning[ExprOutputs[T], TOut, SArgs](v => Returning.tuple[TOut, ExprOutputs[T]](f(v), pa))
 
   inline def returningNamed[NT <: scala.NamedTuple.AnyNamedTuple, SArgs, TOut](f: JoinedView[Ss] => NT)(using
     pa: ProjArgsOf.Aux[scala.NamedTuple.DropNames[NT], TOut],
@@ -364,33 +331,24 @@ final class DeleteUsingReady[
   ): QueryTemplate[
     Where.Concat[Where.Concat[SArgs, Args], TOut],
     scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]]
-  ] = {
-    type Vs = scala.NamedTuple.DropNames[NT]
-    type Ns = scala.NamedTuple.Names[NT]
-    type R  = scala.NamedTuple.NamedTuple[Ns, ExprOutputs[Vs]]
-    val tup      = f(buildJoinedView(sources)).asInstanceOf[Product]
-    val exprs    = tup.productIterator.toList.asInstanceOf[List[TypedExpr[?, ?]]]
-    val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[R]]
-    val combined = TypedExpr.combineList[TOut](exprs.map(_.fragment), ", ", (a: TOut) => pa.project(a))
-    returning[R, TOut, SArgs](_ =>
-      TypedExpr[R, TOut](combined, codec)
+  ] =
+    returning[
+      scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]],
+      TOut,
+      SArgs
+    ](v =>
+      Returning.tuple[
+        TOut,
+        scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]]
+      ](f(v).asInstanceOf[Product], pa)
     )
-  }
 
   inline def returningAll[SArgs](using
     sbOf: SourceBodyArgsOf.Aux[Ss, SArgs],
     bff: SourceBodyArgsProj[Ss]
-  ): QueryTemplate[Where.Concat[SArgs, Args], NamedRowOf[Cols]] = {
-    val exprs =
-      table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
-        TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
-      )
-    val codec    = skunk.sharp.internal.RowCodecs.rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
-    val combined = TypedExpr.combineList[Void](exprs.map(_.fragment), ", ", _ => List.fill(exprs.size)(Void))
-    returning[NamedRowOf[Cols], Void, SArgs](_ =>
-      TypedExpr[NamedRowOf[Cols], Void](combined, codec)
-    ).asInstanceOf[QueryTemplate[Where.Concat[SArgs, Args], NamedRowOf[Cols]]]
-  }
+  ): QueryTemplate[Where.Concat[SArgs, Args], NamedRowOf[Cols]] =
+    returning[NamedRowOf[Cols], Void, SArgs](_ => table.returningAllExpr)
+      .asInstanceOf[QueryTemplate[Where.Concat[SArgs, Args], NamedRowOf[Cols]]]
 
 }
 
