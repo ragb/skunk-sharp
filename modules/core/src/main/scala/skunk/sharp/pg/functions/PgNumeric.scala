@@ -24,29 +24,22 @@ trait PgNumeric {
     e: TypedExpr[T, A1],
     digits: TypedExpr[Int, A2]
   ): TypedExpr[T, Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSepInl[A1, A2](e.fragment, ", ", digits.fragment)
-    val frag  = TypedExpr.wrap("round(", inner, ")")
-    TypedExpr(frag, e.codec)
+    PgFunction.call2("round", e, digits, e.codec)
   }
 
   /** `mod(a, b)` — both arms typed; combined Args. */
   inline def mod[T, AA, BA](a: TypedExpr[T, AA], b: TypedExpr[T, BA]): TypedExpr[T, Where.Concat[AA, BA]] = {
-    val inner = TypedExpr.combineSepInl[AA, BA](a.fragment, ", ", b.fragment)
-    val frag  = TypedExpr.wrap("mod(", inner, ")")
-    TypedExpr[T, Where.Concat[AA, BA]](frag, a.codec)
+    PgFunction.call2("mod", a, b, a.codec)
   }
 
   /** `greatest(a)` — single arg; Args propagates from `a`. */
   def greatest[T, A1](a: TypedExpr[T, A1]): TypedExpr[T, A1] = {
-    val frag = TypedExpr.wrap("greatest(", a.fragment, ")")
-    TypedExpr[T, A1](frag, a.codec)
+    PgFunction.call1("greatest", a, a.codec)
   }
 
   /** `greatest(a, b)` — Args = `Concat[A1, A2]`. */
   inline def greatest[T, A1, A2](a: TypedExpr[T, A1], b: TypedExpr[T, A2]): TypedExpr[T, Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSepInl[A1, A2](a.fragment, ", ", b.fragment)
-    val frag  = TypedExpr.wrap("greatest(", inner, ")")
-    TypedExpr[T, Where.Concat[A1, A2]](frag, a.codec)
+    PgFunction.call2("greatest", a, b, a.codec)
   }
 
   /** `greatest(a, b, c)` — `Args` flattens to `(A1, A2, A3)` via `Where.Concat` (Void slots dropped). */
@@ -161,15 +154,12 @@ trait PgNumeric {
 
   /** `least(a)` — single arg; Args propagates from `a`. */
   def least[T, A1](a: TypedExpr[T, A1]): TypedExpr[T, A1] = {
-    val frag = TypedExpr.wrap("least(", a.fragment, ")")
-    TypedExpr[T, A1](frag, a.codec)
+    PgFunction.call1("least", a, a.codec)
   }
 
   /** `least(a, b)` — Args = `Concat[A1, A2]`. */
   inline def least[T, A1, A2](a: TypedExpr[T, A1], b: TypedExpr[T, A2]): TypedExpr[T, Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSepInl[A1, A2](a.fragment, ", ", b.fragment)
-    val frag  = TypedExpr.wrap("least(", inner, ")")
-    TypedExpr[T, Where.Concat[A1, A2]](frag, a.codec)
+    PgFunction.call2("least", a, b, a.codec)
   }
 
   /** `least(a, b, c)` — `Args` flattens to `(A1, A2, A3)` via `Where.Concat` (Void slots dropped). */
@@ -290,9 +280,7 @@ trait PgNumeric {
   inline def power[A, B, AA, BA](a: TypedExpr[A, AA], b: TypedExpr[B, BA])(using
     pf: PgTypeFor[Lift2[A, B, Double]]
   ): TypedExpr[Lift2[A, B, Double], Where.Concat[AA, BA]] = {
-    val inner = TypedExpr.combineSepInl[AA, BA](a.fragment, ", ", b.fragment)
-    val frag  = TypedExpr.wrap("power(", inner, ")")
-    TypedExpr[Lift2[A, B, Double], Where.Concat[AA, BA]](frag, pf.codec)
+    PgFunction.call2("power", a, b, pf.codec)
   }
 
   def exp[T, A](e: TypedExpr[T, A])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double], A] =
@@ -344,9 +332,7 @@ trait PgNumeric {
   inline def atan2[A, B, AA, BA](y: TypedExpr[A, AA], x: TypedExpr[B, BA])(using
     pf: PgTypeFor[Lift2[A, B, Double]]
   ): TypedExpr[Lift2[A, B, Double], Where.Concat[AA, BA]] = {
-    val inner = TypedExpr.combineSepInl[AA, BA](y.fragment, ", ", x.fragment)
-    val frag  = TypedExpr.wrap("atan2(", inner, ")")
-    TypedExpr[Lift2[A, B, Double], Where.Concat[AA, BA]](frag, pf.codec)
+    PgFunction.call2("atan2", y, x, pf.codec)
   }
 
   // -------- Hyperbolic --------------------------------------------------------------------------

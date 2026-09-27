@@ -82,17 +82,13 @@ trait PgTime {
     precision: TypedExpr[String, A1],
     e: TypedExpr[T, A2]
   ): TypedExpr[T, Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSepInl[A1, A2](precision.fragment, ", ", e.fragment)
-    val frag  = TypedExpr.wrap("date_trunc(", inner, ")")
-    TypedExpr(frag, e.codec)
+    PgFunction.call2("date_trunc", precision, e, e.codec)
   }
 
   // -------- Interval arithmetic ----------------------------------------------------------------
 
   inline def age[T, X, Y](a: TypedExpr[T, X], b: TypedExpr[T, Y]): TypedExpr[Duration, Where.Concat[X, Y]] = {
-    val inner = TypedExpr.combineSepInl[X, Y](a.fragment, ", ", b.fragment)
-    val frag  = TypedExpr.wrap("age(", inner, ")")
-    TypedExpr[Duration, Where.Concat[X, Y]](frag, skunk.codec.all.interval)
+    PgFunction.call2("age", a, b, skunk.codec.all.interval)
   }
 
   def age[T, A](e: TypedExpr[T, A]): TypedExpr[Duration, A] = unaryOut("age", e, skunk.codec.all.interval)
@@ -178,16 +174,13 @@ trait PgTime {
     e: TypedExpr[T, A1],
     fmt: TypedExpr[String, A2]
   )(using ev: StrLike[T]): TypedExpr[LocalDate, Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSepInl[A1, A2](e.fragment, ", ", fmt.fragment)
-    val frag  = TypedExpr.wrap("to_date(", inner, ")")
-    TypedExpr(frag, skunk.codec.all.date)
+    PgFunction.call2("to_date", e, fmt, skunk.codec.all.date)
   }
 
   // -------- Helpers -------------------------------------------------------------------------
 
   private def unaryOut[T, A, R](name: String, e: TypedExpr[T, A], outCodec: Codec[R]): TypedExpr[R, A] = {
-    val frag = TypedExpr.wrap(s"$name(", e.fragment, ")")
-    TypedExpr[R, A](frag, outCodec)
+    PgFunction.call1(name, e, outCodec)
   }
 
 }

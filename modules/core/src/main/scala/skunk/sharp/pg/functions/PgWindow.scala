@@ -17,8 +17,7 @@ trait PgWindow {
 
   /** `ntile(n)`. */
   inline def ntile[A](n: TypedExpr[Int, A]): TypedExpr[Int, A] = {
-    val frag = TypedExpr.wrap("ntile(", n.fragment, ")")
-    TypedExpr(frag, skunk.codec.all.int4)
+    PgFunction.call1("ntile", n, skunk.codec.all.int4)
   }
 
   // ---- Offset access functions ------------------------------------------------------------------
@@ -30,9 +29,7 @@ trait PgWindow {
     expr: TypedExpr[T, A1],
     offset: TypedExpr[Int, A2]
   ): TypedExpr[Option[T], Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSepInl[A1, A2](expr.fragment, ", ", offset.fragment)
-    val frag  = TypedExpr.wrap("lag(", inner, ")")
-    TypedExpr(frag, expr.codec.opt)
+    PgFunction.call2("lag", expr, offset, expr.codec.opt)
   }
 
   /** `lag(expr, offset, default)`. */
@@ -54,9 +51,7 @@ trait PgWindow {
     expr: TypedExpr[T, A1],
     offset: TypedExpr[Int, A2]
   ): TypedExpr[Option[T], Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSepInl[A1, A2](expr.fragment, ", ", offset.fragment)
-    val frag  = TypedExpr.wrap("lead(", inner, ")")
-    TypedExpr(frag, expr.codec.opt)
+    PgFunction.call2("lead", expr, offset, expr.codec.opt)
   }
 
   /** `lead(expr, offset, default)`. */
@@ -74,24 +69,19 @@ trait PgWindow {
   // ---- Value functions --------------------------------------------------------------------------
 
   def firstValue[T, A](expr: TypedExpr[T, A]): TypedExpr[T, A] = {
-    val frag = TypedExpr.wrap("first_value(", expr.fragment, ")")
-    TypedExpr[T, A](frag, expr.codec)
+    PgFunction.call1("first_value", expr, expr.codec)
   }
 
   def lastValue[T, A](expr: TypedExpr[T, A]): TypedExpr[T, A] = {
-    val frag = TypedExpr.wrap("last_value(", expr.fragment, ")")
-    TypedExpr[T, A](frag, expr.codec)
+    PgFunction.call1("last_value", expr, expr.codec)
   }
 
   inline def nthValue[T, A1, A2](expr: TypedExpr[T, A1], n: TypedExpr[Int, A2]): TypedExpr[T, Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSepInl[A1, A2](expr.fragment, ", ", n.fragment)
-    val frag  = TypedExpr.wrap("nth_value(", inner, ")")
-    TypedExpr(frag, expr.codec)
+    PgFunction.call2("nth_value", expr, n, expr.codec)
   }
 
   private def unaryOpt[T, A](name: String, expr: TypedExpr[T, A]): TypedExpr[Option[T], A] = {
-    val frag = TypedExpr.wrap(s"$name(", expr.fragment, ")")
-    TypedExpr[Option[T], A](frag, expr.codec.opt)
+    PgFunction.call1(name, expr, expr.codec.opt)
   }
 
 }

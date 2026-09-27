@@ -40,6 +40,43 @@ object PgFunction {
     TypedExpr(frag, codec)
   }
 
+  /** `name(a)` with an explicit result codec. Args propagate from the argument. */
+  def call1[R, A](name: String, a: TypedExpr[?, A], codec: Codec[R]): TypedExpr[R, A] =
+    callF1[R, A](name, a.fragment, codec)
+
+  /** `name(a, b, c)` with an explicit result codec. Args = the flat concat of the three. */
+  inline def call3[R, X, Y, Z](
+    name: String,
+    a: TypedExpr[?, X],
+    b: TypedExpr[?, Y],
+    c: TypedExpr[?, Z],
+    codec: Codec[R]
+  )
+    : TypedExpr[R, where.Where.Concat[where.Where.Concat[X, Y], Z]] =
+    callF3[R, X, Y, Z](name, a.fragment, b.fragment, c.fragment, codec)
+
+  /** Fragment-level [[call1]] — for arguments that aren't a plain `TypedExpr` (e.g. a `::regconfig`-cast literal). */
+  def callF1[R, A](name: String, a: Fragment[A], codec: Codec[R]): TypedExpr[R, A] =
+    TypedExpr[R, A](TypedExpr.wrap(name + "(", a, ")"), codec)
+
+  /** Fragment-level two-argument call. */
+  inline def callF2[R, X, Y](name: String, a: Fragment[X], b: Fragment[Y], codec: Codec[R])
+    : TypedExpr[R, where.Where.Concat[X, Y]] =
+    TypedExpr[R, where.Where.Concat[X, Y]](
+      TypedExpr.wrap(name + "(", TypedExpr.combineSepInl[X, Y](a, ", ", b), ")"),
+      codec
+    )
+
+  /** Fragment-level three-argument call. */
+  inline def callF3[R, X, Y, Z](name: String, a: Fragment[X], b: Fragment[Y], c: Fragment[Z], codec: Codec[R])
+    : TypedExpr[R, where.Where.Concat[where.Where.Concat[X, Y], Z]] = {
+    val ab = TypedExpr.combineSepInl[X, Y](a, ", ", b)
+    TypedExpr[R, where.Where.Concat[where.Where.Concat[X, Y], Z]](
+      TypedExpr.wrap(name + "(", TypedExpr.combineSepInl[where.Where.Concat[X, Y], Z](ab, ", ", c), ")"),
+      codec
+    )
+  }
+
   /**
    * `name(a, b)` with an explicit result codec. Args = `Concat[X, Y]`, split back per side by `projectConcat` at the
    * (inline) call site — correct whatever shape each side's Args has (Void, scalar, or a multi-Param tuple).

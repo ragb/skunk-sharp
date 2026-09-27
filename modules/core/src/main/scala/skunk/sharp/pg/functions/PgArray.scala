@@ -16,14 +16,11 @@ trait PgArray {
     a: TypedExpr[A, X],
     dim: TypedExpr[Int, Y]
   )(using @annotation.unused ev: IsArray[A]): TypedExpr[Option[Int], Where.Concat[X, Y]] = {
-    val inner = TypedExpr.combineSepInl[X, Y](a.fragment, ", ", dim.fragment)
-    val frag  = TypedExpr.wrap("array_length(", inner, ")")
-    TypedExpr(frag, pg.int4.opt)
+    PgFunction.call2("array_length", a, dim, pg.int4.opt)
   }
 
   def cardinality[A, X](a: TypedExpr[A, X])(using @annotation.unused ev: IsArray[A]): TypedExpr[Int, X] = {
-    val frag = TypedExpr.wrap("cardinality(", a.fragment, ")")
-    TypedExpr[Int, X](frag, pg.int4)
+    PgFunction.call1("cardinality", a, pg.int4)
   }
 
   inline def arrayAppend[A, E, X, Y](a: TypedExpr[A, X], elem: TypedExpr[E, Y])(using
@@ -65,9 +62,7 @@ trait PgArray {
     a: TypedExpr[A, X],
     sep: TypedExpr[String, Y]
   )(using @annotation.unused ev: IsArray[A]): TypedExpr[String, Where.Concat[X, Y]] = {
-    val inner = TypedExpr.combineSepInl[X, Y](a.fragment, ", ", sep.fragment)
-    val frag  = TypedExpr.wrap("array_to_string(", inner, ")")
-    TypedExpr(frag, pg.text)
+    PgFunction.call2("array_to_string", a, sep, pg.text)
   }
 
   import skunk.sharp.PgFunction
@@ -87,22 +82,18 @@ trait PgArray {
     s: TypedExpr[String, X],
     sep: TypedExpr[String, Y]
   ): TypedExpr[Arr[String], Where.Concat[X, Y]] = {
-    val inner = TypedExpr.combineSepInl[X, Y](s.fragment, ", ", sep.fragment)
-    val frag  = TypedExpr.wrap("string_to_array(", inner, ")")
-    TypedExpr(frag, pg._text)
+    PgFunction.call2("string_to_array", s, sep, pg._text)
   }
 
   def arrayAgg[T, X](expr: TypedExpr[T, X])(using pf: PgTypeFor[Arr[T]]): TypedExpr[Arr[T], X] = {
-    val frag = TypedExpr.wrap("array_agg(", expr.fragment, ")")
-    TypedExpr[Arr[T], X](frag, pf.codec)
+    PgFunction.call1("array_agg", expr, pf.codec)
   }
 
   def unnest[A, E, X](a: TypedExpr[A, X])(using
     @annotation.unused ev: IsArray.Aux[A, E],
     pf: PgTypeFor[E]
   ): TypedExpr[E, X] = {
-    val frag = TypedExpr.wrap("unnest(", a.fragment, ")")
-    TypedExpr[E, X](frag, pf.codec)
+    PgFunction.call1("unnest", a, pf.codec)
   }
 
 }

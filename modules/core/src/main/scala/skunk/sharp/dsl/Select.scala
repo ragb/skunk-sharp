@@ -764,49 +764,6 @@ object SelectBuilder {
   private[dsl] inline def bake(af: AppliedFragment): BodyPart =
     Left(TypedExpr.liftAfToVoid(af))
 
-  /** Build the body-parts list for a SELECT or projected SELECT in render order. */
-  private[dsl] def bodyPartsAround(
-    headerParts: List[AppliedFragment],
-    whereOpt: Option[Fragment[?]],
-    groupBys: List[TypedExpr[?, ?]],
-    havingOpt: Option[Fragment[?]],
-    orderBys: List[OrderBy[?]],
-    limitOpt: Option[Int],
-    offsetOpt: Option[Int],
-    lockingOpt: Option[Locking]
-  ): List[BodyPart] = {
-    val buf = scala.collection.mutable.ListBuffer[BodyPart]()
-    headerParts.foreach(af => buf += SelectBuilder.bake(af))
-    whereOpt.foreach { f =>
-      buf += SelectBuilder.bake(RawConstants.WHERE)
-      buf += Right(f)
-    }
-    if (groupBys.nonEmpty) {
-      buf += SelectBuilder.bake(RawConstants.GROUP_BY)
-      buf += SelectBuilder.bake(TypedExpr.joined(groupBys.map(e => bindVoid(e.fragment)), ", "))
-    }
-    havingOpt.foreach { f =>
-      buf += SelectBuilder.bake(RawConstants.HAVING)
-      buf += Right(f)
-    }
-    if (orderBys.nonEmpty) {
-      buf += SelectBuilder.bake(RawConstants.ORDER_BY)
-      buf += SelectBuilder.bake(TypedExpr.joined(orderBys.map(o => bindVoid(o.fragment)), ", "))
-    }
-    limitOpt.foreach(n => buf += SelectBuilder.bake(RawConstants.limitAf(n)))
-    offsetOpt.foreach(n => buf += SelectBuilder.bake(RawConstants.offsetAf(n)))
-    lockingOpt.foreach(l => buf += SelectBuilder.bake(RawConstants.lockingAf(l.sql)))
-    buf.toList
-  }
-
-  /**
-   * Bind a `Fragment[?]` at `Void` to obtain an `AppliedFragment`. For groupBys / orderBys / DISTINCT ON exprs that may
-   * carry typed Args (Param-bearing) — currently constrained to Void-args inputs (typed-args threading through these
-   * positions is roadmap).
-   */
-  private[dsl] def bindVoid(f: Fragment[?]): AppliedFragment =
-    f.asInstanceOf[Fragment[Void]].apply(Void)
-
   /**
    * Empty `Fragment[Void]` placeholder. Used as a Right slot filler when a typed position (WHERE / GROUP BY / HAVING)
    * is absent — keeps the assemble walker's slot index stable so subsequent positions land on the correct A_i. Renders

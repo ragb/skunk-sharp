@@ -74,9 +74,7 @@ trait PgString {
     e: TypedExpr[T, A1],
     n: TypedExpr[Int, A2]
   )(using StrLike[T]): TypedExpr[T, Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSepInl[A1, A2](e.fragment, ", ", n.fragment)
-    val frag  = TypedExpr.wrap("left(", inner, ")")
-    TypedExpr(frag, e.codec)
+    PgFunction.call2("left", e, n, e.codec)
   }
 
   /** `right(s, n)`. */
@@ -84,9 +82,7 @@ trait PgString {
     e: TypedExpr[T, A1],
     n: TypedExpr[Int, A2]
   )(using StrLike[T]): TypedExpr[T, Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSepInl[A1, A2](e.fragment, ", ", n.fragment)
-    val frag  = TypedExpr.wrap("right(", inner, ")")
-    TypedExpr(frag, e.codec)
+    PgFunction.call2("right", e, n, e.codec)
   }
 
   /** `repeat(s, n)`. */
@@ -94,9 +90,7 @@ trait PgString {
     e: TypedExpr[T, A1],
     n: TypedExpr[Int, A2]
   )(using StrLike[T]): TypedExpr[T, Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSepInl[A1, A2](e.fragment, ", ", n.fragment)
-    val frag  = TypedExpr.wrap("repeat(", inner, ")")
-    TypedExpr(frag, e.codec)
+    PgFunction.call2("repeat", e, n, e.codec)
   }
 
   /** `regexp_replace(s, pattern, replacement)`. */
@@ -125,8 +119,7 @@ trait PgString {
 
   /** `concat(a)` — single arg; Args propagates from `a`. */
   def concat[A1](a: TypedExpr[String, A1]): TypedExpr[String, A1] = {
-    val frag = TypedExpr.wrap("concat(", a.fragment, ")")
-    TypedExpr[String, A1](frag, skunk.codec.all.text)
+    PgFunction.call1("concat", a, skunk.codec.all.text)
   }
 
   /** `concat(a, b)` — Args = `Concat[A1, A2]`. */
@@ -134,9 +127,7 @@ trait PgString {
     a: TypedExpr[String, A1],
     b: TypedExpr[String, A2]
   ): TypedExpr[String, Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSepInl[A1, A2](a.fragment, ", ", b.fragment)
-    val frag  = TypedExpr.wrap("concat(", inner, ")")
-    TypedExpr[String, Where.Concat[A1, A2]](frag, skunk.codec.all.text)
+    PgFunction.call2("concat", a, b, skunk.codec.all.text)
   }
 
   /** `concat(a, b, c)` — `Args` flattens to the non-Void slots of `(A1…A3)` via `Where.FoldConcat`. */
@@ -292,9 +283,7 @@ trait PgString {
     e: TypedExpr[T, A1],
     n: TypedExpr[Int, A2]
   )(using StrLike[T]): TypedExpr[T, Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSepInl[A1, A2](e.fragment, ", ", n.fragment)
-    val frag  = TypedExpr.wrap("lpad(", inner, ")")
-    TypedExpr(frag, e.codec)
+    PgFunction.call2("lpad", e, n, e.codec)
   }
 
   /** `lpad(s, n, fill)`. */
@@ -314,9 +303,7 @@ trait PgString {
     e: TypedExpr[T, A1],
     n: TypedExpr[Int, A2]
   )(using StrLike[T]): TypedExpr[T, Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSepInl[A1, A2](e.fragment, ", ", n.fragment)
-    val frag  = TypedExpr.wrap("rpad(", inner, ")")
-    TypedExpr(frag, e.codec)
+    PgFunction.call2("rpad", e, n, e.codec)
   }
 
   /** `rpad(s, n, fill)`. */
@@ -337,13 +324,11 @@ trait PgString {
     ev: StrLike[T],
     pf: PgTypeFor[Lift[T, String]]
   ): TypedExpr[Lift[T, String], A] = {
-    val frag = TypedExpr.wrap("md5(", e.fragment, ")")
-    TypedExpr[Lift[T, String], A](frag, pf.codec)
+    PgFunction.call1("md5", e, pf.codec)
   }
 
   def chr[T, A](e: TypedExpr[T, A])(using pf: PgTypeFor[Lift[T, String]]): TypedExpr[Lift[T, String], A] = {
-    val frag = TypedExpr.wrap("chr(", e.fragment, ")")
-    TypedExpr[Lift[T, String], A](frag, pf.codec)
+    PgFunction.call1("chr", e, pf.codec)
   }
 
   /** `to_char(e, fmt)` — result is `Lift[T, String]`. */
@@ -351,9 +336,7 @@ trait PgString {
     e: TypedExpr[T, A1],
     fmt: TypedExpr[String, A2]
   )(using pf: PgTypeFor[Lift[T, String]]): TypedExpr[Lift[T, String], Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSepInl[A1, A2](e.fragment, ", ", fmt.fragment)
-    val frag  = TypedExpr.wrap("to_char(", inner, ")")
-    TypedExpr(frag, pf.codec)
+    PgFunction.call2("to_char", e, fmt, pf.codec)
   }
 
   /**
@@ -378,9 +361,7 @@ trait PgString {
     e: TypedExpr[T, A1],
     fmt: TypedExpr[String, A2]
   )(using ev: StrLike[T], pf: PgTypeFor[Lift[T, BigDecimal]]): TypedExpr[Lift[T, BigDecimal], Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSepInl[A1, A2](e.fragment, ", ", fmt.fragment)
-    val frag  = TypedExpr.wrap("to_number(", inner, ")")
-    TypedExpr(frag, pf.codec)
+    PgFunction.call2("to_number", e, fmt, pf.codec)
   }
 
 }

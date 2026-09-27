@@ -2,7 +2,7 @@ package skunk.sharp.circe
 
 import io.circe.Json as CirceJson
 import skunk.{Fragment, Void}
-import skunk.sharp.{Param, PgOperator, TypedExpr}
+import skunk.sharp.{Param, PgFunction, PgOperator, TypedExpr}
 import skunk.sharp.where.Where
 
 /**
@@ -24,28 +24,23 @@ trait PgJsonb {
 
   /** `to_jsonb(expr)` — cast anything to jsonb. */
   def toJsonb[T, X](e: TypedExpr[T, X]): TypedExpr[Jsonb[CirceJson], X] = {
-    val frag = TypedExpr.wrap("to_jsonb(", e.fragment, ")")
-    TypedExpr[Jsonb[CirceJson], X](frag, rawJsonbCodec)
+    PgFunction.call1("to_jsonb", e, rawJsonbCodec)
   }
 
   def jsonbTypeof[A, X](e: TypedExpr[Jsonb[A], X]): TypedExpr[String, X] = {
-    val frag = TypedExpr.wrap("jsonb_typeof(", e.fragment, ")")
-    TypedExpr[String, X](frag, skunk.codec.all.text)
+    PgFunction.call1("jsonb_typeof", e, skunk.codec.all.text)
   }
 
   def jsonbArrayLength[A, X](e: TypedExpr[Jsonb[A], X]): TypedExpr[Int, X] = {
-    val frag = TypedExpr.wrap("jsonb_array_length(", e.fragment, ")")
-    TypedExpr[Int, X](frag, skunk.codec.all.int4)
+    PgFunction.call1("jsonb_array_length", e, skunk.codec.all.int4)
   }
 
   def jsonbStripNulls[A, X](e: TypedExpr[Jsonb[A], X]): TypedExpr[Jsonb[CirceJson], X] = {
-    val frag = TypedExpr.wrap("jsonb_strip_nulls(", e.fragment, ")")
-    TypedExpr[Jsonb[CirceJson], X](frag, rawJsonbCodec)
+    PgFunction.call1("jsonb_strip_nulls", e, rawJsonbCodec)
   }
 
   def jsonbPretty[A, X](e: TypedExpr[Jsonb[A], X]): TypedExpr[String, X] = {
-    val frag = TypedExpr.wrap("jsonb_pretty(", e.fragment, ")")
-    TypedExpr[String, X](frag, skunk.codec.all.text)
+    PgFunction.call1("jsonb_pretty", e, skunk.codec.all.text)
   }
 
   /**

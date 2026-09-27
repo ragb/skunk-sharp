@@ -1,7 +1,7 @@
 package skunk.sharp.fts
 
 import skunk.Fragment
-import skunk.sharp.TypedExpr
+import skunk.sharp.{PgFunction, TypedExpr}
 import skunk.sharp.ops.Stripped
 import skunk.sharp.pg.PgTypeFor
 import skunk.sharp.pg.functions.{Lift, StrLike}
@@ -23,25 +23,15 @@ object Fts {
     TypedExpr.wrap("", config.fragment, "::regconfig")
 
   private inline def call1[R, A](name: String, a: Fragment[A])(using pf: PgTypeFor[R]): TypedExpr[R, A] =
-    TypedExpr[R, A](TypedExpr.wrap(s"$name(", a, ")"), pf.codec)
+    PgFunction.callF1[R, A](name, a, pf.codec)
 
   private inline def call2[R, A, B](name: String, a: Fragment[A], b: Fragment[B])(using
     pf: PgTypeFor[R]
-  ): TypedExpr[R, Where.Concat[A, B]] =
-    TypedExpr[R, Where.Concat[A, B]](
-      TypedExpr.wrap(s"$name(", TypedExpr.combineSepInl[A, B](a, ", ", b), ")"),
-      pf.codec
-    )
+  ): TypedExpr[R, Where.Concat[A, B]] = PgFunction.callF2[R, A, B](name, a, b, pf.codec)
 
   private inline def call3[R, A, B, C](name: String, a: Fragment[A], b: Fragment[B], c: Fragment[C])(using
     pf: PgTypeFor[R]
-  ): TypedExpr[R, Where.Concat[Where.Concat[A, B], C]] = {
-    val ab = TypedExpr.combineSepInl[A, B](a, ", ", b)
-    TypedExpr[R, Where.Concat[Where.Concat[A, B], C]](
-      TypedExpr.wrap(s"$name(", TypedExpr.combineSepInl[Where.Concat[A, B], C](ab, ", ", c), ")"),
-      pf.codec
-    )
-  }
+  ): TypedExpr[R, Where.Concat[Where.Concat[A, B], C]] = PgFunction.callF3[R, A, B, C](name, a, b, c, pf.codec)
 
   // ---- Documents ---------------------------------------------------------------------------------
 
