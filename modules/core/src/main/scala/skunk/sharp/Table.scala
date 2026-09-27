@@ -37,6 +37,13 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
    * otherwise re-allocate `DELETE FROM "name"` / `UPDATE "name" SET ` every call (string interpolation and then a fresh
    * Fragment). Cached once per `Table` instance and reused across compiles.
    */
+  /** `RETURNING *`-equivalent: every column (the interned projection list) with the row codec — built once. */
+  lazy val returningAllExpr: TypedExpr[NamedRowOf[Cols], skunk.Void] =
+    TypedExpr[NamedRowOf[Cols], skunk.Void](
+      TypedExpr.liftAfToVoid(starProjAf),
+      skunk.sharp.internal.RowCodecs.rowCodec(columns).asInstanceOf[skunk.Codec[NamedRowOf[Cols]]]
+    )
+
   lazy val deleteFromHeader: skunk.AppliedFragment =
     skunk.sharp.internal.RawConstants.intern(s"DELETE FROM $qualifiedName")
 

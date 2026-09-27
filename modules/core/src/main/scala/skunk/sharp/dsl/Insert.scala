@@ -4,7 +4,7 @@ import scala.annotation.targetName
 import cats.Reducible
 import skunk.{AppliedFragment, Codec, Encoder, Fragment, Void}
 import skunk.sharp.*
-import skunk.sharp.internal.{CompileChecks, RawConstants, RowCodecs}, RowCodecs.{rowCodec, tupleCodec}
+import skunk.sharp.internal.{CompileChecks, RawConstants, RowCodecs}, RowCodecs.tupleCodec
 import skunk.sharp.where.Where
 import skunk.util.Origin
 
@@ -199,39 +199,28 @@ final class InsertCommand[Cols <: Tuple, Args, CA] private[sharp] (
 
   inline def returningTuple[T <: NonEmptyTuple, TOut](f: ColumnsView[Cols] => T)(using
     pa: ProjArgsOf.Aux[T, TOut]
-  ): QueryTemplate[Where.Concat[Where.Concat[Args, CA], TOut], ExprOutputs[T]] = {
-    val exprs    = f(table.columnsView).toList.asInstanceOf[List[TypedExpr[?, ?]]]
-    val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[ExprOutputs[T]]]
-    val combined = TypedExpr.combineList[TOut](exprs.map(_.fragment), ", ", (a: TOut) => pa.project(a))
-    MutationAssembly.withReturningTyped[Args, CA, TOut, ExprOutputs[T]](insertParts, combined, codec)
-  }
+  ): QueryTemplate[Where.Concat[Where.Concat[Args, CA], TOut], ExprOutputs[T]] =
+    returning[ExprOutputs[T], TOut](v => Returning.tuple[TOut, ExprOutputs[T]](f(v), pa))
 
   inline def returningNamed[NT <: scala.NamedTuple.AnyNamedTuple, TOut](f: ColumnsView[Cols] => NT)(using
     pa: ProjArgsOf.Aux[scala.NamedTuple.DropNames[NT], TOut]
   ): QueryTemplate[
     Where.Concat[Where.Concat[Args, CA], TOut],
     scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]]
-  ] = {
-    type Vs = scala.NamedTuple.DropNames[NT]
-    type Ns = scala.NamedTuple.Names[NT]
-    type R  = scala.NamedTuple.NamedTuple[Ns, ExprOutputs[Vs]]
-    val tup      = f(table.columnsView).asInstanceOf[Product]
-    val exprs    = tup.productIterator.toList.asInstanceOf[List[TypedExpr[?, ?]]]
-    val codec    = tupleCodec(exprs.map(_.codec)).asInstanceOf[Codec[R]]
-    val combined = TypedExpr.combineList[TOut](exprs.map(_.fragment), ", ", (a: TOut) => pa.project(a))
-    MutationAssembly.withReturningTyped[Args, CA, TOut, R](insertParts, combined, codec)
-  }
+  ] =
+    returning[
+      scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]],
+      TOut
+    ](v =>
+      Returning.tuple[
+        TOut,
+        scala.NamedTuple.NamedTuple[scala.NamedTuple.Names[NT], ExprOutputs[scala.NamedTuple.DropNames[NT]]]
+      ](f(v).asInstanceOf[Product], pa)
+    )
 
-  inline def returningAll: QueryTemplate[Where.Concat[Args, CA], NamedRowOf[Cols]] = {
-    val exprs =
-      table.columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(c =>
-        TypedColumn.of(c.asInstanceOf[Column[Any, "x", Boolean, Tuple]])
-      )
-    val codec    = rowCodec(table.columns).asInstanceOf[Codec[NamedRowOf[Cols]]]
-    val combined = TypedExpr.combineList[Void](exprs.map(_.fragment), ", ", _ => List.fill(exprs.size)(Void))
-    MutationAssembly.withReturningTyped[Args, CA, Void, NamedRowOf[Cols]](insertParts, combined, codec)
+  inline def returningAll: QueryTemplate[Where.Concat[Args, CA], NamedRowOf[Cols]] =
+    returning[NamedRowOf[Cols], Void](_ => table.returningAllExpr)
       .asInstanceOf[QueryTemplate[Where.Concat[Args, CA], NamedRowOf[Cols]]]
-  }
 
   // ---- ON CONFLICT ----
 

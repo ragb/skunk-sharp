@@ -93,21 +93,13 @@ final class SelectBuilder[
   inline def where[A](f: SelectView[Ss] => Where[A])
     : SelectBuilder[Ss, Groups, Where.Concat[WArgs, A], HArgs, OArgs] = {
     val pred     = f(view)
-    val combined = SelectBuilder.andInto[WArgs, A](
-      whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
-      pred,
-      Where.projPair[WArgs, A]
-    )
+    val combined = SelectBuilder.and[WArgs, A](whereOpt, pred)
     cp[Where.Concat[WArgs, A], HArgs, OArgs](whereOpt = Some(combined))
   }
 
   /** Escape hatch — widens `WArgs` to `?`. */
   inline def whereRaw(af: AppliedFragment): SelectBuilder[Ss, Groups, ?, HArgs, OArgs] = {
-    val combined = SelectBuilder.andRawInto[WArgs](
-      whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
-      af,
-      Where.projPair[WArgs, Void]
-    )
+    val combined = SelectBuilder.andRaw[WArgs](whereOpt, af)
     cp[Any, HArgs, OArgs](whereOpt = Some(combined))
   }
 
@@ -157,21 +149,13 @@ final class SelectBuilder[
   inline def having[H](f: SelectView[Ss] => Where[H])
     : SelectBuilder[Ss, Groups, WArgs, Where.Concat[HArgs, H], OArgs] = {
     val pred     = f(view)
-    val combined = SelectBuilder.andInto[HArgs, H](
-      havingOpt.asInstanceOf[Option[Fragment[HArgs]]],
-      pred,
-      Where.projPair[HArgs, H]
-    )
+    val combined = SelectBuilder.and[HArgs, H](havingOpt, pred)
     cp[WArgs, Where.Concat[HArgs, H], OArgs](havingOpt = Some(combined))
   }
 
   /** Escape hatch HAVING — widens `HArgs` to `?`. */
   inline def havingRaw(af: AppliedFragment): SelectBuilder[Ss, Groups, WArgs, ?, OArgs] = {
-    val combined = SelectBuilder.andRawInto[HArgs](
-      havingOpt.asInstanceOf[Option[Fragment[HArgs]]],
-      af,
-      Where.projPair[HArgs, Void]
-    )
+    val combined = SelectBuilder.andRaw[HArgs](havingOpt, af)
     cp[WArgs, Any, OArgs](havingOpt = Some(combined))
   }
 
@@ -651,16 +635,16 @@ object SelectBuilder {
   ): Fragment[Where.Concat[Slot, A]] =
     slot match {
       case None    => pred.fragment.asInstanceOf[Fragment[Where.Concat[Slot, A]]]
-      case Some(f) =>
-        val parts =
-          RawConstants.OPEN_PAREN.fragment.parts ++
-            f.parts ++
-            RawConstants.AND.fragment.parts ++
-            pred.fragment.parts ++
-            RawConstants.CLOSE_PAREN.fragment.parts
-        val enc = TypedExpr.combineEnc[Slot, A](f.encoder, pred.fragment.encoder, proj)
-        Fragment(parts, enc, Origin.unknown)
+      case Some(f) => Where.binop[Slot, A](Where(f), pred, Where.AND_KW, proj).fragment // `(prev AND pred)`
     }
+
+  /** AND `pred` into a WHERE / HAVING slot whose accumulated Args are `W` — the shared body of every `.where`. */
+  inline def and[W, A](slot: Option[Fragment[?]], pred: Where[A]): Fragment[Where.Concat[W, A]] =
+    andInto[W, A](slot.asInstanceOf[Option[Fragment[W]]], pred, Where.projPair[W, A])
+
+  /** AND a raw `AppliedFragment` into a slot (Void-args) — the shared body of every `.whereRaw` / `.havingRaw`. */
+  inline def andRaw[W](slot: Option[Fragment[?]], af: AppliedFragment): Fragment[Where.Concat[W, Void]] =
+    andRawInto[W](slot.asInstanceOf[Option[Fragment[W]]], af, Where.projPair[W, Void])
 
   /**
    * Prepend a static SQL prefix to a typed fragment, preserving its `Args` type. Used to attach `" ON "` (or similar
@@ -899,20 +883,12 @@ final class ProjectedSelect[
   inline def where[A](f: SelectView[Ss] => Where[A])
     : ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, Where.Concat[WArgs, A], HArgs, Row] = {
     val pred     = f(view)
-    val combined = SelectBuilder.andInto[WArgs, A](
-      whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
-      pred,
-      Where.projPair[WArgs, A]
-    )
+    val combined = SelectBuilder.and[WArgs, A](whereOpt, pred)
     cp[Where.Concat[WArgs, A], HArgs](whereOpt = Some(combined))
   }
 
   inline def whereRaw(af: AppliedFragment): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, ?, HArgs, Row] = {
-    val combined = SelectBuilder.andRawInto[WArgs](
-      whereOpt.asInstanceOf[Option[Fragment[WArgs]]],
-      af,
-      Where.projPair[WArgs, Void]
-    )
+    val combined = SelectBuilder.andRaw[WArgs](whereOpt, af)
     cp[Any, HArgs](whereOpt = Some(combined))
   }
 
@@ -970,20 +946,12 @@ final class ProjectedSelect[
   inline def having[H](f: SelectView[Ss] => Where[H])
     : ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, Where.Concat[HArgs, H], Row] = {
     val pred     = f(view)
-    val combined = SelectBuilder.andInto[HArgs, H](
-      havingOpt.asInstanceOf[Option[Fragment[HArgs]]],
-      pred,
-      Where.projPair[HArgs, H]
-    )
+    val combined = SelectBuilder.and[HArgs, H](havingOpt, pred)
     cp[WArgs, Where.Concat[HArgs, H]](havingOpt = Some(combined))
   }
 
   inline def havingRaw(af: AppliedFragment): ProjectedSelect[Ss, Proj, Groups, DistinctOn, Orders, WArgs, ?, Row] = {
-    val combined = SelectBuilder.andRawInto[HArgs](
-      havingOpt.asInstanceOf[Option[Fragment[HArgs]]],
-      af,
-      Where.projPair[HArgs, Void]
-    )
+    val combined = SelectBuilder.andRaw[HArgs](havingOpt, af)
     cp[WArgs, Any](havingOpt = Some(combined))
   }
 
