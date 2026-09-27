@@ -323,7 +323,7 @@
 </span><span class="comment">// PgVector.unsafeFrom[3](modelOutput) throws instead of returning a Left</span></code></pre>
         <p>The canonical query is top-k by distance, usually filtered by ordinary columns. Select only the columns you need —
         there&#39;s no point fetching the embeddings back — and pass the query vector as a named parameter:</p>
-        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// SELECT &quot;id&quot;, &quot;content&quot; FROM &quot;chunks&quot; WHERE &quot;doc&quot; = $1 ORDER BY &quot;embedding&quot; &lt;=&gt; $2 ASC LIMIT 5
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// SELECT &quot;id&quot;, &quot;content&quot; FROM &quot;chunks&quot; WHERE &quot;doc&quot; = $1 ORDER BY (&quot;embedding&quot; &lt;=&gt; $2) ASC LIMIT 5
 </span><span class="keyword">val</span><span> </span><span class="identifier">topK</span><span> = </span><span class="identifier">chunks</span><span>
   .</span><span class="identifier">select</span><span>(</span><span class="identifier">c</span><span> =&gt; (</span><span class="identifier">c</span><span>.</span><span class="identifier">id</span><span>, </span><span class="identifier">c</span><span>.</span><span class="identifier">content</span><span>))
   .</span><span class="identifier">where</span><span>(</span><span class="identifier">c</span><span> =&gt; </span><span class="identifier">c</span><span>.</span><span class="identifier">doc</span><span> === </span><span class="type-name">Param</span><span>.</span><span class="identifier">named</span><span>[</span><span class="string-literal">&quot;doc&quot;</span><span>, </span><span class="type-name">String</span><span>])
