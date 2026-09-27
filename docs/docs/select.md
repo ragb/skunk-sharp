@@ -339,3 +339,17 @@ def filters(minAge: Option[Int], emailLike: Option[String]) = {
 Limited to `Where[Void]` — the AND identity (`Concat[Void, Void] = Void`) is what makes
 the fold lawful. Operator args slots are typed; for `&&` / `||` over parameterised
 `Where[A]`, just chain directly.
+
+For a **fixed** set of predicates that carry different parameters, `allOfT` / `anyOfT` take a
+tuple and fold the parameter types, dropping the `Void` ones:
+
+```scala mdoc:silent
+// Where[(Int, String)] — the IS NULL predicate adds no parameter
+val activeAdults = allOfT((
+  users.columnsView.age >= Param[Int],
+  users.columnsView.email.like(Param[String]),
+  users.columnsView.deleted_at.isNull
+))
+```
+
+They nest (`allOfT((a, anyOfT((b, c))))`) and render parenthesised, like `&&` / `||`.

@@ -329,6 +329,37 @@ object Where {
   def allOf[F[_]: cats.Foldable](xs: F[TypedExpr[Boolean, skunk.Void]]): TypedExpr[Boolean, skunk.Void] =
     cats.Foldable[F].reduceLeftOption(xs)((acc, w) => acc && w).getOrElse(trueExpr)
 
+  /**
+   * AND a fixed tuple of predicates with **different** Args into one: `allOfT((w1, w2, w3))` is `(w1 AND w2 AND w3)`
+   * with `Args = FoldConcat` of the items' Args — `Void` items drop out, the rest flatten in order (`Where[Int]`,
+   * `Where[String]`, `Where[Void]` → `Where[(Int, String)]`). The tuple counterpart of [[allOf]], which folds a runtime
+   * collection but only of `Where[Void]`.
+   */
+  inline def allOfT[T <: NonEmptyTuple](ws: T): Where[FoldConcat[skunk.sharp.dsl.CollectArgs[T]]] =
+    foldTuple[T](ws, AND_KW)
+
+  /** OR counterpart to [[allOfT]]. */
+  inline def anyOfT[T <: NonEmptyTuple](ws: T): Where[FoldConcat[skunk.sharp.dsl.CollectArgs[T]]] =
+    foldTuple[T](ws, " OR ")
+
+  private inline def foldTuple[T <: NonEmptyTuple](
+    ws: T,
+    sep: String
+  ): Where[FoldConcat[skunk.sharp.dsl.CollectArgs[T]]] = {
+    val frags = ws.toList.asInstanceOf[List[TypedExpr[?, ?]]].map(_.fragment)
+    Where(
+      TypedExpr.wrap(
+        "(",
+        TypedExpr.combineList[FoldConcat[skunk.sharp.dsl.CollectArgs[T]]](
+          frags,
+          sep,
+          projFold[skunk.sharp.dsl.CollectArgs[T]]
+        ),
+        ")"
+      )
+    )
+  }
+
   /** OR-fold counterpart to [[allOf]]. Empty input collapses to [[falseExpr]] (`WHERE FALSE`). */
   def anyOf[F[_]: cats.Foldable](xs: F[TypedExpr[Boolean, skunk.Void]]): TypedExpr[Boolean, skunk.Void] =
     cats.Foldable[F].reduceLeftOption(xs)((acc, w) => acc || w).getOrElse(falseExpr)

@@ -127,6 +127,13 @@ package object dsl {
   def anyOf(ws: skunk.sharp.where.Where[skunk.Void]*): skunk.sharp.where.Where[skunk.Void] =
     skunk.sharp.where.Where.anyOf(ws)
 
+  /**
+   * Fixed-arity AND / OR over predicates with **different** Args — `allOfT((c.age >= Param[Int], c.email ===
+   * Param[String], c.deletedAt.isNull))` is a `Where[(Int, String)]` (`Void` items drop out). Use [[allOf]] / [[anyOf]]
+   * for a runtime collection of `Where[Void]`.
+   */
+  export skunk.sharp.where.Where.{allOfT, anyOfT}
+
   // ---- Schema validation ----
   val SchemaValidator: skunk.sharp.validation.SchemaValidator.type = skunk.sharp.validation.SchemaValidator
   type ValidationReport = skunk.sharp.validation.ValidationReport
