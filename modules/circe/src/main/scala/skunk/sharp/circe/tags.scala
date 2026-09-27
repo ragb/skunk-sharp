@@ -67,6 +67,13 @@ object Jsonb extends PgJsonb {
   /** Unwrap to the underlying `A`. */
   extension [A](j: Jsonb[A]) def unwrap: A = j
 
+  /** `@>` / `<@` between any two jsonb values. */
+  given jsonbContains[A, B]: skunk.sharp.ops.Contains[Jsonb[A], Jsonb[B]] = skunk.sharp.ops.Contains.of
+
+  /** `||` merges two jsonb values into untyped jsonb. */
+  given jsonbConcat[A, B]: skunk.sharp.ops.Concatenable.Aux[Jsonb[A], Jsonb[B], Jsonb[io.circe.Json]] =
+    skunk.sharp.ops.Concatenable.of
+
   /** Typed codec — works for any `A` with circe `Encoder` + `Decoder`, including `io.circe.Json`. */
   given [A](using enc: Encoder[A], dec: Decoder[A]): PgTypeFor[Jsonb[A]] =
     PgTypeFor.instance(circeCodecs.jsonb[A].asInstanceOf[Codec[Jsonb[A]]])

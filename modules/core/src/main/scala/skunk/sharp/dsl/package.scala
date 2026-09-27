@@ -74,6 +74,8 @@ package object dsl {
   // `TypedExpr[Boolean]` and work anywhere an expression goes — projections, ORDER BY, HAVING, function args).
   // Infix arithmetic (`+ - * / %`, unary `-`) — `*` must be backquoted, a bare `*` is the wildcard.
   export skunk.sharp.ops.{%, +, -, /, `*`, unary_-}
+  export skunk.sharp.ops.{concat, containedBy, contains, overlaps}
+  export skunk.sharp.ops.{Concatenable, Contains, Overlaps}
 
   export skunk.sharp.ops.{
     !==,
@@ -148,10 +150,9 @@ package object dsl {
   // primitive element types plus a generic cats `Alternative + Foldable` derivation that covers `List`, `Vector`,
   // `Chain`, `LazyList`, …. `.to[F]` / `.toArr` bridge between skunk's `Arr[T]` and any cats-foldable collection.
   //
-  // Array operators (`@>`, `<@`, `&&`, `||`, `= ANY(…)` as `.contains` / `.containedBy` / `.overlaps` / `.concat` /
-  // `.elemOf`) and functions live in [[skunk.sharp.pg.ArrayOps]] / [[skunk.sharp.Pg]] — `.contains` / `.containedBy`
-  // are intentionally *not* re-exported here because they clash with similarly-named extensions in the circe module
-  // (jsonb `@>` / `<@`). Import `skunk.sharp.pg.ArrayOps.*` where array ops are needed.
+  // `@>` / `<@` / `&&` / `||` (`.contains` / `.containedBy` / `.overlaps` / `.concat`) are the shared,
+  // typeclass-dispatched operators exported above — arrays, ranges, jsonb, hstore, ltree, tsvector. Array-only
+  // `.elemOf` (`= ANY(…)`) and functions live in [[skunk.sharp.pg.ArrayOps]] / [[skunk.sharp.Pg]].
   type Arr[T] = skunk.data.Arr[T]
   val Arr: skunk.data.Arr.type = skunk.data.Arr
   export skunk.sharp.pg.arrays.given

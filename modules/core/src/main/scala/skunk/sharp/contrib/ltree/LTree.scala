@@ -20,6 +20,12 @@ object LTree {
 
   val RequiredExtension: String = "ltree"
 
+  /** `@>` / `<@` — ancestor / descendant (also spelled `.isAncestorOf` / `.isDescendantOf`). */
+  given ltreeContains: skunk.sharp.ops.Contains[LTree, LTree] = skunk.sharp.ops.Contains.of
+
+  /** `||` appends paths. */
+  given ltreeConcat: skunk.sharp.ops.Concatenable.Aux[LTree, LTree, LTree] = skunk.sharp.ops.Concatenable.of
+
   /** Validate via skunk's parser and return the canonical text form, or why the path is invalid. */
   def from(s: String): Either[String, LTree] =
     data.LTree.fromString(s).fold(e => Left(s"invalid ltree '$s': $e"), l => Right(l.toString))

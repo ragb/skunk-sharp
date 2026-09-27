@@ -4,7 +4,6 @@ import skunk.data.Arr
 import skunk.sharp.dsl.*
 import skunk.sharp.dsl.given
 import skunk.sharp.pg.ArrayOps.*
-import skunk.sharp.pg.RangeOps.*
 import skunk.sharp.pg.tags.PgRange
 import skunk.Void
 

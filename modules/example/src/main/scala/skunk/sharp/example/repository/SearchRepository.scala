@@ -10,7 +10,6 @@ import skunk.sharp.contrib.hstore.{Hstore, *}
 import skunk.sharp.contrib.ltree.{LTree, *}
 import skunk.sharp.dsl.*
 import skunk.sharp.example.domain.{BookingRow, BuildingRow, RoomRow}
-import skunk.sharp.pg.RangeOps.*
 import skunk.sharp.pg.tags.PgRange
 import skunk.sharp.postgis.*
 import skunk.sharp.postgis.given

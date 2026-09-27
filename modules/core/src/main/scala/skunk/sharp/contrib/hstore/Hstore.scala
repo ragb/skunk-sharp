@@ -22,6 +22,9 @@ object Hstore {
 
   val RequiredExtension: String = "hstore"
 
+  /** `@>` / `<@`: does one hstore contain all key/value pairs of the other? */
+  given hstoreContains: skunk.sharp.ops.Contains[Hstore, Hstore] = skunk.sharp.ops.Contains.of
+
   def apply(entries: Map[String, Option[String]]): Hstore = entries
   def apply(entries: (String, Option[String])*): Hstore   = entries.toMap
 

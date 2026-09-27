@@ -24,12 +24,6 @@ extension [T, A](doc: TypedExpr[T, A])(using @annotation.unused ev: Stripped[T] 
   inline def matches[B](query: TypedExpr[TsQuery, B]): Where[Where.Concat[A, B]] =
     PgOperator.infix[T, TsQuery, Boolean, A, B]("@@")(doc, query)
 
-  /** `doc || other` — concatenate two documents (positions of `other` are shifted). */
-  inline def concat[U, B](other: TypedExpr[U, B])(using
-    Stripped[U] <:< TsVector
-  ): TypedExpr[TsVector, Where.Concat[A, B]] =
-    PgOperator.infix[T, U, TsVector, A, B]("||")(doc, other)
-
 }
 
 extension [A](q: TypedExpr[TsQuery, A]) {
