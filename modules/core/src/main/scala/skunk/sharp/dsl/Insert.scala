@@ -115,7 +115,10 @@ object InsertSource {
   final case class TypedRowParams(fragment: Fragment[?]) extends InsertSource
 
   /** Many rows pre-applied. */
-  final case class ManyRows(rows: List[AppliedFragment]) extends InsertSource
+  final case class ManyRows(rows: List[AppliedFragment]) extends InsertSource {
+    // Joined once per insert command, not per `.compile`.
+    lazy val joined: AppliedFragment = TypedExpr.joined(rows, ", ")
+  }
 
   /** `INSERT … SELECT` — the sub-query's typed fragment. */
   final case class FromQuery(fragment: Fragment[?]) extends InsertSource
@@ -159,7 +162,7 @@ final class InsertCommand[Cols <: Tuple, Args, CA] private[sharp] (
     if (projected.size == table.columns.size) table.insertIntoFullHeader
     else {
       val projections = projected.map(c => s""""${c.name}"""").mkString(", ")
-      TypedExpr.raw(s"INSERT INTO ${table.qualifiedName} ($projections) ")
+      RawConstants.intern(s"INSERT INTO ${table.qualifiedName} ($projections) ")
     }
 
   /**
@@ -171,14 +174,14 @@ final class InsertCommand[Cols <: Tuple, Args, CA] private[sharp] (
     source match {
       case InsertSource.TypedRow(f) =>
         buf += SelectBuilder.bake(RawConstants.VALUES)
-        buf += SelectBuilder.bake(f.asInstanceOf[Fragment[Void]].apply(Void))
-        buf += Right(SelectBuilder.emptyVoidSlot) // A1 = Void placeholder (row already in Left)
+        buf += Left(f.asInstanceOf[Fragment[Void]]) // already Void-baked: no re-apply
+        buf += Right(SelectBuilder.emptyVoidSlot)   // A1 = Void placeholder (row already in Left)
       case InsertSource.TypedRowParams(f) =>
         buf += SelectBuilder.bake(RawConstants.VALUES)
         buf += Right(f) // A1 = Args
-      case InsertSource.ManyRows(rows) =>
-        buf += SelectBuilder.bake(TypedExpr.raw("VALUES "))
-        buf += SelectBuilder.bake(TypedExpr.joined(rows, ", "))
+      case m: InsertSource.ManyRows =>
+        buf += SelectBuilder.bake(RawConstants.VALUES)
+        buf += SelectBuilder.bake(m.joined)
         buf += Right(SelectBuilder.emptyVoidSlot) // A1 = Void placeholder
       case InsertSource.FromQuery(frag) =>
         buf += Right(frag) // A1 = Args

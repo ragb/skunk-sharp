@@ -3,6 +3,7 @@ package skunk.sharp.dsl
 import cats.Reducible
 import skunk.{AppliedFragment, Codec, Fragment}
 import skunk.sharp.*
+import skunk.sharp.internal.RawConstants
 import skunk.sharp.internal.{DeriveColumns, RowCodecs}, RowCodecs.{rowCodec, tupleCodec}
 import skunk.util.Origin
 
@@ -33,13 +34,13 @@ final class Values[Cols <: Tuple, Row <: NamedTuple.AnyNamedTuple] @scala.annota
    * so parameters end up bound to the outer query's argument list when this value is embedded (subquery, FROM position,
    * INSERT…FROM source).
    */
-  private[sharp] def render: AppliedFragment = {
+  private[sharp] lazy val render: AppliedFragment = {
     val cs          = columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
     val perRow      = tupleCodec(cs.map(_.codec))
     val rowEnc      = perRow.values
     val rowFrag     = Fragment(List(Right(rowEnc.sql)), rowEnc, Origin.unknown)
     val appliedRows = rowData.map(r => rowFrag(Tuple.fromArray(r.toArray[Any])))
-    TypedExpr.raw("VALUES ") |+| TypedExpr.joined(appliedRows, ", ")
+    RawConstants.VALUES |+| TypedExpr.joined(appliedRows, ", ")
   }
 
   /** Codec for decoding the produced rows when `Values` is consumed as a subquery that returns rows. */

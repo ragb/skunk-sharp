@@ -37,9 +37,14 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
    * otherwise re-allocate `DELETE FROM "name"` / `UPDATE "name" SET ` every call (string interpolation and then a fresh
    * Fragment). Cached once per `Table` instance and reused across compiles.
    */
-  lazy val deleteFromHeader: skunk.AppliedFragment = TypedExpr.raw(s"DELETE FROM $qualifiedName")
-  lazy val updateSetHeader: skunk.AppliedFragment  = TypedExpr.raw(s"UPDATE $qualifiedName SET ")
-  lazy val mergeIntoHeader: skunk.AppliedFragment  = TypedExpr.raw(s"MERGE INTO $qualifiedName USING ")
+  lazy val deleteFromHeader: skunk.AppliedFragment =
+    skunk.sharp.internal.RawConstants.intern(s"DELETE FROM $qualifiedName")
+
+  lazy val updateSetHeader: skunk.AppliedFragment =
+    skunk.sharp.internal.RawConstants.intern(s"UPDATE $qualifiedName SET ")
+
+  lazy val mergeIntoHeader: skunk.AppliedFragment =
+    skunk.sharp.internal.RawConstants.intern(s"MERGE INTO $qualifiedName USING ")
 
   /**
    * Cached `INSERT INTO "name" ("col1", "col2", …) ` header for the full-column-set case — the typical
@@ -50,7 +55,7 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
   lazy val insertIntoFullHeader: skunk.AppliedFragment = {
     val cols    = columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]]
     val projStr = cols.map(c => s""""${c.name}"""").mkString(", ")
-    TypedExpr.raw(s"INSERT INTO $qualifiedName ($projStr) ")
+    skunk.sharp.internal.RawConstants.intern(s"INSERT INTO $qualifiedName ($projStr) ")
   }
 
   /** Place the table in a non-default schema. */

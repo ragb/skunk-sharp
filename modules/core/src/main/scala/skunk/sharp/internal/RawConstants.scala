@@ -95,6 +95,9 @@ object RawConstants {
   }
 
   /** Build a fresh `AppliedFragment` for a runtime-built string — no caching. */
+  /** `" FOR UPDATE SKIP LOCKED"`-style locking clause (a leading space), interned — a handful of combinations. */
+  def lockingAf(sql: String): AppliedFragment = intern(" " + sql)
+
   private[sharp] def rawDynamic(s: String): AppliedFragment = {
     rawDynamicCount.incrementAndGet()
     rawDynamicThreadCount.set(rawDynamicThreadCount.get + 1L)

@@ -2,6 +2,7 @@ package skunk.sharp.dsl
 
 import skunk.{AppliedFragment, Fragment, Void}
 import skunk.sharp.*
+import skunk.sharp.internal.RawConstants
 import skunk.sharp.where.Where
 
 /**
@@ -61,8 +62,8 @@ final class CteRelation[
   def underlyingCte: this.type  = this
 
   override def fromFragmentWith(a: String): AppliedFragment =
-    if (a == cteName) TypedExpr.raw(s""""$cteName"""")
-    else TypedExpr.raw(s""""$cteName" AS "$a"""")
+    if (a == cteName) RawConstants.intern(s""""$cteName"""")
+    else RawConstants.intern(s""""$cteName" AS "$a"""")
 
 }
 
@@ -199,7 +200,7 @@ private[dsl] def renderWithPreambleParts(ctes: List[CteRelation[?, ?, ?, ?]]): L
     var first = true
     ctes.foreach { c =>
       if (first) first = false else buf += SelectBuilder.bake(TypedExpr.raw(", "))
-      buf += SelectBuilder.bake(TypedExpr.raw(s""""${c.cteName}" AS ("""))
+      buf += SelectBuilder.bake(RawConstants.intern(s""""${c.cteName}" AS ("""))
       buf += Right(c.body().asInstanceOf[Fragment[Any]])
       buf += SelectBuilder.bake(TypedExpr.raw(")"))
     }
