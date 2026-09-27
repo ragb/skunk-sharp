@@ -1,8 +1,7 @@
 package skunk.sharp.where
 
-import skunk.{Encoder, Fragment, Void}
+import skunk.{Fragment, Void}
 import skunk.sharp.TypedExpr
-import skunk.util.Origin
 
 /**
  * `Where[A]` is a type alias for `TypedExpr[Boolean, A]` — a boolean-typed expression that contributes `A` to the
@@ -263,21 +262,6 @@ object Where {
         val pair = projectConcat[h, FoldConcat[t & Tuple]](c.asInstanceOf[Concat[h, FoldConcat[t & Tuple]]])
         pair._1 :: projectFoldConcat[t & Tuple](pair._2)
 
-  /**
-   * Pair two encoders into one whose input shape matches `Concat[A, B]`. The caller-supplied `proj` re-pairs the
-   * `Concat[A, B]` value back into `(A, B)` — typically `c => projectConcat[A, B](c)` materialised at the caller's
-   * inline expansion site so the dispatch reduces with concrete `A` / `B`.
-   */
-  private[sharp] def concatEncoders[A, B](
-    a: Encoder[?],
-    b: Encoder[?],
-    proj: Concat[A, B] => (A, B)
-  ): Encoder[Concat[A, B]] = {
-    val productEnc: Encoder[(Any, Any)] =
-      a.asInstanceOf[Encoder[Any]].product(b.asInstanceOf[Encoder[Any]])
-    productEnc.contramap[Concat[A, B]](in => proj(in).asInstanceOf[(Any, Any)])
-  }
-
   // ---- Combinators (binop / not) ---------------------------------------------------------------
 
   private[sharp] def binop[A, B](
@@ -286,24 +270,12 @@ object Where {
     opSql: String,
     proj: Concat[A, B] => (A, B)
   ): TypedExpr[Boolean, Concat[A, B]] = {
-    val parts: List[Either[String, cats.data.State[Int, String]]] =
-      List[Either[String, cats.data.State[Int, String]]](Left("(")) ++
-        l.fragment.parts ++
-        List[Either[String, cats.data.State[Int, String]]](Left(opSql)) ++
-        r.fragment.parts ++
-        List[Either[String, cats.data.State[Int, String]]](Left(")"))
-    val enc                          = concatEncoders[A, B](l.fragment.encoder, r.fragment.encoder, proj)
-    val frag: Fragment[Concat[A, B]] = Fragment(parts, enc, Origin.unknown)
-    apply[Concat[A, B]](frag)
+    // combineSep's encoder skips the product when a side is `Void.codec`, so `a && b` over static sides stays static.
+    apply[Concat[A, B]](TypedExpr.wrap("(", TypedExpr.combineSep[A, B](l.fragment, opSql, r.fragment, proj), ")"))
   }
 
   private[sharp] def notOf[A](w: TypedExpr[Boolean, A]): TypedExpr[Boolean, A] = {
-    val parts: List[Either[String, cats.data.State[Int, String]]] =
-      List[Either[String, cats.data.State[Int, String]]](Left(NOT_OPEN_KW)) ++
-        w.fragment.parts ++
-        List[Either[String, cats.data.State[Int, String]]](Left(")"))
-    val frag: Fragment[A] = Fragment(parts, w.fragment.encoder, Origin.unknown)
-    apply[A](frag)
+    apply[A](TypedExpr.wrap(NOT_OPEN_KW, w.fragment, ")"))
   }
 
   /**

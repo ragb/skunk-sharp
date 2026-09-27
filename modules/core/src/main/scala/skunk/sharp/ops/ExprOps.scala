@@ -99,29 +99,31 @@ extension [T, A](lhs: TypedExpr[T, A]) {
 
 }
 
+/** `lhs <kw> lo AND hi` — shared body of the `BETWEEN` family. */
+private inline def betweenOp[T, A, B, C](
+  lhs: TypedExpr[T, A],
+  kw: String,
+  lo: TypedExpr[T, B],
+  hi: TypedExpr[T, C]
+): Where[Where.Concat[A, Where.Concat[B, C]]] = {
+  val rhs = TypedExpr.combineSepInl[B, C](lo.fragment, " AND ", hi.fragment)
+  opCombine(lhs, kw, TypedExpr[T, Where.Concat[B, C]](rhs, lo.codec))
+}
+
 /** `lhs BETWEEN lo AND hi` family. RHS bounds must be `TypedExpr`s — pass `Param[T]`, `lit(v)`, or `Param.bind(v)`. */
 extension [T, A](lhs: TypedExpr[T, A]) {
 
   inline def between[B, C](lo: TypedExpr[T, B], hi: TypedExpr[T, C])(using
     @unused ord: cats.Order[T]
-  ): Where[Where.Concat[A, Where.Concat[B, C]]] = {
-    val rhs = TypedExpr.combineSepInl[B, C](lo.fragment, " AND ", hi.fragment)
-    opCombine(lhs, " BETWEEN ", TypedExpr[T, Where.Concat[B, C]](rhs, lo.codec))
-  }
+  ): Where[Where.Concat[A, Where.Concat[B, C]]] = betweenOp(lhs, " BETWEEN ", lo, hi)
 
   inline def notBetween[B, C](lo: TypedExpr[T, B], hi: TypedExpr[T, C])(using
     @unused ord: cats.Order[T]
-  ): Where[Where.Concat[A, Where.Concat[B, C]]] = {
-    val rhs = TypedExpr.combineSepInl[B, C](lo.fragment, " AND ", hi.fragment)
-    opCombine(lhs, " NOT BETWEEN ", TypedExpr[T, Where.Concat[B, C]](rhs, lo.codec))
-  }
+  ): Where[Where.Concat[A, Where.Concat[B, C]]] = betweenOp(lhs, " NOT BETWEEN ", lo, hi)
 
   inline def betweenSymmetric[B, C](lo: TypedExpr[T, B], hi: TypedExpr[T, C])(using
     @unused ord: cats.Order[T]
-  ): Where[Where.Concat[A, Where.Concat[B, C]]] = {
-    val rhs = TypedExpr.combineSepInl[B, C](lo.fragment, " AND ", hi.fragment)
-    opCombine(lhs, " BETWEEN SYMMETRIC ", TypedExpr[T, Where.Concat[B, C]](rhs, lo.codec))
-  }
+  ): Where[Where.Concat[A, Where.Concat[B, C]]] = betweenOp(lhs, " BETWEEN SYMMETRIC ", lo, hi)
 
 }
 
@@ -164,23 +166,23 @@ extension [T, A](lhs: TypedExpr[T, A]) {
 
 }
 
+/** `<column> IS [NOT] NULL` — a column reference has Void args, so the result is a fixed `Where[Void]`. */
+private def nullTest(col: Fragment[?], kw: String): Where[Void] =
+  Where(Fragment(col.parts ++ List[Either[String, cats.data.State[Int, String]]](Left(kw)), Void.codec, Origin.unknown))
+
 /** `lhs IS NULL` / `IS NOT NULL` — compile-only on nullable columns. */
 extension [T, Null <: Boolean, N <: String & Singleton](inline lhs: skunk.sharp.TypedColumn[T, Null, N]) {
 
   inline def isNull: Where[Void] = {
     inline if scala.compiletime.constValue[Null] then ()
     else scala.compiletime.error("`isNull` is only available on nullable columns (columns declared as `Option[_]`).")
-    val parts = lhs.fragment.parts ++ List[Either[String, cats.data.State[Int, String]]](Left(" IS NULL"))
-    val frag: Fragment[Void] = Fragment(parts, Void.codec, Origin.unknown)
-    Where(frag)
+    nullTest(lhs.fragment, " IS NULL")
   }
 
   inline def isNotNull: Where[Void] = {
     inline if scala.compiletime.constValue[Null] then ()
     else scala.compiletime.error("`isNotNull` is only available on nullable columns (columns declared as `Option[_]`).")
-    val parts = lhs.fragment.parts ++ List[Either[String, cats.data.State[Int, String]]](Left(" IS NOT NULL"))
-    val frag: Fragment[Void] = Fragment(parts, Void.codec, Origin.unknown)
-    Where(frag)
+    nullTest(lhs.fragment, " IS NOT NULL")
   }
 
 }

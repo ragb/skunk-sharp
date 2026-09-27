@@ -15,17 +15,14 @@ trait PgNull {
 
   /** `coalesce(a)` — single arg; Args propagates from `a`. */
   def coalesce[T, A1](a: TypedExpr[T, A1])(using pf: PgTypeFor[T]): TypedExpr[T, A1] = {
-    val frag = TypedExpr.wrap("coalesce(", a.fragment, ")")
-    TypedExpr[T, A1](frag, pf.codec)
+    PgFunction.call1("coalesce", a, pf.codec)
   }
 
   /** `coalesce(a, b)` — Args = `Concat[A1, A2]`. */
   inline def coalesce[T, A1, A2](a: TypedExpr[T, A1], b: TypedExpr[T, A2])(using
     pf: PgTypeFor[T]
   ): TypedExpr[T, Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSepInl[A1, A2](a.fragment, ", ", b.fragment)
-    val frag  = TypedExpr.wrap("coalesce(", inner, ")")
-    TypedExpr[T, Where.Concat[A1, A2]](frag, pf.codec)
+    PgFunction.call2("coalesce", a, b, pf.codec)
   }
 
   /** `coalesce(a, b, c)` — `Args` flattens to `(A1, A2, A3)` via `Where.Concat` (Void slots dropped). */
@@ -153,9 +150,7 @@ trait PgNull {
     a: TypedExpr[T, A1],
     b: TypedExpr[Stripped[T], A2]
   )(using pf: PgTypeFor[Stripped[T]]): TypedExpr[Option[Stripped[T]], Where.Concat[A1, A2]] = {
-    val inner = TypedExpr.combineSepInl[A1, A2](a.fragment, ", ", b.fragment)
-    val frag  = TypedExpr.wrap("nullif(", inner, ")")
-    TypedExpr(frag, pf.codec.opt)
+    PgFunction.call2("nullif", a, b, pf.codec.opt)
   }
 
 }

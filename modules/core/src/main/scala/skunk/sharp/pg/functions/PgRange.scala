@@ -119,8 +119,7 @@ trait PgRangeFns {
     r: TypedExpr[R, X],
     outCodec: skunk.Codec[T]
   ): TypedExpr[T, X] = {
-    val frag = TypedExpr.wrap(s"$name(", r.fragment, ")")
-    TypedExpr[T, X](frag, outCodec)
+    PgFunction.call1(name, r, outCodec)
   }
 
   private inline def rangeCtor2[T, A, B, X, Y](
@@ -129,9 +128,7 @@ trait PgRangeFns {
     hi: TypedExpr[B, Y],
     outCodec: skunk.Codec[T]
   ): TypedExpr[T, Where.Concat[X, Y]] = {
-    val inner = TypedExpr.combineSepInl[X, Y](lo.fragment, ", ", hi.fragment)
-    val frag  = TypedExpr.wrap(s"$name(", inner, ")")
-    TypedExpr[T, Where.Concat[X, Y]](frag, outCodec)
+    PgFunction.call2(name, lo, hi, outCodec)
   }
 
   /** Three-arg range constructor `name(lo, hi, bounds)`. */

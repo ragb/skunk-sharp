@@ -16,8 +16,7 @@ trait PgAggregate {
 
   /** `count(expr)`. Args propagates from input. */
   def count[T, A](expr: TypedExpr[T, A]): TypedExpr[Long, A] = {
-    val frag = TypedExpr.wrap("count(", expr.fragment, ")")
-    TypedExpr[Long, A](frag, skunk.codec.all.int8)
+    PgFunction.call1("count", expr, skunk.codec.all.int8)
   }
 
   /** `count(DISTINCT expr)`. */
@@ -27,13 +26,11 @@ trait PgAggregate {
   }
 
   def sum[I, A](expr: TypedExpr[I, A])(using pf: PgTypeFor[SumOf[I]]): TypedExpr[SumOf[I], A] = {
-    val frag = TypedExpr.wrap("sum(", expr.fragment, ")")
-    TypedExpr[SumOf[I], A](frag, pf.codec)
+    PgFunction.call1("sum", expr, pf.codec)
   }
 
   def avg[I, A](expr: TypedExpr[I, A])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I], A] = {
-    val frag = TypedExpr.wrap("avg(", expr.fragment, ")")
-    TypedExpr[AvgOf[I], A](frag, pf.codec)
+    PgFunction.call1("avg", expr, pf.codec)
   }
 
   def min[T, A](expr: TypedExpr[T, A]): TypedExpr[T, A] = sameTypeFn("min", expr)
@@ -51,33 +48,27 @@ trait PgAggregate {
   // -------- Variance / standard deviation -----------------------------------------------------
 
   def stddev[I, A](expr: TypedExpr[I, A])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I], A] = {
-    val frag = TypedExpr.wrap("stddev(", expr.fragment, ")")
-    TypedExpr[AvgOf[I], A](frag, pf.codec)
+    PgFunction.call1("stddev", expr, pf.codec)
   }
 
   def stddevPop[I, A](expr: TypedExpr[I, A])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I], A] = {
-    val frag = TypedExpr.wrap("stddev_pop(", expr.fragment, ")")
-    TypedExpr[AvgOf[I], A](frag, pf.codec)
+    PgFunction.call1("stddev_pop", expr, pf.codec)
   }
 
   def stddevSamp[I, A](expr: TypedExpr[I, A])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I], A] = {
-    val frag = TypedExpr.wrap("stddev_samp(", expr.fragment, ")")
-    TypedExpr[AvgOf[I], A](frag, pf.codec)
+    PgFunction.call1("stddev_samp", expr, pf.codec)
   }
 
   def variance[I, A](expr: TypedExpr[I, A])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I], A] = {
-    val frag = TypedExpr.wrap("variance(", expr.fragment, ")")
-    TypedExpr[AvgOf[I], A](frag, pf.codec)
+    PgFunction.call1("variance", expr, pf.codec)
   }
 
   def varPop[I, A](expr: TypedExpr[I, A])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I], A] = {
-    val frag = TypedExpr.wrap("var_pop(", expr.fragment, ")")
-    TypedExpr[AvgOf[I], A](frag, pf.codec)
+    PgFunction.call1("var_pop", expr, pf.codec)
   }
 
   def varSamp[I, A](expr: TypedExpr[I, A])(using pf: PgTypeFor[AvgOf[I]]): TypedExpr[AvgOf[I], A] = {
-    val frag = TypedExpr.wrap("var_samp(", expr.fragment, ")")
-    TypedExpr[AvgOf[I], A](frag, pf.codec)
+    PgFunction.call1("var_samp", expr, pf.codec)
   }
 
   // -------- Two-arg statistical correlations -------------------------------------------------

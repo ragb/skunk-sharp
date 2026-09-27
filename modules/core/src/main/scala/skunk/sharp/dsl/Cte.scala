@@ -307,18 +307,3 @@ object CteDepsAllVoid {
   ): CteDepsAllVoid[SourceEntry[R, C0, C, A, OA] *: T] = new CteDepsAllVoid[SourceEntry[R, C0, C, A, OA] *: T] {}
 
 }
-
-/**
- * Per-CTE body args: maps a list of `CteRelation[?, ?, ?, ?]` (in dep order) to a `List[Any]` of body-args values to
- * inject at the WITH preamble's Right slots. Each entry is the value paired with that CTE's Right-slot Fragment. Plain
- * (Void) bodies pass `Void`; typed bodies pass the captured args from the outer query's combined `CteArgs`.
- *
- * The outer compile builds `cteSlotValues` by walking `collectCtesInOrder(entries)` and matching each CTE against the
- * direct-ref list (whose body args are projected via [[CteArgsProj]]). CTEs appearing only as transitive deps map to
- * `Void` (their bodies are constrained Void by [[CteDepsAllVoid]]).
- */
-private[dsl] def buildCteSlotValues(
-  collectedCtes: List[CteRelation[?, ?, ?, ?]],
-  directRefArgs: Map[String, Any]
-): List[Any] =
-  collectedCtes.map(c => directRefArgs.getOrElse(c.cteName, Void))
