@@ -61,6 +61,21 @@ final class SelectBuilder[
       distinctOnOpt
     )
 
+  /** This builder's clauses over new `sources` (a join appended) — see [[SelectBuilder.fresh]] for why it exists. */
+  private[sharp] def rebase[Ss2 <: Tuple, G2 <: Tuple, W2, H2, O2](sources2: Ss2): SelectBuilder[Ss2, G2, W2, H2, O2] =
+    new SelectBuilder[Ss2, G2, W2, H2, O2](
+      sources2,
+      distinct,
+      whereOpt,
+      groupBys,
+      havingOpt,
+      orderOpt,
+      limitOpt,
+      offsetOpt,
+      lockingOpt,
+      distinctOnOpt
+    )
+
   private def view: SelectView[Ss] = buildSelectView[Ss](sources)
 
   /**
@@ -523,10 +538,18 @@ final class SelectBuilder[
     head: SourceEntry[?, ?, ?, ?, ?],
     groupProjector: Any => List[Any]
   ): List[SelectBuilder.BodyPart] = {
-    val rel          = head.relation
-    val selectPrefix = renderSelectPrefix(distinct, distinctOnOpt)
-    val buf          = scala.collection.mutable.ListBuffer[BodyPart]()
-    buf += SelectBuilder.bake(selectPrefix)
+    val rel = head.relation
+    val buf = scala.collection.mutable.ListBuffer[BodyPart]()
+    distinctOnOpt match {
+      case Some(exprs) =>
+        // Whole-row DISTINCT ON items are Void-args (a deferred Param is a compile error), so feed each `Void`.
+        val voids = List.fill(exprs.size)(Void)
+        buf += SelectBuilder.bake(RawConstants.SELECT_DISTINCT_ON)
+        buf += Left(TypedExpr.combineList[Void](exprs.map(_.fragment), ", ", _ => voids))
+        buf += SelectBuilder.bake(RawConstants.CLOSE_PAREN_SPACE)
+      case None =>
+        buf += SelectBuilder.bake(if (distinct) RawConstants.SELECT_DISTINCT else RawConstants.SELECT)
+    }
     // The projection list (`"col1", "col2"`) depends only on column **names**, which are preserved by
     // `nullabilifyCols` (LEFT/RIGHT/FULL JOIN) and unchanged by re-aliasing. So `rel.starProjAf` is always
     // safe regardless of `effectiveCols` identity or the source's alias. The only thing the alias gates is
@@ -596,13 +619,22 @@ final class SelectBuilder[
     }
     limitOpt.foreach(n => buf += SelectBuilder.bake(RawConstants.limitAf(n)))
     offsetOpt.foreach(n => buf += SelectBuilder.bake(RawConstants.offsetAf(n)))
-    lockingOpt.foreach(l => buf += SelectBuilder.bake(TypedExpr.raw(" " + l.sql)))
+    lockingOpt.foreach(l => buf += SelectBuilder.bake(RawConstants.lockingAf(l.sql)))
     buf.toList
   }
 
 }
 
 object SelectBuilder {
+
+  /**
+   * A builder over `sources` with no clauses yet. Other files construct builders through this (and `rebase`) rather
+   * than `new SelectBuilder(…)` with default arguments: typing those defaults from another file in the same compiler
+   * pass hits a Scala 3 bug ("Found: Option[…] @uncheckedVariance, Required: Option") whenever this file isn't
+   * suspended behind a same-run macro call.
+   */
+  def fresh[Ss <: Tuple, G <: Tuple, W, H, O](sources: Ss): SelectBuilder[Ss, G, W, H, O] =
+    new SelectBuilder[Ss, G, W, H, O](sources, false, None, Nil, None, None, None, None, None, None)
 
   // ---- AND-into helpers (typed and raw) --------------------------------------------------------
 
@@ -763,7 +795,7 @@ object SelectBuilder {
     }
     limitOpt.foreach(n => buf += SelectBuilder.bake(RawConstants.limitAf(n)))
     offsetOpt.foreach(n => buf += SelectBuilder.bake(RawConstants.offsetAf(n)))
-    lockingOpt.foreach(l => buf += SelectBuilder.bake(TypedExpr.raw(" " + l.sql)))
+    lockingOpt.foreach(l => buf += SelectBuilder.bake(RawConstants.lockingAf(l.sql)))
     buf.toList
   }
 
@@ -1322,7 +1354,7 @@ final class ProjectedSelect[
     }
     limitOpt.foreach(n => buf += SelectBuilder.bake(RawConstants.limitAf(n)))
     offsetOpt.foreach(n => buf += SelectBuilder.bake(RawConstants.offsetAf(n)))
-    lockingOpt.foreach(l => buf += SelectBuilder.bake(TypedExpr.raw(" " + l.sql)))
+    lockingOpt.foreach(l => buf += SelectBuilder.bake(RawConstants.lockingAf(l.sql)))
     buf.toList
   }
 
@@ -1430,24 +1462,6 @@ private[dsl] def buildSlotIArray(
   out += hArgs
   out += oArgs
   IArray.from(out)
-}
-
-/** Render the `SELECT`-keyword prefix with trailing space. */
-private[dsl] def renderSelectPrefix(
-  distinct: Boolean,
-  distinctOnOpt: Option[List[TypedExpr[?, ?]]]
-): skunk.AppliedFragment = {
-  import skunk.sharp.internal.RawConstants.*
-  distinctOnOpt match {
-    case Some(exprs) =>
-      // distinctOn exprs may carry typed Args; bind them at Void here for the AF prefix path.
-      // Typed-args threading through DISTINCT ON is roadmap.
-      val joined = exprs.map(e => e.fragment.asInstanceOf[Fragment[Void]].apply(Void))
-      SELECT_DISTINCT_ON |+| TypedExpr.joined(joined, ", ") |+| CLOSE_PAREN_SPACE
-    case None =>
-      if (distinct) SELECT_DISTINCT
-      else SELECT
-  }
 }
 
 // ---- Entry points -----------------------------------------------------------------------------

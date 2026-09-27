@@ -66,6 +66,21 @@ object CompileBench {
       .delete
       .compile
 
+  // Shapes that used to allocate a dynamic AF per compile (#123): locking, aliased FROM, CTE, subset INSERT,
+  // whole-row DISTINCT ON.
+  val activeCte = cte("active", users.select.where(u => u.age >= Param[Int]))
+
+  def edgeShapes(age: Int, email: String): Int =
+    users.select.where(u => u.age >= Param.bind(age)).forUpdate.skipLocked.compile.af.fragment.sql.length +
+      users.alias("u").select.where(u => u.age >= Param.bind(age)).compile.af.fragment.sql.length +
+      activeCte.select.compile.fragment.sql.length +
+      users.insert((
+        email = email,
+        age = age,
+        createdAt = java.time.OffsetDateTime.MIN
+      )).compile.af.fragment.sql.length +
+      users.select.distinctOn(u => u.email).compile.af.fragment.sql.length
+
   // ---- Driver --------------------------------------------------------------------------------------
 
   def runScenario(name: String, n: Int, body: Int => skunk.AppliedFragment): Unit = {
@@ -121,6 +136,11 @@ object CompileBench {
   def main(args: Array[String]): Unit = {
     val n  = 200_000
     val ts = java.time.OffsetDateTime.now()
+    runScenario(
+      "edge shapes: FOR UPDATE, alias, CTE, subset INSERT, DISTINCT ON",
+      n / 5,
+      i => { edgeShapes(18 + (i & 31), s"u$i@example.com"); users.select.compile.af }
+    )
     runScenario(
       "SELECT u.* WHERE … ORDER BY … LIMIT 20",
       n,

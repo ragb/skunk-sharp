@@ -131,7 +131,7 @@ trait Relation[Cols <: Tuple] {
    */
   def fromFragmentWith(a: String): AppliedFragment =
     if (a == name) fromFragmentDefault
-    else TypedExpr.raw(s"""$qualifiedName AS "$a"""")
+    else skunk.sharp.internal.RawConstants.intern(s"""$qualifiedName AS "$a"""")
 
   /**
    * Cached `<qualifiedName>` AppliedFragment — reused on every compile that references this relation under its default
@@ -168,7 +168,7 @@ trait Relation[Cols <: Tuple] {
       sb ++= c.name
       sb += '"'
     }
-    TypedExpr.raw(sb.result())
+    skunk.sharp.internal.RawConstants.intern(sb.result()) // per-instance lazy, but aliases make new instances
   }
 
   /**
@@ -196,7 +196,7 @@ trait Relation[Cols <: Tuple] {
         case Left(s)  => sb ++= s
         case Right(_) => // unreachable per outer guard
       }
-      Some(TypedExpr.raw(sb.result()))
+      Some(skunk.sharp.internal.RawConstants.intern(sb.result()))
     }
   }
 

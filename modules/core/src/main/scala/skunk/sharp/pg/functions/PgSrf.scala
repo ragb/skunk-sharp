@@ -66,7 +66,8 @@ private[sharp] def srfRelation1[T, N <: String & Singleton, BA](
     override def fromFragmentWith(x: String): AppliedFragment =
       if (argsFrag.encoder.types.isEmpty) {
         val argsAf = argsFrag.asInstanceOf[Fragment[skunk.Void]].apply(skunk.Void)
-        TypedExpr.raw(s"$funcName(") |+| argsAf |+| TypedExpr.raw(s""") AS "$x"("$colName")""")
+        skunk.sharp.internal.RawConstants.intern(s"$funcName(") |+| argsAf |+|
+          skunk.sharp.internal.RawConstants.intern(s""") AS "$x"("$colName")""")
       } else
         throw new UnsupportedOperationException(
           s"skunk-sharp: SRF '$funcName' has typed args (Param[T] or other typed expressions) and can only be " +

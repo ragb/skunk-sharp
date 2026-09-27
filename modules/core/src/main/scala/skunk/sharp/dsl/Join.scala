@@ -300,10 +300,13 @@ extension [Cols <: Tuple, Row <: scala.NamedTuple.AnyNamedTuple](v: Values[Cols,
     type Alias = A
     type Mode  = AliasMode.Explicit
   } = {
-    val newAlias                           = a
-    val colsVal                            = v.columns
-    val colsList                           = v.columnListSql
-    val renderInner: () => AppliedFragment = () => v.render
+    val newAlias                            = a
+    val colsVal                             = v.columns
+    val colsList                            = v.columnListSql
+    val renderInner: () => AppliedFragment  = () => v.render
+    def aliased(x: String): AppliedFragment =
+      RawConstants.OPEN_PAREN |+| renderInner() |+| RawConstants.intern(s""") AS "$x" ($colsList)""")
+    lazy val ownAliasAf: AppliedFragment = aliased(newAlias) // built once per aliased relation
     new TypedBodyRelation[Cols, skunk.Void] {
       type Alias = A
       type Mode  = AliasMode.Explicit
@@ -313,7 +316,7 @@ extension [Cols <: Tuple, Row <: scala.NamedTuple.AnyNamedTuple](v: Values[Cols,
       val columns: Cols                                         = colsVal
       val expectedTableType: String                             = ""
       override def fromFragmentWith(x: String): AppliedFragment =
-        TypedExpr.raw("(") |+| renderInner() |+| TypedExpr.raw(s""") AS "$x" ($colsList)""")
+        if (x == newAlias) ownAliasAf else aliased(x)
     }
   }
 
@@ -677,22 +680,10 @@ final class IncompleteJoin[
       case _                              => sources
     }
     val nextSources = (finalCommitted :* entry).asInstanceOf[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR, A]]]
+    type Next = Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR, A]]
     carried match {
-      case Some(b) =>
-        new SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR, A]], G, W, H, O](
-          nextSources,
-          b.distinct,
-          b.whereOpt,
-          b.groupBys,
-          b.havingOpt,
-          b.orderOpt,
-          b.limitOpt,
-          b.offsetOpt,
-          b.lockingOpt,
-          b.distinctOnOpt
-        )
-      case None =>
-        new SelectBuilder[Tuple.Append[SsFinal, SourceEntry[RR, CR0, CR, AR, A]], G, W, H, O](nextSources)
+      case Some(b) => b.rebase[Next, G, W, H, O](nextSources)
+      case None    => SelectBuilder.fresh[Next, G, W, H, O](nextSources)
     }
   }
 
@@ -1035,7 +1026,7 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
     val rCols     = rel.columns.asInstanceOf[CR]
     val rEntry    =
       new SourceEntry[RR, CR, CR, AR, Void](rel, aR.aliasValue(right), rCols, rCols, JoinKind.Cross, None)
-    new SelectBuilder[
+    SelectBuilder.fresh[
       (SourceEntry[RL, CL, CL, AL, Void], SourceEntry[RR, CR, CR, AR, Void]),
       EmptyTuple,
       skunk.Void,
@@ -1151,7 +1142,7 @@ extension [L, RL <: Relation[CL], CL <: Tuple, AL <: String & Singleton, ML <: A
         None,
         isLateral = true
       )
-    new SelectBuilder[
+    SelectBuilder.fresh[
       (SourceEntry[RL, CL, CL, AL, Void], SourceEntry[RR, CR, CR, AR, Void]),
       EmptyTuple,
       skunk.Void,
