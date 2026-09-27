@@ -105,9 +105,39 @@ val transactions = Table.of[Tx]("transaction")
 
 Column names are checked at compile time, and `withSortedIndex` takes one `IndexOrder` per key
 (`Asc`, `Desc`, `AscNullsFirst`, `DescNullsLast`) — a tuple of the wrong arity doesn't compile.
-Partial-index predicates are compared with Postgres's normalised form, ignoring parentheses,
-spacing and case. Only btree indexes are declarable; an index of another method under a
-declared name is reported as a definition mismatch.
+
+Anything else — another access method, operator classes, collations, expression keys,
+`INCLUDE` columns, storage parameters, a standalone `CREATE UNIQUE INDEX` — goes through
+`withIndexDef`:
+
+```scala mdoc:silent
+import skunk.sharp.{IndexDef, IndexKey}
+import skunk.sharp.dsl.given // PgTypeFor for array columns
+
+case class Doc(id: Long, sku: String, name: String, tags: skunk.data.Arr[Int], price: BigDecimal)
+
+val docs = Table.of[Doc]("docs")
+  .withPrimary("id")
+  // CREATE INDEX docs_tags_gin ON docs USING gin (tags)
+  .withIndexDef(IndexDef("docs_tags_gin", IndexKey.column("tags")).withMethod("gin"))
+  // CREATE INDEX docs_name_pattern_idx ON docs (name text_pattern_ops)
+  .withIndexDef(IndexDef("docs_name_pattern_idx", IndexKey.column("name").opclass("text_pattern_ops")))
+  // CREATE INDEX docs_lower_name_idx ON docs (lower(name))
+  .withIndexDef(IndexDef("docs_lower_name_idx", IndexKey.expr("lower(name)")))
+  // CREATE INDEX docs_price_cover_idx ON docs (price) INCLUDE (name) WITH (fillfactor = 70)
+  .withIndexDef(IndexDef("docs_price_cover_idx", IndexKey.column("price")).include("name").withStorage("fillfactor" -> "70"))
+  // CREATE UNIQUE INDEX docs_sku_uidx ON docs (sku)
+  .withIndexDef(IndexDef("docs_sku_uidx", IndexKey.column("sku")).unique)
+```
+
+For pgvector, e.g.
+`IndexDef("chunks_embedding_hnsw", IndexKey.column("embedding").opclass("vector_cosine_ops")).withMethod("hnsw")`.
+
+The comparison is against Postgres's own `pg_get_indexdef`, ignoring parentheses, quotes,
+spacing and case. Expression keys and predicates are compared in the form Postgres prints them —
+it may add casts (`lower((email)::text)` for a `varchar` column), and a mismatch report shows the
+database's form to copy. Column keys and `INCLUDE` columns of a `withIndexDef` are checked when
+the table is built; expression keys aren't.
 
 ## Extensions and contrib tags
 

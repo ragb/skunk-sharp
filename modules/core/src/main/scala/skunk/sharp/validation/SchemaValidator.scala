@@ -91,50 +91,41 @@ object SchemaValidator {
     name: String,
     unique: Boolean,
     primary: Boolean,
-    method: String,
-    columns: List[String],
-    predicate: Option[String]
+    constraintBacked: Boolean,
+    indexdef: String
   ) {
 
-    /** Rendered like [[IndexDef.definition]] so the two compare after normalisation. */
-    def definition: String =
-      (if (unique) "UNIQUE " else "") + columns.mkString(s"$method (", ", ", ")") +
-        predicate.fold("")(p => s" WHERE $p")
+    /**
+     * Postgres's own definition from `USING` on (`USING btree (a, b DESC) INCLUDE (c) WHERE (…)`), prefixed `UNIQUE`
+     * for unique indexes — the shape [[IndexDef.definition]] renders.
+     */
+    def definition: String = {
+      val i    = indexdef.indexOf(" USING ")
+      val tail = if (i >= 0) indexdef.substring(i + 1) else indexdef
+      (if (unique) "UNIQUE " else "") + tail
+    }
 
   }
 
   /**
-   * One row per index on a table: name, unique, primary, access method, the key columns rendered like `pg_get_indexdef`
-   * does (with non-default `DESC` / `NULLS …` modifiers from `indoption`), and the partial-index predicate. Expression
-   * keys come through as their expression text.
+   * One row per index on a table: name, unique, primary, whether it backs a constraint (PK / UNIQUE / EXCLUDE — those
+   * are the constraint check's), and Postgres's own `CREATE INDEX` text, which covers method, operator classes,
+   * collations, expression keys, `INCLUDE`, storage parameters and the predicate.
    */
   private val indexesQuery: Query[(String, String), IndexRow] =
     sql"""
       SELECT ic.relname::text,
              i.indisunique,
              i.indisprimary,
-             am.amname::text,
-             ARRAY(
-               SELECT pg_get_indexdef(i.indexrelid, k, true) ||
-                      CASE WHEN (i.indoption[k - 1]::int & 1) = 1
-                           THEN CASE WHEN (i.indoption[k - 1]::int & 2) = 2 THEN ' DESC' ELSE ' DESC NULLS LAST' END
-                           ELSE CASE WHEN (i.indoption[k - 1]::int & 2) = 2 THEN ' NULLS FIRST' ELSE '' END
-                      END
-               FROM generate_series(1, i.indnkeyatts::int) AS k
-               ORDER BY k
-             )::text[],
-             pg_get_expr(i.indpred, i.indrelid)
+             EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conindid = i.indexrelid),
+             pg_get_indexdef(i.indexrelid)
       FROM pg_index i
       JOIN pg_class ic    ON ic.oid = i.indexrelid
       JOIN pg_class t     ON t.oid = i.indrelid
       JOIN pg_namespace n ON n.oid = t.relnamespace
-      JOIN pg_am am       ON am.oid = ic.relam
       WHERE n.nspname = $text AND t.relname = $text
       ORDER BY ic.relname
-    """.query(text *: bool *: bool *: text *: _text *: text.opt).map {
-      case (name, unique, primary, method, cols, pred) =>
-        IndexRow(name, unique, primary, method, cols.flattenTo(List), pred)
-    }
+    """.query(text *: bool *: bool *: bool *: text).map((n, u, p, c, d) => IndexRow(n, u, p, c, d))
 
   /** Names of every extension currently installed in the connected database (from `pg_extension`). */
   private val extensionsQuery: Query[Void, String] =
@@ -271,12 +262,15 @@ object SchemaValidator {
       }
     }
     val extras =
-      rows.filter(r => !r.unique && !r.primary && !declSet.contains(r.name))
+      rows.filter(r => !r.primary && !r.constraintBacked && !declSet.contains(r.name))
         .map(r => Mismatch.ExtraIndex(label, r.name, r.definition))
     ValidationReport(forDeclared ++ extras)
   }
 
-  /** Compare index definitions ignoring identifier quotes, parentheses, spacing and case (Postgres normalises them). */
+  /**
+   * Compare index definitions ignoring identifier quotes, parentheses, spacing and case — Postgres adds parentheses
+   * around predicates and expressions and quotes identifiers only when needed.
+   */
   private def normalise(defn: String): String =
     defn.toLowerCase.replaceAll("[\"()\\s]", "")
 

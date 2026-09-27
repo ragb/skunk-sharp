@@ -204,7 +204,7 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
   ): Table[Cols, Name] = {
     CompileChecks.requireAllNamesInCols[Cols, Ns]
     val names = constValueTuple[Ns].toList.asInstanceOf[List[String]]
-    addIndex(IndexDef(compiletime.constValue[IndexName], names.map(_ -> IndexOrder.Asc), None))
+    addIndex(IndexDef(compiletime.constValue[IndexName], names.map(IndexKey.column)))
   }
 
   /**
@@ -223,8 +223,8 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
   )(using @unused ev: Tuple.Union[Ns] <:< (String & Singleton)): Table[Cols, Name] = {
     CompileChecks.requireAllNamesInCols[Cols, Ns]
     val names = constValueTuple[Ns].toList.asInstanceOf[List[String]]
-    val keys  = names.zip(orders.toList.asInstanceOf[List[IndexOrder]])
-    addIndex(IndexDef(compiletime.constValue[IndexName], keys, Option(where).filter(_.nonEmpty)))
+    val keys  = names.zip(orders.toList.asInstanceOf[List[IndexOrder]]).map((n, o) => IndexKey.column(n).ordered(o))
+    addIndex(IndexDef(compiletime.constValue[IndexName], keys, predicate = Option(where).filter(_.nonEmpty)))
   }
 
   /**
@@ -241,7 +241,29 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
   ): Table[Cols, Name] = {
     CompileChecks.requireAllNamesInCols[Cols, Ns]
     val names = constValueTuple[Ns].toList.asInstanceOf[List[String]]
-    addIndex(IndexDef(compiletime.constValue[IndexName], names.map(_ -> IndexOrder.Asc), Some(where)))
+    addIndex(IndexDef(compiletime.constValue[IndexName], names.map(IndexKey.column), predicate = Some(where)))
+  }
+
+  /**
+   * Declare any index — another access method (`gin`, `gist`, `brin`, `hnsw`, …), operator classes, expression keys,
+   * `INCLUDE` columns, storage parameters, a standalone `UNIQUE` index — as an [[IndexDef]]. Column keys and `INCLUDE`
+   * columns are checked against the table here (an unknown one throws `IllegalArgumentException` when the table is
+   * built); expression keys aren't.
+   *
+   * {{{
+   *   .withIndexDef(
+   *     IndexDef("chunks_embedding_hnsw", IndexKey.column("embedding").opclass("vector_cosine_ops")).withMethod("hnsw")
+   *   )
+   * }}}
+   */
+  def withIndexDef(ix: IndexDef): Table[Cols, Name] = {
+    val known   = columns.toList.asInstanceOf[List[Column[?, ?, ?, ?]]].map(_.name.toString).toSet
+    val unknown = (ix.keys.filter(_.isColumn).map(_.sql) ++ ix.includes).filterNot(known)
+    if (unknown.nonEmpty)
+      throw new IllegalArgumentException(
+        s"skunk-sharp: index \"${ix.name}\" on table \"$name\" references unknown column(s): ${unknown.mkString(", ")}"
+      )
+    addIndex(ix)
   }
 
   @scala.annotation.publicInBinary
