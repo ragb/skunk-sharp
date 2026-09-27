@@ -40,6 +40,25 @@ type Stripped[T] = T match {
   case _         => T
 }
 
+/** `Option[U]` when `T` is nullable (`Option[_]`), else `U` — the result of a function of one nullable input. */
+type Lift[T, U] = T match {
+  case Option[?] => Option[U]
+  case _         => U
+}
+
+/**
+ * `Option[U]` when **either** input is nullable, else `U` — for functions / operators of two inputs: a NULL on either
+ * side makes the result NULL, so its codec must be optional.
+ */
+type Lift2[L, R, U] = L match {
+  case Option[?] => Option[U]
+  case _         =>
+    R match {
+      case Option[?] => Option[U]
+      case _         => U
+    }
+}
+
 /** Build a `Where[Concat[A, B]]` from `lhs <op> rhs`. Both arms are typed expressions; Args from each propagate. */
 private inline def opCombine[T, U, A, B](
   lhs: TypedExpr[T, A],

@@ -25,7 +25,7 @@ class JsonbSuite extends munit.FunSuite {
       .compile.af
     assertEquals(
       af.fragment.sql,
-      """SELECT "body" -> $1, "body" ->> $2 FROM "documents""""
+      """SELECT ("body" -> $1), ("body" ->> $2) FROM "documents""""
     )
   }
 
@@ -33,7 +33,7 @@ class JsonbSuite extends munit.FunSuite {
     val af = docs.select(d => (d.body.at(0), d.body.atText(1))).compile.af
     assertEquals(
       af.fragment.sql,
-      """SELECT "body" -> 0, "body" ->> 1 FROM "documents""""
+      """SELECT ("body" -> 0), ("body" ->> 1) FROM "documents""""
     )
   }
 
@@ -43,7 +43,7 @@ class JsonbSuite extends munit.FunSuite {
       .compile.af
     assertEquals(
       af.fragment.sql,
-      """SELECT "body" #> $1::text[], "body" #>> $2::text[] FROM "documents""""
+      """SELECT ("body" #> $1::text[]), ("body" #>> $2::text[]) FROM "documents""""
     )
   }
 
@@ -53,7 +53,7 @@ class JsonbSuite extends munit.FunSuite {
       .select
       .where(d => d.body.contains(pattern))
       .compile.af
-    assert(af.fragment.sql.contains("""WHERE "body" @> """), af.fragment.sql)
+    assert(af.fragment.sql.contains("""WHERE ("body" @> """), af.fragment.sql)
   }
 
   test("hasKey / hasAnyKey / hasAllKeys") {

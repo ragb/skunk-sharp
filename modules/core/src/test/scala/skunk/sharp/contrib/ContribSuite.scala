@@ -72,10 +72,10 @@ class ContribSuite extends munit.FunSuite {
     val descs  = cols.path.isDescendantOf(Param.bind(LTree.unsafeFrom("top.science")))
     val concat = cols.path.concat(Param.bind(LTree.unsafeFrom("astronomy")))
     val patt   = cols.path.matches(Param.bind(LQuery("top.*.astronomy")))
-    assertEquals(ances.fragment.sql, """"path" @> $1""")
-    assertEquals(descs.fragment.sql, """"path" <@ $1""")
-    assertEquals(concat.fragment.sql, """"path" || $1""")
-    assertEquals(patt.fragment.sql, """"path" ~ $1""")
+    assertEquals(ances.fragment.sql, """("path" @> $1)""")
+    assertEquals(descs.fragment.sql, """("path" <@ $1)""")
+    assertEquals(concat.fragment.sql, """("path" || $1)""")
+    assertEquals(patt.fragment.sql, """("path" ~ $1)""")
   }
 
   test("PgLtree.nlevel / lca render") {
@@ -102,9 +102,9 @@ class ContribSuite extends munit.FunSuite {
     val sim   = cols.body.similarTrgm(lit("widget"))
     val dist  = cols.body.trgmDistance(lit("widget"))
     val w     = cols.body.wordSimilar(lit("wid"))
-    assertEquals(sim.fragment.sql, """"body" % 'widget'""")
-    assertEquals(dist.fragment.sql, """"body" <-> 'widget'""")
-    assertEquals(w.fragment.sql, """"body" <% 'wid'""")
+    assertEquals(sim.fragment.sql, """("body" % 'widget')""")
+    assertEquals(dist.fragment.sql, """("body" <-> 'widget')""")
+    assertEquals(w.fragment.sql, """("body" <% 'wid')""")
     val _ = t
   }
 
@@ -171,12 +171,12 @@ class ContribSuite extends munit.FunSuite {
   test("hstore operators render correct SQL") {
     val t    = Table.of[HstoreRow]("things")
     val cols = ColumnsView(t.columns)
-    assertEquals(cols.props.hasKey(lit("k")).fragment.sql, """"props" ? 'k'""")
+    assertEquals(cols.props.hasKey(lit("k")).fragment.sql, """("props" ? 'k')""")
     assertEquals(
       cols.props.contains(Param.bind(Hstore("k" -> Some("v")))).fragment.sql,
-      """"props" @> $1"""
+      """("props" @> $1)"""
     )
-    assertEquals(cols.props.deleteKey(lit("k")).fragment.sql, """"props" - 'k'""")
+    assertEquals(cols.props.deleteKey(lit("k")).fragment.sql, """("props" - 'k')""")
     val _ = PgHstore.hstoreToJson(cols.props)
     val _ = PgHstore.defined(cols.props, lit("k"))
   }

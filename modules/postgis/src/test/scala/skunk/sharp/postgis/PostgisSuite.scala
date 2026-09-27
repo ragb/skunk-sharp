@@ -61,9 +61,9 @@ class PostgisSuite extends munit.FunSuite {
     val t      = Table.of[Site]("sites")
     val cols   = ColumnsView(t.columns)
     val origin = Param.bind[Geometry](Point(Some(SRID(4326)), Coordinate.xy(0.0, 0.0)))
-    assertEquals(cols.geom.bboxOverlaps(origin).fragment.sql, """"geom" && $1""")
-    assertEquals(cols.geom.bboxContains(origin).fragment.sql, """"geom" ~ $1""")
-    assertEquals(cols.geom.bboxWithin(origin).fragment.sql, """"geom" @ $1""")
+    assertEquals(cols.geom.bboxOverlaps(origin).fragment.sql, """("geom" && $1)""")
+    assertEquals(cols.geom.bboxContains(origin).fragment.sql, """("geom" ~ $1)""")
+    assertEquals(cols.geom.bboxWithin(origin).fragment.sql, """("geom" @ $1)""")
   }
 
   test("ST_X / ST_Y / ST_Area / ST_Length render correct SQL") {

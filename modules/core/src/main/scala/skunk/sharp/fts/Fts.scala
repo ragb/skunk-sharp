@@ -119,15 +119,17 @@ object Fts {
 
   /** `ts_rank(doc, query)` — relevance by lexeme frequency (`real`). */
   inline def tsRank[T, A, B](doc: TypedExpr[T, A], query: TypedExpr[TsQuery, B])(using
-    Stripped[T] <:< TsVector
-  ): TypedExpr[Float, Where.Concat[A, B]] =
-    call2[Float, A, B]("ts_rank", doc.fragment, query.fragment)
+    Stripped[T] <:< TsVector,
+    PgTypeFor[skunk.sharp.ops.Lift[T, Float]]
+  ): TypedExpr[skunk.sharp.ops.Lift[T, Float], Where.Concat[A, B]] =
+    call2[skunk.sharp.ops.Lift[T, Float], A, B]("ts_rank", doc.fragment, query.fragment)
 
   /** `ts_rank_cd(doc, query)` — cover density: also rewards matched terms being close together. */
   inline def tsRankCd[T, A, B](doc: TypedExpr[T, A], query: TypedExpr[TsQuery, B])(using
-    Stripped[T] <:< TsVector
-  ): TypedExpr[Float, Where.Concat[A, B]] =
-    call2[Float, A, B]("ts_rank_cd", doc.fragment, query.fragment)
+    Stripped[T] <:< TsVector,
+    PgTypeFor[skunk.sharp.ops.Lift[T, Float]]
+  ): TypedExpr[skunk.sharp.ops.Lift[T, Float], Where.Concat[A, B]] =
+    call2[skunk.sharp.ops.Lift[T, Float], A, B]("ts_rank_cd", doc.fragment, query.fragment)
 
   /** `ts_headline(text, query)` — the text with matches highlighted (`<b>…</b>` by default), for result snippets. */
   inline def tsHeadline[A, B](

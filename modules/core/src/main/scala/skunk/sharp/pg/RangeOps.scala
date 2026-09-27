@@ -1,6 +1,6 @@
 package skunk.sharp.pg
 
-import skunk.sharp.TypedExpr
+import skunk.sharp.{PgOperator, TypedExpr}
 import skunk.sharp.where.Where
 
 /**
@@ -25,8 +25,7 @@ object IsRange {
 object RangeOps {
 
   private inline def boolOp[R, X, Y](op: String, l: TypedExpr[R, X], r: TypedExpr[R, Y]): Where[Where.Concat[X, Y]] = {
-    val frag = TypedExpr.combineSepInl[X, Y](l.fragment, s" $op ", r.fragment)
-    Where(frag)
+    Where(PgOperator.binary[X, Y](op, l.fragment, r.fragment))
   }
 
   private inline def rangeOp[R, X, Y](
@@ -34,8 +33,7 @@ object RangeOps {
     l: TypedExpr[R, X],
     r: TypedExpr[R, Y]
   ): TypedExpr[R, Where.Concat[X, Y]] = {
-    val frag = TypedExpr.combineSepInl[X, Y](l.fragment, s" $op ", r.fragment)
-    TypedExpr[R, Where.Concat[X, Y]](frag, l.codec)
+    TypedExpr[R, Where.Concat[X, Y]](PgOperator.binary[X, Y](op, l.fragment, r.fragment), l.codec)
   }
 
   extension [R, X](lhs: TypedExpr[R, X])(using @annotation.unused ev: IsRange[R]) {

@@ -94,7 +94,7 @@ All under [modules/core/src/main/scala/skunk/sharp/dsl/](modules/core/src/main/s
 
 Aggregates live on `Pg` in [PgFunction.scala](modules/core/src/main/scala/skunk/sharp/PgFunction.scala): `countAll`, `count`, `countDistinct`, `sum`, `avg`, `min`, `max`, `stringAgg`, `boolAnd`, `boolOr`. Every aggregate returns a `TypedExpr[R]`, so they slot into SELECT projections, HAVING predicates, or ORDER BY expressions anywhere a `TypedExpr` is expected.
 
-`sum` and `avg` use typeclasses (`SumOut[I]`, `AvgOut[I]`) that map the input Scala type to Postgres's actual result type — `sum(Int)` → `Long`, `sum(Long)` → `BigDecimal`, `sum(Double)` → `Double`, `avg(Int)` → `BigDecimal`, `avg(Double)` → `Double`. Matches what Postgres actually returns so the decoded value aligns.
+`sum` and `avg` use match types (`SumOf[I]`, `AvgOf[I]` in `pg/functions/Shared.scala`) that map the input Scala type to Postgres's actual result type — `sum(Int)` → `Long`, `sum(Long)` → `BigDecimal`, `sum(Double)` → `Double`, `avg(Int)` → `BigDecimal`, `avg(Double)` → `Double`. Matches what Postgres actually returns so the decoded value aligns.
 
 `.groupBy(cols => …)` and `.having(cols => …)` live on both `SelectBuilder` and `ProjectedSelect`. Rendering order: `SELECT … FROM … WHERE … GROUP BY … HAVING … ORDER BY … LIMIT … OFFSET … LOCKING`. Compile-time enforcement that all bare SELECT columns appear in GROUP BY is a roadmap item (requires `TypedColumn` to carry its singleton column-name type param); today, Postgres raises the misalignment at runtime.
 
@@ -133,6 +133,8 @@ The `Where.Concat[A, B]` match type is **smart-flat**: it normalises both arms v
 
 - `.whereRaw(af: AppliedFragment)` / `.havingRaw(af)` on `SelectBuilder`/`ProjectedSelect`/mutation builders — accept a pre-applied `AppliedFragment` and widen the slot's `Args` to `?`. Subsequent typed `.where`/`.having` calls compose normally.
 - `Where(typedExpr: TypedExpr[Boolean, A])` — lift any boolean-typed `TypedExpr` (subquery `Pg.exists(...)`, jsonb `@>`, range `<<`, …) to `Where[A]`. Used by extension modules.
+
+**Infix operators render parenthesised** — every infix operator goes through `PgOperator.binary` (`(l op r)`), and `.cast` parenthesises compound operands: Postgres's "other operator"s share one precedence level, so unparenthesised nesting silently regroups. Nullability of multi-input functions uses `Lift2[L, R, U]` (`skunk.sharp.ops`) — NULL on either side makes the result `Option`.
 
 **Infix arithmetic** ([`ops/Arith.scala`](modules/core/src/main/scala/skunk/sharp/ops/Arith.scala)): `+ - * / %`, unary `-`, rendered parenthesised. Result type from per-operator typeclasses (`Plus` / `Minus` / `Times` / `Div` / `Mod`, over `Stripped` operand types; numeric promotion in `NumericPromotion`, date/time shifts in `AdditiveTime` — separate typeclasses the operators derive from, never a shared supertrait, so an instance for one operator can't satisfy another; unary `-` needs `Negate[T]`) lifted to `Option` by `ArithResult` when either side is nullable; temporal instances too. Extension types add instances via `Plus.of` etc. in their own companion (pgvector does). The integration `ArithSuite` verifies the promotion table against Postgres (skunk's column-alignment check fails on a wrong result type). Export note: `*` must be backquoted in the `dsl` export clause.
 

@@ -396,8 +396,12 @@ extension [T, A](expr: TypedExpr[T, A]) {
 
   def cast[U](using pf: PgTypeFor[U]): TypedExpr[U, A] = {
     val castName = skunk.sharp.pg.PgTypes.castName(skunk.sharp.pg.PgTypes.typeOf(pf.codec))
-    val parts    = expr.fragment.parts ++ List(Left(s"::$castName"))
-    val frag     = Fragment(parts, expr.fragment.encoder, Origin.unknown)
+    // `::` binds tighter than any operator: parenthesise a compound operand so the cast applies to all of it.
+    val atomic = expr.isInstanceOf[TypedColumn[?, ?, ?]] || expr.fragment.parts.sizeIs <= 1
+    val parts  =
+      if (atomic) expr.fragment.parts ++ List(Left(s"::$castName"))
+      else (Left("(") :: expr.fragment.parts) ++ List(Left(s")::$castName"))
+    val frag = Fragment(parts, expr.fragment.encoder, Origin.unknown)
     TypedExpr(frag, pf.codec)
   }
 

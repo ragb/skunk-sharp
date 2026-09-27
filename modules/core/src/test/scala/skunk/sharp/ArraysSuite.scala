@@ -56,7 +56,7 @@ class ArraysSuite extends munit.FunSuite {
 
   test("concat (||) renders as array concatenation inside projection") {
     val af = posts.select(p => p.tags.concat(param(Arr("extra")))).compile.af
-    assertEquals(af.fragment.sql, """SELECT "tags" || $1 FROM "posts"""")
+    assertEquals(af.fragment.sql, """SELECT ("tags" || $1) FROM "posts"""")
   }
 
   test("elemOf: scalar = ANY(array)") {

@@ -1,7 +1,7 @@
 package skunk.sharp.pg
 
 import skunk.data.Arr
-import skunk.sharp.TypedExpr
+import skunk.sharp.{PgOperator, TypedExpr}
 import skunk.sharp.where.Where
 
 /**
@@ -23,8 +23,7 @@ object IsArray {
 object ArrayOps {
 
   private inline def boolOp[A, X, Y](op: String, l: TypedExpr[A, X], r: TypedExpr[A, Y]): Where[Where.Concat[X, Y]] = {
-    val frag = TypedExpr.combineSepInl[X, Y](l.fragment, s" $op ", r.fragment)
-    Where(frag)
+    Where(PgOperator.binary[X, Y](op, l.fragment, r.fragment))
   }
 
   extension [A, X](lhs: TypedExpr[A, X])(using @annotation.unused ev: IsArray[A]) {
@@ -34,8 +33,7 @@ object ArrayOps {
     inline def overlaps[Y](rhs: TypedExpr[A, Y]): Where[Where.Concat[X, Y]]    = boolOp("&&", lhs, rhs)
 
     inline def concat[Y](rhs: TypedExpr[A, Y]): TypedExpr[A, Where.Concat[X, Y]] = {
-      val frag = TypedExpr.combineSepInl[X, Y](lhs.fragment, " || ", rhs.fragment)
-      TypedExpr[A, Where.Concat[X, Y]](frag, lhs.codec)
+      TypedExpr[A, Where.Concat[X, Y]](PgOperator.binary[X, Y]("||", lhs.fragment, rhs.fragment), lhs.codec)
     }
 
   }
