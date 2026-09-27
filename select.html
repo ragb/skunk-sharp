@@ -374,6 +374,15 @@ is used with different types …</code>.</li>
         <p>Limited to <code>Where[Void]</code> — the AND identity (<code>Concat[Void, Void] = Void</code>) is what makes
         the fold lawful. Operator args slots are typed; for <code>&amp;&amp;</code> / <code>||</code> over parameterised
         <code>Where[A]</code>, just chain directly.</p>
+        <p>For a <strong>fixed</strong> set of predicates that carry different parameters, <code>allOfT</code> / <code>anyOfT</code> take a
+        tuple and fold the parameter types, dropping the <code>Void</code> ones:</p>
+        <pre class="keep-together pdf epub"><code class="nohighlight"><span class="comment">// Where[(Int, String)] — the IS NULL predicate adds no parameter
+</span><span class="keyword">val</span><span> </span><span class="identifier">activeAdults</span><span> = </span><span class="identifier">allOfT</span><span>((
+  </span><span class="identifier">users</span><span>.</span><span class="identifier">columnsView</span><span>.</span><span class="identifier">age</span><span> &gt;= </span><span class="type-name">Param</span><span>[</span><span class="type-name">Int</span><span>],
+  </span><span class="identifier">users</span><span>.</span><span class="identifier">columnsView</span><span>.</span><span class="identifier">email</span><span>.</span><span class="identifier">like</span><span>(</span><span class="type-name">Param</span><span>[</span><span class="type-name">String</span><span>]),
+  </span><span class="identifier">users</span><span>.</span><span class="identifier">columnsView</span><span>.</span><span class="identifier">deleted_at</span><span>.</span><span class="identifier">isNull</span><span>
+))</span></code></pre>
+        <p>They nest (<code>allOfT((a, anyOfT((b, c))))</code>) and render parenthesised, like <code>&amp;&amp;</code> / <code>||</code>.</p>
 
         
 <hr class="footer-rule"/>
