@@ -10,10 +10,9 @@ type StrLike[T] = Stripped[T] <:< String
 
 type UuidLike[T] = Stripped[T] <:< java.util.UUID
 
-type Lift[T, U] = T match {
-  case Option[x] => Option[U]
-  case _         => U
-}
+type Lift[T, U] = skunk.sharp.ops.Lift[T, U]
+
+type Lift2[L, R, U] = skunk.sharp.ops.Lift2[L, R, U]
 
 type SumOf[I] = I match {
   case Short | Int       => Long

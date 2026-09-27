@@ -2,7 +2,7 @@ package skunk.sharp.circe
 
 import io.circe.Json as CirceJson
 import skunk.{Fragment, Void}
-import skunk.sharp.{Param, TypedExpr}
+import skunk.sharp.{Param, PgOperator, TypedExpr}
 import skunk.sharp.where.Where
 
 /**
@@ -127,7 +127,7 @@ trait PgJsonb {
     a: TypedExpr[Jsonb[A], X],
     b: TypedExpr[Jsonb[B], Y]
   ): TypedExpr[Jsonb[CirceJson], Where.Concat[X, Y]] = {
-    val frag = TypedExpr.combineSepInl[X, Y](a.fragment, " || ", b.fragment)
+    val frag = PgOperator.binary[X, Y]("||", a.fragment, b.fragment)
     TypedExpr[Jsonb[CirceJson], Where.Concat[X, Y]](frag, rawJsonbCodec)
   }
 
@@ -136,7 +136,7 @@ trait PgJsonb {
     pfs: skunk.sharp.pg.PgTypeFor[String]
   ): TypedExpr[Jsonb[CirceJson], X] = {
     val keyFrag = Param.bind[String](key).fragment
-    val frag    = TypedExpr.combineSepInl[X, Void](e.fragment, " - ", keyFrag).asInstanceOf[Fragment[X]]
+    val frag    = PgOperator.binary[X, Void]("-", e.fragment, keyFrag).asInstanceOf[Fragment[X]]
     TypedExpr[Jsonb[CirceJson], X](frag, rawJsonbCodec)
   }
 

@@ -82,27 +82,26 @@ object PgFunction {
  */
 object PgOperator {
 
-  /** An infix binary operator: `a op b`. Result Args = `Concat[X, Y]`. */
+  /**
+   * `(l op r)` — the rendering every infix operator uses. Always parenthesised: Postgres's many "other operator"s share
+   * one precedence level and associate left, so an unparenthesised operand would silently regroup (`v <=> q * 2` is
+   * `v <=> (q * 2)`).
+   */
+  inline def binary[X, Y](op: String, l: Fragment[X], r: Fragment[Y]): Fragment[where.Where.Concat[X, Y]] =
+    TypedExpr.wrap("(", TypedExpr.combineSepInl[X, Y](l, " " + op + " ", r), ")")
+
+  /** An infix binary operator: `(a op b)`. Result Args = `Concat[X, Y]`. */
   inline def infix[A, B, R, X, Y](op: String)(using
     pfr: PgTypeFor[R]
   ): (TypedExpr[A, X], TypedExpr[B, Y]) => TypedExpr[R, where.Where.Concat[X, Y]] =
-    (a, b) => {
-      val frag = TypedExpr.combineSepInl[X, Y](a.fragment, s" $op ", b.fragment)
-      TypedExpr[R, where.Where.Concat[X, Y]](frag, pfr.codec)
-    }
+    (a, b) => TypedExpr[R, where.Where.Concat[X, Y]](binary[X, Y](op, a.fragment, b.fragment), pfr.codec)
 
-  /** A prefix unary operator: `op a`. Args propagates from the operand. */
+  /** A prefix unary operator: `(op a)`. Args propagates from the operand. */
   def prefix[A, R, X](op: String)(using pfr: PgTypeFor[R]): TypedExpr[A, X] => TypedExpr[R, X] =
-    a => {
-      val frag = TypedExpr.wrap(op, a.fragment, "")
-      TypedExpr[R, X](frag, pfr.codec)
-    }
+    a => TypedExpr[R, X](TypedExpr.wrap("(" + op, a.fragment, ")"), pfr.codec)
 
-  /** A postfix unary operator: `a op`. Args propagates from the operand. */
+  /** A postfix unary operator: `(a op)`. Args propagates from the operand. */
   def postfix[A, R, X](op: String)(using pfr: PgTypeFor[R]): TypedExpr[A, X] => TypedExpr[R, X] =
-    a => {
-      val frag = TypedExpr.wrap("", a.fragment, s" $op")
-      TypedExpr[R, X](frag, pfr.codec)
-    }
+    a => TypedExpr[R, X](TypedExpr.wrap("(", a.fragment, " " + op + ")"), pfr.codec)
 
 }

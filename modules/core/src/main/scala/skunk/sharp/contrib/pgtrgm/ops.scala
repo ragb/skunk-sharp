@@ -2,7 +2,7 @@ package skunk.sharp.contrib.pgtrgm
 
 import scala.annotation.unused
 import skunk.sharp.{PgOperator, TypedExpr}
-import skunk.sharp.ops.Stripped
+import skunk.sharp.ops.{Lift, Stripped}
 import skunk.sharp.where.Where
 
 /**
@@ -19,42 +19,42 @@ extension [T, A](lhs: TypedExpr[T, A]) {
   inline def similarTrgm[B](rhs: TypedExpr[String, B])(using
     @unused ev: Stripped[T] <:< String
   ): Where[Where.Concat[A, B]] = {
-    val expr = PgOperator.infix[T, String, Boolean, A, B]("%")(lhs, rhs)
-    Where(expr.fragment)
+    PgOperator.infix[T, String, Boolean, A, B]("%")(lhs, rhs)
   }
 
   /** `lhs <-> rhs` — trigram distance. Use in `ORDER BY` for "closest match first". */
   inline def trgmDistance[B](rhs: TypedExpr[String, B])(using
-    @unused ev: Stripped[T] <:< String
-  ): TypedExpr[Float, Where.Concat[A, B]] =
-    PgOperator.infix[T, String, Float, A, B]("<->")(lhs, rhs)
+    @unused ev: Stripped[T] <:< String,
+    pf: skunk.sharp.pg.PgTypeFor[Lift[T, Float]]
+  ): TypedExpr[Lift[T, Float], Where.Concat[A, B]] =
+    PgOperator.infix[T, String, Lift[T, Float], A, B]("<->")(lhs, rhs)
 
   /** `lhs <% rhs` — word-similarity above threshold. */
   inline def wordSimilar[B](rhs: TypedExpr[String, B])(using
     @unused ev: Stripped[T] <:< String
   ): Where[Where.Concat[A, B]] = {
-    val expr = PgOperator.infix[T, String, Boolean, A, B]("<%")(lhs, rhs)
-    Where(expr.fragment)
+    PgOperator.infix[T, String, Boolean, A, B]("<%")(lhs, rhs)
   }
 
   /** `lhs <<% rhs` — strict-word-similarity above threshold. */
   inline def strictWordSimilar[B](rhs: TypedExpr[String, B])(using
     @unused ev: Stripped[T] <:< String
   ): Where[Where.Concat[A, B]] = {
-    val expr = PgOperator.infix[T, String, Boolean, A, B]("<<%")(lhs, rhs)
-    Where(expr.fragment)
+    PgOperator.infix[T, String, Boolean, A, B]("<<%")(lhs, rhs)
   }
 
   /** `lhs <<-> rhs` — word-similarity distance. */
   inline def wordTrgmDistance[B](rhs: TypedExpr[String, B])(using
-    @unused ev: Stripped[T] <:< String
-  ): TypedExpr[Float, Where.Concat[A, B]] =
-    PgOperator.infix[T, String, Float, A, B]("<<->")(lhs, rhs)
+    @unused ev: Stripped[T] <:< String,
+    pf: skunk.sharp.pg.PgTypeFor[Lift[T, Float]]
+  ): TypedExpr[Lift[T, Float], Where.Concat[A, B]] =
+    PgOperator.infix[T, String, Lift[T, Float], A, B]("<<->")(lhs, rhs)
 
   /** `lhs <->> rhs` — strict-word-similarity distance. */
   inline def strictWordTrgmDistance[B](rhs: TypedExpr[String, B])(using
-    @unused ev: Stripped[T] <:< String
-  ): TypedExpr[Float, Where.Concat[A, B]] =
-    PgOperator.infix[T, String, Float, A, B]("<->>")(lhs, rhs)
+    @unused ev: Stripped[T] <:< String,
+    pf: skunk.sharp.pg.PgTypeFor[Lift[T, Float]]
+  ): TypedExpr[Lift[T, Float], Where.Concat[A, B]] =
+    PgOperator.infix[T, String, Lift[T, Float], A, B]("<->>")(lhs, rhs)
 
 }

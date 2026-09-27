@@ -45,7 +45,7 @@ ranked search with highlighted snippets, compiled once with a named parameter:
 val query = Fts.websearchToTsQuery("english", Param.named["q", String])
 
 // SELECT "title", ts_rank("tsv", …), ts_headline('english'::regconfig, "body", …)
-// FROM "docs" WHERE "tsv" @@ websearch_to_tsquery('english'::regconfig, $3) ORDER BY ts_rank(…) DESC LIMIT 10
+// FROM "docs" WHERE ("tsv" @@ websearch_to_tsquery('english'::regconfig, $3)) ORDER BY ts_rank(…) DESC LIMIT 10
 val search = docs
   .select(d => (d.title, Fts.tsRank(d.tsv, query), Fts.tsHeadline("english", d.body, query)))
   .where(d => d.tsv.matches(query))

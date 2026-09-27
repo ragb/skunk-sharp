@@ -192,14 +192,7 @@ object Negate {
 }
 
 /** `Option[O]` when either operand is nullable, else `O`. */
-type ArithResult[L, R, O] = L match {
-  case Option[?] => Option[O]
-  case _         =>
-    R match {
-      case Option[?] => Option[O]
-      case _         => O
-    }
-}
+type ArithResult[L, R, O] = Lift2[L, R, O]
 
 extension [L, A](lhs: TypedExpr[L, A]) {
 

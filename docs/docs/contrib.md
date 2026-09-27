@@ -214,7 +214,7 @@ The canonical query is top-k by distance, usually filtered by ordinary columns. 
 there's no point fetching the embeddings back — and pass the query vector as a named parameter:
 
 ```scala mdoc:silent
-// SELECT "id", "content" FROM "chunks" WHERE "doc" = $1 ORDER BY "embedding" <=> $2 ASC LIMIT 5
+// SELECT "id", "content" FROM "chunks" WHERE "doc" = $1 ORDER BY ("embedding" <=> $2) ASC LIMIT 5
 val topK = chunks
   .select(c => (c.id, c.content))
   .where(c => c.doc === Param.named["doc", String])

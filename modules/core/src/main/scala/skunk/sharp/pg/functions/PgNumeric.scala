@@ -288,11 +288,11 @@ trait PgNumeric {
     doubleFn("sqrt", e)
 
   inline def power[A, B, AA, BA](a: TypedExpr[A, AA], b: TypedExpr[B, BA])(using
-    pf: PgTypeFor[Lift[A, Double]]
-  ): TypedExpr[Lift[A, Double], Where.Concat[AA, BA]] = {
+    pf: PgTypeFor[Lift2[A, B, Double]]
+  ): TypedExpr[Lift2[A, B, Double], Where.Concat[AA, BA]] = {
     val inner = TypedExpr.combineSepInl[AA, BA](a.fragment, ", ", b.fragment)
     val frag  = TypedExpr.wrap("power(", inner, ")")
-    TypedExpr[Lift[A, Double], Where.Concat[AA, BA]](frag, pf.codec)
+    TypedExpr[Lift2[A, B, Double], Where.Concat[AA, BA]](frag, pf.codec)
   }
 
   def exp[T, A](e: TypedExpr[T, A])(using PgTypeFor[Lift[T, Double]]): TypedExpr[Lift[T, Double], A] =
@@ -342,11 +342,11 @@ trait PgNumeric {
 
   /** `atan2(y, x)` — both arms typed; combined Args. */
   inline def atan2[A, B, AA, BA](y: TypedExpr[A, AA], x: TypedExpr[B, BA])(using
-    pf: PgTypeFor[Lift[A, Double]]
-  ): TypedExpr[Lift[A, Double], Where.Concat[AA, BA]] = {
+    pf: PgTypeFor[Lift2[A, B, Double]]
+  ): TypedExpr[Lift2[A, B, Double], Where.Concat[AA, BA]] = {
     val inner = TypedExpr.combineSepInl[AA, BA](y.fragment, ", ", x.fragment)
     val frag  = TypedExpr.wrap("atan2(", inner, ")")
-    TypedExpr[Lift[A, Double], Where.Concat[AA, BA]](frag, pf.codec)
+    TypedExpr[Lift2[A, B, Double], Where.Concat[AA, BA]](frag, pf.codec)
   }
 
   // -------- Hyperbolic --------------------------------------------------------------------------

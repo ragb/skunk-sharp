@@ -80,7 +80,7 @@ class PgVectorSuite extends munit.FunSuite {
       .compile
     assertEquals(
       q.fragment.sql,
-      """SELECT "embedding" <=> $1, "embedding" <-> "embedding", "embedding" <#> "embedding", "embedding" <+> "embedding" FROM "chunks""""
+      """SELECT ("embedding" <=> $1), ("embedding" <-> "embedding"), ("embedding" <#> "embedding"), ("embedding" <+> "embedding") FROM "chunks""""
     )
   }
 
@@ -93,7 +93,7 @@ class PgVectorSuite extends munit.FunSuite {
       .compile
     assertEquals(
       topK.fragment.sql,
-      """SELECT "id", "content" FROM "chunks" WHERE "doc" = $1 ORDER BY "embedding" <=> $2 ASC LIMIT 5"""
+      """SELECT "id", "content" FROM "chunks" WHERE "doc" = $1 ORDER BY ("embedding" <=> $2) ASC LIMIT 5"""
     )
     val af = topK.bind((doc = "handbook", query = v))
     assertEquals(af.fragment.encoder.encode(af.argument).flatten.map(_.value), List("handbook", "[0.1,0.2,0.3]"))
@@ -133,7 +133,7 @@ class PgVectorSuite extends munit.FunSuite {
     val _: QueryTemplate[PgVector[3], ?] = q
     assertEquals(
       q.fragment.sql.trim,
-      """SELECT "id", "doc", "content", "embedding" FROM "chunks" ORDER BY "embedding" <=> $1 ASC LIMIT 5"""
+      """SELECT "id", "doc", "content", "embedding" FROM "chunks" ORDER BY ("embedding" <=> $1) ASC LIMIT 5"""
     )
   }
 

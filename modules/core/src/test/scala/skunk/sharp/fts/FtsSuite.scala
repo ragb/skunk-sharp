@@ -66,7 +66,7 @@ class FtsSuite extends munit.FunSuite {
       search.fragment.sql,
       s"""SELECT "id", ts_headline('english'::regconfig, "body", ${q.format(1)}), ts_rank("tsv", ${q.format(
           2
-        )}) FROM "docs" WHERE "tsv" @@ ${q.format(3)} ORDER BY ts_rank("tsv", ${q.format(4)}) DESC LIMIT 10"""
+        )}) FROM "docs" WHERE ("tsv" @@ ${q.format(3)}) ORDER BY ts_rank("tsv", ${q.format(4)}) DESC LIMIT 10"""
     )
     val af = search.bind((q = "fat rats"))
     assertEquals(af.fragment.encoder.encode(af.argument).flatten.map(_.value), List.fill(4)("fat rats"))
@@ -90,6 +90,9 @@ class FtsSuite extends munit.FunSuite {
   test("combinators are parenthesised, so they compose under @@ (equal precedence, left-associative)") {
     val q =
       docs.select(d => d.id).where(d => d.tsv.matches(Fts.toTsQuery("a").andQuery(Fts.toTsQuery("b").negate))).compile
-    assertEquals(q.fragment.sql, """SELECT "id" FROM "docs" WHERE "tsv" @@ (to_tsquery('a') && (!! to_tsquery('b')))""")
+    assertEquals(
+      q.fragment.sql,
+      """SELECT "id" FROM "docs" WHERE ("tsv" @@ (to_tsquery('a') && (!! to_tsquery('b'))))"""
+    )
   }
 }
