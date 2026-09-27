@@ -244,10 +244,34 @@
   </span><span class="comment">// CREATE INDEX tx_booking_idx ON transaction (booking_date)
 </span><span>  .</span><span class="identifier">withIndex</span><span>[</span><span class="string-literal">&quot;tx_booking_idx&quot;</span><span>, </span><span class="type-name">Tuple1</span><span>[</span><span class="string-literal">&quot;booking_date&quot;</span><span>]]</span></code></pre>
         <p>Column names are checked at compile time, and <code>withSortedIndex</code> takes one <code>IndexOrder</code> per key
-        (<code>Asc</code>, <code>Desc</code>, <code>AscNullsFirst</code>, <code>DescNullsLast</code>) — a tuple of the wrong arity doesn&#39;t compile.
-        Partial-index predicates are compared with Postgres&#39;s normalised form, ignoring parentheses,
-        spacing and case. Only btree indexes are declarable; an index of another method under a
-        declared name is reported as a definition mismatch.</p>
+        (<code>Asc</code>, <code>Desc</code>, <code>AscNullsFirst</code>, <code>DescNullsLast</code>) — a tuple of the wrong arity doesn&#39;t compile.</p>
+        <p>Anything else — another access method, operator classes, collations, expression keys,
+        <code>INCLUDE</code> columns, storage parameters, a standalone <code>CREATE UNIQUE INDEX</code> — goes through
+        <code>withIndexDef</code>:</p>
+        <pre><code class="nohighlight"><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.{</span><span class="type-name">IndexDef</span><span>, </span><span class="type-name">IndexKey</span><span>}
+</span><span class="keyword">import</span><span> </span><span class="identifier">skunk</span><span>.</span><span class="identifier">sharp</span><span>.</span><span class="identifier">dsl</span><span>.</span><span class="keyword">given</span><span> </span><span class="comment">// PgTypeFor for array columns
+</span><span>
+</span><span class="keyword">case</span><span> </span><span class="keyword">class</span><span> </span><span class="type-name">Doc</span><span>(</span><span class="identifier">id</span><span>: </span><span class="type-name">Long</span><span>, </span><span class="identifier">sku</span><span>: </span><span class="type-name">String</span><span>, </span><span class="identifier">name</span><span>: </span><span class="type-name">String</span><span>, </span><span class="identifier">tags</span><span>: </span><span class="identifier">skunk</span><span>.</span><span class="identifier">data</span><span>.</span><span class="type-name">Arr</span><span>[</span><span class="type-name">Int</span><span>], </span><span class="identifier">price</span><span>: </span><span class="type-name">BigDecimal</span><span>)
+
+</span><span class="keyword">val</span><span> </span><span class="identifier">docs</span><span> = </span><span class="type-name">Table</span><span>.</span><span class="identifier">of</span><span>[</span><span class="type-name">Doc</span><span>](</span><span class="string-literal">&quot;docs&quot;</span><span>)
+  .</span><span class="identifier">withPrimary</span><span>(</span><span class="string-literal">&quot;id&quot;</span><span>)
+  </span><span class="comment">// CREATE INDEX docs_tags_gin ON docs USING gin (tags)
+</span><span>  .</span><span class="identifier">withIndexDef</span><span>(</span><span class="type-name">IndexDef</span><span>(</span><span class="string-literal">&quot;docs_tags_gin&quot;</span><span>, </span><span class="type-name">IndexKey</span><span>.</span><span class="identifier">column</span><span>(</span><span class="string-literal">&quot;tags&quot;</span><span>)).</span><span class="identifier">withMethod</span><span>(</span><span class="string-literal">&quot;gin&quot;</span><span>))
+  </span><span class="comment">// CREATE INDEX docs_name_pattern_idx ON docs (name text_pattern_ops)
+</span><span>  .</span><span class="identifier">withIndexDef</span><span>(</span><span class="type-name">IndexDef</span><span>(</span><span class="string-literal">&quot;docs_name_pattern_idx&quot;</span><span>, </span><span class="type-name">IndexKey</span><span>.</span><span class="identifier">column</span><span>(</span><span class="string-literal">&quot;name&quot;</span><span>).</span><span class="identifier">opclass</span><span>(</span><span class="string-literal">&quot;text_pattern_ops&quot;</span><span>)))
+  </span><span class="comment">// CREATE INDEX docs_lower_name_idx ON docs (lower(name))
+</span><span>  .</span><span class="identifier">withIndexDef</span><span>(</span><span class="type-name">IndexDef</span><span>(</span><span class="string-literal">&quot;docs_lower_name_idx&quot;</span><span>, </span><span class="type-name">IndexKey</span><span>.</span><span class="identifier">expr</span><span>(</span><span class="string-literal">&quot;lower(name)&quot;</span><span>)))
+  </span><span class="comment">// CREATE INDEX docs_price_cover_idx ON docs (price) INCLUDE (name) WITH (fillfactor = 70)
+</span><span>  .</span><span class="identifier">withIndexDef</span><span>(</span><span class="type-name">IndexDef</span><span>(</span><span class="string-literal">&quot;docs_price_cover_idx&quot;</span><span>, </span><span class="type-name">IndexKey</span><span>.</span><span class="identifier">column</span><span>(</span><span class="string-literal">&quot;price&quot;</span><span>)).</span><span class="identifier">include</span><span>(</span><span class="string-literal">&quot;name&quot;</span><span>).</span><span class="identifier">withStorage</span><span>(</span><span class="string-literal">&quot;fillfactor&quot;</span><span> -&gt; </span><span class="string-literal">&quot;70&quot;</span><span>))
+  </span><span class="comment">// CREATE UNIQUE INDEX docs_sku_uidx ON docs (sku)
+</span><span>  .</span><span class="identifier">withIndexDef</span><span>(</span><span class="type-name">IndexDef</span><span>(</span><span class="string-literal">&quot;docs_sku_uidx&quot;</span><span>, </span><span class="type-name">IndexKey</span><span>.</span><span class="identifier">column</span><span>(</span><span class="string-literal">&quot;sku&quot;</span><span>)).</span><span class="identifier">unique</span><span>)</span></code></pre>
+        <p>For pgvector, e.g.
+        <code>IndexDef(&quot;chunks_embedding_hnsw&quot;, IndexKey.column(&quot;embedding&quot;).opclass(&quot;vector_cosine_ops&quot;)).withMethod(&quot;hnsw&quot;)</code>.</p>
+        <p>The comparison is against Postgres&#39;s own <code>pg_get_indexdef</code>, ignoring parentheses, quotes,
+        spacing and case. Expression keys and predicates are compared in the form Postgres prints them —
+        it may add casts (<code>lower((email)::text)</code> for a <code>varchar</code> column), and a mismatch report shows the
+        database&#39;s form to copy. Column keys and <code>INCLUDE</code> columns of a <code>withIndexDef</code> are checked when
+        the table is built; expression keys aren&#39;t.</p>
         
         <h2 id="extensions-and-contrib-tags" class="section"><a class="anchor-link left" href="#extensions-and-contrib-tags"><i class="icofont-laika link">&#xef71;</i></a>Extensions and contrib tags</h2>
         <p>Tag types in the contrib modules (<code>Citext</code>, <code>LTree</code>, <code>Hstore</code>, …) wire their required
