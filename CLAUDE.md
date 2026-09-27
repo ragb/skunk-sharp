@@ -167,6 +167,8 @@ Every DSL call site is expanded inline, and the compiler holds all of a module's
 
 ## Schema validation
 
+**Declared non-unique indexes** (`withIndex` / `withSortedIndex` / `withPartialIndex` → `Table.indexes: List[IndexDef]`) are diffed against `pg_index` by name (`IndexMissing` / `IndexDefinitionMismatch` / `ExtraIndex`); a table is index-checked only if it declares at least one index. Definitions compare normalised (`btree (a, b DESC) WHERE …`).
+
 [`SchemaValidator.validate(session, rels…)`](modules/core/src/main/scala/skunk/sharp/validation/SchemaValidator.scala) returns a [`ValidationReport`](modules/core/src/main/scala/skunk/sharp/validation/ValidationReport.scala) of `Mismatch` cases (`RelationMissing`, `RelationKindMismatch`, `ColumnMissing`, `ExtraColumn`, `TypeMismatch`, `NullabilityMismatch`). Queries `information_schema.tables` + `information_schema.columns`. `validateOrRaise(…)` fails with `SchemaValidationException` carrying the report.
 
 ## Build

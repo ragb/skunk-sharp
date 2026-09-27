@@ -118,6 +118,31 @@ object Mismatch {
   }
 
   /**
+   * A declared non-unique index ([[skunk.sharp.Table.withIndex]] & co.) has no index of that name on the table.
+   * `definition` is the declared one, e.g. `btree (household_id, booking_date DESC)`.
+   */
+  final case class IndexMissing(relation: String, name: String, definition: String) extends Mismatch {
+    def pretty = s"relation $relation: expected index \"$name\" $definition but none found in the database"
+  }
+
+  /**
+   * An index with the declared name exists but its definition differs (key columns, their order, the predicate, the
+   * access method, or it's `UNIQUE`). Both sides are rendered in the same normalised shape.
+   */
+  final case class IndexDefinitionMismatch(relation: String, name: String, expected: String, actual: String)
+      extends Mismatch {
+    def pretty = s"relation $relation: index \"$name\" is $actual in the database, expected $expected"
+  }
+
+  /**
+   * The table has a non-unique index that isn't declared. Only reported for tables that declare at least one index —
+   * declaring indexes opts the table into index checking.
+   */
+  final case class ExtraIndex(relation: String, name: String, definition: String) extends Mismatch {
+    def pretty = s"relation $relation: DB has index \"$name\" $definition that is not declared"
+  }
+
+  /**
    * A Postgres extension required by one of the declared relations (via a column with `requiredExtension` set) or
    * supplied explicitly to [[skunk.sharp.validation.SchemaValidator.validate]] is not installed (`pg_extension` has no
    * row with this name). `relation` is `"<database>"` because the extension is database-wide, not relation-local.

@@ -22,7 +22,9 @@ import scala.deriving.Mirror
 final case class Table[Cols <: Tuple, Name <: String & Singleton](
   name: Name,
   schema: Option[String],
-  columns: Cols
+  columns: Cols,
+  /** Declared non-unique indexes ([[withIndex]] & co.) — checked by the schema validator, never used to emit DDL. */
+  indexes: List[IndexDef] = Nil
 ) extends Relation[Cols] {
 
   /** A bare `Table` is its own alias — `users.innerJoin(posts)` flows through without any `.alias("u")` call. */
@@ -32,11 +34,6 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
   val currentAlias: Name        = name
   val expectedTableType: String = "BASE TABLE"
 
-  /**
-   * Cached statement-header `AppliedFragment`s for the three DML verbs. Each `.compile` on a DELETE or UPDATE would
-   * otherwise re-allocate `DELETE FROM "name"` / `UPDATE "name" SET ` every call (string interpolation and then a fresh
-   * Fragment). Cached once per `Table` instance and reused across compiles.
-   */
   /** `RETURNING *`-equivalent: every column (the interned projection list) with the row codec — built once. */
   lazy val returningAllExpr: TypedExpr[NamedRowOf[Cols], skunk.Void] =
     TypedExpr[NamedRowOf[Cols], skunk.Void](
@@ -44,6 +41,11 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
       skunk.sharp.internal.RowCodecs.rowCodec(columns).asInstanceOf[skunk.Codec[NamedRowOf[Cols]]]
     )
 
+  /**
+   * Cached statement-header `AppliedFragment`s for the three DML verbs. Each `.compile` on a DELETE or UPDATE would
+   * otherwise re-allocate `DELETE FROM "name"` / `UPDATE "name" SET ` every call (string interpolation and then a fresh
+   * Fragment). Cached once per `Table` instance and reused across compiles.
+   */
   lazy val deleteFromHeader: skunk.AppliedFragment =
     skunk.sharp.internal.RawConstants.intern(s"DELETE FROM $qualifiedName")
 
@@ -187,6 +189,63 @@ final case class Table[Cols <: Tuple, Name <: String & Singleton](
     copy(columns = updated.asInstanceOf[Table.AddCompositeUq[Cols, ConstraintName, Ns]])
       .asInstanceOf[Table[Table.AddCompositeUq[Cols, ConstraintName, Ns], Name]]
   }
+
+  /**
+   * Declare a non-unique btree index on `Ns` (all keys ascending), named `IndexName` as in the migration's `CREATE
+   * INDEX <IndexName> …`. Declaration only — the DSL never emits DDL; [[skunk.sharp.validation.SchemaValidator]] diffs
+   * declared indexes against `pg_index` (a table that declares none isn't index-checked).
+   *
+   * {{{
+   *   Table.of[Tx]("transaction").withIndex["tx_account_idx", Tuple1["account_id"]]
+   * }}}
+   */
+  inline def withIndex[IndexName <: String & Singleton, Ns <: NonEmptyTuple](using
+    @unused ev: Tuple.Union[Ns] <:< (String & Singleton)
+  ): Table[Cols, Name] = {
+    CompileChecks.requireAllNamesInCols[Cols, Ns]
+    val names = constValueTuple[Ns].toList.asInstanceOf[List[String]]
+    addIndex(IndexDef(compiletime.constValue[IndexName], names.map(_ -> IndexOrder.Asc), None))
+  }
+
+  /**
+   * Declare a non-unique btree index with a per-key sort order — one [[IndexOrder]] per column of `Ns` (the tuple's
+   * arity is checked against `Ns`) — and optionally a partial-index predicate (`where`, the SQL after `WHERE`).
+   *
+   * {{{
+   *   .withSortedIndex["tx_household_booking_idx", ("household_id", "booking_date", "id")](
+   *     (IndexOrder.Asc, IndexOrder.Desc, IndexOrder.Desc)
+   *   )
+   * }}}
+   */
+  inline def withSortedIndex[IndexName <: String & Singleton, Ns <: NonEmptyTuple](
+    orders: Tuple.Map[Ns, [_] =>> IndexOrder],
+    where: String = ""
+  )(using @unused ev: Tuple.Union[Ns] <:< (String & Singleton)): Table[Cols, Name] = {
+    CompileChecks.requireAllNamesInCols[Cols, Ns]
+    val names = constValueTuple[Ns].toList.asInstanceOf[List[String]]
+    val keys  = names.zip(orders.toList.asInstanceOf[List[IndexOrder]])
+    addIndex(IndexDef(compiletime.constValue[IndexName], keys, Option(where).filter(_.nonEmpty)))
+  }
+
+  /**
+   * Declare a partial non-unique btree index (all keys ascending): `where` is the predicate SQL after `WHERE`, as in
+   * the migration. The validator compares it against Postgres's normalised form, ignoring parentheses, spacing and
+   * case.
+   *
+   * {{{
+   *   .withPartialIndex["account_linked_idx", Tuple1["source_connection"]]("source_connection IS NOT NULL")
+   * }}}
+   */
+  inline def withPartialIndex[IndexName <: String & Singleton, Ns <: NonEmptyTuple](where: String)(using
+    @unused ev: Tuple.Union[Ns] <:< (String & Singleton)
+  ): Table[Cols, Name] = {
+    CompileChecks.requireAllNamesInCols[Cols, Ns]
+    val names = constValueTuple[Ns].toList.asInstanceOf[List[String]]
+    addIndex(IndexDef(compiletime.constValue[IndexName], names.map(_ -> IndexOrder.Asc), Some(where)))
+  }
+
+  @scala.annotation.publicInBinary
+  private[sharp] def addIndex(ix: IndexDef): Table[Cols, Name] = copy(indexes = indexes :+ ix)
 
   /**
    * Override a column's skunk codec. The column's `tpe` (skunk `data.Type`) is derived from the codec, so pass

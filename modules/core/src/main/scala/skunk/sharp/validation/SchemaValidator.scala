@@ -5,7 +5,7 @@ import cats.syntax.all.*
 import skunk.*
 import skunk.codec.all.*
 import skunk.implicits.*
-import skunk.sharp.{Column, Relation, Table}
+import skunk.sharp.{Column, IndexDef, Relation, Table}
 import skunk.sharp.pg.PgTypes
 
 /**
@@ -85,6 +85,56 @@ object SchemaValidator {
    * FOREIGN KEY / CHECK aren't validated (not declarable in the Scala description today).
    */
   private case class ConstraintRow(kind: String, name: String, column: String)
+
+  /** One index of a table, as read from `pg_index` — see `indexesQuery`. */
+  private case class IndexRow(
+    name: String,
+    unique: Boolean,
+    primary: Boolean,
+    method: String,
+    columns: List[String],
+    predicate: Option[String]
+  ) {
+
+    /** Rendered like [[IndexDef.definition]] so the two compare after normalisation. */
+    def definition: String =
+      (if (unique) "UNIQUE " else "") + columns.mkString(s"$method (", ", ", ")") +
+        predicate.fold("")(p => s" WHERE $p")
+
+  }
+
+  /**
+   * One row per index on a table: name, unique, primary, access method, the key columns rendered like `pg_get_indexdef`
+   * does (with non-default `DESC` / `NULLS …` modifiers from `indoption`), and the partial-index predicate. Expression
+   * keys come through as their expression text.
+   */
+  private val indexesQuery: Query[(String, String), IndexRow] =
+    sql"""
+      SELECT ic.relname::text,
+             i.indisunique,
+             i.indisprimary,
+             am.amname::text,
+             ARRAY(
+               SELECT pg_get_indexdef(i.indexrelid, k, true) ||
+                      CASE WHEN (i.indoption[k - 1]::int & 1) = 1
+                           THEN CASE WHEN (i.indoption[k - 1]::int & 2) = 2 THEN ' DESC' ELSE ' DESC NULLS LAST' END
+                           ELSE CASE WHEN (i.indoption[k - 1]::int & 2) = 2 THEN ' NULLS FIRST' ELSE '' END
+                      END
+               FROM generate_series(1, i.indnkeyatts::int) AS k
+               ORDER BY k
+             )::text[],
+             pg_get_expr(i.indpred, i.indrelid)
+      FROM pg_index i
+      JOIN pg_class ic    ON ic.oid = i.indexrelid
+      JOIN pg_class t     ON t.oid = i.indrelid
+      JOIN pg_namespace n ON n.oid = t.relnamespace
+      JOIN pg_am am       ON am.oid = ic.relam
+      WHERE n.nspname = $text AND t.relname = $text
+      ORDER BY ic.relname
+    """.query(text *: bool *: bool *: text *: _text *: text.opt).map {
+      case (name, unique, primary, method, cols, pred) =>
+        IndexRow(name, unique, primary, method, cols.flattenTo(List), pred)
+    }
 
   /** Names of every extension currently installed in the connected database (from `pg_extension`). */
   private val extensionsQuery: Query[Void, String] =
@@ -189,10 +239,46 @@ object SchemaValidator {
                   .prepare(constraintsQuery)
                   .flatMap(_.stream((schema, relation.name), 64).compile.toList)
                   .map(rows => diffConstraints(label, relation, rows))
-          } yield columnReport ++ constraintReport
+            indexReport <- relation match {
+              // Declaring an index opts the table in: a table that declares none isn't index-checked.
+              case t: Table[?, ?] if t.indexes.nonEmpty =>
+                session
+                  .prepare(indexesQuery)
+                  .flatMap(_.stream((schema, relation.name), 64).compile.toList)
+                  .map(rows => diffIndexes(label, t.indexes, rows))
+              case _ => ValidationReport.empty.pure[F]
+            }
+          } yield columnReport ++ constraintReport ++ indexReport
       }
     } yield report
   }
+
+  /**
+   * Compare declared non-unique indexes with the table's actual ones, by name. A declared index must exist with the
+   * same normalised definition (method, key columns with their order modifiers, predicate); once a table declares
+   * indexes, undeclared non-unique ones are reported too. PK / UNIQUE indexes are left to the constraint check.
+   */
+  private def diffIndexes(label: String, declared: List[IndexDef], rows: List[IndexRow]): ValidationReport = {
+    val byName      = rows.map(r => r.name -> r).toMap
+    val declSet     = declared.map(_.name).toSet
+    val forDeclared = declared.flatMap { d =>
+      byName.get(d.name) match {
+        case None =>
+          List(Mismatch.IndexMissing(label, d.name, d.definition))
+        case Some(r) if normalise(r.definition) != normalise(d.definition) =>
+          List(Mismatch.IndexDefinitionMismatch(label, d.name, d.definition, r.definition))
+        case _ => Nil
+      }
+    }
+    val extras =
+      rows.filter(r => !r.unique && !r.primary && !declSet.contains(r.name))
+        .map(r => Mismatch.ExtraIndex(label, r.name, r.definition))
+    ValidationReport(forDeclared ++ extras)
+  }
+
+  /** Compare index definitions ignoring identifier quotes, parentheses, spacing and case (Postgres normalises them). */
+  private def normalise(defn: String): String =
+    defn.toLowerCase.replaceAll("[\"()\\s]", "")
 
   /**
    * Compare declared primary-key and unique-constraint data against the database. Handles both single-column and
