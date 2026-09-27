@@ -148,6 +148,9 @@ object PgTypes {
       // `format_type`, so a dimension mismatch is visible. Other user-defined types keep the bare `udt_name`.
       if (dt == "USER-DEFINED" && typmodExtensionTypes.contains(udtName)) formattedType.getOrElse(udtName)
       else if (dt == "USER-DEFINED") udtName
+      // information_schema reports every array as `ARRAY`; the element type is in `udt_name` (`_int4`, `_text`, …),
+      // which is skunk's own name for the array type.
+      else if (dt == "ARRAY") udtName
       else shortFromInformationSchema.getOrElse(dt, dt)
     (short, charMaxLength, numericPrecision, numericScale) match {
       case ("varchar", Some(n), _, _)       => s"varchar($n)"

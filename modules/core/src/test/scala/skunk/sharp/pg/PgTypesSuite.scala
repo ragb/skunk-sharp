@@ -18,4 +18,9 @@ class PgTypesSuite extends munit.FunSuite {
     assert(ex.getMessage.contains("int4"), ex.getMessage)
     assert(ex.getMessage.contains("text"), ex.getMessage)
   }
+
+  test("actualTypeName maps information_schema's ARRAY to the udt_name, skunk's array type name") {
+    assertEquals(PgTypes.actualTypeName("ARRAY", "_int4", None, None, None), _int4.types.head.name)
+    assertEquals(PgTypes.actualTypeName("ARRAY", "_text", None, None, None), "_text")
+  }
 }

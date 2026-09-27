@@ -167,7 +167,7 @@ Every DSL call site is expanded inline, and the compiler holds all of a module's
 
 ## Schema validation
 
-**Declared non-unique indexes** (`withIndex` / `withSortedIndex` / `withPartialIndex` → `Table.indexes: List[IndexDef]`) are diffed against `pg_index` by name (`IndexMissing` / `IndexDefinitionMismatch` / `ExtraIndex`); a table is index-checked only if it declares at least one index. Definitions compare normalised (`btree (a, b DESC) WHERE …`).
+**Declared indexes** (`withIndex` / `withSortedIndex` / `withPartialIndex`, and `withIndexDef(IndexDef(…))` for other methods, opclasses, collations, expression keys, `INCLUDE`, storage params, standalone UNIQUE → `Table.indexes`) are diffed by name against Postgres's own `pg_get_indexdef` from `USING` on, normalised (`IndexMissing` / `IndexDefinitionMismatch` / `ExtraIndex`); a table is index-checked only if it declares at least one index; constraint-backed indexes (`pg_constraint.conindid`) stay with the constraint check. The column-type check maps `information_schema`'s `ARRAY` to `udt_name`.
 
 [`SchemaValidator.validate(session, rels…)`](modules/core/src/main/scala/skunk/sharp/validation/SchemaValidator.scala) returns a [`ValidationReport`](modules/core/src/main/scala/skunk/sharp/validation/ValidationReport.scala) of `Mismatch` cases (`RelationMissing`, `RelationKindMismatch`, `ColumnMissing`, `ExtraColumn`, `TypeMismatch`, `NullabilityMismatch`). Queries `information_schema.tables` + `information_schema.columns`. `validateOrRaise(…)` fails with `SchemaValidationException` carrying the report.
 

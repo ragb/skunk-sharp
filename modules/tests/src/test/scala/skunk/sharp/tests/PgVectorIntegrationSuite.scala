@@ -106,4 +106,31 @@ class PgVectorIntegrationSuite extends PgFixture {
       }
     }
   }
+
+  test("the HNSW index is declarable (method + operator class) and a wrong operator class is reported") {
+    import skunk.sharp.{IndexDef, IndexKey}
+    val hnsw = IndexDef("chunks_embedding_hnsw", IndexKey.column("embedding").opclass("vector_cosine_ops"))
+    withContainers { containers =>
+      session(containers).use { s =>
+        for {
+          ok  <- SchemaValidator.validate[IO](s, chunks.withIndexDef(hnsw.withMethod("hnsw")))
+          bad <- SchemaValidator.validate[IO](
+            s,
+            chunks.withIndexDef(hnsw.copy(keys =
+              List(IndexKey.column("embedding").opclass("vector_l2_ops"))
+            ).withMethod("hnsw"))
+          )
+        } yield {
+          assert(ok.isValid, ok.mismatches.map(_.pretty).mkString("\n"))
+          assert(
+            bad.mismatches.exists {
+              case skunk.sharp.validation.Mismatch.IndexDefinitionMismatch(_, "chunks_embedding_hnsw", _, _) => true
+              case _                                                                                         => false
+            },
+            bad.mismatches.map(_.pretty).mkString("\n")
+          )
+        }
+      }
+    }
+  }
 }

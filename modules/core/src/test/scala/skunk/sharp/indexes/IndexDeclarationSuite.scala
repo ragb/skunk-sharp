@@ -1,6 +1,6 @@
 package skunk.sharp.indexes
 
-import skunk.sharp.{IndexDef, IndexOrder}
+import skunk.sharp.{IndexDef, IndexKey, IndexOrder}
 import skunk.sharp.dsl.*
 
 import java.time.LocalDate
@@ -25,10 +25,10 @@ class IndexDeclarationSuite extends munit.FunSuite {
     assertEquals(
       t.indexes.map(_.definition),
       List(
-        "btree (account)",
-        "btree (household_id, booking_date DESC)",
-        "btree (account) WHERE account IS NOT NULL",
-        "btree (booking_date DESC NULLS LAST) WHERE account IS NULL"
+        "USING btree (account)",
+        "USING btree (household_id, booking_date DESC)",
+        "USING btree (account) WHERE account IS NOT NULL",
+        "USING btree (booking_date DESC NULLS LAST) WHERE account IS NULL"
       )
     )
     assertEquals(t.indexes.map(_.name), List("ix_a", "ix_b", "ix_c", "ix_d"))
@@ -52,5 +52,35 @@ class IndexDeclarationSuite extends munit.FunSuite {
   test("index declarations survive other builder steps") {
     val t = ledger.withIndex["ix_a", Tuple1["account"]].withPrimary("id").withDefault("id")
     assertEquals(t.indexes.map(_.name), List("ix_a"))
+  }
+
+  test("withIndexDef renders methods, operator classes, collations, expressions, INCLUDE, storage and UNIQUE") {
+    val t = ledger
+      .withIndexDef(
+        IndexDef("ix_hnsw", IndexKey.column("account").opclass("vector_cosine_ops"))
+          .withMethod("hnsw")
+          .withStorage("m" -> "16", "ef_construction" -> "64")
+      )
+      .withIndexDef(IndexDef("ix_expr", IndexKey.expr("lower(account)"), IndexKey.column("id").desc).unique)
+      .withIndexDef(
+        IndexDef(
+          "ix_cover",
+          IndexKey.column("account").collate("C")
+        ).include("booking_date").where("account IS NOT NULL")
+      )
+    assertEquals(
+      t.indexes.map(_.definition),
+      List(
+        "USING hnsw (account vector_cosine_ops) WITH (m='16', ef_construction='64')",
+        "UNIQUE USING btree ((lower(account)), id DESC)",
+        """USING btree (account COLLATE "C") INCLUDE (booking_date) WHERE account IS NOT NULL"""
+      )
+    )
+  }
+
+  test("withIndexDef rejects unknown key and INCLUDE columns; expression keys aren't checked") {
+    intercept[IllegalArgumentException](ledger.withIndexDef(IndexDef("x", IndexKey.column("nope"))))
+    intercept[IllegalArgumentException](ledger.withIndexDef(IndexDef("x", IndexKey.column("id")).include("nope")))
+    assertEquals(ledger.withIndexDef(IndexDef("x", IndexKey.expr("nope + 1"))).indexes.size, 1)
   }
 }
