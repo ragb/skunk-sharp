@@ -37,13 +37,44 @@ A Scala 3 library for **compile-time checked Postgres queries** on top of [skunk
 - **No speculative extension points.** We add extension hooks when a concrete module needs one (jsonb, ltree, arrays), not to "support a future that isn't now". Sealed stays sealed until an actual use case shows up.
 - **Not cross-database.** No MySQL, no SQLite, no H2.
 
+## What's in it
+
+**Queries**
+- SELECT / INSERT / UPDATE / DELETE / **MERGE** (`WHEN MATCHED` / `NOT MATCHED` / `NOT MATCHED BY SOURCE`) with `RETURNING`.
+- JOINs — INNER / LEFT / RIGHT / FULL / CROSS / LATERAL, auto-aliased, with nullability flowing through outer joins.
+- WHERE / GROUP BY / HAVING (incl. `ROLLUP` / `CUBE` / `GROUPING SETS`), ORDER BY (`NULLS FIRST/LAST`), LIMIT / OFFSET, `DISTINCT [ON]`, row locking.
+- Subqueries (scalar, `IN`, `EXISTS`, `ANY` / `ALL`, correlated), CTEs, window functions, `UNION` / `INTERSECT` / `EXCEPT`.
+- `ON CONFLICT … DO NOTHING / DO UPDATE / DO UPDATE FROM EXCLUDED`, `INSERT … FROM SELECT`, `UPDATE … FROM`, `DELETE … USING`.
+- Set-returning functions (`generate_series`, `unnest`) as relations.
+
+**Typed parameters**
+- `Param[T]` and named `Param.named["x", T]` — a compiled query is a reusable template whose argument type is inferred (`QueryTemplate[(Int, String), Row]`); run it with bound values, or `prepared`. Literals go inline (`age >= 18`).
+- A batch of rows as **one** typed parameter: `Pg.unnestRows[Row]("rows")`.
+- `allOf` / `anyOf` for runtime lists of predicates; `allOfT` / `anyOfT` for fixed sets with different parameter types.
+
+**Expressions**
+- Comparison, `LIKE`, `BETWEEN`, `IN`, `IS [NOT] DISTINCT FROM`, … ; infix arithmetic `+ - * / %` with Postgres's type promotion and date / time / interval arithmetic.
+- A large function catalogue on `Pg` (string, numeric, date/time, aggregates, arrays, ranges, …); `CASE WHEN`; `expr"…"` for anything else.
+- `@>` / `<@` / `&&` / `||` shared across arrays, ranges, jsonb, hstore, ltree and tsvector.
+- Every operator renders parenthesised, so nested expressions mean what they say.
+
+**Postgres types and extensions**
+- Tag types for unambiguous codecs (`Varchar[N]`, `Numeric[P, S]`, `Int2/4/8`, …), ranges, arrays.
+- Full-text search (`tsvector` / `tsquery`, `@@`, ranking, headlines) and pgvector embeddings (`PgVector[N]`, distance operators, top-k) in core; citext, ltree, hstore, pg_trgm, pgcrypto, fuzzystrmatch.
+
+**Tables and the schema**
+- Describe a table from a case class (`Table.of[T]`) or column by column; `.withPrimary` / `.withUnique` / `.withDefault` / `.withGenerated`; `renamed` for partitions and look-alike tables.
+- **Schema validation** at boot: columns, types (incl. `varchar(n)` / `numeric(p,s)` / `vector(n)` drift), nullability, generated columns, PK / UNIQUE, required extensions, and declared indexes (any method, operator class, expression, `INCLUDE`, partial).
+
+**What the compiler checks** — column names, operand and value types, nullability, INSERT completeness, generated columns not being written, views not being mutated, UPDATE / DELETE without a WHERE (unless you ask for `updateAll` / `deleteAll`), parameter types. SQL text is assembled from compile-time constants: `.compile` allocates no dynamic SQL fragments for the standard query shapes (a benchmark keeps it that way).
+
 ## Modules
 
-- `skunk-sharp-core` — the DSL: table/view descriptions, WHERE / ORDER BY / GROUP BY / HAVING / LIMIT / OFFSET, SELECT / INSERT / UPDATE / DELETE, N-way INNER / LEFT / RIGHT / FULL / CROSS / LATERAL JOINs with auto-alias, row locking, `ON CONFLICT` (`DO NOTHING` / `DO UPDATE` / `DO UPDATE … FROM EXCLUDED`), `RETURNING`, `UPDATE … FROM` / `DELETE … USING`, `INSERT … FROM SELECT`, aggregates with `GROUP BY` / `HAVING` (incl. `ROLLUP` / `CUBE` / `GROUPING SETS`), window functions (`OVER (…)`), CTEs (`WITH …`), set operations (`UNION` / `INTERSECT` / `EXCEPT`, with `ALL`), set-returning functions (`generate_series`, `unnest`), subqueries (scalar / `IN` / `EXISTS` / `ANY` / `ALL`, correlated or uncorrelated), in-core Postgres-extension contribs (citext, ltree, hstore, pg_trgm, pgcrypto, fuzzystrmatch), and the schema validator.
-- `skunk-sharp-iron` — optional [Iron](https://iltotore.github.io/iron/) refinement support (e.g. `String :| MaxLength[256]` maps to `varchar(256)`).
-- `skunk-sharp-refined` — optional [refined](https://github.com/fthomas/refined) refinement support.
-- `skunk-sharp-circe` — Postgres `json` / `jsonb` via [skunk-circe](https://typelevel.org/skunk), with parametric `Jsonb[A]` / `Json[A]` tags that round-trip typed case classes.
-- `skunk-sharp-postgis` — [PostGIS](https://postgis.net/) spatial types and `ST_*` operators on top of [skunk-postgis](https://github.com/typelevel/skunk/tree/main/modules/postgis).
+- `skunk-sharp-core` — the DSL, full-text search, pgvector and the in-core contribs, and the schema validator.
+- `skunk-sharp-iron` — [Iron](https://iltotore.github.io/iron/) refinements (e.g. `String :| MaxLength[256]` maps to `varchar(256)`).
+- `skunk-sharp-refined` — [refined](https://github.com/fthomas/refined) refinements.
+- `skunk-sharp-circe` — `json` / `jsonb` via circe, with parametric `Jsonb[A]` / `Json[A]` tags and the jsonb operators.
+- `skunk-sharp-postgis` — [PostGIS](https://postgis.net/) types and `ST_*` functions on top of skunk-postgis.
 
 ## Installation
 
@@ -53,64 +84,108 @@ Published to [GitHub Packages](https://maven.pkg.github.com/ragb/skunk-sharp):
 resolvers += "skunk-sharp @ GitHub Packages" at
   "https://maven.pkg.github.com/ragb/skunk-sharp"
 
-libraryDependencies += "io.github.ragb" %% "skunk-sharp-core" % "<version>"
+libraryDependencies += "io.github.ragb" %% "skunk-sharp-core" % "0.0.3"
 ```
 
-GitHub Packages requires authentication even for public packages, and there are optional modules (`-iron`, `-refined`, `-circe`, `-postgis`). See **[Getting Started](docs/docs/getting-started.md)** for the auth setup and the full dependency list.
+GitHub Packages requires authentication even for public packages. See **[Getting Started](docs/docs/getting-started.md)** for the auth setup and the optional modules.
 
-## A taste
+## Examples
+
+Describe your tables once:
 
 ```scala
-import skunk.sharp.*
 import skunk.sharp.dsl.*
-import skunk.sharp.pg.tags.*
+import skunk.sharp.dsl.given // array codecs (for the unnestRows batch below)
 
-case class User(id: UUID, email: Varchar[256], age: Int, deleted_at: Option[OffsetDateTime])
+case class User(id: UUID, email: String, age: Int, created_at: OffsetDateTime)
+case class Post(id: UUID, author_id: UUID, title: String, created_at: OffsetDateTime)
 
-val users = Table.of[User]("users").withPrimary("id").withUnique("email")
-
-users.select
-  .where(u => u.age >= 18 && u.email.like("%@example.com"))
-  .orderBy(u => u.age.desc)
-  .limit(20)
-  .compile
-  .run(session)   // F[List[(id: UUID, email: Varchar[256], age: Int, deleted_at: Option[OffsetDateTime])]]
+val users = Table.of[User]("users").withPrimary("id").withDefault("id").withUnique("email").withDefault("created_at")
+val posts = Table.of[Post]("posts").withPrimary("id").withDefault("id").withDefault("created_at")
 ```
 
-Column names, value types, nullability, INSERT completeness, and table-vs-view mutability are all checked by the compiler — a typo or a type mismatch is a compile error, not a runtime surprise.
+**Query with typed parameters** — compile once, run with bound values:
+
+```scala
+val recentPosts =
+  users
+    .innerJoin(posts)
+    .on(r => r.users.id === r.posts.author_id)
+    .where(r => r.users.age >= Param.named["minAge", Int] && r.posts.title.like(Param.named["title", String]))
+    .select(r => (email = r.users.email, title = r.posts.title))
+    .orderBy(r => r.posts.created_at.desc)
+    .limit(20)
+    .compile
+
+// SELECT "users"."email", "posts"."title" FROM "users" INNER JOIN "posts" ON "users"."id" = "posts"."author_id"
+// WHERE ("users"."age" >= $1 AND "posts"."title" LIKE $2) ORDER BY "posts"."created_at" DESC LIMIT 20
+recentPosts.run(session)((minAge = 18, title = "%skunk%"))   // F[List[(email: String, title: String)]]
+```
+
+**Upsert with RETURNING** — `id` and `created_at` have defaults, so they can be left out:
+
+```scala
+users
+  .insert((email = "ada@example.com", age = 36))
+  .onConflict(u => u.email)
+  .doUpdateFromExcluded((t, ex) => t.age := ex.age)
+  .returning(u => u.id)
+  .compile
+  .unique(session)                                          // F[UUID]
+```
+
+**Sync a batch with MERGE** — the whole batch is one typed parameter:
+
+```scala
+case class Incoming(email: String, age: Int)
+
+val sync =
+  users
+    .merge(Pg.unnestRows[Incoming]("rows").alias("incoming"))
+    .on(r => r.users.email === r.incoming.email)
+    .whenMatched.update(r => r.users.age := r.incoming.age)
+    .whenNotMatched.insert(s => (email = s.email, age = s.age))
+    .compile
+
+sync.run(session)((rows = List(Incoming("ada@example.com", 37), Incoming("grace@example.com", 45))))
+```
+
+**Check the schema at boot** — fails with a report if a column, type, constraint or declared index drifted:
+
+```scala
+SchemaValidator.validateOrRaise(session, users, posts)
+```
+
+Misspell a column, compare an `Int` column with a `String`, leave out a required INSERT column or compile a `.delete` without a WHERE, and it doesn't compile. (These examples are compiled in [ReadmeExamplesSuite](modules/core/src/test/scala/skunk/sharp/readme/ReadmeExamplesSuite.scala).)
 
 ## Documentation
 
-Full guides live on the **[documentation site](docs/docs/)** — every snippet is type-checked against the live library at build time:
+Full guides live on the **[documentation site](docs/docs/)** — every snippet is type-checked against the library:
 
 - **[Getting started](docs/docs/getting-started.md)** — install, GitHub Packages auth, first query.
-- **[Tables & views](docs/docs/tables.md)** — describing relations, tag types, constraints, the `Table.of` / `Table.builder` paths.
-- **[Select](docs/docs/select.md)** — WHERE, projections, ORDER BY, GROUP BY / HAVING, JOINs (INNER / LEFT / RIGHT / FULL / CROSS / LATERAL), subqueries, window functions, CTEs, set operations, row locking.
+- **[Tables & views](docs/docs/tables.md)** — describing relations, tag types, constraints, generated columns, partitions.
+- **[Select](docs/docs/select.md)** — WHERE, projections, typed and named parameters, arithmetic, JOINs, subqueries, window functions, CTEs, set operations, row locking.
 - **[Insert](docs/docs/insert.md)** — single / batch, `ON CONFLICT`, `RETURNING`, `INSERT … FROM SELECT`.
 - **[Update](docs/docs/update.md)** & **[Delete](docs/docs/delete.md)** — staged builders, `… FROM` / `… USING`, `RETURNING`.
-- **[Schema validation](docs/docs/schema-validation.md)** — diff declared tables against `information_schema` at boot, report-only or fail-fast.
-- **[Contrib modules](docs/docs/contrib.md)** — in-core citext, ltree, hstore, pg_trgm, pgcrypto, fuzzystrmatch.
-- **[PostGIS](docs/docs/postgis.md)** — spatial types and `ST_*` operators.
-- **[Extensibility](docs/docs/extensibility.md)** — add your own Postgres types and operators via `extension` methods, no core changes.
+- **[Merge](docs/docs/merge.md)** — `MERGE`, batches via `unnestRows`, `RETURNING` with `merge_action()`.
+- **[Full-text search](docs/docs/full-text-search.md)** — `tsvector` / `tsquery`, matching, ranking, headlines.
+- **[Schema validation](docs/docs/schema-validation.md)** — the boot-time diff, report-only or fail-fast, including declared indexes.
+- **[Contrib](docs/docs/contrib.md)** — pgvector, citext, ltree, hstore, pg_trgm, pgcrypto, fuzzystrmatch.
+- **[PostGIS](docs/docs/postgis.md)** — spatial types and `ST_*` functions.
+- **[Extensibility](docs/docs/extensibility.md)** — your own Postgres types, operators and functions via `extension` methods.
 
 ## Roadmap
 
-The common SELECT / INSERT / UPDATE / DELETE / JOIN surface — including window functions, CTEs,
-set operations (`UNION` / `INTERSECT` / `EXCEPT`), `FULL` / `RIGHT` / `LATERAL` joins, set-returning
-functions, `ON CONFLICT`, `RETURNING`, `UPDATE … FROM` / `DELETE … USING`, the iron / refined / circe /
-postgis modules, and the Laika + mdoc docs site — has shipped. See [CLAUDE.md](CLAUDE.md) for the design
-notes and [the docs site](docs/docs/) for usage.
+No scheduled dates — items get picked up when there's a need. See the [open issues](https://github.com/ragb/skunk-sharp/issues); notable ones:
 
-Open items (no scheduled date — picked up when motivation arrives):
-
-- Compile-time enforcement that all bare SELECT columns appear in `GROUP BY` (currently caught at runtime by Postgres).
-- Companion modules: `skunk-sharp-fts` (full-text search), arrays, broader PostGIS coverage.
-- Owner-macro that collapses a structurally-static query to a single interned `Fragment[Args]` (research item — see CLAUDE.md).
+- Better compile-error messages for DSL misuse.
+- Compile-time check that bare SELECT columns appear in `GROUP BY` (Postgres catches it at runtime today).
+- More contrib modules (HyperLogLog, cube / earthdistance, intarray, …) and Maven Central publishing once the API settles.
 
 ## Development
 
 ```bash
-sbt core/test          # unit + compile-time tests (~250 ms)
+sbt core/test          # unit + compile-time tests
 sbt tests/test         # integration tests (spins up Postgres 18 via testcontainers, runs dumbo migrations)
 sbt iron/test          # Iron refinement module
 sbt +test              # everything
