@@ -22,6 +22,10 @@ object TsVector {
 
   given PgTypeFor[TsVector] = PgTypeFor.instance(codec)
 
+  /** `doc || other` — concatenate two documents (positions of `other` are shifted). */
+  given tsvectorConcat: skunk.sharp.ops.Concatenable.Aux[TsVector, TsVector, TsVector] =
+    skunk.sharp.ops.Concatenable.of
+
 }
 
 /** A full-text query (`tsquery`) — see [[TsVector]]. */

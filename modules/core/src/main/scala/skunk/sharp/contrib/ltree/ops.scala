@@ -10,7 +10,7 @@ import skunk.sharp.where.Where
  *   - `.matchesTxt(ltxtquery)` — `path @ query` (boolean).
  *   - `.isAncestorOf(other)` — `a @> b` (boolean).
  *   - `.isDescendantOf(other)` — `a <@ b` (boolean).
- *   - `.concat(other)` — `a || b` returning `ltree`.
+ *   - `.concat(other)` (`a || b`) and `.contains` / `.containedBy` come from the shared operators in `skunk.sharp.ops`.
  *
  * Plain English names instead of symbols (`%`, `<->`, …) keep operator overload search well-behaved and align with the
  * core DSL's convention.
@@ -40,9 +40,5 @@ extension [A](lhs: TypedExpr[LTree, A]) {
     val expr = PgOperator.infix[LTree, LTree, Boolean, A, B]("<@")(lhs, rhs)
     Where(expr.fragment)
   }
-
-  /** `lhs || rhs` — append paths. Returns `ltree`. */
-  inline def concat[B](rhs: TypedExpr[LTree, B]): TypedExpr[LTree, Where.Concat[A, B]] =
-    PgOperator.infix[LTree, LTree, LTree, A, B]("||")(lhs, rhs)
 
 }

@@ -1,7 +1,7 @@
 package skunk.sharp.pg
 
 import skunk.data.Arr
-import skunk.sharp.{PgOperator, TypedExpr}
+import skunk.sharp.TypedExpr
 import skunk.sharp.where.Where
 
 /**
@@ -19,24 +19,11 @@ object IsArray {
 
 }
 
-/** Array operators as extension methods on `TypedExpr[A, X]` where `IsArray[A]`. Args from both arms propagate. */
+/** Array-only operators. Args from both arms propagate. */
 object ArrayOps {
 
-  private inline def boolOp[A, X, Y](op: String, l: TypedExpr[A, X], r: TypedExpr[A, Y]): Where[Where.Concat[X, Y]] = {
-    Where(PgOperator.binary[X, Y](op, l.fragment, r.fragment))
-  }
-
-  extension [A, X](lhs: TypedExpr[A, X])(using @annotation.unused ev: IsArray[A]) {
-
-    inline def contains[Y](rhs: TypedExpr[A, Y]): Where[Where.Concat[X, Y]]    = boolOp("@>", lhs, rhs)
-    inline def containedBy[Y](rhs: TypedExpr[A, Y]): Where[Where.Concat[X, Y]] = boolOp("<@", lhs, rhs)
-    inline def overlaps[Y](rhs: TypedExpr[A, Y]): Where[Where.Concat[X, Y]]    = boolOp("&&", lhs, rhs)
-
-    inline def concat[Y](rhs: TypedExpr[A, Y]): TypedExpr[A, Where.Concat[X, Y]] = {
-      TypedExpr[A, Where.Concat[X, Y]](PgOperator.binary[X, Y]("||", lhs.fragment, rhs.fragment), lhs.codec)
-    }
-
-  }
+  // `contains` / `containedBy` / `overlaps` / `concat` on arrays are the shared, typeclass-dispatched operators in
+  // `skunk.sharp.ops` (exported from `skunk.sharp.dsl`).
 
   extension [E, X](elem: TypedExpr[E, X]) {
 

@@ -9,7 +9,6 @@ import skunk.sharp.*
 import skunk.sharp.contrib.citext.Citext
 import skunk.sharp.contrib.pgtrgm.*
 import skunk.sharp.dsl.*
-import skunk.sharp.pg.RangeOps.*
 import skunk.sharp.pg.tags.PgRange
 import skunk.sharp.example.domain.BookingRow
 

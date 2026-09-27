@@ -65,16 +65,6 @@ extension [A, X](e: TypedExpr[Jsonb[A], X]) {
     TypedExpr[String, X](frag, skunk.codec.all.text)
   }
 
-  /** `jsonb @> jsonb` — left contains right. Args propagate from both sides. */
-  inline def contains[B, Y](other: TypedExpr[Jsonb[B], Y]): Where[Where.Concat[X, Y]] = {
-    Where(PgOperator.binary[X, Y]("@>", e.fragment, other.fragment))
-  }
-
-  /** `jsonb <@ jsonb`. */
-  inline def containedBy[B, Y](other: TypedExpr[Jsonb[B], Y]): Where[Where.Concat[X, Y]] = {
-    Where(PgOperator.binary[X, Y]("<@", e.fragment, other.fragment))
-  }
-
   /** `jsonb ? 'key'` — does the top-level have the key? */
   inline def hasKey(key: String)(using pfs: skunk.sharp.pg.PgTypeFor[String]): Where[X] = {
     val keyFrag = Param.bind[String](key).fragment

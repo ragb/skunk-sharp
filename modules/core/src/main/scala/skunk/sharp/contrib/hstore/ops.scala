@@ -22,16 +22,6 @@ extension [A](lhs: TypedExpr[Hstore, A]) {
     PgOperator.infix[Hstore, String, Boolean, A, B]("?")(lhs, key)
   }
 
-  /** `lhs @> rhs` — does `lhs` contain all key/value pairs of `rhs`? */
-  inline def contains[B](rhs: TypedExpr[Hstore, B]): Where[Where.Concat[A, B]] = {
-    PgOperator.infix[Hstore, Hstore, Boolean, A, B]("@>")(lhs, rhs)
-  }
-
-  /** `lhs <@ rhs` — is `lhs` contained in `rhs`? */
-  inline def containedBy[B](rhs: TypedExpr[Hstore, B]): Where[Where.Concat[A, B]] = {
-    PgOperator.infix[Hstore, Hstore, Boolean, A, B]("<@")(lhs, rhs)
-  }
-
   /** `lhs - key` — drop a single key, returning the resulting hstore. */
   inline def deleteKey[B](key: TypedExpr[String, B]): TypedExpr[Hstore, Where.Concat[A, B]] =
     PgOperator.infix[Hstore, String, Hstore, A, B]("-")(lhs, key)

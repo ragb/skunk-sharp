@@ -70,7 +70,7 @@ class ContribSuite extends munit.FunSuite {
     val cols   = ColumnsView(t.columns)
     val ances  = cols.path.isAncestorOf(Param.bind(LTree.unsafeFrom("top.science")))
     val descs  = cols.path.isDescendantOf(Param.bind(LTree.unsafeFrom("top.science")))
-    val concat = cols.path.concat(Param.bind(LTree.unsafeFrom("astronomy")))
+    val concat = cols.path.concat(Param.bind[LTree](LTree.unsafeFrom("astronomy")))
     val patt   = cols.path.matches(Param.bind(LQuery("top.*.astronomy")))
     assertEquals(ances.fragment.sql, """("path" @> $1)""")
     assertEquals(descs.fragment.sql, """("path" <@ $1)""")

@@ -36,11 +36,10 @@ object RangeOps {
     TypedExpr[R, Where.Concat[X, Y]](PgOperator.binary[X, Y](op, l.fragment, r.fragment), l.codec)
   }
 
+  // `contains` / `containedBy` / `overlaps` (range-range and range-element) are the shared, typeclass-dispatched
+  // operators in `skunk.sharp.ops` (exported from `skunk.sharp.dsl`).
   extension [R, X](lhs: TypedExpr[R, X])(using @annotation.unused ev: IsRange[R]) {
 
-    inline def contains[Y](rhs: TypedExpr[R, Y]): Where[Where.Concat[X, Y]]           = boolOp("@>", lhs, rhs)
-    inline def containedBy[Y](rhs: TypedExpr[R, Y]): Where[Where.Concat[X, Y]]        = boolOp("<@", lhs, rhs)
-    inline def overlaps[Y](rhs: TypedExpr[R, Y]): Where[Where.Concat[X, Y]]           = boolOp("&&", lhs, rhs)
     inline def strictlyLeft[Y](rhs: TypedExpr[R, Y]): Where[Where.Concat[X, Y]]       = boolOp("<<", lhs, rhs)
     inline def strictlyRight[Y](rhs: TypedExpr[R, Y]): Where[Where.Concat[X, Y]]      = boolOp(">>", lhs, rhs)
     inline def doesNotExtendRight[Y](rhs: TypedExpr[R, Y]): Where[Where.Concat[X, Y]] = boolOp("&<", lhs, rhs)
@@ -57,14 +56,12 @@ object RangeOps {
 
     /** `a @> e` — range contains the given element. */
     inline def containsElem[Y](elem: TypedExpr[E, Y]): Where[Where.Concat[X, Y]] = {
-      val frag = TypedExpr.combineSepInl[X, Y](lhs.fragment, " @> ", elem.fragment)
-      Where(frag)
+      Where(PgOperator.binary[X, Y]("@>", lhs.fragment, elem.fragment))
     }
 
     /** `e <@ a` — element is contained in this range. */
     inline def elemContainedBy[Y](elem: TypedExpr[E, Y]): Where[Where.Concat[Y, X]] = {
-      val frag = TypedExpr.combineSepInl[Y, X](elem.fragment, " <@ ", lhs.fragment)
-      Where(frag)
+      Where(PgOperator.binary[Y, X]("<@", elem.fragment, lhs.fragment))
     }
 
   }
